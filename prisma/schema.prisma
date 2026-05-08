@@ -1,0 +1,222 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String        @id @default(uuid())
+  username     String        @unique
+  passwordHash String
+  role         Role          @default(USER)
+  createdAt    DateTime      @default(now())
+  sessions     ChatSession[]
+  documents    Document[]
+  settings     UserSettings?
+  folders      Folder[]
+  artifacts    CanvasArtifact[]
+  tags         Tag[]
+  shellAudits  ShellCommandAudit[]
+}
+
+model UserSettings {
+  id               String   @id @default(uuid())
+  userId           String   @unique
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chatPlatform     String   @default("ollama")
+  chatModel        String   @default("")
+  chatModelProvider String  @default("ollama")
+  huggingFaceBaseUrl String @default("https://router.huggingface.co/v1")
+  modelKeepAlive   Boolean  @default(false)
+  ollamaKeepAlive  String   @default("")
+  exclusiveOllamaModels Boolean @default(false)
+  openClawProvider String   @default("ollama")
+  openClawModel    String   @default("")
+  openClawBaseUrl  String   @default("")
+  ragModel         String   @default("nomic-embed-text")
+  ragMode          String   @default("semantic") // "semantic" | "keyword"
+  ollamaHost       String   @default("http://127.0.0.1:11434")
+  systemPrompt     String   @default("")
+  temperature      Float    @default(0.7)
+  contextLength    Int      @default(4096)
+  theme            String   @default("aurora")
+  // Open Claw Identity & Persona
+  openClawPersonaTemplate String @default("custom")
+  openClawPersonaName     String @default("")
+  openClawPersonaTone     String @default("")
+  openClawPersonaExpertise String @default("")
+  openClawPersonaBoundaries String @default("")
+  openClawPersonaOperatingInstructions String @default("")
+  openClawUserProfileName  String @default("")
+  openClawUserProfileRole  String @default("")
+  openClawUserProfilePreferences String @default("")
+  openClawUserProfileContext String @default("")
+  // Open Claw Shell Execution
+  shellExecutionTarget String @default("container") // "container" | "host"
+  shellExecutionMode   String @default("ask-first") // "auto-approve" | "ask-first" | "deny"
+  shellAllowedCommands String @default("") // Comma-separated list of allowed commands
+  shellHostAllowedRoots String @default("/tmp/viewllama-openclaw-workspace") // Newline-separated absolute host paths allowed as cwd roots
+  shellHostAllowedEnvVars String @default("PATH\nHOME\nUSER\nSHELL\nLANG\nTERM") // Newline-separated host env vars exposed to host commands
+  shellHostMaxTimeoutMs Int @default(60000)
+  shellHostMaxOutputBytes Int @default(262144)
+  // Open Claw Filesystem Access
+  openClawFileAccessMode String @default("deny") // "deny" | "read-only"
+  openClawAllowedPaths   String @default("") // Newline-separated absolute host paths
+  openClawFileWriteMode  String @default("deny") // "auto-approve" | "ask-first" | "deny"
+  openClawWritablePaths  String @default("/tmp/viewllama-openclaw-workspace") // Newline-separated absolute writable host paths
+  openClawCodeExecutionMode String @default("deny") // "auto-approve" | "ask-first" | "deny"
+  openClawBrowserMode    String @default("deny") // "deny" | "read-only" | "ask-first"
+  // UWAF Browser Settings
+  openClawUwafBrowserMode String @default("deny") // "deny" | "direct" | "stealth"
+  openClawUwafScreenshots Boolean @default(true)
+  openClawUwafDefaultMode String @default("direct") // "direct" | "stealth"
+  // Knowledge Base RAG Settings
+  ragEnabled       Boolean @default(false)
+  ragTopK          Int     @default(8)
+  updatedAt        DateTime @updatedAt
+}
+
+model ChatSession {
+  id        String   @id @default(uuid())
+  title     String
+  messages  String   // Storing JSON string for simplicity
+  summary   String?  // Auto-generated TL;DR when session ends
+  pinned    Boolean  @default(false)
+  surface   String   @default("chat")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folderId  String?
+  folder    Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  tags      ChatSessionTag[]
+}
+
+model Folder {
+  id        String        @id @default(uuid())
+  name      String
+  color     String        @default("#6366f1")
+  order     Int           @default(0)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions  ChatSession[]
+}
+
+model Tag {
+  id        String        @id @default(uuid())
+  name      String
+  color     String        @default("#10b981")
+  createdAt DateTime      @default(now())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions  ChatSessionTag[]
+  
+  @@unique([userId, name])
+}
+
+model ChatSessionTag {
+  id        String      @id @default(uuid())
+  sessionId String
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  tagId     String
+  tag       Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  
+  @@unique([sessionId, tagId])
+}
+
+model Document {
+  id             String          @id @default(uuid())
+  filename       String
+  sourcePath     String?
+  kind           String?
+  size           Int
+  contentHash    String?
+  status         String          @default("processing")
+  ragMode        String          @default("semantic")
+  embeddingModel String?
+  ollamaHost     String?
+  errorMessage   String?
+  indexedAt      DateTime?
+  createdAt      DateTime        @default(now())
+  userId         String
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chunks         DocumentChunk[]
+
+  @@index([userId, filename])
+  @@index([userId, sourcePath])
+  @@index([userId, kind])
+  @@index([userId, contentHash])
+}
+
+model DocumentChunk {
+  id         String   @id @default(uuid())
+  chunkIndex Int      @default(0)
+  content    String
+  embedding  String?  // JSON array of floats; null for keyword-only indexes
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, chunkIndex])
+  @@index([documentId, chunkIndex])
+}
+
+model CanvasArtifact {
+  id          String   @id @default(uuid())
+  name        String
+  content     String   // Code, markdown, or JSON payload
+  mimeType    String   @default("text/plain")
+  kind        String   @default("file") // "file" | "markdown" | "diagram" | "data"
+  extension   String?
+  size        Int      @default(0)
+  sessionId   String
+  messageId   String?
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+
+  @@index([userId, createdAt])
+  @@index([sessionId])
+}
+
+model ShellCommandAudit {
+  id                 String   @id @default(uuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId          String?
+  messageId          String?
+  command            String
+  description        String?
+  cwd                String?
+  target             String   @default("container")
+  approvalMode       String   @default("ask-first")
+  status             String   @default("requested")
+  autoApproved       Boolean  @default(false)
+  approvalRequired   Boolean  @default(false)
+  timeoutMs          Int      @default(60000)
+  outputLimitBytes   Int      @default(262144)
+  allowedRoots       String   @default("")
+  allowedEnvVars     String   @default("")
+  stdout             String   @default("")
+  stderr             String   @default("")
+  exitCode           Int?
+  durationMs         Int?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([sessionId])
+  @@index([status])
+  @@index([target])
+}
+
+enum Role {
+  ADMIN
+  USER
+}

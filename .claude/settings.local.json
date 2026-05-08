@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Read(//usr/local/bin/**)",
+      "Read(//home/raza/**)",
+      "Bash(apk list *)",
+      "Bash(docker compose *)",
+      "Bash(sudo docker compose build --no-cache)",
+      "Bash(npx tsc *)",
+      "Bash(newgrp docker *)",
+      "Bash(netstat -tlnp)",
+      "Bash(curl *)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('UWAF Mode:', d.get\\('openClawUwafBrowserMode','NOT SET'\\)\\); print\\('UWAF Default:', d.get\\('openClawUwafDefaultMode','NOT SET'\\)\\); print\\('UWAF Screenshots:', d.get\\('openClawUwafScreenshots','NOT SET'\\)\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); keys=[k for k in d.keys\\(\\) if 'waf' in k.lower\\(\\) or 'uwaf' in k.lower\\(\\)]; print\\('UWAF keys:', keys if keys else 'NONE'\\); print\\('Total keys:', len\\(d\\)\\)\")",
+      "Bash(git -C /home/raza/Desktop/ViewLlama-internet-access status --short)",
+      "Bash(git init *)",
+      "Bash(git add *)"
+    ]
+  }
+}

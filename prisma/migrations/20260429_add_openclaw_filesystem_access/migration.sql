@@ -1,0 +1,5 @@
+ALTER TABLE "UserSettings"
+  ADD COLUMN IF NOT EXISTS "openClawFileAccessMode" TEXT NOT NULL DEFAULT 'deny';
+
+ALTER TABLE "UserSettings"
+  ADD COLUMN IF NOT EXISTS "openClawAllowedPaths" TEXT NOT NULL DEFAULT '';
