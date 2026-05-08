@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState, useDeferredValue, useCallback, memo } from 'react';
+import { randomUUID } from '@/lib/uuid';
 import { Activity, AlertCircle, BookOpen, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Cpu, Database, Download, FileText, Globe, ListTodo, Loader2, Menu, MessageSquare, MoreHorizontal, Paperclip, Plus, Redo2, RefreshCw, Send, Server, Shield, Square, Wand2, Wifi, WifiOff, X } from 'lucide-react';
 import { ChatMessageContent, AssistantDownloads, ThinkingBlock } from './ChatMessageContent';
 import HelpHint from './HelpHint';
@@ -944,7 +945,7 @@ export default function OpenClawWorkspace({
             ? value.checklist
               .filter(item => item && typeof item.text === 'string')
               .map(item => ({
-                id: typeof item.id === 'string' && item.id ? item.id : crypto.randomUUID(),
+                id: typeof item.id === 'string' && item.id ? item.id : randomUUID(),
                 text: item.text,
                 completed: Boolean(item.completed),
               }))
@@ -1697,7 +1698,7 @@ export default function OpenClawWorkspace({
       checklist: [
         ...current.checklist,
         {
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           text: '',
           completed: false,
         },
@@ -1980,7 +1981,7 @@ export default function OpenClawWorkspace({
       });
       const execData = await execRes.json();
       const entry: ShellOutputEntry = {
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         messageId: shellRequest.messageId,
         target: execData.target === 'host' ? 'host' : 'container',
         auditId: typeof execData.auditId === 'string' ? execData.auditId : shellRequest.auditId,
@@ -1995,7 +1996,7 @@ export default function OpenClawWorkspace({
       return appendShellOutput(entry);
     } catch (error) {
       const entry: ShellOutputEntry = {
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         messageId: shellRequest.messageId,
         auditId: shellRequest.auditId,
         command: shellRequest.command,
@@ -2072,7 +2073,7 @@ export default function OpenClawWorkspace({
       }
 
       const entry: ShellOutputEntry = {
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         messageId: options.messageId,
         target: data.target === 'host' ? 'host' : 'container',
         auditId: typeof data.auditId === 'string' ? data.auditId : undefined,
@@ -2088,7 +2089,7 @@ export default function OpenClawWorkspace({
     } catch (error) {
       console.error('Shell command request failed:', error);
       const entry: ShellOutputEntry = {
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         messageId: options.messageId,
         command,
         description: options.description,
@@ -2742,7 +2743,7 @@ export default function OpenClawWorkspace({
 
       if (approval.kind === 'shell') {
         resolve(appendShellOutput({
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           messageId: approval.messageId,
           auditId: approval.request.auditId,
           target: settings?.shellExecutionTarget === 'host' ? 'host' : 'container',
@@ -2821,7 +2822,7 @@ export default function OpenClawWorkspace({
 
     if (approval.kind === 'shell') {
       resolve(appendShellOutput({
-        id: crypto.randomUUID(),
+        id: randomUUID(),
         messageId: approval.messageId,
         command: approval.request.command,
         description: approval.request.description,
@@ -3244,7 +3245,7 @@ export default function OpenClawWorkspace({
     const prompt = draftPrompt.trim();
     if ((!prompt && pendingImages.length === 0 && pendingAttachments.length === 0) || isStreaming || !selectedModel || !settings) return;
 
-    const chatId = currentSessionId ?? crypto.randomUUID();
+    const chatId = currentSessionId ?? randomUUID();
     const effectiveTaskState = {
       ...taskState,
       objective: taskState.objective.trim() || prompt,
@@ -3255,13 +3256,13 @@ export default function OpenClawWorkspace({
     const messageAttachments = [...pendingAttachments];
     const attachmentContext = buildAttachmentContext(messageAttachments, messageImages, prompt);
     const userMessage: OpenClawMessage = {
-      id: crypto.randomUUID(),
+      id: randomUUID(),
       role: 'user',
       content: attachmentContext || prompt,
       images: messageImages,
       attachments: messageAttachments,
     };
-    const assistantMessageId = crypto.randomUUID();
+    const assistantMessageId = randomUUID();
     const baseHistory = [...chatHistory, userMessage];
     const responsePresentation = inferResponsePresentation([{ role: 'user', content: prompt }]);
 
@@ -3323,7 +3324,7 @@ export default function OpenClawWorkspace({
       const taskStateBrief = buildOpenClawTaskStateBrief(effectiveTaskState);
       if (workspaceBrief) {
         contextMessages.push({
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           role: 'system',
           content: workspaceBrief,
           hidden: true,
@@ -3331,7 +3332,7 @@ export default function OpenClawWorkspace({
       }
       if (taskStateBrief) {
         contextMessages.push({
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           role: 'system',
           content: taskStateBrief,
           hidden: true,
@@ -3339,7 +3340,7 @@ export default function OpenClawWorkspace({
       }
       if (memoryContext) {
         contextMessages.push({
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           role: 'system',
           content: `Recent memory context (auto-loaded from previous sessions):\n\n${memoryContext}`,
           hidden: true,
@@ -3375,7 +3376,7 @@ export default function OpenClawWorkspace({
                 })
                 .join('\n\n---\n\n');
               contextMessages.push({
-                id: crypto.randomUUID(),
+                id: randomUUID(),
                 role: 'system',
                 content: `Use the following knowledge base context when it is relevant to the Open Claw task. Most entries are retrieved excerpts from indexed files, but small files may be included as full-document context when safe. If the context is not enough, ask for a broader lookup or direct file inspection by naming the file, folder, or chunk you need. Cite the source and chunk when you can.\n\n${context}`,
                 hidden: true,
@@ -3406,7 +3407,7 @@ export default function OpenClawWorkspace({
 
       for (let toolRound = 0; toolRound < 8; toolRound += 1) {
         if (toolRound > 0) {
-          nextAssistantId = crypto.randomUUID();
+          nextAssistantId = randomUUID();
           setChatHistory(prev => [
             ...prev,
             {
@@ -3484,7 +3485,7 @@ export default function OpenClawWorkspace({
         if (effectiveToolSignature === lastToolRequestSignature) {
           duplicateToolRequestCount += 1;
           const duplicateNotice: OpenClawMessage = {
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             role: 'user',
             content: inferredFilesystemRequest
               ? 'The previous filesystem result for this exact path was already provided. Do not repeat the same request. Use that result to answer the user or request a different path/action only if new information is needed.'
@@ -3509,7 +3510,7 @@ export default function OpenClawWorkspace({
             { messageId: nextAssistantId }
           );
           const toolResultMessage: OpenClawMessage = {
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             role: 'user',
             content: formatFilesystemToolResult(filesystemResult),
             hidden: true,
@@ -3535,7 +3536,7 @@ export default function OpenClawWorkspace({
             currentSources = mergeMessageSources(currentSources, webResult.sources);
           }
           const toolResultMessage: OpenClawMessage = {
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             role: 'user',
             content: formatWebToolResult(webResult),
             hidden: true,
@@ -3553,7 +3554,7 @@ export default function OpenClawWorkspace({
             sessionId: chatId,
           });
           const toolResultMessage: OpenClawMessage = {
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             role: 'user',
             content: formatCodeToolResult(codeResult),
             hidden: true,
@@ -3571,7 +3572,7 @@ export default function OpenClawWorkspace({
             sessionId: chatId,
           });
           const toolResultMessage: OpenClawMessage = {
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             role: 'user',
             content: formatBrowserToolResult(browserResult),
             hidden: true,
@@ -3595,7 +3596,7 @@ export default function OpenClawWorkspace({
             setUwafShowPreview(true);
           }
           const toolResultMessage: OpenClawMessage = {
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             role: 'user',
             content: formatUwafBrowserToolResult(uwafResult),
             hidden: true,
@@ -3617,7 +3618,7 @@ export default function OpenClawWorkspace({
             messageId: nextAssistantId,
           });
           const toolResultMessage: OpenClawMessage = {
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             role: 'user',
             content: formatShellToolResult(shellResult),
             hidden: true,
@@ -3633,7 +3634,7 @@ export default function OpenClawWorkspace({
           messageId: nextAssistantId,
         });
         const toolResultMessage: OpenClawMessage = {
-          id: crypto.randomUUID(),
+          id: randomUUID(),
           role: 'user',
           content: formatFilesystemToolResult(filesystemResult),
           hidden: true,

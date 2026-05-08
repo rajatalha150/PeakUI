@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from 'react';
+import { randomUUID } from '@/lib/uuid';
 import { 
   MessageSquare, Terminal, Database, Box, Settings, Cpu,
   Send, Bot, User, Paperclip, Code2, ChevronDown, ChevronLeft, ChevronRight, Activity, AlertCircle, Loader2, RefreshCw, Square, Plus, MessageCircle, LogOut, BookOpen, Check, Wand2, Globe, Redo2, Wifi, WifiOff,
@@ -1054,12 +1055,12 @@ export default function Home() {
       if (existing) {
         clientSessionIdRef.current = existing;
       } else {
-        const next = crypto.randomUUID();
+        const next = randomUUID();
         window.localStorage.setItem(storageKey, next);
         clientSessionIdRef.current = next;
       }
     } catch {
-      clientSessionIdRef.current = crypto.randomUUID();
+      clientSessionIdRef.current = randomUUID();
     }
   }, []);
 
@@ -1577,11 +1578,11 @@ export default function Home() {
       content: userMessage || messageAttachments.map(attachment => attachment.name).join(', ') || ragSearchText,
     }]);
     const isNewSession = !currentSessionId;
-    const chatId = currentSessionId ?? crypto.randomUUID();
-    const userMessageId = crypto.randomUUID();
-    const assistantMessageId = crypto.randomUUID();
+    const chatId = currentSessionId ?? randomUUID();
+    const userMessageId = randomUUID();
+    const assistantMessageId = randomUUID();
     if (!clientSessionIdRef.current) {
-      clientSessionIdRef.current = crypto.randomUUID();
+      clientSessionIdRef.current = randomUUID();
       try {
         window.localStorage.setItem('view-llama-client-session-id', clientSessionIdRef.current);
       } catch {
