@@ -2056,7 +2056,7 @@ export default function Home() {
               const webRes = await fetch('/api/web/context', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                signal: controller.signal,
+                signal: AbortSignal.any([controller.signal, AbortSignal.timeout(120000)]),
                 body: JSON.stringify({ query }),
               });
               const webData = await webRes.json();

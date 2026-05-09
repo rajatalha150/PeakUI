@@ -3523,18 +3523,33 @@ export default function OpenClawWorkspace({
         if (inferredFilesystemRequest) {
           lastToolRequestSignature = effectiveToolSignature;
           duplicateToolRequestCount = 0;
-          const filesystemResult = await requestFilesystemAction(
-            inferredFilesystemRequest,
-            { messageId: nextAssistantId }
-          );
-          const toolResultMessage: OpenClawMessage = {
-            id: randomUUID(),
-            role: 'user',
-            content: formatFilesystemToolResult(filesystemResult),
-            hidden: true,
-          };
-          sessionHistory = [...sessionHistory, toolResultMessage];
-          setChatHistory(prev => [...prev, toolResultMessage]);
+          try {
+            setStreamPhase('tool-filesystem');
+            const filesystemResult = await requestFilesystemAction(
+              inferredFilesystemRequest,
+              { messageId: nextAssistantId }
+            );
+            setStreamPhase(null);
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatFilesystemToolResult(filesystemResult),
+              hidden: true,
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Filesystem tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Filesystem operation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Try a different approach or path.`,
+              hidden: true,
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
           continue;
         }
 
@@ -3545,82 +3560,140 @@ export default function OpenClawWorkspace({
 
           lastToolRequestSignature = effectiveToolSignature;
           duplicateToolRequestCount = 0;
-          setStreamPhase('web-search');
-          const webResult = await requestWebContext(request.request.query, {
-            description: request.request.description,
-          });
-          setStreamPhase(null);
-          if (webResult.sources.length > 0) {
-            currentSources = mergeMessageSources(currentSources, webResult.sources);
+          try {
+            setStreamPhase('web-search');
+            const webResult = await requestWebContext(request.request.query, {
+              description: request.request.description,
+            });
+            setStreamPhase(null);
+            if (webResult.sources.length > 0) {
+              currentSources = mergeMessageSources(currentSources, webResult.sources);
+            }
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatWebToolResult(webResult),
+              hidden: true,
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Web research tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Web research failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Try rephrasing your search or proceed without web results.`,
+              hidden: true,
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
           }
-          const toolResultMessage: OpenClawMessage = {
-            id: randomUUID(),
-            role: 'user',
-            content: formatWebToolResult(webResult),
-            hidden: true,
-          };
-          sessionHistory = [...sessionHistory, toolResultMessage];
-          setChatHistory(prev => [...prev, toolResultMessage]);
           continue;
         }
 
         if (request.name === 'code') {
           lastToolRequestSignature = effectiveToolSignature;
           duplicateToolRequestCount = 0;
-          const codeResult = await requestCodeExecution(request.request, {
-            messageId: nextAssistantId,
-            sessionId: chatId,
-          });
-          const toolResultMessage: OpenClawMessage = {
-            id: randomUUID(),
-            role: 'user',
-            content: formatCodeToolResult(codeResult),
-            hidden: true,
-          };
-          sessionHistory = [...sessionHistory, toolResultMessage];
-          setChatHistory(prev => [...prev, toolResultMessage]);
+          try {
+            setStreamPhase('tool-code');
+            const codeResult = await requestCodeExecution(request.request, {
+              messageId: nextAssistantId,
+              sessionId: chatId,
+            });
+            setStreamPhase(null);
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatCodeToolResult(codeResult),
+              hidden: true,
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Code execution tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Code execution failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. The sandbox may have timed out or run out of resources. Try simplifying the code or breaking it into smaller steps.`,
+              hidden: true,
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
           continue;
         }
 
         if (request.name === 'browser') {
           lastToolRequestSignature = effectiveToolSignature;
           duplicateToolRequestCount = 0;
-          const browserResult = await requestBrowserAction(request.request, {
-            messageId: nextAssistantId,
-            sessionId: chatId,
-          });
-          const toolResultMessage: OpenClawMessage = {
-            id: randomUUID(),
-            role: 'user',
-            content: formatBrowserToolResult(browserResult),
-            hidden: true,
-          };
-          sessionHistory = [...sessionHistory, toolResultMessage];
-          setChatHistory(prev => [...prev, toolResultMessage]);
+          try {
+            setStreamPhase('tool-browser');
+            const browserResult = await requestBrowserAction(request.request, {
+              messageId: nextAssistantId,
+              sessionId: chatId,
+            });
+            setStreamPhase(null);
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatBrowserToolResult(browserResult),
+              hidden: true,
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Browser tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Browser operation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. The page may be unreachable or the browser session expired. Try a different URL or approach.`,
+              hidden: true,
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
           continue;
         }
 
         if (request.name === 'unified_browser') {
           lastToolRequestSignature = effectiveToolSignature;
           duplicateToolRequestCount = 0;
-          const uwafResult = await requestUwafBrowserAction(request.request as OpenClawUwafBrowserToolRequest, {
-            messageId: nextAssistantId,
-            sessionId: chatId,
-          });
-          if (uwafResult.screenshot) {
-            setUwafScreenshot(uwafResult.screenshot);
-            setUwafCurrentUrl(uwafResult.currentUrl);
-            setUwafCurrentTitle(uwafResult.title);
-            setUwafShowPreview(true);
+          try {
+            setStreamPhase('tool-uwaf-browser');
+            const uwafResult = await requestUwafBrowserAction(request.request as OpenClawUwafBrowserToolRequest, {
+              messageId: nextAssistantId,
+              sessionId: chatId,
+            });
+            setStreamPhase(null);
+            if (uwafResult.screenshot) {
+              setUwafScreenshot(uwafResult.screenshot);
+              setUwafCurrentUrl(uwafResult.currentUrl);
+              setUwafCurrentTitle(uwafResult.title);
+              setUwafShowPreview(true);
+            }
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatUwafBrowserToolResult(uwafResult),
+              hidden: true,
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('UWAF browser tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Browser operation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. The page may be unreachable, the browser session may have expired, or the Tor proxy may be down. Try a different URL, switch browser mode, or use web research instead.`,
+              hidden: true,
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
           }
-          const toolResultMessage: OpenClawMessage = {
-            id: randomUUID(),
-            role: 'user',
-            content: formatUwafBrowserToolResult(uwafResult),
-            hidden: true,
-          };
-          sessionHistory = [...sessionHistory, toolResultMessage];
-          setChatHistory(prev => [...prev, toolResultMessage]);
           continue;
         }
 
@@ -3631,34 +3704,64 @@ export default function OpenClawWorkspace({
 
           lastToolRequestSignature = effectiveToolSignature;
           duplicateToolRequestCount = 0;
-          const shellResult = await requestShellCommand(request.request.command, {
-            description: request.request.description,
-            messageId: nextAssistantId,
-          });
-          const toolResultMessage: OpenClawMessage = {
-            id: randomUUID(),
-            role: 'user',
-            content: formatShellToolResult(shellResult),
-            hidden: true,
-          };
-          sessionHistory = [...sessionHistory, toolResultMessage];
-          setChatHistory(prev => [...prev, toolResultMessage]);
+          try {
+            setStreamPhase('tool-shell');
+            const shellResult = await requestShellCommand(request.request.command, {
+              description: request.request.description,
+              messageId: nextAssistantId,
+            });
+            setStreamPhase(null);
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatShellToolResult(shellResult),
+              hidden: true,
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Shell tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Shell command failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. The command may have timed out or the execution environment is unavailable. Try a simpler command or check connectivity.`,
+              hidden: true,
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
           continue;
         }
 
         lastToolRequestSignature = effectiveToolSignature;
         duplicateToolRequestCount = 0;
-        const filesystemResult = await requestFilesystemAction(request.request, {
-          messageId: nextAssistantId,
-        });
-        const toolResultMessage: OpenClawMessage = {
-          id: randomUUID(),
-          role: 'user',
-          content: formatFilesystemToolResult(filesystemResult),
-          hidden: true,
-        };
-        sessionHistory = [...sessionHistory, toolResultMessage];
-        setChatHistory(prev => [...prev, toolResultMessage]);
+        try {
+          setStreamPhase('tool-filesystem');
+          const filesystemResult = await requestFilesystemAction(request.request, {
+            messageId: nextAssistantId,
+          });
+          setStreamPhase(null);
+          const toolResultMessage: OpenClawMessage = {
+            id: randomUUID(),
+            role: 'user',
+            content: formatFilesystemToolResult(filesystemResult),
+            hidden: true,
+          };
+          sessionHistory = [...sessionHistory, toolResultMessage];
+          setChatHistory(prev => [...prev, toolResultMessage]);
+        } catch (toolError) {
+          setStreamPhase(null);
+          console.error('Filesystem tool failed:', toolError);
+          const errorMessage: OpenClawMessage = {
+            id: randomUUID(),
+            role: 'user',
+            content: `Filesystem operation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. The path may not exist or permissions may be insufficient. Try a different path or action.`,
+            hidden: true,
+          };
+          sessionHistory = [...sessionHistory, errorMessage];
+          setChatHistory(prev => [...prev, errorMessage]);
+        }
       }
 
       const savedSession = await sessionSavePromise;

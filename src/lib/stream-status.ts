@@ -6,6 +6,11 @@ export type ServerStreamStatus =
   | 'starting-model'
   | 'streaming'
   | 'knowledge-base'
+  | 'tool-shell'
+  | 'tool-code'
+  | 'tool-filesystem'
+  | 'tool-browser'
+  | 'tool-uwaf-browser'
 
 export type UiStreamPhase = 'preparing-context' | ServerStreamStatus
 
@@ -40,6 +45,16 @@ export function getStreamPhaseLabel(phase: UiStreamPhase | null): string {
       return 'Searching knowledge base...'
     case 'connecting':
       return 'Connecting to model...'
+    case 'tool-shell':
+      return 'Running command...'
+    case 'tool-code':
+      return 'Running code...'
+    case 'tool-filesystem':
+      return 'Reading filesystem...'
+    case 'tool-browser':
+      return 'Browsing page...'
+    case 'tool-uwaf-browser':
+      return 'Browsing page...'
     default:
       return 'Preparing response...'
   }

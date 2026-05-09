@@ -351,7 +351,7 @@ export async function executeCommand(
   } = {}
 ): Promise<ShellCommandResult> {
   const startTime = Date.now()
-  const { cwd = process.cwd(), timeout = 30000 } = options
+  const { cwd = process.cwd(), timeout = 120000 } = options
 
   try {
     await ensureOpenClawWorkspaceAlias()

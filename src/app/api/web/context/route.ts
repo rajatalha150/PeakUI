@@ -21,7 +21,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Query is required' }, { status: 400 });
     }
 
-    const result = await buildWebContext(query);
+    const result = await buildWebContext(query, { signal: req.signal });
     return NextResponse.json(result);
   } catch (error) {
     console.error('Web context error:', error);
