@@ -3008,48 +3008,98 @@ export default function OpenClawWorkspace({
   };
 
 
-  // Batch updates for smoother rendering
-  let pendingUpdates: { id: string; thinking?: string; content?: string; sources?: MessageSource[] }[] = [];
-  let updateScheduled = false;
+  // Smooth character-drip streaming for ChatGPT-like typing feel
+  const DRIP_CHUNK_SIZE = 3;
+  const DRIP_INTERVAL_MS = 16;
+  const contentQueues = new Map<string, { content: string; thinking: string }>();
+  let sourcesQueue: { id: string; sources: MessageSource[] } | null = null;
+  let dripTimer: ReturnType<typeof setInterval> | null = null;
+  let ocStreamingDone = false;
 
-  const flushUpdates = () => {
-    if (pendingUpdates.length === 0) return;
-    const updates = [...pendingUpdates];
-    pendingUpdates = [];
-    setChatHistory(prev => {
-      const next = [...prev];
-      for (const u of updates) {
-        const idx = next.findIndex(m => m.id === u.id);
+  const flushAll = () => {
+    for (const [id, queue] of contentQueues) {
+      if (queue.content || queue.thinking) {
+        setChatHistory(prev => {
+          const next = [...prev];
+          const idx = next.findIndex(m => m.id === id);
+          if (idx !== -1) {
+            next[idx] = {
+              ...next[idx],
+              ...(queue.content ? { content: next[idx].content + queue.content } : {}),
+              ...(queue.thinking ? { thinking: (next[idx].thinking || '') + queue.thinking } : {}),
+            };
+          }
+          return next;
+        });
+        queue.content = '';
+        queue.thinking = '';
+      }
+    }
+    if (sourcesQueue) {
+      setChatHistory(prev => {
+        const next = [...prev];
+        const idx = next.findIndex(m => m.id === sourcesQueue!.id);
         if (idx !== -1) {
-          next[idx] = {
-            ...next[idx],
-            thinking: u.thinking !== undefined ? (next[idx].thinking || '') + u.thinking : next[idx].thinking,
-            content: u.content !== undefined ? (next[idx].content || '') + u.content : next[idx].content,
-            sources: u.sources !== undefined ? u.sources : next[idx].sources,
-          };
+          next[idx] = { ...next[idx], sources: sourcesQueue!.sources };
+        }
+        return next;
+      });
+      sourcesQueue = null;
+    }
+  };
+
+  const startDrip = () => {
+    if (dripTimer) return;
+    dripTimer = setInterval(() => {
+      let hasWork = false;
+      for (const [, queue] of contentQueues) {
+        if (queue.content || queue.thinking) { hasWork = true; break; }
+      }
+      if (!hasWork && !sourcesQueue) {
+        if (ocStreamingDone) { clearInterval(dripTimer!); dripTimer = null; }
+        return;
+      }
+      for (const [id, queue] of contentQueues) {
+        const contentChunk = queue.content.slice(0, DRIP_CHUNK_SIZE);
+        const thinkingChunk = queue.thinking.slice(0, DRIP_CHUNK_SIZE);
+        if (contentChunk) queue.content = queue.content.slice(contentChunk.length);
+        if (thinkingChunk) queue.thinking = queue.thinking.slice(thinkingChunk.length);
+        if (contentChunk || thinkingChunk) {
+          setChatHistory(prev => {
+            const next = [...prev];
+            const idx = next.findIndex(m => m.id === id);
+            if (idx !== -1) {
+              next[idx] = {
+                ...next[idx],
+                ...(contentChunk ? { content: next[idx].content + contentChunk } : {}),
+                ...(thinkingChunk ? { thinking: (next[idx].thinking || '') + thinkingChunk } : {}),
+              };
+            }
+            return next;
+          });
         }
       }
-      return next;
-    });
-    updateScheduled = false;
+      if (sourcesQueue) {
+        setChatHistory(prev => {
+          const next = [...prev];
+          const idx = next.findIndex(m => m.id === sourcesQueue!.id);
+          if (idx !== -1) {
+            next[idx] = { ...next[idx], sources: sourcesQueue!.sources };
+          }
+          return next;
+        });
+        sourcesQueue = null;
+      }
+    }, DRIP_INTERVAL_MS);
   };
 
   const scheduleUpdate = (id: string, update: { thinking?: string; content?: string; sources?: MessageSource[] }) => {
-    const existing = pendingUpdates.findIndex(u => u.id === id);
-    if (existing !== -1) {
-      if (update.thinking) pendingUpdates[existing].thinking = (pendingUpdates[existing].thinking || '') + update.thinking;
-      if (update.content) pendingUpdates[existing].content = (pendingUpdates[existing].content || '') + update.content;
-      if (update.sources) pendingUpdates[existing].sources = update.sources;
-    } else {
-      pendingUpdates.push({ id, ...update });
-    }
-    if (!updateScheduled) {
-      updateScheduled = true;
-      requestAnimationFrame(() => {
-        flushUpdates();
-        updateScheduled = false;
-      });
-    }
+    if (!contentQueues.has(id)) contentQueues.set(id, { content: '', thinking: '' });
+    const queue = contentQueues.get(id)!;
+    if (update.content) queue.content += update.content;
+    if (update.thinking) queue.thinking += update.thinking;
+    if (update.sources) sourcesQueue = { id, sources: update.sources };
+    startDrip();
   };
 
   const streamAssistantResponse = async (options: {
@@ -3688,6 +3738,9 @@ export default function OpenClawWorkspace({
         return updated;
       });
     } finally {
+      ocStreamingDone = true;
+      if (dripTimer) { clearInterval(dripTimer); dripTimer = null; }
+      flushAll();
       clearInterval(intervalId);
       setLiveStats(null);
       setStreamPhase(null);
@@ -4318,7 +4371,7 @@ export default function OpenClawWorkspace({
                       <div className="avatar">
                         {msg.role === 'user' ? <MessageSquare size={18} color="var(--text-secondary)" /> : <Bot size={22} color="white" />}
                       </div>
-                      <div className="message-content" style={{ maxWidth: '100%' }}>
+                      <div suppressHydrationWarning className={`message-content${isStreaming && msg.role === 'assistant' && index === visibleChatHistory.length - 1 && msg.content ? ' streaming-cursor' : ''}`} style={{ maxWidth: '100%' }}>
                         {msg.thinking && (
                           <ThinkingBlock content={msg.thinking} isStreaming={isStreaming && index === visibleChatHistory.length - 1 && !msg.content} />
                         )}

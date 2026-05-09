@@ -702,7 +702,7 @@ function readResponseText(response: Response, maxBytes: number): Promise<string>
         bytesRead += value?.length ?? 0
         buffer += chunk
         if (bytesRead >= maxBytes) {
-          reader.cancel()
+          reader.cancel().catch(() => {})
           return
         }
         return pump()
@@ -781,7 +781,15 @@ export async function searchPublicWeb(
   }
 
   // Final fallback: Bing
-  return searchBing(cleanQuery, maxResults, options.signal)
+  try {
+    const results = await searchBing(cleanQuery, maxResults, options.signal)
+    if (results.length > 0) return results
+  } catch (error) {
+    if (options.signal?.aborted) throw error
+    console.warn('Bing search failed:', error)
+  }
+
+  return []
 }
 
 export async function fetchPublicWebPage(

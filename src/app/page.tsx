@@ -1561,6 +1561,83 @@ export default function Home() {
     const messageImages = draft ? [...draft.images] : [...pendingImages];
     const messageAttachments = draft ? [...draft.attachments] : [...pendingAttachments];
     const draftInternetEnabled = draft?.internetEnabled ?? internetEnabled;
+
+    // Smooth character-drip streaming: tokens queue up and release
+    // in small chunks at a steady rate for a ChatGPT-like typing feel.
+    const DRIP_CHUNK_SIZE = 3;
+    const DRIP_INTERVAL_MS = 16;
+    let contentQueue = '';
+    let thinkingQueue = '';
+    let sourcesQueue: MessageSource[] | null = null;
+    let dripTimer: ReturnType<typeof setInterval> | null = null;
+    let streamingDone = false;
+
+    const flushAll = () => {
+      const hasContent = contentQueue.length > 0;
+      const hasThinking = thinkingQueue.length > 0;
+      const hasSources = sourcesQueue !== null;
+      if (!hasContent && !hasThinking && !hasSources) return;
+
+      setChatHistory(prev => {
+        const updated = [...prev];
+        const lastIdx = updated.length - 1;
+        if (updated[lastIdx]?.role !== 'assistant') return prev;
+        updated[lastIdx] = {
+          ...updated[lastIdx],
+          ...(hasContent ? { content: updated[lastIdx].content + contentQueue } : {}),
+          ...(hasThinking ? { thinking: (updated[lastIdx].thinking || '') + thinkingQueue } : {}),
+          ...(hasSources ? { sources: sourcesQueue! } : {}),
+        };
+        return updated;
+      });
+
+      contentQueue = '';
+      thinkingQueue = '';
+      sourcesQueue = null;
+    };
+
+    const startDrip = () => {
+      if (dripTimer) return;
+      dripTimer = setInterval(() => {
+        const hasContent = contentQueue.length > 0;
+        const hasThinking = thinkingQueue.length > 0;
+        const hasSources = sourcesQueue !== null;
+        if (!hasContent && !hasThinking && !hasSources) {
+          if (streamingDone) {
+            clearInterval(dripTimer!);
+            dripTimer = null;
+          }
+          return;
+        }
+
+        const contentChunk = hasContent ? contentQueue.slice(0, DRIP_CHUNK_SIZE) : '';
+        const thinkingChunk = hasThinking ? thinkingQueue.slice(0, DRIP_CHUNK_SIZE) : '';
+        if (hasContent) contentQueue = contentQueue.slice(contentChunk.length);
+        if (hasThinking) thinkingQueue = thinkingQueue.slice(thinkingChunk.length);
+
+        setChatHistory(prev => {
+          const updated = [...prev];
+          const lastIdx = updated.length - 1;
+          if (updated[lastIdx]?.role !== 'assistant') return prev;
+          updated[lastIdx] = {
+            ...updated[lastIdx],
+            ...(contentChunk ? { content: updated[lastIdx].content + contentChunk } : {}),
+            ...(thinkingChunk ? { thinking: (updated[lastIdx].thinking || '') + thinkingChunk } : {}),
+            ...(hasSources ? { sources: sourcesQueue! } : {}),
+          };
+          // Clear sources after first delivery so we don't re-set them every tick
+          if (hasSources) sourcesQueue = null;
+          return updated;
+        });
+      }, DRIP_INTERVAL_MS);
+    };
+
+    const scheduleUpdate = (update: { content?: string; thinking?: string; sources?: MessageSource[] }) => {
+      if (update.content) contentQueue += update.content;
+      if (update.thinking) thinkingQueue += update.thinking;
+      if (update.sources) sourcesQueue = update.sources;
+      startDrip();
+    };
     const draftRagContext = draft?.ragContext ?? ragContext;
     const draftRagContextSources = draft?.ragContextSources ?? ragContextSources;
     const hasText = messageText.trim();
@@ -1784,49 +1861,6 @@ export default function Home() {
         eval_duration?: number;
       };
 
-      // Batch streaming updates to reduce re-renders and smooth the UI.
-      // Tokens accumulate in pending fields and flush once per animation frame.
-      let updateScheduled = false;
-      let pendingContent = '';
-      let pendingThinking = '';
-      let pendingSources: MessageSource[] | null = null;
-
-      const flushUpdates = () => {
-        const hasContent = pendingContent.length > 0;
-        const hasThinking = pendingThinking.length > 0;
-        const hasSources = pendingSources !== null;
-        if (!hasContent && !hasThinking && !hasSources) return;
-
-        setChatHistory(prev => {
-          const updated = [...prev];
-          const lastIdx = updated.length - 1;
-          if (updated[lastIdx]?.role !== 'assistant') return prev;
-          updated[lastIdx] = {
-            ...updated[lastIdx],
-            ...(hasContent ? { content: updated[lastIdx].content + pendingContent } : {}),
-            ...(hasThinking ? { thinking: (updated[lastIdx].thinking || '') + pendingThinking } : {}),
-            ...(hasSources ? { sources: pendingSources! } : {}),
-          };
-          return updated;
-        });
-
-        pendingContent = '';
-        pendingThinking = '';
-        pendingSources = null;
-      };
-
-      const scheduleUpdate = (update: { content?: string; thinking?: string; sources?: MessageSource[] }) => {
-        if (update.content) pendingContent += update.content;
-        if (update.thinking) pendingThinking += update.thinking;
-        if (update.sources) pendingSources = update.sources;
-        if (!updateScheduled) {
-          updateScheduled = true;
-          requestAnimationFrame(() => {
-            flushUpdates();
-            updateScheduled = false;
-          });
-        }
-      };
 
       for (let toolRound = 0; toolRound < MAX_TOOL_ROUNDS; toolRound += 1) {
         if (toolRound > 0) {
@@ -1990,7 +2024,8 @@ export default function Home() {
         processStreamLine(finalLine);
       }
       // Flush any remaining buffered updates before checking for tool requests
-      flushUpdates();
+      streamingDone = true;
+      flushAll();
 
         // Check for web tool request after streaming
         const { cleanedContent, request } = extractOpenClawToolRequest(assistantContent);
@@ -2066,7 +2101,9 @@ export default function Home() {
       } // end tool loop
 
       // Flush any remaining buffered updates
-      flushUpdates();
+      streamingDone = true;
+      flushAll();
+      if (dripTimer) { clearInterval(dripTimer); dripTimer = null; }
 
       // Strip any remaining tool tags from final content
       const { cleanedContent: finalContent } = extractOpenClawToolRequest(assistantContent);
@@ -2151,6 +2188,9 @@ export default function Home() {
         return updated;
       });
     } finally {
+      streamingDone = true;
+      if (dripTimer) { clearInterval(dripTimer); dripTimer = null; }
+      flushAll();
       clearInterval(intervalId);
       setLiveStats(null);
       setStreamPhase(null);

@@ -27,6 +27,15 @@ let browserLaunchPromise: Promise<Browser> | null = null
 const contexts = new Map<string, ManagedContext>()
 const CONTEXT_TTL_MS = 30 * 60 * 1000 // 30 minutes
 
+function handleBrowserDisconnect() {
+  console.warn('[uwaf-pool] Browser disconnected — clearing stale references')
+  browserInstance = null
+  for (const [id, managed] of contexts) {
+    managed.context.close().catch(() => {})
+    contexts.delete(id)
+  }
+}
+
 async function launchBrowser(): Promise<Browser> {
   if (browserInstance && browserInstance.isConnected()) return browserInstance
 
@@ -48,6 +57,7 @@ async function launchBrowser(): Promise<Browser> {
 
   try {
     browserInstance = await browserLaunchPromise
+    browserInstance.on('disconnected', handleBrowserDisconnect)
     return browserInstance
   } catch (error) {
     browserLaunchPromise = null
@@ -114,8 +124,9 @@ export async function getPage(contextId: string, mode: BrowserMode): Promise<Pag
       await managed.context.close().catch(() => {})
       contexts.delete(contextId)
     }
-    const ctx = await createContext(contextId, mode)
-    managed = contexts.get(contextId)!
+    await createContext(contextId, mode)
+    managed = contexts.get(contextId)
+    if (!managed) throw new Error('Failed to create browser context')
   }
 
   managed.lastUsed = Date.now()

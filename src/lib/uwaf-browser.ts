@@ -92,6 +92,8 @@ export interface UwafBrowserSettings {
   openClawUwafDefaultMode: BrowserMode
 }
 
+const MAX_SESSION_SCREENSHOTS = 20
+
 interface UwafBrowserSession {
   userId: string
   sessionId: string
@@ -131,6 +133,14 @@ function getOrCreateSession(userId: string, sessionId: string, mode: BrowserMode
   }
   sessions.set(key, session)
   return session
+}
+
+function pushScreenshot(session: UwafBrowserSession, screenshot: string | undefined): void {
+  if (!screenshot) return
+  session.screenshots.push(screenshot)
+  if (session.screenshots.length > MAX_SESSION_SCREENSHOTS) {
+    session.screenshots = session.screenshots.slice(-MAX_SESSION_SCREENSHOTS)
+  }
 }
 
 function cleanupExpiredSessions(): void {
@@ -330,7 +340,7 @@ export async function runUwafBrowserAction(
         forms: result.forms,
       }
       if (result.screenshot) {
-        session.screenshots.push(result.screenshot)
+        pushScreenshot(session, result.screenshot)
       }
 
       return {
@@ -361,7 +371,7 @@ export async function runUwafBrowserAction(
 
       const result = await navigateToUrl(page, targetUrl, mode, takeScreenshot)
       session.currentPage = { url: result.url, title: result.title, links: result.links, forms: result.forms }
-      if (result.screenshot) session.screenshots.push(result.screenshot)
+      if (result.screenshot) pushScreenshot(session, result.screenshot)
 
       return {
         action: 'click',
@@ -450,7 +460,7 @@ export async function runUwafBrowserAction(
         links: startResult.links,
         forms: startResult.forms,
       }
-      if (startResult.screenshot) session.screenshots.push(startResult.screenshot)
+      if (startResult.screenshot) pushScreenshot(session, startResult.screenshot)
 
       let currentLinks = startResult.links
       for (let d = 1; d <= depth && results.length < RESEARCH_BATCH_MAX_PAGES; d++) {
@@ -560,7 +570,7 @@ export async function runUwafBrowserAction(
       const screenshot = takeScreenshot ? await captureScreenshot(page) : undefined
 
       session.currentPage = { url: submitUrl, title, links, forms }
-      if (screenshot) session.screenshots.push(screenshot)
+      if (screenshot) pushScreenshot(session, screenshot)
 
       return {
         action: 'submit',
