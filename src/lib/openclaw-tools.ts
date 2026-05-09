@@ -118,6 +118,19 @@ function isUwafBrowserMode(value: unknown): value is 'direct' | 'stealth' {
 
 const TOOL_BLOCK_PATTERN = /<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser)["']\s*>([\s\S]*?)<\/openclaw_tool>/i
 
+/** Strip all complete and partial <openclaw_tool> tags from content. */
+export function stripAllToolTags(content: string): string {
+  // Remove complete tool blocks first
+  let cleaned = content.replace(/<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser)["']\s*>[\s\S]*?<\/openclaw_tool>/gi, '')
+  // Remove partial/incomplete tags (no closing tag)
+  cleaned = cleaned.replace(/<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser)["']\s*>[\s\S]*/gi, '')
+  // Remove orphaned opening tags
+  cleaned = cleaned.replace(/<openclaw_tool[^>]*>/gi, '')
+  // Remove orphaned closing tags
+  cleaned = cleaned.replace(/<\/openclaw_tool>/gi, '')
+  return cleaned.replace(/\n{3,}/g, '\n\n').trim()
+}
+
 function isFilesystemAction(value: unknown): value is OpenClawFilesystemToolRequest['action'] {
   return value === 'list'
     || value === 'read'
@@ -149,10 +162,10 @@ export function extractOpenClawToolRequest(content: string): {
 } {
   const match = content.match(TOOL_BLOCK_PATTERN)
   if (!match) {
-    return { cleanedContent: content.trim() }
+    return { cleanedContent: stripAllToolTags(content) }
   }
 
-  const cleanedContent = content.replace(match[0], '').trim()
+  const cleanedContent = stripAllToolTags(content.replace(match[0], ''))
   const toolName = match[1]
 
   try {
@@ -160,7 +173,7 @@ export function extractOpenClawToolRequest(content: string): {
       const parsed = JSON.parse(match[2].trim()) as Partial<OpenClawWebToolRequest>
       const query = typeof parsed.query === 'string' ? parsed.query.trim() : ''
       if (!query) {
-        return { cleanedContent: content.trim() }
+        return { cleanedContent: stripAllToolTags(content) }
       }
 
       return {
@@ -181,7 +194,7 @@ export function extractOpenClawToolRequest(content: string): {
       const parsed = JSON.parse(match[2].trim()) as Partial<OpenClawShellToolRequest>
       const command = typeof parsed.command === 'string' ? parsed.command.trim() : ''
       if (!command) {
-        return { cleanedContent: content.trim() }
+        return { cleanedContent: stripAllToolTags(content) }
       }
 
       return {
@@ -209,7 +222,7 @@ export function extractOpenClawToolRequest(content: string): {
         : undefined
 
       if (!runtime || !code.trim()) {
-        return { cleanedContent: content.trim() }
+        return { cleanedContent: stripAllToolTags(content) }
       }
 
       return {
@@ -239,7 +252,7 @@ export function extractOpenClawToolRequest(content: string): {
       const action = isBrowserAction(parsed.action) ? parsed.action : null
 
       if (!action) {
-        return { cleanedContent: content.trim() }
+        return { cleanedContent: stripAllToolTags(content) }
       }
 
       const request: OpenClawBrowserToolRequest = {
@@ -283,7 +296,7 @@ export function extractOpenClawToolRequest(content: string): {
         || (action === 'click' && request.linkIndex === undefined && !request.linkText)
         || (action === 'fill' && (request.formIndex === undefined || !request.values || Object.keys(request.values).length === 0))
       ) {
-        return { cleanedContent: content.trim() }
+        return { cleanedContent: stripAllToolTags(content) }
       }
 
       return {
@@ -300,7 +313,7 @@ export function extractOpenClawToolRequest(content: string): {
       const action = isUwafAction(parsed.action) ? parsed.action : null
 
       if (!action) {
-        return { cleanedContent: content.trim() }
+        return { cleanedContent: stripAllToolTags(content) }
       }
 
       const request: OpenClawUwafBrowserToolRequest = {
@@ -352,7 +365,7 @@ export function extractOpenClawToolRequest(content: string): {
         || (action === 'click' && request.linkIndex === undefined && !request.linkText)
         || (action === 'research_batch' && !request.url)
       ) {
-        return { cleanedContent: content.trim() }
+        return { cleanedContent: stripAllToolTags(content) }
       }
 
       return {
@@ -369,11 +382,11 @@ export function extractOpenClawToolRequest(content: string): {
     const action = isFilesystemAction(parsed.action) ? parsed.action : null
 
     if (!requestedPath || !action) {
-      return { cleanedContent: content.trim() }
+      return { cleanedContent: stripAllToolTags(content) }
     }
 
     if ((action === 'write' || action === 'append') && typeof parsed.content !== 'string') {
-      return { cleanedContent: content.trim() }
+      return { cleanedContent: stripAllToolTags(content) }
     }
 
     const request: OpenClawFilesystemToolRequest = {
@@ -397,6 +410,6 @@ export function extractOpenClawToolRequest(content: string): {
       },
     }
   } catch {
-    return { cleanedContent: content.trim() }
+    return { cleanedContent: stripAllToolTags(content) }
   }
 }

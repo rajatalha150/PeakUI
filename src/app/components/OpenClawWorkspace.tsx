@@ -7,7 +7,7 @@ import { ChatMessageContent, AssistantDownloads, ThinkingBlock } from './ChatMes
 import HelpHint from './HelpHint';
 import SourceChips from './SourceChips';
 import { mergeMessageSources, type MessageSource } from '@/lib/message-sources';
-import { inferResponsePresentation, type ResponsePresentation } from '@/lib/response-format';
+import { type ResponsePresentation } from '@/lib/response-format';
 import {
   buildOpenClawTaskStateBrief,
   buildOpenClawWorkspaceBrief,
@@ -1028,6 +1028,7 @@ export default function OpenClawWorkspace({
   const [mobileModelMenuOpen, setMobileModelMenuOpen] = useState(false);
   const [agentPreferences, setAgentPreferences] = useState<OpenClawAgentPreferences>(getStoredAgentPreferences);
   const [autoContinuePending, setAutoContinuePending] = useState(false);
+  const autoContinueCountRef = useRef(0);
   const [taskStates, setTaskStates] = useState<Record<string, OpenClawTaskState>>(getStoredTaskStates);
   const [lastSubmission, setLastSubmission] = useState<{ prompt: string; internetEnabled: boolean } | null>(null);
   const [ollamaHealth, setOllamaHealth] = useState<OllamaHealthSummary | null>(null);
@@ -3120,6 +3121,7 @@ export default function OpenClawWorkspace({
     let activeSources = [...options.initialSources];
     let assistantContent = '';
     let assistantThinking = '';
+    let ocWasInsideToolTag = false;
     let finalMeta: OpenClawMessage['meta'] | undefined;
 
     if (activeSources.length > 0) {
@@ -3205,7 +3207,21 @@ export default function OpenClawWorkspace({
         if (typeof messageFrame.content === 'string' && messageFrame.content) {
           assistantContent += messageFrame.content;
           tokenCountRef.current += 1;
-          scheduleUpdate(options.assistantMessageId, { content: messageFrame.content });
+          // Suppress <openclaw_tool> tags from the display drip.
+          // After streaming completes, extractOpenClawToolRequest will
+          // clean the content and updateChatMessage will replace it.
+          // Only drip content that is outside of tool tags.
+          const toolTagOpen = assistantContent.lastIndexOf('<openclaw_tool');
+          const toolTagClose = assistantContent.lastIndexOf('</openclaw_tool>');
+          const insideToolTag = toolTagOpen !== -1 && (toolTagClose === -1 || toolTagOpen > toolTagClose);
+          // Also skip the chunk that closes a tool tag — it may contain closing
+          // tag text mixed with post-tag content. The post-stream extraction
+          // will replace the entire message with cleaned content.
+          const justClosedToolTag = ocWasInsideToolTag && !insideToolTag;
+          if (!insideToolTag && !justClosedToolTag) {
+            scheduleUpdate(options.assistantMessageId, { content: messageFrame.content });
+          }
+          ocWasInsideToolTag = insideToolTag;
         }
       }
 
@@ -3257,6 +3273,11 @@ export default function OpenClawWorkspace({
     const prompt = draftPrompt.trim();
     if ((!prompt && pendingImages.length === 0 && pendingAttachments.length === 0) || isStreaming || !selectedModel || !settings) return;
 
+    // Reset auto-continue counter on new user-initiated messages (not auto-continues)
+    if (prompt !== 'continue') {
+      autoContinueCountRef.current = 0;
+    }
+
     const chatId = currentSessionId ?? randomUUID();
     const effectiveTaskState = {
       ...taskState,
@@ -3276,7 +3297,11 @@ export default function OpenClawWorkspace({
     };
     const assistantMessageId = randomUUID();
     const baseHistory = [...chatHistory, userMessage];
-    const responsePresentation = inferResponsePresentation([{ role: 'user', content: prompt }]);
+    // Open Claw is an agentic workspace — responses naturally mix text, code, tables,
+    // and tool outputs. Forcing a specific presentation mode (like 'code') based on
+    // keywords in the prompt breaks mixed-content rendering and tells the model to
+    // "return only code" when it should explain results. Always use 'general' mode.
+    const responsePresentation: ResponsePresentation = { mode: 'general' };
 
     pinToBottom();
     setMessage('');
@@ -3473,6 +3498,9 @@ export default function OpenClawWorkspace({
           ...current,
           ...normalizedAssistant,
         }));
+        // Clear the drip queue for this message to prevent stale
+        // partial content from overwriting the cleaned/normalized version.
+        contentQueues.delete(nextAssistantId);
 
         sessionHistory = [...sessionHistory, normalizedAssistant];
         finalAssistantMessage = normalizedAssistant;
@@ -3839,14 +3867,25 @@ export default function OpenClawWorkspace({
       setIsStreaming(false);
       abortControllerRef.current = null;
 
-      // Auto-continue: if enabled and the task has an objective, send "continue"
-      // after a short delay so the user can see the completed response
+      // Auto-continue: only fire when the model's last response contained a
+      // tool request that wasn't executed (e.g., max rounds reached). This
+      // prevents infinite loops — the tool loop already handles continuation
+      // for executed tools, so auto-continue is only needed when the loop
+      // ended with unfinished work. Capped at 3 consecutive auto-continues.
       if (agentPreferences.autoContinue && taskState.objective.trim()) {
-        setAutoContinuePending(true);
-        setTimeout(() => {
-          setAutoContinuePending(false);
-          handleSendMessage('continue');
-        }, 1500);
+        const lastAssistant = [...sessionHistory].reverse().find(m => m.role === 'assistant');
+        if (lastAssistant?.toolRequest && autoContinueCountRef.current < 3) {
+          autoContinueCountRef.current += 1;
+          setAutoContinuePending(true);
+          setTimeout(() => {
+            setAutoContinuePending(false);
+            handleSendMessage('continue');
+          }, 1500);
+        } else {
+          autoContinueCountRef.current = 0;
+        }
+      } else {
+        autoContinueCountRef.current = 0;
       }
     }
   };

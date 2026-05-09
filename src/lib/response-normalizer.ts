@@ -1,9 +1,8 @@
 import type { ResponsePresentation } from '@/lib/response-format';
-
-const OPENCLAW_TOOL_PATTERN = /<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser)["']\s*>[\s\S]*?<\/openclaw_tool>/gi;
+import { stripAllToolTags } from '@/lib/openclaw-tools';
 
 function stripToolTags(content: string): string {
-  return content.replace(OPENCLAW_TOOL_PATTERN, '').replace(/\n{3,}/g, '\n\n').trim();
+  return stripAllToolTags(content);
 }
 
 const DOCUMENT_HEADING_KEYWORDS = /\b(summary|overview|experience|work history|education|skills|competencies|certifications|projects|achievements|profile|objective|about me|highlights|responsibilities|recommendations|findings|conclusion|next steps|action items|meeting notes|agenda|background|scope|contact|contact information|references)\b/i;

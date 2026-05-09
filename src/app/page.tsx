@@ -1571,6 +1571,7 @@ export default function Home() {
     let sourcesQueue: MessageSource[] | null = null;
     let dripTimer: ReturnType<typeof setInterval> | null = null;
     let streamingDone = false;
+    let pageWasInsideToolTag = false;
 
     const flushAll = () => {
       const hasContent = contentQueue.length > 0;
@@ -1868,6 +1869,7 @@ export default function Home() {
           // that incorporates the web research results.
           assistantContent = '';
           assistantThinking = '';
+          pageWasInsideToolTag = false;
           finalMeta = undefined;
           setStreamPhase('connecting');
           // Reset the assistant message content in chat history for the new response
@@ -1975,7 +1977,18 @@ export default function Home() {
           if (typeof messageFrame.content === 'string' && messageFrame.content) {
             assistantContent += messageFrame.content;
             tokenCountRef.current += 1;
-            scheduleUpdate({ content: messageFrame.content });
+            // Suppress <openclaw_tool> tags from the display drip.
+            // After streaming completes, extractOpenClawToolRequest will
+            // clean the content and replace the message. Only drip content
+            // that is outside of tool tags.
+            const toolTagOpen = assistantContent.lastIndexOf('<openclaw_tool');
+            const toolTagClose = assistantContent.lastIndexOf('</openclaw_tool>');
+            const insideToolTag = toolTagOpen !== -1 && (toolTagClose === -1 || toolTagOpen > toolTagClose);
+            const justClosedToolTag = pageWasInsideToolTag && !insideToolTag;
+            if (!insideToolTag && !justClosedToolTag) {
+              scheduleUpdate({ content: messageFrame.content });
+            }
+            pageWasInsideToolTag = insideToolTag;
           }
         }
 
