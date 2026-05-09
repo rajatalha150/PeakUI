@@ -27,6 +27,14 @@ export function useStickyScroll(options: UseStickyScrollOptions) {
   const pinToBottom = useCallback(() => {
     shouldStickToBottomRef.current = true;
     setShowScrollToBottom(false);
+    // Scroll immediately rather than waiting for the next render cycle.
+    // This ensures the view scrolls when the user presses Enter.
+    requestAnimationFrame(() => {
+      const area = scrollAreaRef.current;
+      if (area) {
+        area.scrollTo({ top: area.scrollHeight, behavior: 'auto' });
+      }
+    });
   }, []);
 
   const requestScrollReset = useCallback(() => {
@@ -44,6 +52,7 @@ export function useStickyScroll(options: UseStickyScrollOptions) {
     setShowScrollToBottom(!nearBottom && area.scrollHeight > area.clientHeight);
   }, [threshold]);
 
+  // Auto-scroll during streaming or when content changes while pinned
   useEffect(() => {
     if (!shouldStickToBottomRef.current) return;
     const frame = window.requestAnimationFrame(() => {
@@ -52,6 +61,7 @@ export function useStickyScroll(options: UseStickyScrollOptions) {
     return () => window.cancelAnimationFrame(frame);
   }, [contentKey, isStreaming, scrollToBottom]);
 
+  // Immediate scroll on reset (e.g., session switch)
   useEffect(() => {
     if (resetToken === 0) return;
     const frame = window.requestAnimationFrame(() => {

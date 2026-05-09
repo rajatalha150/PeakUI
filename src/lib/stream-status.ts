@@ -1,6 +1,7 @@
 export type ServerStreamStatus =
   | 'connecting'
   | 'internet-lookup'
+  | 'web-search'
   | 'stopping-other-models'
   | 'starting-model'
   | 'streaming'
@@ -11,6 +12,7 @@ export type UiStreamPhase = 'preparing-context' | ServerStreamStatus
 const SERVER_STREAM_STATUSES: readonly ServerStreamStatus[] = [
   'connecting',
   'internet-lookup',
+  'web-search',
   'stopping-other-models',
   'starting-model',
   'streaming',
@@ -26,6 +28,8 @@ export function getStreamPhaseLabel(phase: UiStreamPhase | null): string {
       return 'Searching knowledge base...'
     case 'internet-lookup':
       return 'Researching web...'
+    case 'web-search':
+      return 'Searching web...'
     case 'stopping-other-models':
       return 'Unloading other models...'
     case 'starting-model':

@@ -8,18 +8,16 @@ import {
 } from '@/lib/settings';
 import { getErrorMessage, buildKnowledgeBaseContext } from '@/lib/rag';
 import type { RagSearchResult } from '@/lib/rag';
-import type { MessageSource } from '@/lib/message-sources';
 import {
   buildResponsePresentationPrompt,
   inferResponsePresentation,
   normalizeResponsePresentation,
   type ResponsePresentation,
 } from '@/lib/response-format';
-import { buildOpenClawSystemPrompt } from '@/lib/openclaw-prompt';
+import { buildOpenClawSystemPrompt, buildChatInternetToolPrompt } from '@/lib/openclaw-prompt';
 import type { OpenClawPersona, OpenClawUserProfile } from '@/lib/openclaw-persona';
 import { normalizeOpenClawProvider } from '@/lib/settings';
 import { unloadOtherOllamaModels } from '@/lib/ollama-control';
-import { buildWebContext } from '@/lib/web-context';
 import type { ServerStreamStatus } from '@/lib/stream-status';
 import { isHuggingFaceRouterUrl } from './chat-platforms';
 
@@ -68,7 +66,6 @@ interface IncomingChatBody {
   surface?: unknown;
   internet_enabled?: unknown;
   internet_tool_enabled?: unknown;
-  internet_query?: unknown;
   rag_enabled?: unknown;
   rag_query?: unknown;
   rag_topk?: unknown;
@@ -180,11 +177,13 @@ function formatContextCandidate(candidate: number | null): string {
 }
 
 function normalizeInternetEnabled(value: unknown): boolean {
-  return value === true || value === 'true';
-}
-
-function normalizeInternetQuery(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+  }
+  return false;
 }
 
 function normalizeRagEnabled(value: unknown): boolean {
@@ -339,30 +338,6 @@ function formatUpstreamError(options: {
   }
 
   return message;
-}
-
-async function augmentMessagesWithInternet(options: {
-  messages: InternalChatMessage[];
-  internetQuery: string;
-  signal: AbortSignal;
-}): Promise<{ messages: InternalChatMessage[]; sources: MessageSource[] }> {
-  const query = options.internetQuery.trim() || findLatestUserQuery(options.messages);
-  if (!query) return { messages: options.messages, sources: [] };
-
-  try {
-    const webContext = await buildWebContext(query, { signal: options.signal });
-    if (webContext.context && webContext.sources.length > 0) {
-      return {
-        messages: [{ role: 'system', content: webContext.context }, ...options.messages],
-        sources: webContext.sources,
-      };
-    }
-  } catch (error) {
-    if (options.signal.aborted) throw error;
-    console.error('Internet fallback context failed:', error);
-  }
-
-  return { messages: options.messages, sources: [] };
 }
 
 async function streamOpenAICompatibleResponse(options: {
@@ -520,7 +495,6 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const internetToolEnabled = body.internet_tool_enabled === undefined
       ? internetEnabled
       : normalizeInternetEnabled(body.internet_tool_enabled);
-    const internetQuery = normalizeInternetQuery(body.internet_query);
 
     // RAG / Knowledge Base settings — use per-request flag if provided, else fall back to user settings
     const ragEnabled = normalizeRagEnabled(body.rag_enabled) || settings.ragEnabled;
@@ -599,10 +573,14 @@ export async function createChatCompletionResponse(req: NextRequest) {
           uwafBrowserMode: settings.openClawUwafBrowserMode,
         })
       : '';
+    const chatInternetPrompt = surface === 'chat' && internetToolEnabled
+      ? buildChatInternetToolPrompt()
+      : '';
     const systemPromptParts = [
       IMAGE_INSTRUCTIONS,
       settings.systemPrompt.trim(),
       openClawPrompt,
+      chatInternetPrompt,
       presentationPrompt,
       ...messages
         .filter(message => message.role === 'system')
@@ -747,19 +725,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
               }
 
               let openAiMessages = outboundMessages
-              let internetSources: MessageSource[] = []
               let knowledgeSources: RagSearchResult[] = []
-
-              if (internetEnabled) {
-                emitStatus('internet-lookup');
-                const augmented = await augmentMessagesWithInternet({
-                  messages: outboundMessages,
-                  internetQuery,
-                  signal: upstreamAbort.signal,
-                })
-                openAiMessages = augmented.messages
-                internetSources = augmented.sources
-              }
 
               if (ragEnabled) {
                 emitStatus('knowledge-base');
@@ -782,9 +748,6 @@ export async function createChatCompletionResponse(req: NextRequest) {
                 }
               }
 
-              if (internetSources.length > 0) {
-                sendJsonLine({ sources: internetSources })
-              }
               if (knowledgeSources.length > 0) {
                 sendJsonLine({ knowledge_sources: knowledgeSources })
               }
@@ -818,25 +781,13 @@ export async function createChatCompletionResponse(req: NextRequest) {
 
             // Match the terminal/Open WebUI local path first: let Ollama choose
             // its own default context unless the user explicitly changed it.
-            const preferNativeContext = settings.contextLength === DEFAULT_SETTINGS.contextLength && !internetEnabled;
+            const preferNativeContext = settings.contextLength === DEFAULT_SETTINGS.contextLength;
             const contextCandidates = buildContextCandidates(settings.contextLength, preferNativeContext);
 
             for (const numCtx of contextCandidates) {
               try {
                 let messagesForStream = outboundMessages
-                let internetSources: MessageSource[] = []
                 let knowledgeSources: RagSearchResult[] = []
-
-                if (internetEnabled) {
-                  emitStatus('internet-lookup');
-                  const augmented = await augmentMessagesWithInternet({
-                    messages: outboundMessages,
-                    internetQuery,
-                    signal: upstreamAbort.signal,
-                  })
-                  messagesForStream = augmented.messages
-                  internetSources = augmented.sources
-                }
 
                 if (ragEnabled) {
                   emitStatus('knowledge-base');
@@ -859,9 +810,6 @@ export async function createChatCompletionResponse(req: NextRequest) {
                   }
                 }
 
-                if (internetSources.length > 0) {
-                  sendJsonLine({ sources: internetSources })
-                }
                 if (knowledgeSources.length > 0) {
                   sendJsonLine({ knowledge_sources: knowledgeSources })
                 }

@@ -15,6 +15,7 @@ import CanvasPanel from './components/CanvasPanel';
 import HelpHint from './components/HelpHint';
 import SourceChips from './components/SourceChips';
 import { mergeMessageSources, type MessageSource } from '@/lib/message-sources';
+import { extractOpenClawToolRequest, type OpenClawWebToolRequest } from '@/lib/openclaw-tools';
 import { applyTheme } from '@/lib/theme-options';
 import { getStreamPhaseLabel, isServerStreamStatus, type UiStreamPhase } from '@/lib/stream-status';
 import {
@@ -1625,6 +1626,8 @@ export default function Home() {
       },
     ]);
     setIsStreaming(true);
+    // Scroll to bottom after adding messages so the user sees the response
+    requestAnimationFrame(() => scrollToBottom('auto'));
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -1754,54 +1757,11 @@ export default function Home() {
 
       setStreamPhase('connecting');
 
-      const response = await fetch('/api/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model: selectedModelName,
-          provider: selectedModelProvider,
-          ...(selectedModelProvider === 'huggingface'
-            ? {
-                base_url: selectedHuggingFaceBaseUrl,
-                api_key: huggingFaceApiKey,
-              }
-            : {}),
-          chat_id: chatId,
-          session_id: clientSessionIdRef.current,
-          id: assistantMessageId,
-          response_presentation: responsePresentation,
-          internet_enabled: draftInternetEnabled,
-          internet_query: userMessage,
-          rag_enabled: ragEnabled,
-          rag_query: ragSearchText,
-          // Strip display-only fields before sending to Ollama. Image bytes go
-          // through Ollama's native images array; other files are represented
-          // as extracted text plus original-format metadata in content.
-          messages: augmentedMessages.map(m => ({
-            role: m.role,
-            content: buildAttachmentContext(m.attachments, m.images, m.content),
-            ...(m.images && m.images.length > 0 ? { images: m.images.map(getImageData) } : {}),
-          })),
-        })
-      });
-
-      if (!response.ok) {
-        let errMessage = selectedModelProvider === 'huggingface'
-          ? 'Error connecting to the Hugging Face model.'
-          : 'Error connecting to the local model.';
-        try {
-          const errData = await response.json();
-          if (errData.error) errMessage = errData.error;
-        } catch {}
-        throw new Error(errMessage);
-      }
-
-      if (!response.body) throw new Error('No response body');
-      
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let streamBuffer = '';
+      // Tool loop: stream model response, check for web tool requests,
+      // execute them, and re-stream with results (max 2 rounds).
+      const MAX_TOOL_ROUNDS = 2;
+      let toolRoundMessages = [...augmentedMessages];
+      let toolRoundSources = [...activeSources];
       let assistantContent = '';
       let assistantThinking = '';
       let finalMeta: ChatMessage['meta'] | undefined;
@@ -1824,7 +1784,116 @@ export default function Home() {
         eval_duration?: number;
       };
 
-      const processStreamLine = (line: string) => {
+      // Batch streaming updates to reduce re-renders and smooth the UI.
+      // Tokens accumulate in pending fields and flush once per animation frame.
+      let updateScheduled = false;
+      let pendingContent = '';
+      let pendingThinking = '';
+      let pendingSources: MessageSource[] | null = null;
+
+      const flushUpdates = () => {
+        const hasContent = pendingContent.length > 0;
+        const hasThinking = pendingThinking.length > 0;
+        const hasSources = pendingSources !== null;
+        if (!hasContent && !hasThinking && !hasSources) return;
+
+        setChatHistory(prev => {
+          const updated = [...prev];
+          const lastIdx = updated.length - 1;
+          if (updated[lastIdx]?.role !== 'assistant') return prev;
+          updated[lastIdx] = {
+            ...updated[lastIdx],
+            ...(hasContent ? { content: updated[lastIdx].content + pendingContent } : {}),
+            ...(hasThinking ? { thinking: (updated[lastIdx].thinking || '') + pendingThinking } : {}),
+            ...(hasSources ? { sources: pendingSources! } : {}),
+          };
+          return updated;
+        });
+
+        pendingContent = '';
+        pendingThinking = '';
+        pendingSources = null;
+      };
+
+      const scheduleUpdate = (update: { content?: string; thinking?: string; sources?: MessageSource[] }) => {
+        if (update.content) pendingContent += update.content;
+        if (update.thinking) pendingThinking += update.thinking;
+        if (update.sources) pendingSources = update.sources;
+        if (!updateScheduled) {
+          updateScheduled = true;
+          requestAnimationFrame(() => {
+            flushUpdates();
+            updateScheduled = false;
+          });
+        }
+      };
+
+      for (let toolRound = 0; toolRound < MAX_TOOL_ROUNDS; toolRound += 1) {
+        if (toolRound > 0) {
+          // Reset content for the new round — the model will produce a fresh response
+          // that incorporates the web research results.
+          assistantContent = '';
+          assistantThinking = '';
+          finalMeta = undefined;
+          setStreamPhase('connecting');
+          // Reset the assistant message content in chat history for the new response
+          setChatHistory(prev => {
+            const updated = [...prev];
+            const lastIdx = updated.length - 1;
+            if (updated[lastIdx]?.role === 'assistant') {
+              updated[lastIdx] = { ...updated[lastIdx], content: '', thinking: '' };
+            }
+            return updated;
+          });
+        }
+
+        const roundAssistantId = toolRound === 0 ? assistantMessageId : randomUUID();
+        const response = await fetch('/api/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: selectedModelName,
+            provider: selectedModelProvider,
+            ...(selectedModelProvider === 'huggingface'
+              ? {
+                  base_url: selectedHuggingFaceBaseUrl,
+                  api_key: huggingFaceApiKey,
+                }
+              : {}),
+            chat_id: chatId,
+            session_id: clientSessionIdRef.current,
+            id: roundAssistantId,
+            response_presentation: responsePresentation,
+            internet_enabled: false, // No pre-search — model drives web research via tool tags
+            internet_tool_enabled: draftInternetEnabled,
+            ...(toolRound === 0 ? { rag_enabled: ragEnabled, rag_query: ragSearchText } : { rag_enabled: false }),
+            messages: toolRoundMessages.map(m => ({
+              role: m.role,
+              content: buildAttachmentContext(m.attachments, m.images, m.content),
+              ...(m.images && m.images.length > 0 ? { images: m.images.map(getImageData) } : {}),
+            })),
+          })
+        });
+
+        if (!response.ok) {
+          let errMessage = selectedModelProvider === 'huggingface'
+            ? 'Error connecting to the Hugging Face model.'
+            : 'Error connecting to the local model.';
+          try {
+            const errData = await response.json();
+            if (errData.error) errMessage = errData.error;
+          } catch {}
+          throw new Error(errMessage);
+        }
+
+        if (!response.body) throw new Error('No response body');
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let streamBuffer = '';
+
+        const processStreamLine = (line: string) => {
         let data: StreamFrame | null = null;
 
         try {
@@ -1850,34 +1919,14 @@ export default function Home() {
 
         if (Array.isArray(data.sources)) {
           activeSources = mergeMessageSources(activeSources, data.sources as MessageSource[]);
-          setChatHistory(prev => {
-            const updated = [...prev];
-            const lastIdx = updated.length - 1;
-            if (updated[lastIdx]?.role === 'assistant') {
-              updated[lastIdx] = {
-                ...updated[lastIdx],
-                sources: activeSources,
-              };
-            }
-            return updated;
-          });
+          scheduleUpdate({ sources: activeSources });
         }
 
         // Handle knowledge base sources from server-side RAG
         if (Array.isArray(data.knowledge_sources)) {
           const kbSources = data.knowledge_sources as MessageSource[];
           activeSources = mergeMessageSources(activeSources, kbSources);
-          setChatHistory(prev => {
-            const updated = [...prev];
-            const lastIdx = updated.length - 1;
-            if (updated[lastIdx]?.role === 'assistant') {
-              updated[lastIdx] = {
-                ...updated[lastIdx],
-                sources: activeSources,
-              };
-            }
-            return updated;
-          });
+          scheduleUpdate({ sources: activeSources });
         }
 
         const messageFrame = data.message;
@@ -1886,29 +1935,13 @@ export default function Home() {
           if (typeof messageFrame.thinking === 'string' && messageFrame.thinking) {
             assistantThinking += messageFrame.thinking;
             tokenCountRef.current += 1;
-            setChatHistory(prev => {
-              const updated = [...prev];
-              const lastIdx = updated.length - 1;
-              updated[lastIdx] = {
-                ...updated[lastIdx],
-                thinking: (updated[lastIdx].thinking || '') + messageFrame.thinking
-              };
-              return updated;
-            });
+            scheduleUpdate({ thinking: messageFrame.thinking });
           }
           // Accumulate response content
           if (typeof messageFrame.content === 'string' && messageFrame.content) {
             assistantContent += messageFrame.content;
             tokenCountRef.current += 1;
-            setChatHistory(prev => {
-              const updated = [...prev];
-              const lastIdx = updated.length - 1;
-              updated[lastIdx] = {
-                ...updated[lastIdx],
-                content: updated[lastIdx].content + messageFrame.content
-              };
-              return updated;
-            });
+            scheduleUpdate({ content: messageFrame.content });
           }
         }
 
@@ -1955,6 +1988,101 @@ export default function Home() {
       const finalLine = streamBuffer.trim();
       if (finalLine) {
         processStreamLine(finalLine);
+      }
+      // Flush any remaining buffered updates before checking for tool requests
+      flushUpdates();
+
+        // Check for web tool request after streaming
+        const { cleanedContent, request } = extractOpenClawToolRequest(assistantContent);
+
+        if (request?.name === 'web' && draftInternetEnabled) {
+          // Strip tool tag from displayed content
+          const webRequest = request.request as OpenClawWebToolRequest;
+          const query = webRequest.query?.trim() || '';
+
+          if (query) {
+            // Clean the tool tag from the assistant message in chat history
+            setChatHistory(prev => {
+              const updated = [...prev];
+              const lastIdx = updated.length - 1;
+              if (updated[lastIdx]?.role === 'assistant') {
+                updated[lastIdx] = {
+                  ...updated[lastIdx],
+                  content: cleanedContent,
+                };
+              }
+              return updated;
+            });
+            assistantContent = cleanedContent;
+
+            // Execute the web search
+            setStreamPhase('web-search');
+            try {
+              const webRes = await fetch('/api/web/context', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                signal: controller.signal,
+                body: JSON.stringify({ query }),
+              });
+              const webData = await webRes.json();
+              if (webRes.ok && webData.context) {
+                const webSources = Array.isArray(webData.sources) ? webData.sources as MessageSource[] : [];
+                if (webSources.length > 0) {
+                  toolRoundSources = mergeMessageSources(toolRoundSources, webSources);
+                  activeSources = toolRoundSources;
+                  setChatHistory(prev => {
+                    const updated = [...prev];
+                    const lastIdx = updated.length - 1;
+                    if (updated[lastIdx]?.role === 'assistant') {
+                      updated[lastIdx] = {
+                        ...updated[lastIdx],
+                        sources: activeSources,
+                      };
+                    }
+                    return updated;
+                  });
+                }
+                // Inject web context as a system message and continue
+                toolRoundMessages = [
+                  ...toolRoundMessages,
+                  { role: 'assistant' as const, content: assistantContent },
+                  { role: 'user' as const, content: `Web research results for "${query}":\n\n${webData.context}\n\nUse the above web research results to answer the original question. Cite specific claims with [^N] markers using the provided sources.` },
+                ];
+              }
+            } catch (webError) {
+              if (controller.signal.aborted) throw webError;
+              console.error('Web research failed:', webError);
+              // Continue without web context
+              break;
+            }
+            setStreamPhase(null);
+            // Continue to next tool round
+            continue;
+          }
+        }
+
+        // No tool request found — finish
+        break;
+      } // end tool loop
+
+      // Flush any remaining buffered updates
+      flushUpdates();
+
+      // Strip any remaining tool tags from final content
+      const { cleanedContent: finalContent } = extractOpenClawToolRequest(assistantContent);
+      if (finalContent !== assistantContent) {
+        assistantContent = finalContent;
+        setChatHistory(prev => {
+          const updated = [...prev];
+          const lastIdx = updated.length - 1;
+          if (updated[lastIdx]?.role === 'assistant') {
+            updated[lastIdx] = {
+              ...updated[lastIdx],
+              content: finalContent,
+            };
+          }
+          return updated;
+        });
       }
 
       await sessionSavePromise;
@@ -3130,7 +3258,7 @@ export default function Home() {
                   <div className="avatar">
                     {msg.role === 'user' ? <User size={20} color="var(--text-secondary)" /> : <Bot size={24} color="white" />}
                   </div>
-                  <div className="message-content">
+                  <div className={`message-content${isStreaming && msg.role === 'assistant' && i === chatHistory.length - 1 && msg.content ? ' streaming-cursor' : ''}`}>
                     {/* Images in this message */}
                     {msg.images && msg.images.length > 0 && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
@@ -3170,7 +3298,7 @@ export default function Home() {
                         isStreaming={isStreaming && i === chatHistory.length - 1 && !msg.content}
                       />
                     )}
-                    {/* <think> tag based thinking — DeepSeek-R1, QwQ, etc. */}
+                    {/*<think> tag based thinking — DeepSeek-R1, QwQ, etc. */}
                     {renderMessageContent(msg.content, isStreaming, i === chatHistory.length - 1, msg.presentation, msg.sources)}
                     {msg.role === 'assistant' && msg.sources && msg.sources.length > 0 && (
                       <SourceChips sources={msg.sources} />
@@ -3291,7 +3419,7 @@ export default function Home() {
             <input 
               type="text" 
               className="input-field" 
-              placeholder={models.length > 0 ? (internetEnabled ? '🌐 Internet mode — ask with live web context...' : ragEnabled ? '🔍 RAG mode — asking with knowledge base context...' : ragContext ? '📎 KB context attached — type your question...' : 'Message local model...') : 'Waiting for Ollama to connect...'}
+              placeholder={models.length > 0 ? (internetEnabled ? '🌐 Internet mode — the model will search when needed...' : ragEnabled ? '🔍 RAG mode — asking with knowledge base context...' : ragContext ? '📎 KB context attached — type your question...' : 'Message local model...') : 'Waiting for Ollama to connect...'}
               style={{ background: 'transparent', border: 'none', padding: '8px', boxShadow: 'none' }}
               value={message}
               onChange={(e) => setMessage(e.target.value)}

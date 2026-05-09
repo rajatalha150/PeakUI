@@ -1,5 +1,11 @@
 import type { ResponsePresentation } from '@/lib/response-format';
 
+const OPENCLAW_TOOL_PATTERN = /<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser)["']\s*>[\s\S]*?<\/openclaw_tool>/gi;
+
+function stripToolTags(content: string): string {
+  return content.replace(OPENCLAW_TOOL_PATTERN, '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 const DOCUMENT_HEADING_KEYWORDS = /\b(summary|overview|experience|work history|education|skills|competencies|certifications|projects|achievements|profile|objective|about me|highlights|responsibilities|recommendations|findings|conclusion|next steps|action items|meeting notes|agenda|background|scope|contact|contact information|references)\b/i;
 
 function normalizeLineEndings(content: string): string {
@@ -206,7 +212,8 @@ function normalizeTableContent(content: string, presentation?: ResponsePresentat
 }
 
 export function normalizeAssistantResponseContent(content: string, presentation?: ResponsePresentation): string {
-  const lineNormalized = stripTrailingWhitespace(normalizeLineEndings(content));
+  const toolTagStripped = stripToolTags(content);
+  const lineNormalized = stripTrailingWhitespace(normalizeLineEndings(toolTagStripped));
   const unwrapped = stripOuterFence(lineNormalized, presentation);
   const headingNormalized = normalizeDocumentHeadings(unwrapped, presentation);
   const tableNormalized = normalizeTableContent(headingNormalized, presentation);

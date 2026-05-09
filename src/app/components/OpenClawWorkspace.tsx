@@ -488,32 +488,6 @@ function pathLooksLikeHostFilesystemTarget(requestedPath: string, allowedPaths: 
   );
 }
 
-function shouldAutoPrepareOpenClawInternetContext(options: {
-  prompt: string;
-  hasImages: boolean;
-  hasAttachments: boolean;
-}) {
-  const prompt = options.prompt.trim();
-  if (!prompt || options.hasImages || options.hasAttachments) {
-    return false;
-  }
-
-  if (
-    /\b(?:my|this|current)\s+(?:cpu|gpu|ram|memory|disk|filesystem|machine|system|server|repo|repository|project|workspace|container|docker|vm|process|service|port|log)s?\b/i.test(prompt)
-    || /\b(?:in|on)\s+(?:this|my)\s+(?:machine|system|repo|repository|project|workspace|container|docker|vm|server)\b/i.test(prompt)
-    || /(?:^|\s)\/(?:home|tmp|usr|var|etc|opt|app|workspaces?)(?:\/|$)/i.test(prompt)
-    || /`[^`]+`/.test(prompt)
-  ) {
-    return false;
-  }
-
-  return (
-    /\b(?:search|look up|browse|google|web|internet|online)\b/i.test(prompt)
-    || /\b(?:latest|recent|today|news|announcement|release(?:\s+notes?)?|version|pricing|benchmark|docs?|documentation|api|policy|regulation|law|official)\b/i.test(prompt)
-    || /\b(?:verify|fact-?check|cite|sources?)\b/i.test(prompt)
-  );
-}
-
 function inferFilesystemRequestFromShellCommand(
   command: string,
   allowedPaths: string[],
@@ -3121,7 +3095,6 @@ export default function OpenClawWorkspace({
         response_presentation: options.responsePresentation,
         internet_enabled: options.internetEnabledForTurn,
         internet_tool_enabled: options.internetToolEnabledForTurn,
-        internet_query: options.prompt,
         messages: options.conversationMessages.map(message => ({
           role: message.role,
           content: message.content,
@@ -3311,11 +3284,6 @@ export default function OpenClawWorkspace({
         console.error('Failed to persist Open Claw session before streaming:', error);
         return null;
       });
-      const shouldPreloadInternetContext = draftInternetEnabled && shouldAutoPrepareOpenClawInternetContext({
-        prompt,
-        hasImages: messageImages.length > 0,
-        hasAttachments: messageAttachments.length > 0,
-      });
       if (controller.signal.aborted) return;
 
       const contextMessages: OpenClawMessage[] = [];
@@ -3425,7 +3393,7 @@ export default function OpenClawWorkspace({
           chatId,
           prompt,
           responsePresentation,
-          internetEnabledForTurn: toolRound === 0 ? shouldPreloadInternetContext : false,
+          internetEnabledForTurn: false,
           internetToolEnabledForTurn: draftInternetEnabled,
           initialSources: currentSources,
         });
@@ -3527,7 +3495,7 @@ export default function OpenClawWorkspace({
 
           lastToolRequestSignature = effectiveToolSignature;
           duplicateToolRequestCount = 0;
-          setStreamPhase('internet-lookup');
+          setStreamPhase('web-search');
           const webResult = await requestWebContext(request.request.query, {
             description: request.request.description,
           });
@@ -3767,7 +3735,7 @@ export default function OpenClawWorkspace({
         ? 'var(--success)'
         : 'var(--text-secondary)';
   const composerPlaceholder = internetEnabled
-    ? 'Internet mode - ask Open Claw with live public web context...'
+    ? 'Internet mode - the model will search the web when needed...'
     : ragEnabled
       ? 'RAG mode - ask Open Claw with Knowledge Base context...'
       : agentPreferences.mode === 'research'
@@ -4554,7 +4522,7 @@ export default function OpenClawWorkspace({
           {(internetEnabled || ragEnabled || hasWorkspaceNotes || hasSuccessCriteria) && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
               {internetEnabled && (
-                <span>Internet mode adds read-only public web research with citations and lets Open Claw run follow-up searches during the task.</span>
+                <span>Internet mode lets the model search the web when it needs current information, with citations for sources.</span>
               )}
               {ragEnabled && (
                 <span>Knowledge Base mode injects matching local document context before generation.</span>
@@ -5488,7 +5456,7 @@ export default function OpenClawWorkspace({
                         </div>
                         <div className="openclaw-capability-row">
                           <Globe size={15} />
-                          <span>Optional live web research with citations and follow-up searches when Internet mode is on.</span>
+                          <span>When Internet mode is on, the model can search the web for current information and cite sources.</span>
                         </div>
                         <div className="openclaw-capability-row">
                           <BookOpen size={15} />

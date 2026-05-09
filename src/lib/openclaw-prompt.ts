@@ -12,6 +12,19 @@ import {
   OPENCLAW_WEB_TOOL_EXAMPLE,
 } from './openclaw-tools';
 
+export function buildChatInternetToolPrompt(): string {
+  return [
+    'WEB RESEARCH CAPABILITY: You can request read-only public web research with citation-ready source context.',
+    'Use this tool when you need current information, verification, or specific details that may have changed since your training data.',
+    'If web research context was already attached in earlier system messages, use that first. Request another web search only when you need fresher evidence, a new angle, or a tighter query.',
+    'The web tool can accept a normal search query or a public HTTP/HTTPS URL in the query field when you want a specific page fetched.',
+    'Private, local, and non-public network targets are blocked.',
+    `Use this exact format:\n${OPENCLAW_WEB_TOOL_EXAMPLE}`,
+    'Do not invent web results. Wait for the tool output and continue from the actual sources you were given.',
+    'After a web tool result arrives, cite factual claims with inline markers like [^1] using the provided sources.',
+  ].join(' ');
+}
+
 export interface OpenClawPromptContext {
   provider: OpenClawProvider;
   model: string;

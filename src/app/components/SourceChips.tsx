@@ -59,7 +59,7 @@ export default function SourceChips({ sources }: { sources: MessageSource[] }) {
       borderTop: '1px solid var(--border-color)',
       display: 'flex',
       flexWrap: 'wrap',
-      gap: '6px',
+      gap: '8px',
     }}>
       {sources.slice(0, 8).map((source, index) => {
         const label = source.title || (source.sourcePath && source.sourcePath !== source.filename
