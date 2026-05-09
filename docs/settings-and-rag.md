@@ -166,23 +166,26 @@ Production behavior:
 
 ### Open Claw Tool Permissions
 
+- Shell execution defaults to `auto-approve` mode — safe commands execute immediately without a confirmation prompt. Network-capable commands (`curl`, `wget`, `npm install`, `git clone`, `docker compose up`) still require explicit approval. Dangerous commands (`sudo`, `rm -rf /`, `ssh`) are blocked outright.
+- When Auto-continue is enabled, tool approval dialogs show a 4-second countdown and auto-approve unless the user clicks Reject. This lets the agent run multi-step tasks hands-free while still giving visibility into each command.
 - Shell execution is stored in `UserSettings.shellExecutionMode`, `UserSettings.shellExecutionTarget`, `UserSettings.shellAllowedCommands`, and the host-executor guardrail settings.
-- Filesystem read access is stored in `UserSettings.openClawFileAccessMode` plus `UserSettings.openClawAllowedPaths`.
-- Filesystem write access is stored in `UserSettings.openClawFileWriteMode` plus `UserSettings.openClawWritablePaths`.
-- Code sandbox access is stored in `UserSettings.openClawCodeExecutionMode`.
+- Filesystem read access defaults to `read-only` and is stored in `UserSettings.openClawFileAccessMode` plus `UserSettings.openClawAllowedPaths`.
+- Filesystem write access defaults to `ask-first` and is stored in `UserSettings.openClawFileWriteMode` plus `UserSettings.openClawWritablePaths`.
+- Code sandbox access defaults to `ask-first` and is stored in `UserSettings.openClawCodeExecutionMode`.
 - Browser control access is stored in `UserSettings.openClawBrowserMode`.
 - Open Claw's default writable workspace root is `/tmp/viewllama-openclaw-workspace`, which is mounted inside the app container at `/mnt/openclaw/workspace`.
-- Shell commands run inside the app container by default.
+- Shell commands run inside the app container by default with a 120-second timeout (host executor timeout is configurable up to 5 minutes).
+- Code sandbox execution has a 60-second timeout and 256MB memory limit.
 - If `UserSettings.shellExecutionTarget` is set to `host`, shell requests are forwarded to the optional host executor daemon at `OPENCLAW_HOST_EXECUTOR_URL` with `OPENCLAW_HOST_EXECUTOR_TOKEN`.
 - Host execution is constrained by allowed working roots, environment-variable names, timeout, output caps, and approval mode.
 - If Host target is selected but the host executor is not configured or reachable, Open Claw falls back to the container executor and shows the fallback reason in the approval or blocked-command UI.
 - Every shell command request/result is audited in `ShellCommandAudit`, including requested target, effective target, approval decision, fallback reason, exit code, duration, and output preview.
-- In `auto-approve`, simple inspection commands can run without a prompt when they match the allowlist and do not use shell operators.
 - Commands that fetch from the network, install packages, or start services such as `git clone`, `curl`, `wget`, `npm install`, `npx`, `docker run`, or `docker compose up` are intentionally not auto-approved and require explicit approval when shell access is enabled.
 - Truly dangerous shell operations like `rm -rf /`, `sudo`, `ssh`, `mkfs`, and sensitive `/etc/passwd` or `/etc/shadow` access are blocked outright.
 - Filesystem writes are constrained to approved writable roots and use full-content write/append semantics rather than shell patching.
 - Code execution runs only in the managed Open Claw workspace, with runtime guards, timeouts, and output caps.
 - Browser control is limited to public `http` and `https` pages. Local/private targets, credentialed URLs, and non-standard ports are blocked. In `read-only`, Open Claw can inspect pages but cannot fill or submit forms.
+- Every tool execution (shell, code, filesystem, browser, web) shows a live phase label during execution: `Running command...`, `Running code...`, `Reading filesystem...`, `Browsing page...`, or `Searching web...`. If a tool fails, the error becomes a model-visible message and the tool loop continues instead of crashing the session.
 
 ### File Attachments in Open Claw
 
