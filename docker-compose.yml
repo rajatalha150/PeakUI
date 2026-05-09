@@ -38,6 +38,10 @@ services:
       - OPENCLAW_HOST_EXECUTOR_TOKEN=${OPENCLAW_HOST_EXECUTOR_TOKEN:-}
       - TOR_PROXY_URL=${TOR_PROXY_URL:-socks5://localhost:9050}
       - PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+      - BRAVE_API_KEY=${BRAVE_API_KEY:-}
+      - SEARXNG_URL=${SEARXNG_URL:-}
+      - GOOGLE_SEARCH_API_KEY=${GOOGLE_SEARCH_API_KEY:-}
+      - GOOGLE_SEARCH_CX=${GOOGLE_SEARCH_CX:-}
     depends_on:
       - db
       - tor-proxy

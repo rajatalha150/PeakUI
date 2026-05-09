@@ -3258,7 +3258,7 @@ export default function Home() {
                   <div className="avatar">
                     {msg.role === 'user' ? <User size={20} color="var(--text-secondary)" /> : <Bot size={24} color="white" />}
                   </div>
-                  <div className={`message-content${isStreaming && msg.role === 'assistant' && i === chatHistory.length - 1 && msg.content ? ' streaming-cursor' : ''}`}>
+                  <div suppressHydrationWarning className={`message-content${isStreaming && msg.role === 'assistant' && i === chatHistory.length - 1 && msg.content ? ' streaming-cursor' : ''}`}>
                     {/* Images in this message */}
                     {msg.images && msg.images.length > 0 && (
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '10px' }}>
@@ -3534,7 +3534,7 @@ export default function Home() {
         {/* Canvas rail toggle button */}
       </main>
 
-      <style dangerouslySetInnerHTML={{__html: `
+      <style suppressHydrationWarning dangerouslySetInnerHTML={{__html: `
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }

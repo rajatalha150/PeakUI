@@ -76,7 +76,7 @@ Chat settings are saved per user in `UserSettings` and normalized on both read a
 - Internet mode now runs as a backend-managed cited web-context lookup inside the shared chat pipeline.
 - The backend performs the public search and page fetch work directly before the model starts, so Internet mode no longer depends on a local model deciding to call tools first.
 - Chat, Open Claw, local Ollama, and OpenAI-compatible providers all use the same research path now.
-- **Multi-engine search priority (v2):** The backend tries search engines in this order -- Brave Search API (if BRAVE_API_KEY is configured), SearXNG (if SEARXNG_URL is configured), DuckDuckGo HTML + Lite fallback parsers, and Bing as final fallback.
+- **Multi-engine search priority (v3):** The backend tries search engines in this order -- Google Programmable Search Engine (if GOOGLE_SEARCH_API_KEY + GOOGLE_SEARCH_CX are configured), Brave Search API (if BRAVE_API_KEY is configured), SearXNG (if SEARXNG_URL is configured), DuckDuckGo HTML + Lite fallback parsers, and Bing as final fallback.
 - **Query intelligence:** The user prompt is analyzed to generate 1-3 targeted search queries for broader coverage (e.g., comparisons get per-side queries, questions get stripped keyword variants).
 - **Deep content extraction:** Pages are parsed through schema.org JSON-LD, Open Graph meta tags, and readability heuristics that score paragraphs by link density, length, and keyword filtering (drops nav/footer/ads) to extract article text while preserving structure.
 - **Date extraction:** Publication dates are pulled from meta tags and JSON-LD so the model can reason about recency.

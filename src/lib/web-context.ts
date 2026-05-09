@@ -14,6 +14,8 @@ const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36
 
 const BRAVE_API_KEY = process.env.BRAVE_API_KEY?.trim() || ''
 const SEARXNG_URL = process.env.SEARXNG_URL?.trim() || ''
+const GOOGLE_SEARCH_API_KEY = process.env.GOOGLE_SEARCH_API_KEY?.trim() || ''
+const GOOGLE_SEARCH_CX = process.env.GOOGLE_SEARCH_CX?.trim() || ''
 
 export interface PublicWebSearchResult {
   title: string
@@ -401,6 +403,33 @@ async function searchBing(query: string, maxResults: number, signal?: AbortSigna
   return results.slice(0, maxResults)
 }
 
+async function searchGoogle(query: string, maxResults: number, signal?: AbortSignal): Promise<PublicWebSearchResult[]> {
+  if (!GOOGLE_SEARCH_API_KEY || !GOOGLE_SEARCH_CX) return []
+
+  const url = new URL('https://www.googleapis.com/customsearch/v1')
+  url.searchParams.set('q', query)
+  url.searchParams.set('key', GOOGLE_SEARCH_API_KEY)
+  url.searchParams.set('cx', GOOGLE_SEARCH_CX)
+  url.searchParams.set('num', String(Math.min(maxResults, 10)))
+
+  const response = await fetch(url.toString(), {
+    signal: withTimeoutSignal(SEARCH_TIMEOUT_MS, signal),
+  })
+
+  if (!response.ok) {
+    throw new Error(`Google search failed: ${response.status}`)
+  }
+
+  const data = await response.json()
+  const items = Array.isArray(data?.items) ? data.items : []
+
+  return items.slice(0, maxResults).map((item: { title?: string; link?: string; snippet?: string }) => ({
+    title: String(item.title || ''),
+    url: String(item.link || ''),
+    snippet: String(item.snippet || ''),
+  })).filter((r: PublicWebSearchResult) => r.url && r.title)
+}
+
 /* ───────── Content extraction ───────── */
 
 function extractJsonLd(html: string): Array<Record<string, unknown>> {
@@ -709,7 +738,18 @@ export async function searchPublicWeb(
 
   const maxResults = Math.min(Math.max(options.maxResults ?? MAX_SEARCH_RESULTS, 1), 10)
 
-  // Try Brave API first if configured
+  // Try Google Programmable Search if configured
+  if (GOOGLE_SEARCH_API_KEY && GOOGLE_SEARCH_CX) {
+    try {
+      const results = await searchGoogle(cleanQuery, maxResults, options.signal)
+      if (results.length > 0) return results
+    } catch (error) {
+      if (options.signal?.aborted) throw error
+      console.warn('Google search failed:', error)
+    }
+  }
+
+  // Try Brave API if configured
   if (BRAVE_API_KEY) {
     try {
       const results = await searchBrave(cleanQuery, maxResults, options.signal)
