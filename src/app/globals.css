@@ -554,9 +554,11 @@ h1, h2, h3, h4, h5, h6 {
 
 .streaming-cursor::after {
   content: '▍';
-  animation: blink 0.8s step-end infinite;
+  animation: blink 0.7s steps(1) infinite;
   color: var(--accent-primary, #888);
   margin-left: 1px;
+  font-weight: 400;
+  display: inline;
 }
 
 @keyframes blink {
@@ -593,6 +595,8 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid var(--border-color);
   line-height: 1.6;
   min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .message.user .message-content {

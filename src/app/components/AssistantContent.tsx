@@ -588,7 +588,7 @@ export default function AssistantContent({
   const normalizedContent = normalizeAssistantResponseContent(content, presentation);
 
   if (!shouldRenderStructured(normalizedContent, presentation)) {
-    return <span style={{ whiteSpace: 'pre-wrap' }}>{normalizedContent}</span>;
+    return <span style={{ whiteSpace: 'pre-wrap', lineHeight: '1.7' }}>{normalizedContent}</span>;
   }
 
   const mode = presentation?.mode ?? 'general';
@@ -648,11 +648,11 @@ export default function AssistantContent({
   const blocks = parseStructuredBlocks(normalizedContent);
 
   if (!blocks.length) {
-    return <span style={{ whiteSpace: 'pre-wrap' }}>{normalizedContent}</span>;
+    return <span style={{ whiteSpace: 'pre-wrap', lineHeight: '1.7' }}>{normalizedContent}</span>;
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       {blocks.map((block, blockIndex) => renderBlock(block, blockIndex, sources))}
     </div>
   );
