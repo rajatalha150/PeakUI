@@ -3253,17 +3253,6 @@ export default function OpenClawWorkspace({
     };
   };
 
-  const triggerAutoContinue = useCallback(() => {
-    if (!agentPreferences.autoContinue || !taskState.objective.trim()) return;
-    setAutoContinuePending(true);
-    setTimeout(() => {
-      setMessage('continue');
-      const sendBtn = document.querySelector('[data-send-button]') as HTMLButtonElement;
-      if (sendBtn) sendBtn.click();
-      setAutoContinuePending(false);
-    }, 500);
-  }, [agentPreferences.autoContinue, taskState.objective]);
-
   const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = internetEnabled) => {
     const prompt = draftPrompt.trim();
     if ((!prompt && pendingImages.length === 0 && pendingAttachments.length === 0) || isStreaming || !selectedModel || !settings) return;
@@ -3849,6 +3838,16 @@ export default function OpenClawWorkspace({
       setStreamPhase(null);
       setIsStreaming(false);
       abortControllerRef.current = null;
+
+      // Auto-continue: if enabled and the task has an objective, send "continue"
+      // after a short delay so the user can see the completed response
+      if (agentPreferences.autoContinue && taskState.objective.trim()) {
+        setAutoContinuePending(true);
+        setTimeout(() => {
+          setAutoContinuePending(false);
+          handleSendMessage('continue');
+        }, 1500);
+      }
     }
   };
 
@@ -5722,6 +5721,7 @@ export default function OpenClawWorkspace({
         isOpen={pendingApproval !== null}
         onApprove={handleToolApprove}
         onReject={handleToolReject}
+        autoApproveSeconds={agentPreferences.autoContinue ? 4 : undefined}
       />
 
       {/* Shell settings panel */}

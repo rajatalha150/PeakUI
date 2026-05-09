@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import { CheckCircle, FilePenLine, Globe, Shield, Terminal, XCircle } from 'lucide-react'
 
 interface ShellCommandModalProps {
@@ -10,6 +10,7 @@ interface ShellCommandModalProps {
   onApprove: () => void
   onReject: () => void
   isOpen: boolean
+  autoApproveSeconds?: number
 }
 
 function renderToolIcon(toolKind: ShellCommandModalProps['toolKind']) {
@@ -29,7 +30,29 @@ export default function ShellCommandModal({
   onApprove,
   onReject,
   isOpen,
+  autoApproveSeconds,
 }: ShellCommandModalProps) {
+  const [countdown, setCountdown] = useState(autoApproveSeconds ?? 0)
+
+  useEffect(() => {
+    if (!isOpen || !autoApproveSeconds) {
+      setCountdown(0)
+      return
+    }
+    setCountdown(autoApproveSeconds)
+    const timer = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(timer)
+          onApprove()
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [isOpen, autoApproveSeconds, onApprove])
+
   if (!isOpen) return null
 
   return (
@@ -89,7 +112,7 @@ export default function ShellCommandModal({
 
         <div style={{ display: 'flex', gap: '12px' }}>
           <button
-            onClick={onReject}
+            onClick={() => { setCountdown(0); onReject(); }}
             style={{
               flex: 1,
               padding: '12px',
@@ -109,7 +132,7 @@ export default function ShellCommandModal({
             Reject
           </button>
           <button
-            onClick={onApprove}
+            onClick={() => { setCountdown(0); onApprove(); }}
             style={{
               flex: 1,
               padding: '12px',
@@ -126,7 +149,7 @@ export default function ShellCommandModal({
             }}
           >
             <CheckCircle size={18} />
-            Approve
+            {countdown > 0 ? `Approve (${countdown}s)` : 'Approve'}
           </button>
         </div>
       </div>
