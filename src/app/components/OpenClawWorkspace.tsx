@@ -3343,6 +3343,8 @@ export default function OpenClawWorkspace({
       }
     }, 500);
 
+    let finalAssistantMessage: OpenClawMessage | null = null;
+
     try {
       const sessionSavePromise = createSession(baseHistory, chatId).catch(error => {
         console.error('Failed to persist Open Claw session before streaming:', error);
@@ -3432,7 +3434,6 @@ export default function OpenClawWorkspace({
 
       let sessionHistory = [...baseHistory];
       let currentSources = [...activeSources];
-      let finalAssistantMessage: OpenClawMessage | null = null;
       let nextAssistantId = assistantMessageId;
       let lastToolRequestSignature: string | null = null;
       let duplicateToolRequestCount = 0;
@@ -3825,7 +3826,7 @@ export default function OpenClawWorkspace({
         const updatedSession: OpenClawSession = {
           ...sessionRecord,
           title: getChatTitle(baseHistory),
-          messages: [...messagesBeforeFinalAssistant, finalAssistantMessage],
+          messages: [...messagesBeforeFinalAssistant, finalAssistantMessage!],
           updatedAt: Date.now(),
         };
         if (index === -1) return [updatedSession, ...next];
@@ -3873,8 +3874,7 @@ export default function OpenClawWorkspace({
       // for executed tools, so auto-continue is only needed when the loop
       // ended with unfinished work. Capped at 3 consecutive auto-continues.
       if (agentPreferences.autoContinue && taskState.objective.trim()) {
-        const lastAssistant = [...sessionHistory].reverse().find(m => m.role === 'assistant');
-        if (lastAssistant?.toolRequest && autoContinueCountRef.current < 3) {
+        if (finalAssistantMessage?.toolRequest && autoContinueCountRef.current < 3) {
           autoContinueCountRef.current += 1;
           setAutoContinuePending(true);
           setTimeout(() => {
