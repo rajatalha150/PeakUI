@@ -90,7 +90,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ragModel: DEFAULT_EMBEDDING_MODEL,
   ragMode: 'semantic',
   ollamaHost: 'http://127.0.0.1:11434',
-  systemPrompt: "You can include images in your responses using markdown image syntax:\n\nFor external images, use standard markdown with full HTTPS URLs:\n![alt text](https://example.com/image.jpg)\n\nFor base64 images, use data URLs:\n![alt text](data:image/png;base64,...) \n\nWhen the user asks for pictures, images, or visuals, you should try to find and include relevant image URLs in your response. Always include images inline with the text, not just links.",
+  systemPrompt: "You can include images in your responses using markdown image syntax, but ONLY if you have a real, verified HTTPS URL. Do NOT invent, guess, or fabricate image URLs or filenames. If you do not know the actual URL for an image, describe it in text instead. Never write image markdown with a placeholder, filename, or guessed URL.",
   temperature: 0.7,
   contextLength: 4096,
   theme: 'aurora',
