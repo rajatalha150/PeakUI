@@ -68,6 +68,8 @@ export function extractUrlsFromText(value: string): string[] {
 
 /* ───────── Query intelligence ───────── */
 
+const CURRENT_YEAR = new Date().getFullYear()
+
 export function generateSearchQueries(userQuery: string): string[] {
   const clean = userQuery.trim()
   if (!clean) return []
@@ -82,19 +84,38 @@ export function generateSearchQueries(userQuery: string): string[] {
       const left = parts[0].trim().replace(/^(?:what is|who is|how does|compare|difference between)\s+/i, '').trim()
       const right = parts[1].trim()
       if (left && right) {
-        queries.push(`${left} overview`)
-        queries.push(`${right} overview`)
+        queries.push(`${left} overview ${CURRENT_YEAR}`)
+        queries.push(`${right} overview ${CURRENT_YEAR}`)
       }
     }
   }
 
-  // If asking "how to / what is / latest", also add a keyword-stripped version
+  // Strip question prefixes to create a focused keyword query
   const stripped = clean
-    .replace(/^(?:what is|who is|how (?:to|do|can|does)|why is|when is|where is|latest|current|recent)\s+/i, '')
+    .replace(/^(?:what is|who is|how (?:to|do|can|does)|why is|when is|where is|latest|current|recent|show me|find|search for|look up|tell me about)\s+/i, '')
     .replace(/\?/g, '')
     .trim()
-  if (stripped && stripped !== clean && stripped.length > 8) {
-    queries.push(stripped)
+
+  if (stripped && stripped !== clean && stripped.length > 3) {
+    // Add year context for time-sensitive topics if not already present
+    const yearRegex = /\b(20\d{2})\b/
+    if (!yearRegex.test(stripped) && !yearRegex.test(clean)) {
+      queries.push(`${stripped} ${CURRENT_YEAR}`)
+    } else {
+      queries.push(stripped)
+    }
+  }
+
+  // For product/recommendation queries, add a "review" or "best" variant
+  const productSignals = /\b(best|top|recommend|cheap|budget|review|compare|vs|versus|buy|under\s*\$|under\s*\d)/i
+  if (productSignals.test(clean)) {
+    const productTerms = clean
+      .replace(/^(?:what (?:is|are)|show me|find|search for|look up|tell me about|can you|please|I (?:want|need|am looking for))\s+/i, '')
+      .replace(/\?/g, '')
+      .trim()
+    if (productTerms.length > 5 && productTerms !== clean) {
+      queries.push(`${productTerms} review ${CURRENT_YEAR}`)
+    }
   }
 
   return queries.filter((q, i, arr) => arr.indexOf(q) === i).slice(0, 3)
