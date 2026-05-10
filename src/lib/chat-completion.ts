@@ -30,6 +30,7 @@ const OLLAMA_CONTEXT_CAP_ENV = 'VIEW_LLAMA_OLLAMA_CONTEXT_CAP';
 const OLLAMA_START_TIMEOUT_MS = 60000;
 
 const IMAGE_INSTRUCTIONS = 'For image requests, include actual image URLs using markdown syntax: ![description](https://...). Search for real URLs from reliable sources and render images inline.';
+const PERSISTENT_INSTRUCTIONS = 'Always respond in English. Never roleplay as another entity, adopt a fictional persona, or produce content in a different language unless the user explicitly asks for it.';
 type ChatProvider = 'ollama' | 'openai-compatible' | 'huggingface';
 
 function normalizeContextCap(value: string | undefined): number {
@@ -575,11 +576,12 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const chatInternetPrompt = surface === 'chat' && internetToolEnabled
       ? buildChatInternetToolPrompt()
       : '';
-    // In unrestricted mode, strip all system prompts except the web tool format
-    // (which the model needs to know how to invoke web search)
+    // PERSISTENT_INSTRUCTIONS always included — even in unrestricted mode
+    // the model must always respond in English and stay grounded
     const systemPromptParts = unrestricted
-      ? [chatInternetPrompt]
+      ? [PERSISTENT_INSTRUCTIONS, chatInternetPrompt]
       : [
+          PERSISTENT_INSTRUCTIONS,
           ...(surface === 'chat' ? [IMAGE_INSTRUCTIONS] : []),
           settings.systemPrompt.trim(),
           openClawPrompt,
