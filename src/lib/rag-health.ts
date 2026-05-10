@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma'
 
-const STALE_PROCESSING_MS = 2 * 60 * 1000
+const STALE_PROCESSING_MS = 10 * 60 * 1000
 const STALE_QUEUED_MS = 30 * 60 * 1000
 
 export interface RagHealthEntry {
@@ -149,8 +149,6 @@ export async function markStaleProcessingDocuments(userId: string) {
 }
 
 export async function getRagHealthSnapshot(userId: string): Promise<RagHealthSnapshot> {
-  await markStaleProcessingDocuments(userId)
-
   const documents = await prisma.document.findMany({
     where: { userId },
     orderBy: { createdAt: 'desc' },

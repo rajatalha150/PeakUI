@@ -1,12 +1,13 @@
 import { NextResponse } from 'next/server'
 import { getCurrentUserId } from '@/lib/request-auth'
-import { getRagHealthSnapshot } from '@/lib/rag-health'
+import { getRagHealthSnapshot, markStaleProcessingDocuments } from '@/lib/rag-health'
 
 export async function GET() {
   try {
     const userId = await getCurrentUserId()
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+    await markStaleProcessingDocuments(userId)
     const snapshot = await getRagHealthSnapshot(userId)
     return NextResponse.json(snapshot)
   } catch (error) {

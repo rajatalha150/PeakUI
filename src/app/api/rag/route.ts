@@ -9,6 +9,8 @@ import { detectFileKind } from '@/lib/file-shared';
 import { type ExtractedFilePayload, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/file-shared';
 import { markStaleProcessingDocuments } from '@/lib/rag-health';
 
+const MAX_RAG_TEXT_CHARS = 2_000_000;
+
 const EMBEDDING_BATCH_SIZE = 16;
 const EMBEDDING_UPLOAD_TIMEOUT_MS = 45000;
 const CHUNK_INSERT_BATCH_SIZE = 100;
@@ -46,11 +48,29 @@ async function embedChunks(
   onBatchComplete?: () => Promise<void>
 ): Promise<number[][]> {
   const embeddings: number[][] = [];
+  const MAX_RETRIES = 2;
+  const RETRY_DELAYS_MS = [5000, 15000];
 
   for (let i = 0; i < chunks.length; i += EMBEDDING_BATCH_SIZE) {
     const batch = chunks.slice(i, i + EMBEDDING_BATCH_SIZE);
-    const batchEmbeddings = await getEmbeddings(batch, model, ollamaHost, EMBEDDING_UPLOAD_TIMEOUT_MS);
-    embeddings.push(...batchEmbeddings);
+    let lastError: unknown = null;
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const batchEmbeddings = await getEmbeddings(batch, model, ollamaHost, EMBEDDING_UPLOAD_TIMEOUT_MS);
+        embeddings.push(...batchEmbeddings);
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+        if (attempt < MAX_RETRIES) {
+          console.warn(`RAG embedding batch ${Math.floor(i / EMBEDDING_BATCH_SIZE) + 1} failed (attempt ${attempt + 1}), retrying in ${RETRY_DELAYS_MS[attempt]}ms:`, error instanceof Error ? error.message : String(error));
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+        }
+      }
+    }
+
+    if (lastError) throw lastError;
     await onBatchComplete?.();
   }
 
@@ -154,12 +174,14 @@ async function processDocumentUpload({
 
     console.info(`RAG indexing started for ${sourcePath ? `${sourcePath} → ${filename}` : filename} (${documentId})`);
 
+    await touchProcessingDocument(documentId);
+
     const extraction = await extractFilePayload({
       name: filename,
       type: fileType,
       size,
       buffer,
-      maxTextChars: Number.MAX_SAFE_INTEGER,
+      maxTextChars: MAX_RAG_TEXT_CHARS,
     });
     await touchProcessingDocument(documentId);
 
@@ -246,8 +268,6 @@ export async function GET(req: Request) {
     const userId = await getCurrentUserId();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    await markStaleProcessingDocuments(userId);
-
     const url = new URL(req.url);
     const requestedPage = parsePageParam(url.searchParams.get('page'), 1);
     const pageSize = parsePageSizeParam(url.searchParams.get('pageSize'), DEFAULT_PAGE_SIZE);
@@ -285,6 +305,8 @@ export async function POST(req: Request) {
   try {
     const userId = await getCurrentUserId();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    await markStaleProcessingDocuments(userId);
 
     const contentLength = getRequestContentLength(req);
     if (contentLength !== null && contentLength > MAX_UPLOAD_BYTES) {
@@ -337,6 +359,14 @@ export async function POST(req: Request) {
         reused: true,
         document: { ...existingDoc, chunkCount: 0 },
       }, { status: existingDoc.status === 'ready' ? 200 : 202 });
+    }
+
+    // Allow re-upload of errored documents with matching content to retry indexing
+    if (existingDoc && existingDoc.contentHash === contentHash && existingDoc.status === 'error') {
+      await prisma.document.update({
+        where: { id: existingDoc.id },
+        data: { status: 'queued', errorMessage: null, indexedAt: null },
+      });
     }
 
     const doc = existingDoc
