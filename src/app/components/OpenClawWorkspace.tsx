@@ -349,6 +349,8 @@ type OpenClawStreamFrame = {
 
 const OPENCLAW_API_KEY_STORAGE = 'view-llama-openclaw-api-key';
 const OPENCLAW_INTERNET_STORAGE = 'view-llama-openclaw-internet-enabled';
+const OPENCLAW_UNRESTRICTED_STORAGE = 'view-llama-openclaw-unrestricted';
+const OPENCLAW_UNCENSORED_STORAGE = 'view-llama-openclaw-uncensored';
 const OPENCLAW_AGENT_STORAGE = 'view-llama-openclaw-agent-preferences';
 const OPENCLAW_RAIL_STORAGE = 'view-llama-openclaw-rail-collapsed';
 const OPENCLAW_TASK_STATE_STORAGE = 'view-llama-openclaw-task-states';
@@ -1013,6 +1015,12 @@ export default function OpenClawWorkspace({
   const [ragEnabled, setRagEnabled] = useState(false);
   const [internetEnabled, setInternetEnabled] = useState(getStoredInternetEnabled);
   const [uwafBrowserMode, setUwafBrowserMode] = useState<'direct' | 'stealth'>('direct');
+  const [unrestrictedEnabled, setUnrestrictedEnabled] = useState(() => {
+    try { return window.sessionStorage.getItem(OPENCLAW_UNRESTRICTED_STORAGE) === 'true'; } catch { return false; }
+  });
+  const [uncensoredEnabled, setUncensoredEnabled] = useState(() => {
+    try { return window.sessionStorage.getItem(OPENCLAW_UNCENSORED_STORAGE) === 'true'; } catch { return false; }
+  });
   const [uwafScreenshot, setUwafScreenshot] = useState<string | null>(null);
   const [uwafCurrentUrl, setUwafCurrentUrl] = useState<string>('');
   const [uwafCurrentTitle, setUwafCurrentTitle] = useState<string>('');
@@ -1850,6 +1858,30 @@ export default function OpenClawWorkspace({
       const nextValue = !prev;
       try {
         window.sessionStorage.setItem(OPENCLAW_INTERNET_STORAGE, String(nextValue));
+      } catch {
+        // Ignore browser storage failures.
+      }
+      return nextValue;
+    });
+  };
+
+  const toggleUnrestricted = () => {
+    setUnrestrictedEnabled(prev => {
+      const nextValue = !prev;
+      try {
+        window.sessionStorage.setItem(OPENCLAW_UNRESTRICTED_STORAGE, String(nextValue));
+      } catch {
+        // Ignore browser storage failures.
+      }
+      return nextValue;
+    });
+  };
+
+  const toggleUncensored = () => {
+    setUncensoredEnabled(prev => {
+      const nextValue = !prev;
+      try {
+        window.sessionStorage.setItem(OPENCLAW_UNCENSORED_STORAGE, String(nextValue));
       } catch {
         // Ignore browser storage failures.
       }
@@ -3147,6 +3179,8 @@ export default function OpenClawWorkspace({
         response_presentation: options.responsePresentation,
         internet_enabled: options.internetEnabledForTurn,
         internet_tool_enabled: options.internetToolEnabledForTurn,
+        unrestricted: unrestrictedEnabled,
+        uncensored: uncensoredEnabled,
         messages: options.conversationMessages.map(message => ({
           role: message.role,
           content: message.content,
@@ -3928,7 +3962,11 @@ export default function OpenClawWorkspace({
       : connectionStatus === 'ok'
         ? 'var(--success)'
         : 'var(--text-secondary)';
-  const composerPlaceholder = internetEnabled
+  const composerPlaceholder = uncensoredEnabled
+    ? '🔓 Uncensored mode — direct answers without refusal...'
+    : unrestrictedEnabled
+      ? '⚡ Unrestricted mode — no system prompts, natural responses...'
+      : internetEnabled
     ? 'Internet mode - the model will search the web when needed...'
     : ragEnabled
       ? 'RAG mode - ask Open Claw with Knowledge Base context...'
@@ -4068,6 +4106,30 @@ export default function OpenClawWorkspace({
             >
               <span>Knowledge Base</span>
               <span>{ragEnabled ? 'On' : 'Off'}</span>
+            </button>
+            <button
+              type="button"
+              className={`mobile-topbar-menu-item${unrestrictedEnabled ? ' is-active' : ''}`}
+              style={unrestrictedEnabled ? { color: '#f59e0b', borderColor: '#f59e0b', background: 'rgba(245, 158, 11, 0.12)' } : undefined}
+              onClick={() => {
+                toggleUnrestricted();
+                setMobileHeaderMenuOpen(false);
+              }}
+            >
+              <span>Unrestricted</span>
+              <span>{unrestrictedEnabled ? 'On' : 'Off'}</span>
+            </button>
+            <button
+              type="button"
+              className={`mobile-topbar-menu-item${uncensoredEnabled ? ' is-active' : ''}`}
+              style={uncensoredEnabled ? { color: '#ef4444', borderColor: '#ef4444', background: 'rgba(239, 68, 68, 0.12)' } : undefined}
+              onClick={() => {
+                toggleUncensored();
+                setMobileHeaderMenuOpen(false);
+              }}
+            >
+              <span>Uncensored</span>
+              <span>{uncensoredEnabled ? 'On' : 'Off'}</span>
             </button>
             {selectedModelIsOllama && (
               <button
@@ -4325,6 +4387,28 @@ export default function OpenClawWorkspace({
           <span style={{ fontSize: '0.85rem', color: ragEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>RAG</span>
         </button>
         <HelpHint text="When enabled, each new chat prompt searches the Knowledge Base first and injects matching document context into the request." />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <button
+            className="glass-panel"
+            style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', border: unrestrictedEnabled ? '1px solid #f59e0b' : undefined, background: unrestrictedEnabled ? 'rgba(245, 158, 11, 0.12)' : undefined }}
+            onClick={() => toggleUnrestricted()}
+          >
+            <Wand2 size={16} color={unrestrictedEnabled ? '#f59e0b' : 'var(--text-secondary)'} />
+            <span style={{ fontSize: '0.85rem', color: unrestrictedEnabled ? '#f59e0b' : 'var(--text-secondary)' }}>Unrestricted</span>
+          </button>
+          <HelpHint text="Removes all system prompts and formatting instructions. The agent responds naturally without guardrails or preset behavior." />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <button
+            className="glass-panel"
+            style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', border: uncensoredEnabled ? '1px solid #ef4444' : undefined, background: uncensoredEnabled ? 'rgba(239, 68, 68, 0.12)' : undefined }}
+            onClick={() => toggleUncensored()}
+          >
+            <Wand2 size={16} color={uncensoredEnabled ? '#ef4444' : 'var(--text-secondary)'} />
+            <span style={{ fontSize: '0.85rem', color: uncensoredEnabled ? '#ef4444' : 'var(--text-secondary)' }}>Uncensored</span>
+          </button>
+          <HelpHint text="Instructs the agent to answer all questions directly without refusal, moral disclaimers, or hedging. Combine with Unrestricted for maximum openness." />
+        </div>
       </div>
     </header>
   );
@@ -4464,6 +4548,8 @@ export default function OpenClawWorkspace({
                     {hasMemory && <span className="openclaw-pill accent">Memory loaded</span>}
                     {internetEnabled && <span className="openclaw-pill accent">Internet on</span>}
                     {ragEnabled && <span className="openclaw-pill accent">Knowledge Base on</span>}
+                    {unrestrictedEnabled && <span className="openclaw-pill" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>Unrestricted</span>}
+                    {uncensoredEnabled && <span className="openclaw-pill" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>Uncensored</span>}
                   </div>
                 </div>
 
