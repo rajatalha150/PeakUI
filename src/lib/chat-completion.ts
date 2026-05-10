@@ -63,6 +63,7 @@ interface IncomingChatBody {
   surface?: unknown;
   internet_enabled?: unknown;
   internet_tool_enabled?: unknown;
+  unrestricted?: unknown;
   rag_enabled?: unknown;
   rag_query?: unknown;
   rag_topk?: unknown;
@@ -492,6 +493,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const internetToolEnabled = body.internet_tool_enabled === undefined
       ? internetEnabled
       : normalizeInternetEnabled(body.internet_tool_enabled);
+    const unrestricted = body.unrestricted === true;
 
     // RAG / Knowledge Base settings — use per-request flag if provided, else fall back to user settings
     const ragEnabled = normalizeRagEnabled(body.rag_enabled) || settings.ragEnabled;
@@ -573,16 +575,20 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const chatInternetPrompt = surface === 'chat' && internetToolEnabled
       ? buildChatInternetToolPrompt()
       : '';
-    const systemPromptParts = [
-      ...(surface === 'chat' ? [IMAGE_INSTRUCTIONS] : []),
-      settings.systemPrompt.trim(),
-      openClawPrompt,
-      chatInternetPrompt,
-      presentationPrompt,
-      ...messages
-        .filter(message => message.role === 'system')
-        .map(message => message.content?.trim() || ''),
-    ].filter(Boolean);
+    // In unrestricted mode, strip all system prompts except the web tool format
+    // (which the model needs to know how to invoke web search)
+    const systemPromptParts = unrestricted
+      ? [chatInternetPrompt]
+      : [
+          ...(surface === 'chat' ? [IMAGE_INSTRUCTIONS] : []),
+          settings.systemPrompt.trim(),
+          openClawPrompt,
+          chatInternetPrompt,
+          presentationPrompt,
+          ...messages
+            .filter(message => message.role === 'system')
+            .map(message => message.content?.trim() || ''),
+        ].filter(Boolean);
 
     const systemPrompt = systemPromptParts.join('\n\n');
     const untrimmedMessages: InternalChatMessage[] = systemPrompt

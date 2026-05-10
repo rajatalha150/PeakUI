@@ -44,6 +44,7 @@ import {
 } from '@/lib/chat-platforms';
 
 const CHAT_INTERNET_STORAGE = 'view-llama-chat-internet-enabled';
+const UNRESTRICTED_STORAGE = 'view-llama-chat-unrestricted';
 const SIDEBAR_COLLAPSE_STORAGE = 'view-llama-sidebar-collapsed';
 const HUGGING_FACE_API_KEY_STORAGE = 'view-llama-huggingface-api-key';
 const ACTIVE_TAB_STORAGE = 'view-llama-active-tab';
@@ -653,6 +654,9 @@ export default function Home() {
   const [ragContext, setRagContext] = useState<string | null>(null);
   const [ragContextSources, setRagContextSources] = useState<MessageSource[]>([]);
   const [internetEnabled, setInternetEnabled] = useState(getStoredInternetEnabled);
+  const [unrestrictedEnabled, setUnrestrictedEnabled] = useState(() => {
+    try { return window.sessionStorage.getItem(UNRESTRICTED_STORAGE) === 'true'; } catch { return false; }
+  });
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [mobileHeaderMenuOpen, setMobileHeaderMenuOpen] = useState(false);
@@ -1520,6 +1524,18 @@ export default function Home() {
     setInternetEnabled(nextValue);
   };
 
+  const toggleUnrestricted = () => {
+    setUnrestrictedEnabled(prev => {
+      const nextValue = !prev;
+      try {
+        window.sessionStorage.setItem(UNRESTRICTED_STORAGE, String(nextValue));
+      } catch {
+        // Ignore browser storage failures.
+      }
+      return nextValue;
+    });
+  };
+
   const retryLastDraft = async (options?: { disableInternet?: boolean; stopModelFirst?: boolean }) => {
     if (!lastSubmittedDraft || isStreaming) return;
     const nextInternetEnabled = options?.disableInternet ? false : lastSubmittedDraft.internetEnabled;
@@ -1912,6 +1928,7 @@ export default function Home() {
             response_presentation: responsePresentation,
             internet_enabled: false, // No pre-search — model drives web research via tool tags
             internet_tool_enabled: draftInternetEnabled,
+            unrestricted: unrestrictedEnabled,
             ...(toolRound === 0 ? { rag_enabled: ragEnabled, rag_query: ragSearchText } : { rag_enabled: false }),
             messages: toolRoundMessages.map(m => ({
               role: m.role,
@@ -2897,6 +2914,18 @@ export default function Home() {
                 </button>
                 <button
                   type="button"
+                  className={`mobile-topbar-menu-item${unrestrictedEnabled ? ' is-active' : ''}`}
+                  style={unrestrictedEnabled ? { color: '#f59e0b', borderColor: '#f59e0b', background: 'rgba(245, 158, 11, 0.12)' } : undefined}
+                  onClick={() => {
+                    toggleUnrestricted();
+                    setMobileHeaderMenuOpen(false);
+                  }}
+                >
+                  <span>Unrestricted</span>
+                  <span>{unrestrictedEnabled ? 'On' : 'Off'}</span>
+                </button>
+                <button
+                  type="button"
                   className={`mobile-topbar-menu-item${ragEnabled ? ' is-active' : ''}`}
                   onClick={() => {
                     setRagEnabled(value => !value);
@@ -3197,6 +3226,17 @@ export default function Home() {
                 <span style={{ fontSize: '0.85rem', color: internetEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>Internet</span>
               </button>
               <HelpHint text="When enabled, ViewLlama can run read-only public web searches and fetch cited pages before answering, while still blocking private or local network targets." />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <button
+                className="glass-panel"
+                style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', border: unrestrictedEnabled ? '1px solid #f59e0b' : undefined, background: unrestrictedEnabled ? 'rgba(245, 158, 11, 0.12)' : undefined }}
+                onClick={() => toggleUnrestricted()}
+              >
+                <Wand2 size={16} color={unrestrictedEnabled ? '#f59e0b' : 'var(--text-secondary)'} />
+                <span style={{ fontSize: '0.85rem', color: unrestrictedEnabled ? '#f59e0b' : 'var(--text-secondary)' }}>Unrestricted</span>
+              </button>
+              <HelpHint text="Removes all system prompts and formatting instructions. The model responds naturally without guardrails or preset behavior. Web search format is preserved if Internet is also on." />
             </div>
             <button
               className={`glass-panel`}
@@ -3501,7 +3541,7 @@ export default function Home() {
             <textarea
               ref={textareaRef}
               className="input-field"
-              placeholder={models.length > 0 ? (internetEnabled ? '🌐 Internet mode — the model will search when needed...' : ragEnabled ? '🔍 RAG mode — asking with knowledge base context...' : ragContext ? '📎 KB context attached — type your question...' : 'Message local model...') : 'Waiting for Ollama to connect...'}
+              placeholder={models.length > 0 ? (unrestrictedEnabled ? '⚡ Unrestricted mode — no system prompts, natural responses...' : internetEnabled ? '🌐 Internet mode — the model will search when needed...' : ragEnabled ? '🔍 RAG mode — asking with knowledge base context...' : ragContext ? '📎 KB context attached — type your question...' : 'Message local model...') : 'Waiting for Ollama to connect...'}
               style={{ background: 'transparent', border: 'none', padding: '8px', boxShadow: 'none', resize: 'none', minHeight: '20px', maxHeight: '160px', overflowY: 'auto', lineHeight: '1.5', fieldSizing: 'content' } as React.CSSProperties}
               value={message}
               onChange={(e) => {
@@ -3542,8 +3582,11 @@ export default function Home() {
               </button>
             )}
           </div>
-          {(internetEnabled || ragEnabled || ragContext) && (
+          {(internetEnabled || ragEnabled || ragContext || unrestrictedEnabled) && (
             <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              {unrestrictedEnabled && (
+                <span style={{ color: '#f59e0b' }}>Unrestricted mode removes all system prompts — the model responds naturally without formatting or behavioral instructions.</span>
+              )}
               {internetEnabled && (
                 <span>Internet mode lets the model run read-only public web searches and page fetches, shows citations, and blocks private or local addresses.</span>
               )}
