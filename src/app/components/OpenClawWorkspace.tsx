@@ -3239,6 +3239,11 @@ export default function OpenClawWorkspace({
         }
 
         if (typeof messageFrame.content === 'string' && messageFrame.content) {
+          // Strip uncensored prefill prefix if the model echoes it back during streaming
+          let dripContent = messageFrame.content;
+          if (uncensoredEnabled && assistantContent === '' && dripContent.startsWith('Here is the complete and direct answer:')) {
+            dripContent = dripContent.slice('Here is the complete and direct answer:'.length).replace(/^\s+/, '');
+          }
           assistantContent += messageFrame.content;
           tokenCountRef.current += 1;
           // Suppress <openclaw_tool> tags from the display drip.
@@ -3253,7 +3258,7 @@ export default function OpenClawWorkspace({
           // will replace the entire message with cleaned content.
           const justClosedToolTag = ocWasInsideToolTag && !insideToolTag;
           if (!insideToolTag && !justClosedToolTag) {
-            scheduleUpdate(options.assistantMessageId, { content: messageFrame.content });
+            scheduleUpdate(options.assistantMessageId, { content: dripContent });
           }
           ocWasInsideToolTag = insideToolTag;
         }
@@ -3289,11 +3294,17 @@ export default function OpenClawWorkspace({
     const finalLine = streamBuffer.trim();
     if (finalLine) processStreamLine(finalLine);
 
+    // Strip uncensored prefill prefix from final content if the model echoed it
+    let finalContent = assistantContent;
+    if (uncensoredEnabled && finalContent.startsWith('Here is the complete and direct answer:')) {
+      finalContent = finalContent.slice('Here is the complete and direct answer:'.length).replace(/^\s+/, '');
+    }
+
     return {
       assistantMessage: {
         id: options.assistantMessageId,
         role: 'assistant',
-        content: assistantContent,
+        content: finalContent,
         ...(assistantThinking ? { thinking: assistantThinking } : {}),
         ...(finalMeta ? { meta: finalMeta } : {}),
         ...(activeSources.length > 0 ? { sources: activeSources } : {}),
