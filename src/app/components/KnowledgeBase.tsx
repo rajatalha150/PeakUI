@@ -1414,7 +1414,7 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
         <div style={{
           position: 'fixed',
           inset: 0,
-          zIndex: 80,
+          zIndex: 1100,
           background: 'rgba(0,0,0,0.65)',
           display: 'flex',
           alignItems: 'center',
