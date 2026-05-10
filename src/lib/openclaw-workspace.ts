@@ -1,7 +1,7 @@
 import path from 'path'
 import { promises as fs } from 'fs'
 
-const DEFAULT_OPENCLAW_WORKSPACE_HOST_ROOT = '/tmp/viewllama-openclaw-workspace'
+const DEFAULT_OPENCLAW_WORKSPACE_HOST_ROOT = '/tmp/peakui-openclaw-workspace'
 const OPENCLAW_WORKSPACE_CONTAINER_ROOT = '/mnt/openclaw/workspace'
 let workspaceAliasBootstrapPromise: Promise<void> | null = null
 

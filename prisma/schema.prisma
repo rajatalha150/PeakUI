@@ -57,7 +57,7 @@ model UserSettings {
   shellExecutionTarget String @default("container") // "container" | "host"
   shellExecutionMode   String @default("ask-first") // "auto-approve" | "ask-first" | "deny"
   shellAllowedCommands String @default("") // Comma-separated list of allowed commands
-  shellHostAllowedRoots String @default("/tmp/viewllama-openclaw-workspace") // Newline-separated absolute host paths allowed as cwd roots
+  shellHostAllowedRoots String @default("/tmp/peakui-openclaw-workspace") // Newline-separated absolute host paths allowed as cwd roots
   shellHostAllowedEnvVars String @default("PATH\nHOME\nUSER\nSHELL\nLANG\nTERM") // Newline-separated host env vars exposed to host commands
   shellHostMaxTimeoutMs Int @default(60000)
   shellHostMaxOutputBytes Int @default(262144)
@@ -65,7 +65,7 @@ model UserSettings {
   openClawFileAccessMode String @default("deny") // "deny" | "read-only"
   openClawAllowedPaths   String @default("") // Newline-separated absolute host paths
   openClawFileWriteMode  String @default("deny") // "auto-approve" | "ask-first" | "deny"
-  openClawWritablePaths  String @default("/tmp/viewllama-openclaw-workspace") // Newline-separated absolute writable host paths
+  openClawWritablePaths  String @default("/tmp/peakui-openclaw-workspace") // Newline-separated absolute writable host paths
   openClawCodeExecutionMode String @default("deny") // "auto-approve" | "ask-first" | "deny"
   openClawBrowserMode    String @default("deny") // "deny" | "read-only" | "ask-first"
   // UWAF Browser Settings

@@ -26,7 +26,7 @@ const CHAT_HEARTBEAT_INTERVAL_MS = 15000;
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_OLLAMA_CONTEXT_LENGTH = 16384;
 const MIN_CONTEXT_LENGTH = 512;
-const OLLAMA_CONTEXT_CAP_ENV = 'VIEW_LLAMA_OLLAMA_CONTEXT_CAP';
+const OLLAMA_CONTEXT_CAP_ENV = 'PEAKUI_OLLAMA_CONTEXT_CAP';
 const OLLAMA_START_TIMEOUT_MS = 60000;
 
 const IMAGE_INSTRUCTIONS = 'For image requests, include actual image URLs using markdown syntax: ![description](https://...). Search for real URLs from reliable sources and render images inline.';

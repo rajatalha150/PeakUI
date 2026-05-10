@@ -347,17 +347,17 @@ type OpenClawStreamFrame = {
   eval_duration?: number;
 };
 
-const OPENCLAW_API_KEY_STORAGE = 'view-llama-openclaw-api-key';
-const OPENCLAW_INTERNET_STORAGE = 'view-llama-openclaw-internet-enabled';
-const OPENCLAW_UNRESTRICTED_STORAGE = 'view-llama-openclaw-unrestricted';
-const OPENCLAW_UNCENSORED_STORAGE = 'view-llama-openclaw-uncensored';
-const OPENCLAW_AGENT_STORAGE = 'view-llama-openclaw-agent-preferences';
-const OPENCLAW_RAIL_STORAGE = 'view-llama-openclaw-rail-collapsed';
-const OPENCLAW_TASK_STATE_STORAGE = 'view-llama-openclaw-task-states';
+const OPENCLAW_API_KEY_STORAGE = 'peakui-openclaw-api-key';
+const OPENCLAW_INTERNET_STORAGE = 'peakui-openclaw-internet-enabled';
+const OPENCLAW_UNRESTRICTED_STORAGE = 'peakui-openclaw-unrestricted';
+const OPENCLAW_UNCENSORED_STORAGE = 'peakui-openclaw-uncensored';
+const OPENCLAW_AGENT_STORAGE = 'peakui-openclaw-agent-preferences';
+const OPENCLAW_RAIL_STORAGE = 'peakui-openclaw-rail-collapsed';
+const OPENCLAW_TASK_STATE_STORAGE = 'peakui-openclaw-task-states';
 const OPENCLAW_DRAFT_TASK_ID = '__draft__';
-const OPENCLAW_PERSONA_STORAGE = 'view-llama-openclaw-persona';
-const OPENCLAW_USER_PROFILE_STORAGE = 'view-llama-openclaw-user-profile';
-const OPENCLAW_CURRENT_SESSION_STORAGE = 'view-llama-openclaw-current-session';
+const OPENCLAW_PERSONA_STORAGE = 'peakui-openclaw-persona';
+const OPENCLAW_USER_PROFILE_STORAGE = 'peakui-openclaw-user-profile';
+const OPENCLAW_CURRENT_SESSION_STORAGE = 'peakui-openclaw-current-session';
 
 function getChatTitle(messages: OpenClawMessage[]) {
   const firstMessage = messages.find(message => message.role === 'user' && message.content.trim());
@@ -1232,7 +1232,7 @@ export default function OpenClawWorkspace({
       shellExecutionTarget: data.shellExecutionTarget === 'host' ? 'host' : 'container',
       shellExecutionMode: typeof data.shellExecutionMode === 'string' ? data.shellExecutionMode : 'ask-first',
       shellAllowedCommands: typeof data.shellAllowedCommands === 'string' ? data.shellAllowedCommands : '',
-      shellHostAllowedRoots: typeof data.shellHostAllowedRoots === 'string' ? data.shellHostAllowedRoots : '/tmp/viewllama-openclaw-workspace',
+      shellHostAllowedRoots: typeof data.shellHostAllowedRoots === 'string' ? data.shellHostAllowedRoots : '/tmp/peakui-openclaw-workspace',
       shellHostAllowedEnvVars: typeof data.shellHostAllowedEnvVars === 'string' ? data.shellHostAllowedEnvVars : 'PATH\nHOME\nUSER\nSHELL\nLANG\nTERM',
       shellHostMaxTimeoutMs: typeof data.shellHostMaxTimeoutMs === 'number' ? data.shellHostMaxTimeoutMs : 60000,
       shellHostMaxOutputBytes: typeof data.shellHostMaxOutputBytes === 'number' ? data.shellHostMaxOutputBytes : 262144,
@@ -1523,7 +1523,7 @@ export default function OpenClawWorkspace({
         shellExecutionTarget: data.shellExecutionTarget === 'host' ? 'host' : 'container',
         shellExecutionMode: typeof data.shellExecutionMode === 'string' ? data.shellExecutionMode : 'ask-first',
         shellAllowedCommands: typeof data.shellAllowedCommands === 'string' ? data.shellAllowedCommands : '',
-        shellHostAllowedRoots: typeof data.shellHostAllowedRoots === 'string' ? data.shellHostAllowedRoots : '/tmp/viewllama-openclaw-workspace',
+        shellHostAllowedRoots: typeof data.shellHostAllowedRoots === 'string' ? data.shellHostAllowedRoots : '/tmp/peakui-openclaw-workspace',
         shellHostAllowedEnvVars: typeof data.shellHostAllowedEnvVars === 'string' ? data.shellHostAllowedEnvVars : 'PATH\nHOME\nUSER\nSHELL\nLANG\nTERM',
         shellHostMaxTimeoutMs: typeof data.shellHostMaxTimeoutMs === 'number' ? data.shellHostMaxTimeoutMs : 60000,
         shellHostMaxOutputBytes: typeof data.shellHostMaxOutputBytes === 'number' ? data.shellHostMaxOutputBytes : 262144,
@@ -4353,7 +4353,7 @@ export default function OpenClawWorkspace({
             <Globe size={16} color={internetEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
             <span style={{ fontSize: '0.85rem', color: internetEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>Internet</span>
           </button>
-          <HelpHint text="When enabled, ViewLlama can run read-only public web searches and fetch cited pages before answering, while still blocking private or local network targets." />
+          <HelpHint text="When enabled, PeakUI can run read-only public web searches and fetch cited pages before answering, while still blocking private or local network targets." />
         </div>
         {settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -4849,7 +4849,7 @@ export default function OpenClawWorkspace({
                   <Cpu size={24} color="white" />
                 </div>
                 <div>
-                  <h2 style={{ fontSize: '1.2rem', margin: 0 }}>ViewLlama</h2>
+                  <h2 style={{ fontSize: '1.2rem', margin: 0 }}>PeakUI</h2>
                   <div style={{ fontSize: '0.8rem', color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
                     <div className="status-indicator"></div> Engine Online
                   </div>

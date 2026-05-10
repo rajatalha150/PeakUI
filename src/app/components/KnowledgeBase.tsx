@@ -407,7 +407,7 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
             const manifestName = `${rootFolder.replace(/[\\/:"*?<>|]+/g, '_') || 'folder'}.folder-manifest.txt`;
             manifests.push({
               file: new File([manifestText], manifestName, { type: 'text/plain' }),
-              sourcePath: `${rootFolder}/.viewllama-folder-manifest.txt`,
+              sourcePath: `${rootFolder}/.peakui-folder-manifest.txt`,
             });
           }
 

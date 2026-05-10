@@ -3,9 +3,9 @@ services:
     image: postgres:15-alpine
     restart: always
     environment:
-      POSTGRES_USER: viewllama
+      POSTGRES_USER: peakui
       POSTGRES_PASSWORD: password
-      POSTGRES_DB: viewllama
+      POSTGRES_DB: peakui
     ports:
       - "5432:5432"
     volumes:
@@ -29,11 +29,11 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - DATABASE_URL=postgresql://viewllama:password@localhost:5432/viewllama
+      - DATABASE_URL=postgresql://peakui:password@localhost:5432/peakui
       - JWT_SECRET=super-secret-key-for-jwt-auth-that-should-be-long-and-secure
       - OPENCLAW_HOST_HOME_DIR=${OPENCLAW_HOST_HOME_DIR:-/home}
       - OPENCLAW_HOST_TMP_DIR=${OPENCLAW_HOST_TMP_DIR:-/tmp}
-      - OPENCLAW_HOST_WORKSPACE_DIR=${OPENCLAW_HOST_WORKSPACE_DIR:-/tmp/viewllama-openclaw-workspace}
+      - OPENCLAW_HOST_WORKSPACE_DIR=${OPENCLAW_HOST_WORKSPACE_DIR:-/tmp/peakui-openclaw-workspace}
       - OPENCLAW_HOST_EXECUTOR_URL=${OPENCLAW_HOST_EXECUTOR_URL:-http://127.0.0.1:4318}
       - OPENCLAW_HOST_EXECUTOR_TOKEN=${OPENCLAW_HOST_EXECUTOR_TOKEN:-}
       - TOR_PROXY_URL=${TOR_PROXY_URL:-socks5://localhost:9050}
@@ -50,7 +50,7 @@ services:
     volumes:
       - ${OPENCLAW_HOST_HOME_DIR:-/home}:/mnt/openclaw/home:ro
       - ${OPENCLAW_HOST_TMP_DIR:-/tmp}:/mnt/openclaw/tmp:ro
-      - ${OPENCLAW_HOST_WORKSPACE_DIR:-/tmp/viewllama-openclaw-workspace}:/mnt/openclaw/workspace
+      - ${OPENCLAW_HOST_WORKSPACE_DIR:-/tmp/peakui-openclaw-workspace}:/mnt/openclaw/workspace
 
 volumes:
   db_data:

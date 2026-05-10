@@ -16,7 +16,7 @@ import {
   type ChatPlatform,
 } from '@/lib/chat-platforms';
 
-const HUGGING_FACE_API_KEY_STORAGE = 'view-llama-huggingface-api-key';
+const HUGGING_FACE_API_KEY_STORAGE = 'peakui-huggingface-api-key';
 
 interface UserSettings {
   chatPlatform: ChatPlatform;
@@ -101,14 +101,14 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
     shellExecutionTarget: 'container',
     shellExecutionMode: 'ask-first',
     shellAllowedCommands: '',
-    shellHostAllowedRoots: '/tmp/viewllama-openclaw-workspace',
+    shellHostAllowedRoots: '/tmp/peakui-openclaw-workspace',
     shellHostAllowedEnvVars: 'PATH\nHOME\nUSER\nSHELL\nLANG\nTERM',
     shellHostMaxTimeoutMs: 60000,
     shellHostMaxOutputBytes: 262144,
     openClawFileAccessMode: 'deny',
     openClawAllowedPaths: '',
     openClawFileWriteMode: 'deny',
-    openClawWritablePaths: '/tmp/viewllama-openclaw-workspace',
+    openClawWritablePaths: '/tmp/peakui-openclaw-workspace',
     openClawCodeExecutionMode: 'deny',
     openClawBrowserMode: 'deny',
     openClawUwafBrowserMode: 'deny',
@@ -218,7 +218,7 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
     setHuggingFaceApiKey(value);
     try {
       window.localStorage.setItem(HUGGING_FACE_API_KEY_STORAGE, value);
-      window.dispatchEvent(new Event('view-llama-hf-token-change'));
+      window.dispatchEvent(new Event('peakui-hf-token-change'));
     } catch {
       // Ignore browser storage failures.
     }
@@ -508,7 +508,7 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
           label={
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               Local Model Lifecycle
-              <HelpHint text="ViewLlama now leaves model loading and unload timing to Ollama itself. Use the Stop model button in Chat or Open Claw when you want to force a clean reload." />
+              <HelpHint text="PeakUI now leaves model loading and unload timing to Ollama itself. Use the Stop model button in Chat or Open Claw when you want to force a clean reload." />
             </span>
           }
           help="Chat and local-provider Open Claw no longer override Ollama keep-alive or prewarm models in the background."
@@ -523,7 +523,7 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
               Native Ollama behavior
             </div>
             <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-              ViewLlama no longer sends request-level <code>keep_alive</code> values or background warmup prompts for Chat and local-provider Open Claw. If a model gets wedged, use the header-level <strong>Stop model</strong> control to unload it and let the next request start cleanly.
+              PeakUI no longer sends request-level <code>keep_alive</code> values or background warmup prompts for Chat and local-provider Open Claw. If a model gets wedged, use the header-level <strong>Stop model</strong> control to unload it and let the next request start cleanly.
             </div>
           </div>
         </Field>
@@ -807,7 +807,7 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
                 rows={4}
                 value={settings.shellHostAllowedRoots}
                 onChange={e => update('shellHostAllowedRoots', e.target.value)}
-                placeholder={`/tmp/viewllama-openclaw-workspace\n/home/raza/Desktop`}
+                placeholder={`/tmp/peakui-openclaw-workspace\n/home/raza/Desktop`}
                 style={{ width: '100%', resize: 'vertical', fontFamily: 'monospace' }}
               />
             </Field>
@@ -932,7 +932,7 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
             rows={4}
             value={settings.openClawWritablePaths}
             onChange={e => update('openClawWritablePaths', e.target.value)}
-            placeholder={`/tmp/viewllama-openclaw-workspace`}
+            placeholder={`/tmp/peakui-openclaw-workspace`}
             style={{ width: '100%', resize: 'vertical', fontFamily: 'monospace' }}
           />
           <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: 1.5 }}>
@@ -1283,7 +1283,7 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
       </Section>
 
       {/* About */}
-      <Section icon={<Bot size={18} />} title="About ViewLlama">
+      <Section icon={<Bot size={18} />} title="About PeakUI">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
           {[
             { label: 'Version', value: '1.0.0' },

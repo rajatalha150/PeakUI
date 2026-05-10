@@ -26,7 +26,7 @@ Chat settings are saved per user in `UserSettings` and normalized on both read a
 
 ### Local Model Lifecycle
 
-- ViewLlama no longer sends request-level `keep_alive` overrides for Chat, local-provider Open Claw, or Ollama embedding requests.
+- PeakUI no longer sends request-level `keep_alive` overrides for Chat, local-provider Open Claw, or Ollama embedding requests.
 - The app also no longer issues background model warmup requests.
 - Ollama's own default lifecycle and queueing behavior now control when local models stay resident or unload.
 - Chat and Open Claw both expose a `Stop model` button next to their local-model controls.
@@ -173,7 +173,7 @@ Production behavior:
 - Filesystem write access defaults to `ask-first` and is stored in `UserSettings.openClawFileWriteMode` plus `UserSettings.openClawWritablePaths`.
 - Code sandbox access defaults to `ask-first` and is stored in `UserSettings.openClawCodeExecutionMode`.
 - Browser control access is stored in `UserSettings.openClawBrowserMode`.
-- Open Claw's default writable workspace root is `/tmp/viewllama-openclaw-workspace`, which is mounted inside the app container at `/mnt/openclaw/workspace`.
+- Open Claw's default writable workspace root is `/tmp/peakui-openclaw-workspace`, which is mounted inside the app container at `/mnt/openclaw/workspace`.
 - Shell commands run inside the app container by default with a 120-second timeout (host executor timeout is configurable up to 5 minutes).
 - Code sandbox execution has a 60-second timeout and 256MB memory limit.
 - If `UserSettings.shellExecutionTarget` is set to `host`, shell requests are forwarded to the optional host executor daemon at `OPENCLAW_HOST_EXECUTOR_URL` with `OPENCLAW_HOST_EXECUTOR_TOKEN`.
@@ -219,7 +219,7 @@ ollama pull all-minilm
 - If a weather/news/current-events prompt still feels thin, the search engine may have returned JS-heavy pages or low-signal snippets. The app now keeps search snippets even when some page fetches succeed, which makes short current-info prompts more reliable than the older all-or-nothing fetch path.
 - If you want current-tab or browser-control behavior, that is not part of Phase 1. The shipped Internet mode is intentionally limited to read-only public web context.
 - If an Open Claw shell task fails because a tool is missing, verify it inside the container rather than assuming host availability. The runtime image now includes `git`, `curl`, `wget`, `bash`, `tar`, and `unzip`, but commands still execute in the container context.
-- If an Open Claw shell task expects `/tmp/viewllama-openclaw-workspace`, that path should resolve inside the container as an alias to `/mnt/openclaw/workspace`.
+- If an Open Claw shell task expects `/tmp/peakui-openclaw-workspace`, that path should resolve inside the container as an alias to `/mnt/openclaw/workspace`.
 - If switching local models still fails under GPU pressure, enable **Exclusive Ollama Switching** so Ollama unloads other loaded models before starting the new one.
 - If a model says pull required, run `ollama pull <model-name>`.
 - If testing times out, Ollama may still be loading the model. Check `ollama ps`, then try again.

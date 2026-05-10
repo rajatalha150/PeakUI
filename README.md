@@ -1,4 +1,4 @@
-# ViewLlama 🦙
+# PeakUI
 
 A premium AI Studio command center with a local-first shell. Run models on your own hardware with Ollama, connect main chat to Hugging Face, or merge both catalogs in one hybrid picker.
 
@@ -20,7 +20,7 @@ A premium AI Studio command center with a local-first shell. Run models on your 
 - **Persistent AI Observer:** Open Claw stays active during long-running tasks — shell commands, code execution, web research, and browser actions all show live phase labels (`Running command...`, `Running code...`, `Searching web...`, etc.). Every tool execution is wrapped in error recovery so failures become model-visible messages instead of session crashes. Shell defaults to auto-approve for safe commands, and tool approvals auto-approve after a 4-second countdown when Auto-continue is enabled.
 - **Auto-Continue Mode:** When Auto-continue is ON and a task objective is set, Open Claw automatically sends "continue" after each response so the agent keeps working without manual clicks — like running Claude Code hands-free.
 - **Optional Host Shell Executor:** Open Claw can now keep its default in-container shell or switch to an optional host-side executor so shell commands use the host machine's own CLI environment, with per-user approvals, cwd-root restrictions, env allowlists, timeout/output caps, DB audit records, and automatic fallback to the container shell when Host is selected but unavailable.
-- **Managed Open Claw Workspace:** Tool-capable Open Claw flows share a writable workspace mounted at `/mnt/openclaw/workspace` in the container and exposed through the host-style alias `/tmp/viewllama-openclaw-workspace`.
+- **Managed Open Claw Workspace:** Tool-capable Open Claw flows share a writable workspace mounted at `/mnt/openclaw/workspace` in the container and exposed through the host-style alias `/tmp/peakui-openclaw-workspace`.
 - **Model-Driven Internet Research:** The Internet toggle now lets the AI model decide when and what to search, rather than running a keyword-based pre-search. When the model needs current information, it emits a web-research tool call, the backend executes the search, and the model continues with cited sources. No more unnecessary searches for simple questions — the model searches only when it actually needs to.
 - **Multi-Provider Web Search:** Internet research supports five search backends with automatic fallback: Google Programmable Search Engine (requires `GOOGLE_SEARCH_API_KEY` + `GOOGLE_SEARCH_CX`), Brave Search API (`BRAVE_API_KEY`), self-hosted SearXNG (`SEARXNG_URL`), DuckDuckGo, and Bing. Configure one or more via environment variables and the system tries each in order.
 - **Smooth Streaming UX:** Chat streaming now uses a character-drip approach that releases 3 characters per animation frame for a smooth ChatGPT-like typing feel. A blinking cursor appears during generation, and auto-scroll properly pins to bottom on Enter.
@@ -52,7 +52,7 @@ A premium AI Studio command center with a local-first shell. Run models on your 
 
 ## 🏃 Getting Started (Dockerized)
 
-ViewLlama is fully containerized for seamless deployment.
+PeakUI is fully containerized for seamless deployment.
 
 1. Ensure [Ollama](https://ollama.com/) is installed and running on your host machine (`ollama serve`) if you want local chat, hybrid chat, RAG embeddings, or local Open Claw.
 2. Pull required Ollama models:
@@ -81,9 +81,9 @@ ViewLlama is fully containerized for seamless deployment.
 17. Turn on **Internet** in Chat or Open Claw when you want cited public web context. The backend now handles search and page fetching directly before the model starts, so Internet mode no longer depends on model tool support and does not burn a long pre-answer Ollama tool round. This phase is still read-only: it does not control your browser, and it blocks localhost, private-network targets, credentialed URLs, and non-standard ports.
 18. Open Claw shell, filesystem, code, and browser tools are configured from Settings. Use `ask-first` when you want approval before writes, code execution, public-web form submits, or network-capable shell commands like `git clone`, `curl`, `wget`, `npm install`, or `docker compose up`.
 19. If you want Open Claw shell commands to run on the host instead of inside the container, start the optional host executor described in [Open Claw Host Executor](docs/openclaw-host-executor.md), set `OPENCLAW_HOST_EXECUTOR_TOKEN`, restart the app container, and switch `Shell Target` to `Host` in Settings.
-20. If an Open Claw task needs a shared working directory, use `/tmp/viewllama-openclaw-workspace` in host-style paths or `/mnt/openclaw/workspace` inside the container context.
+20. If an Open Claw task needs a shared working directory, use `/tmp/peakui-openclaw-workspace` in host-style paths or `/mnt/openclaw/workspace` inside the container context.
 21. If a request stalls before generation, the phase label now tells you whether the delay is Knowledge Base lookup, web research, exclusive model unload, or actual Ollama startup. If it stays on `Starting model...` or `Connecting to model...`, try **Stop model** or `ollama stop <model>`, restart Ollama, or free up GPU memory first.
-22. If the app reports a model-memory error while the same model works in terminal, lower the Chat context window in Settings. The default local path now lets Ollama choose its own context first, but explicit higher context requests are still capped to `4096` tokens by default and backed off further on memory pressure. Raise `VIEW_LLAMA_OLLAMA_CONTEXT_CAP` only on hardware that can actually carry larger KV caches.
+22. If the app reports a model-memory error while the same model works in terminal, lower the Chat context window in Settings. The default local path now lets Ollama choose its own context first, but explicit higher context requests are still capped to `4096` tokens by default and backed off further on memory pressure. Raise `PEAKUI_OLLAMA_CONTEXT_CAP` only on hardware that can actually carry larger KV caches.
 23. If the browser reports a chat connection failure, the streamed error should now include the provider URL and socket cause. Test the same model locally with `ollama run <model> "hello"` when using Ollama, or confirm the remote HF-compatible base URL and token when using Hugging Face.
 
 ## 🗺️ Roadmap

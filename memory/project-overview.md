@@ -1,10 +1,10 @@
 ---
 name: Project Overview
-description: ViewLlama local AI Studio — architecture, tech stack, key features, and UWAF browser integration
+description: PeakUI local AI Studio — architecture, tech stack, key features, and UWAF browser integration
 type: project
 ---
 
-ViewLlama is a local-first AI Studio web app built on Next.js 16 (App Router), React 19, Prisma 7, and PostgreSQL 15, deployed via Docker Compose with `network_mode: host`.
+PeakUI is a local-first AI Studio web app built on Next.js 16 (App Router), React 19, Prisma 7, and PostgreSQL 15, deployed via Docker Compose with `network_mode: host`.
 
 **Core capabilities:**
 - Chat with Ollama, HuggingFace, or Hybrid model selection; streaming responses with session management, folders, tags, and search

@@ -1,6 +1,6 @@
 # Open Claw Host Executor
 
-Open Claw shell commands normally run inside the ViewLlama app container. If you want shell commands to use the host machine's own `PATH`, installed tools, and local CLI setup, run the optional host executor outside Docker and switch Open Claw shell target to `Host`.
+Open Claw shell commands normally run inside the PeakUI app container. If you want shell commands to use the host machine's own `PATH`, installed tools, and local CLI setup, run the optional host executor outside Docker and switch Open Claw shell target to `Host`.
 
 If `Host` is selected but the executor is not configured or reachable, Open Claw falls back to the normal container shell and labels the actual execution target in the approval dialog and shell output. This keeps ordinary commands working while making it clear that host-only paths and tools still require the daemon.
 
@@ -41,7 +41,7 @@ Start the daemon on the host:
 npm run openclaw:host-executor
 ```
 
-Then restart the ViewLlama app container so it picks up `OPENCLAW_HOST_EXECUTOR_URL` and `OPENCLAW_HOST_EXECUTOR_TOKEN`.
+Then restart the PeakUI app container so it picks up `OPENCLAW_HOST_EXECUTOR_URL` and `OPENCLAW_HOST_EXECUTOR_TOKEN`.
 
 With Docker Compose, put the same token in the shell environment used to start Compose:
 

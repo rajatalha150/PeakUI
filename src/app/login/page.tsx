@@ -69,7 +69,7 @@ export default function LoginPage() {
             }}>
               <Cpu size={32} color="white" />
             </div>
-            <h1 style={{ fontSize: '1.8rem', margin: 0 }}>ViewLlama</h1>
+            <h1 style={{ fontSize: '1.8rem', margin: 0 }}>PeakUI</h1>
             <p style={{ color: 'var(--text-secondary)', marginTop: '8px', fontSize: '0.9rem' }}>
               {isSetupNeeded ? 'Create your initial Admin account to secure the studio.' : 'Welcome back. Please log in to your studio.'}
             </p>

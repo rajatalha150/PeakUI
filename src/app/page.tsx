@@ -43,14 +43,14 @@ import {
   type ChatPlatform,
 } from '@/lib/chat-platforms';
 
-const CHAT_INTERNET_STORAGE = 'view-llama-chat-internet-enabled';
-const UNRESTRICTED_STORAGE = 'view-llama-chat-unrestricted';
-const UNCENSORED_STORAGE = 'view-llama-chat-uncensored';
-const SIDEBAR_COLLAPSE_STORAGE = 'view-llama-sidebar-collapsed';
-const HUGGING_FACE_API_KEY_STORAGE = 'view-llama-huggingface-api-key';
-const ACTIVE_TAB_STORAGE = 'view-llama-active-tab';
-const CHAT_CURRENT_SESSION_STORAGE = 'view-llama-chat-current-session';
-const OPENCLAW_VIEW_STORAGE = 'view-llama-openclaw-view';
+const CHAT_INTERNET_STORAGE = 'peakui-chat-internet-enabled';
+const UNRESTRICTED_STORAGE = 'peakui-chat-unrestricted';
+const UNCENSORED_STORAGE = 'peakui-chat-uncensored';
+const SIDEBAR_COLLAPSE_STORAGE = 'peakui-sidebar-collapsed';
+const HUGGING_FACE_API_KEY_STORAGE = 'peakui-huggingface-api-key';
+const ACTIVE_TAB_STORAGE = 'peakui-active-tab';
+const CHAT_CURRENT_SESSION_STORAGE = 'peakui-chat-current-session';
+const OPENCLAW_VIEW_STORAGE = 'peakui-openclaw-view';
 const CHAT_DRAFT_SESSION_SENTINEL = '__draft__';
 const MOBILE_BREAKPOINT = 960;
 
@@ -1061,7 +1061,7 @@ export default function Home() {
 
   useEffect(() => {
     try {
-      const storageKey = 'view-llama-client-session-id';
+      const storageKey = 'peakui-client-session-id';
       const existing = window.localStorage.getItem(storageKey);
       if (existing) {
         clientSessionIdRef.current = existing;
@@ -1163,8 +1163,8 @@ export default function Home() {
       }
     };
 
-    window.addEventListener('view-llama-hf-token-change', syncHuggingFaceApiKey);
-    return () => window.removeEventListener('view-llama-hf-token-change', syncHuggingFaceApiKey);
+    window.addEventListener('peakui-hf-token-change', syncHuggingFaceApiKey);
+    return () => window.removeEventListener('peakui-hf-token-change', syncHuggingFaceApiKey);
   }, []);
 
   useEffect(() => {
@@ -1702,7 +1702,7 @@ export default function Home() {
     if (!clientSessionIdRef.current) {
       clientSessionIdRef.current = randomUUID();
       try {
-        window.localStorage.setItem('view-llama-client-session-id', clientSessionIdRef.current);
+        window.localStorage.setItem('peakui-client-session-id', clientSessionIdRef.current);
       } catch {
         // Ignore storage errors and keep the in-memory session id.
       }
@@ -2343,7 +2343,7 @@ export default function Home() {
             </div>
             {!sidebarIsCompact && (
               <div>
-                <h2 style={{ fontSize: '1.2rem', margin: 0 }}>ViewLlama</h2>
+                <h2 style={{ fontSize: '1.2rem', margin: 0 }}>PeakUI</h2>
                 <div style={{ fontSize: '0.8rem', color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
                   <div className="status-indicator"></div> Engine Online
                 </div>
@@ -3254,7 +3254,7 @@ export default function Home() {
                 <Globe size={16} color={internetEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
                 <span style={{ fontSize: '0.85rem', color: internetEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>Internet</span>
               </button>
-              <HelpHint text="When enabled, ViewLlama can run read-only public web searches and fetch cited pages before answering, while still blocking private or local network targets." />
+              <HelpHint text="When enabled, PeakUI can run read-only public web searches and fetch cited pages before answering, while still blocking private or local network targets." />
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <button

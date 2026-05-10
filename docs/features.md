@@ -1,4 +1,4 @@
-# ViewLlama Features
+# PeakUI Features
 
 ## Chat
 
@@ -100,7 +100,7 @@ Open Claw includes a collapsible Canvas panel that:
   - **Network Hub Panel**: Shows Direct IP, Tor connection status, Tor exit node country, and mode selector
   - **Source labeling**: Clear Web sources shown as blue chips, Dark Web sources as purple chips
   - **Security**: Binary download blocking (.exe, .sh, .bin, etc.), .onion URLs only in stealth mode, stealth fails closed if Tor proxy is unavailable
-- **Managed workspace**: Open Claw tools share `/mnt/openclaw/workspace` in-container and `/tmp/viewllama-openclaw-workspace` as the host-style alias
+- **Managed workspace**: Open Claw tools share `/mnt/openclaw/workspace` in-container and `/tmp/peakui-openclaw-workspace` as the host-style alias
 
 ### Providers
 

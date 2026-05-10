@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Development section will turn ViewLlama from a local chat studio into a local development control room. It will contain three dedicated work areas:
+The Development section will turn PeakUI from a local chat studio into a local development control room. It will contain three dedicated work areas:
 
 - Code Interpreter
 - Virtual Machines
@@ -23,8 +23,8 @@ Key research points:
 - Docker Compose should be treated as a project-level abstraction for multi-container stacks, not just individual containers.
 - libvirt provides stable VM lifecycle concepts and APIs for defining, starting, stopping, inspecting, and deleting virtual machines.
 - QEMU's QMP protocol is JSON-based and useful for lower-level VM control, but libvirt should be the first integration layer because it gives a higher-level management model.
-- Jupyter kernels are independent language-specific execution processes. For ViewLlama, the safer initial implementation is to run interpreter sessions inside controlled containers rather than inside the app process.
-- Incus is a strong alternative control plane because it can manage both system containers and virtual machines, but adopting it would make ViewLlama depend on an additional host platform.
+- Jupyter kernels are independent language-specific execution processes. For PeakUI, the safer initial implementation is to run interpreter sessions inside controlled containers rather than inside the app process.
+- Incus is a strong alternative control plane because it can manage both system containers and virtual machines, but adopting it would make PeakUI depend on an additional host platform.
 
 Research references:
 
@@ -81,7 +81,7 @@ The general chat and Knowledge Base stay separate. Development agents can option
 
 ### Why a Separate Worker
 
-Host management is powerful. Docker, VM, and code execution actions can affect the machine running ViewLlama. The Development Worker creates a safer boundary:
+Host management is powerful. Docker, VM, and code execution actions can affect the machine running PeakUI. The Development Worker creates a safer boundary:
 
 - The browser never calls host tooling directly.
 - The Next.js app does not need Docker or libvirt sockets mounted into it.
@@ -115,7 +115,7 @@ Initial Prisma models should be added only when implementation begins, but the l
 - `DockerResource`
   - `id`, `userId`, `resourceType`, `dockerId`, `name`, `image`, `state`, `metadata`, `updatedAt`
 
-These models keep ViewLlama's database as the source of user intent and audit history while the worker remains the source of live host state.
+These models keep PeakUI's database as the source of user intent and audit history while the worker remains the source of live host state.
 
 ### Proposed API Surface
 
@@ -291,7 +291,7 @@ Left rail:
 
 #### Primary Environment
 
-Use a host Development Worker with libvirt and QEMU/KVM. The worker should manage VM templates, cloud-init config, snapshots, metrics, and console sessions. ViewLlama should not build VM XML directly in the browser or main app.
+Use a host Development Worker with libvirt and QEMU/KVM. The worker should manage VM templates, cloud-init config, snapshots, metrics, and console sessions. PeakUI should not build VM XML directly in the browser or main app.
 
 Recommended initial templates:
 
@@ -513,18 +513,18 @@ This order reduces risk because Docker visibility comes before Docker control, a
 
 ## Alternative Unified Plan
 
-Alternative: build ViewLlama as a client for external development platforms instead of controlling the local host directly.
+Alternative: build PeakUI as a client for external development platforms instead of controlling the local host directly.
 
 ### Architecture
 
 - Next.js app stays unchanged as the UI/auth layer.
 - A remote or separately installed Development Gateway owns all environment control.
-- ViewLlama connects to configured gateways over HTTPS with tokens.
+- PeakUI connects to configured gateways over HTTPS with tokens.
 - Each gateway advertises capabilities: `code`, `docker`, `vm`.
 
 ### Code Interpreter Alternative
 
-Use a managed Jupyter Kernel Gateway or a remote runner service. ViewLlama sends code cells and receives output, artifacts, and kernel state over WebSocket/SSE.
+Use a managed Jupyter Kernel Gateway or a remote runner service. PeakUI sends code cells and receives output, artifacts, and kernel state over WebSocket/SSE.
 
 Pros:
 
@@ -546,7 +546,7 @@ Pros:
 
 - Better built-in VM lifecycle, images, snapshots, and remote APIs.
 - Easier multi-host support.
-- Less low-level VM management code inside ViewLlama.
+- Less low-level VM management code inside PeakUI.
 
 Cons:
 
@@ -556,12 +556,12 @@ Cons:
 
 ### Docker Containers Alternative
 
-Use Docker contexts or a remote Docker API endpoint managed outside ViewLlama.
+Use Docker contexts or a remote Docker API endpoint managed outside PeakUI.
 
 Pros:
 
 - Works with remote Docker hosts.
-- Avoids mounting Docker socket into any ViewLlama-owned service.
+- Avoids mounting Docker socket into any PeakUI-owned service.
 - Easier to separate permissions by host.
 
 Cons:
@@ -575,7 +575,7 @@ Cons:
 Choose the external gateway plan if the project needs:
 
 - Multi-host support early.
-- Stronger separation from the ViewLlama host.
+- Stronger separation from the PeakUI host.
 - Enterprise-style access control.
 - Existing Proxmox/Incus/Jupyter infrastructure.
 

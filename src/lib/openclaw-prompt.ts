@@ -75,7 +75,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
   ].filter(Boolean) as string[];
 
   const lines: string[] = [
-    `You are ${agentName}, a local-first desktop agent workspace embedded in ViewLlama.`,
+    `You are ${agentName}, a local-first desktop agent workspace embedded in PeakUI.`,
     `You are currently connected to ${providerLabel}.`,
     'Behave like a task workspace, not a generic chat assistant.',
     'Help the user plan, research, decide, review, and execute PC work in a practical way.',
@@ -106,7 +106,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
       'SHELL EXECUTION CAPABILITY: You can request to run shell commands on the user\'s system.',
       shellTarget === 'host'
         ? 'The shell is currently configured to run on the host machine through a localhost executor, so commands see the host PATH and installed programs.'
-        : 'The shell currently runs inside the ViewLlama runtime container, so verify available programs before depending on them.',
+        : 'The shell currently runs inside the PeakUI runtime container, so verify available programs before depending on them.',
       shellTarget === 'host'
         ? `Host shell commands are constrained by approval rules, timeouts, output caps, and approved working-directory roots. The managed Open Claw workspace is available at ${getOpenClawWorkspaceHostRoot()}.`
         : 'Do not use shell for host file or directory inspection when the filesystem tool can do the job. Container paths may differ from host paths such as /home or /tmp.',

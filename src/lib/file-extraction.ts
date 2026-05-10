@@ -317,7 +317,7 @@ async function ocrImageFile(imagePath: string): Promise<string> {
 async function extractImageText(buffer: Buffer, extension: string): Promise<string> {
   if (!(await commandExists('tesseract'))) return ''
 
-  const tempDir = await mkdtemp(path.join(tmpdir(), 'viewllama-ocr-'))
+  const tempDir = await mkdtemp(path.join(tmpdir(), 'peakui-ocr-'))
   try {
     const filePath = path.join(tempDir, `image.${extension || 'png'}`)
     await writeFile(filePath, buffer)
@@ -408,7 +408,7 @@ async function extractPdfTextWithPdfJs(buffer: Buffer, pdfPath: string, tempDir:
 }
 
 async function extractPdfText(buffer: Buffer): Promise<string> {
-  const tempDir = await mkdtemp(path.join(tmpdir(), 'viewllama-pdf-'))
+  const tempDir = await mkdtemp(path.join(tmpdir(), 'peakui-pdf-'))
   const pdfPath = path.join(tempDir, 'source.pdf')
   let bestText = ''
 
@@ -479,7 +479,7 @@ async function extractArchiveText(options: ExtractFileOptions, context: Extracti
     return ''
   }
 
-  const tempDir = await mkdtemp(path.join(tmpdir(), 'viewllama-archive-'))
+  const tempDir = await mkdtemp(path.join(tmpdir(), 'peakui-archive-'))
   const archivePath = path.join(tempDir, options.name.replace(/[\\/]/g, '_') || 'archive.bin')
 
   try {
