@@ -49,8 +49,6 @@ async function launchBrowser(): Promise<Browser> {
       '--disable-dev-shm-usage',
       '--disable-gpu',
       '--disable-software-rasterizer',
-      '--single-process',
-      '--no-zygote',
     ],
     headless: true,
   })
@@ -134,7 +132,23 @@ export async function getPage(contextId: string, mode: BrowserMode): Promise<Pag
   const pages = managed.context.pages()
   if (pages.length > 0) return pages[pages.length - 1]
 
-  return managed.context.newPage()
+  try {
+    return await managed.context.newPage()
+  } catch (pageError) {
+    // Browser may have disconnected — clear stale references and retry once
+    console.warn('[uwaf-pool] newPage failed, retrying with fresh browser:', pageError instanceof Error ? pageError.message : String(pageError))
+    await managed.context.close().catch(() => {})
+    contexts.delete(contextId)
+    browserInstance?.close().catch(() => {})
+    browserInstance = null
+    browserLaunchPromise = null
+    await createContext(contextId, mode)
+    managed = contexts.get(contextId)
+    if (!managed) throw new Error('Failed to recreate browser context after page error')
+    const retryPages = managed.context.pages()
+    if (retryPages.length > 0) return retryPages[retryPages.length - 1]
+    return managed.context.newPage()
+  }
 }
 
 export async function closeContext(contextId: string): Promise<void> {
