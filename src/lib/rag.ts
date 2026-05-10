@@ -45,6 +45,7 @@ interface EmbedResponse {
 const DEFAULT_EMBED_TIMEOUT_MS = 120000
 const MAX_SOURCE_EXCERPT_CHARS = 2500
 const MAX_CONTEXT_CHARS = 10000
+const MAX_CONTEXT_CHARS_FULL_ACCESS = 100000
 export const FULL_DOCUMENT_CONTEXT_CHAR_LIMIT = 4000
 
 export function getErrorMessage(error: unknown, fallback = 'Internal server error'): string {
@@ -465,7 +466,7 @@ export async function buildKnowledgeBaseContext(
     if (!hasSemanticChunks) {
       const keywordResults = keywordSearch(keywordChunks, effectiveQuery, effectiveTopK)
       return {
-        context: buildRagContextBlock(effectiveQuery, keywordResults, 'keyword'),
+        context: buildRagContextBlock(effectiveQuery, keywordResults, 'keyword', isFullAccess),
         sources: keywordResults,
         searched: true,
         mode: 'keyword',
@@ -512,13 +513,13 @@ export async function buildKnowledgeBaseContext(
             wholeDocument: chunk.wholeDocument,
           }
         })
-        .filter(r => r.score > 0.2)
+        .filter(r => isFullAccess ? r.score > 0 : r.score > 0.2)
         .sort((a, b) => b.score - a.score)
         .slice(0, effectiveSemanticTopK)
     } catch (semanticError) {
       console.warn('KB semantic search failed, using keyword only:', semanticError)
       return {
-        context: buildRagContextBlock(effectiveQuery, keywordResults, 'keyword'),
+        context: buildRagContextBlock(effectiveQuery, keywordResults, 'keyword', isFullAccess),
         sources: keywordResults,
         searched: true,
         mode: 'keyword',
@@ -530,7 +531,7 @@ export async function buildKnowledgeBaseContext(
     const ranked = fuseRRF(semanticResults, keywordResults, isFullAccess ? 10000 : effectiveTopK)
 
     return {
-      context: buildRagContextBlock(effectiveQuery, ranked, 'hybrid'),
+      context: buildRagContextBlock(effectiveQuery, ranked, 'hybrid', isFullAccess),
       sources: ranked,
       searched: true,
       mode: ranked.some(r => r.mode === 'semantic') ? 'hybrid' : 'keyword',
@@ -608,7 +609,7 @@ function buildSourceHeader(source: RagSearchResult, index: number, excerptChars:
   return `[${index + 1}] ${source.filename} · ${metadata}`
 }
 
-export function buildRagContextBlock(query: string, results: RagSearchResult[], mode: string): string {
+export function buildRagContextBlock(query: string, results: RagSearchResult[], mode: string, fullAccess = false): string {
   if (results.length === 0) return ''
 
   const sections = results.map((source, index) => {
@@ -633,7 +634,8 @@ export function buildRagContextBlock(query: string, results: RagSearchResult[], 
     : `KNOWLEDGE BASE (${mode === 'semantic' ? 'Semantic' : 'Keyword'} Search):\n${buildKnowledgeBaseRetrievalContract()}\nSearching across your indexed documents for: "${query}"`
 
   const full = [intro, ...sections].join('\n\n')
-  return full.length > MAX_CONTEXT_CHARS ? full.slice(0, MAX_CONTEXT_CHARS) + '…' : full
+  const limit = fullAccess ? MAX_CONTEXT_CHARS_FULL_ACCESS : MAX_CONTEXT_CHARS
+  return full.length > limit ? full.slice(0, limit) + '…' : full
 }
 
 // ─── Chat Augmentation Helper ─────────────────────────────────────────────────

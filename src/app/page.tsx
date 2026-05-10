@@ -1807,32 +1807,14 @@ export default function Home() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             signal: controller.signal,
-            body: JSON.stringify({ query: ragSearchText, topK: 4 })
+            body: JSON.stringify({ query: ragSearchText, topK: userSettings?.ragTopK ?? 8 })
           });
           if (ragRes.ok) {
             const ragData = await ragRes.json() as MessageSource[];
             if (Array.isArray(ragData) && ragData.length > 0) {
               activeSources = [...activeSources, ...ragData];
-              const context = ragData
-                .map((r, idx) => {
-                  const label = r.sourcePath && r.sourcePath !== r.filename
-                    ? `${r.filename} (${r.sourcePath})`
-                    : r.filename;
-                  const meta = [
-                    r.fileKind || null,
-                    r.extension ? `.${r.extension}` : null,
-                    typeof r.chunkIndex === 'number' ? `chunk ${r.chunkIndex + 1}` : null,
-                    typeof r.documentSize === 'number' ? formatBytes(r.documentSize) : null,
-                    `${Math.round(r.score * 100)}% match`,
-                    r.mode || 'semantic',
-                  ].filter(Boolean).join(' · ');
-                  return `[Source ${idx + 1}: ${label} | ${meta}]\n${r.content}`;
-                })
-                .join('\n\n---\n\n');
-              contextMessages.push({
-                role: 'system' as const,
-                content: `Use the following knowledge base context when it is relevant. Most entries are retrieved excerpts from indexed files, but small files may be included as full-document context when safe. If the context is not enough, ask for a broader lookup or direct file inspection by naming the file, folder, or chunk you need. Cite the source and chunk when you can.\n\n${context}`
-              });
+              // Context injection is handled server-side by buildKnowledgeBaseContext
+              // to avoid double injection with the server's own RAG search
             }
           }
         } catch (e) {
@@ -1946,7 +1928,7 @@ export default function Home() {
             internet_tool_enabled: draftInternetEnabled,
             unrestricted: unrestrictedEnabled,
             uncensored: uncensoredEnabled,
-            ...(toolRound === 0 ? { rag_enabled: ragEnabled, rag_query: ragSearchText } : { rag_enabled: false }),
+            ...(toolRound === 0 ? { rag_enabled: ragEnabled, rag_query: ragSearchText, rag_topk: userSettings?.ragTopK ?? 8 } : { rag_enabled: false }),
             messages: toolRoundMessages.map(m => ({
               role: m.role,
               content: buildAttachmentContext(m.attachments, m.images, m.content),

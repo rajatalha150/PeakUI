@@ -31,8 +31,9 @@ const SEARCH_EMBED_TIMEOUT_MS = 20000;
 
 function normalizeTopK(value: unknown): number {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return 5;
-  return Math.min(12, Math.max(1, Math.round(parsed)));
+  if (parsed === -1) return 10000; // full access
+  if (!Number.isFinite(parsed) || parsed < 1) return 5;
+  return Math.min(200, Math.round(parsed));
 }
 
 function normalizeFilters(body: SearchBody): RagSearchFilters | undefined {
@@ -81,6 +82,8 @@ export async function POST(req: Request) {
     const filters = mergeFilters(normalizeFilters(body), parsedQuery.filters);
 
     const topK = normalizeTopK(requestedTopK);
+    const isFullAccess = requestedTopK === -1;
+    const semanticThreshold = isFullAccess ? 0 : 0.3;
     const settings = await getUserSettings(userId);
 
     const docCount = await prisma.document.count({
@@ -190,7 +193,7 @@ export async function POST(req: Request) {
           wholeDocument: chunk.document._count.chunks === 1,
         } satisfies RagSearchResult;
       })
-      .filter(result => result.score > 0.3)
+      .filter(result => result.score > semanticThreshold)
       .sort((a, b) => b.score - a.score)
       .slice(0, topK);
 
