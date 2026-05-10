@@ -45,6 +45,7 @@ import {
 
 const CHAT_INTERNET_STORAGE = 'view-llama-chat-internet-enabled';
 const UNRESTRICTED_STORAGE = 'view-llama-chat-unrestricted';
+const UNCENSORED_STORAGE = 'view-llama-chat-uncensored';
 const SIDEBAR_COLLAPSE_STORAGE = 'view-llama-sidebar-collapsed';
 const HUGGING_FACE_API_KEY_STORAGE = 'view-llama-huggingface-api-key';
 const ACTIVE_TAB_STORAGE = 'view-llama-active-tab';
@@ -656,6 +657,9 @@ export default function Home() {
   const [internetEnabled, setInternetEnabled] = useState(getStoredInternetEnabled);
   const [unrestrictedEnabled, setUnrestrictedEnabled] = useState(() => {
     try { return window.sessionStorage.getItem(UNRESTRICTED_STORAGE) === 'true'; } catch { return false; }
+  });
+  const [uncensoredEnabled, setUncensoredEnabled] = useState(() => {
+    try { return window.sessionStorage.getItem(UNCENSORED_STORAGE) === 'true'; } catch { return false; }
   });
   const [userSettings, setUserSettings] = useState<UserSettings | null>(null);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -1536,6 +1540,18 @@ export default function Home() {
     });
   };
 
+  const toggleUncensored = () => {
+    setUncensoredEnabled(prev => {
+      const nextValue = !prev;
+      try {
+        window.sessionStorage.setItem(UNCENSORED_STORAGE, String(nextValue));
+      } catch {
+        // Ignore browser storage failures.
+      }
+      return nextValue;
+    });
+  };
+
   const retryLastDraft = async (options?: { disableInternet?: boolean; stopModelFirst?: boolean }) => {
     if (!lastSubmittedDraft || isStreaming) return;
     const nextInternetEnabled = options?.disableInternet ? false : lastSubmittedDraft.internetEnabled;
@@ -1929,6 +1945,7 @@ export default function Home() {
             internet_enabled: false, // No pre-search — model drives web research via tool tags
             internet_tool_enabled: draftInternetEnabled,
             unrestricted: unrestrictedEnabled,
+            uncensored: uncensoredEnabled,
             ...(toolRound === 0 ? { rag_enabled: ragEnabled, rag_query: ragSearchText } : { rag_enabled: false }),
             messages: toolRoundMessages.map(m => ({
               role: m.role,
@@ -2001,6 +2018,11 @@ export default function Home() {
           }
           // Accumulate response content
           if (typeof messageFrame.content === 'string' && messageFrame.content) {
+            // Strip uncensored prefill prefix if the model echoes it back during streaming
+            let dripContent = messageFrame.content;
+            if (uncensoredEnabled && assistantContent === '' && dripContent.startsWith('Here is the information:')) {
+              dripContent = dripContent.slice('Here is the information:'.length).replace(/^\s+/, '');
+            }
             assistantContent += messageFrame.content;
             tokenCountRef.current += 1;
             // Suppress <openclaw_tool> tags from the display drip.
@@ -2012,7 +2034,7 @@ export default function Home() {
             const insideToolTag = toolTagOpen !== -1 && (toolTagClose === -1 || toolTagOpen > toolTagClose);
             const justClosedToolTag = pageWasInsideToolTag && !insideToolTag;
             if (!insideToolTag && !justClosedToolTag) {
-              scheduleUpdate({ content: messageFrame.content });
+              scheduleUpdate({ content: dripContent });
             }
             pageWasInsideToolTag = insideToolTag;
           }
@@ -2165,7 +2187,11 @@ export default function Home() {
       if (dripTimer) { clearInterval(dripTimer); dripTimer = null; }
 
       // Strip any remaining tool tags from final content
-      const { cleanedContent: finalContent } = extractOpenClawToolRequest(assistantContent);
+      let { cleanedContent: finalContent } = extractOpenClawToolRequest(assistantContent);
+      // Strip uncensored prefill prefix if the model echoed it back
+      if (uncensoredEnabled && finalContent.startsWith('Here is the information:')) {
+        finalContent = finalContent.slice('Here is the information:'.length).replace(/^\s+/, '');
+      }
       if (finalContent !== assistantContent) {
         assistantContent = finalContent;
         setChatHistory(prev => {
@@ -2926,6 +2952,18 @@ export default function Home() {
                 </button>
                 <button
                   type="button"
+                  className={`mobile-topbar-menu-item${uncensoredEnabled ? ' is-active' : ''}`}
+                  style={uncensoredEnabled ? { color: '#ef4444', borderColor: '#ef4444', background: 'rgba(239, 68, 68, 0.12)' } : undefined}
+                  onClick={() => {
+                    toggleUncensored();
+                    setMobileHeaderMenuOpen(false);
+                  }}
+                >
+                  <span>Uncensored</span>
+                  <span>{uncensoredEnabled ? 'On' : 'Off'}</span>
+                </button>
+                <button
+                  type="button"
                   className={`mobile-topbar-menu-item${ragEnabled ? ' is-active' : ''}`}
                   onClick={() => {
                     setRagEnabled(value => !value);
@@ -3238,6 +3276,17 @@ export default function Home() {
               </button>
               <HelpHint text="Removes all system prompts and formatting instructions. The model responds naturally without guardrails or preset behavior. Web search format is preserved if Internet is also on." />
             </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <button
+                className="glass-panel"
+                style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', border: uncensoredEnabled ? '1px solid #ef4444' : undefined, background: uncensoredEnabled ? 'rgba(239, 68, 68, 0.12)' : undefined }}
+                onClick={() => toggleUncensored()}
+              >
+                <Wand2 size={16} color={uncensoredEnabled ? '#ef4444' : 'var(--text-secondary)'} />
+                <span style={{ fontSize: '0.85rem', color: uncensoredEnabled ? '#ef4444' : 'var(--text-secondary)' }}>Uncensored</span>
+              </button>
+              <HelpHint text="Instructs the model to answer all factual questions directly without refusal, moral disclaimers, or hedging. Combine with Unrestricted for maximum openness." />
+            </div>
             <button
               className={`glass-panel`}
               style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', border: ragEnabled ? '1px solid var(--accent-primary)' : undefined, background: ragEnabled ? 'var(--accent-soft)' : undefined }}
@@ -3541,7 +3590,7 @@ export default function Home() {
             <textarea
               ref={textareaRef}
               className="input-field"
-              placeholder={models.length > 0 ? (unrestrictedEnabled ? '⚡ Unrestricted mode — no system prompts, natural responses...' : internetEnabled ? '🌐 Internet mode — the model will search when needed...' : ragEnabled ? '🔍 RAG mode — asking with knowledge base context...' : ragContext ? '📎 KB context attached — type your question...' : 'Message local model...') : 'Waiting for Ollama to connect...'}
+              placeholder={models.length > 0 ? (uncensoredEnabled ? '🔓 Uncensored mode — direct factual answers without refusal...' : unrestrictedEnabled ? '⚡ Unrestricted mode — no system prompts, natural responses...' : internetEnabled ? '🌐 Internet mode — the model will search when needed...' : ragEnabled ? '🔍 RAG mode — asking with knowledge base context...' : ragContext ? '📎 KB context attached — type your question...' : 'Message local model...') : 'Waiting for Ollama to connect...'}
               style={{ background: 'transparent', border: 'none', padding: '8px', boxShadow: 'none', resize: 'none', minHeight: '20px', maxHeight: '160px', overflowY: 'auto', lineHeight: '1.5', fieldSizing: 'content' } as React.CSSProperties}
               value={message}
               onChange={(e) => {
@@ -3582,9 +3631,12 @@ export default function Home() {
               </button>
             )}
           </div>
-          {(internetEnabled || ragEnabled || ragContext || unrestrictedEnabled) && (
+          {(internetEnabled || ragEnabled || ragContext || unrestrictedEnabled || uncensoredEnabled) && (
             <div style={{ marginTop: '8px', display: 'flex', flexWrap: 'wrap', gap: '8px', fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              {unrestrictedEnabled && (
+              {uncensoredEnabled && (
+                <span style={{ color: '#ef4444' }}>Uncensored mode — the model answers all questions directly without moral disclaimers or refusal.</span>
+              )}
+              {unrestrictedEnabled && !uncensoredEnabled && (
                 <span style={{ color: '#f59e0b' }}>Unrestricted mode removes all system prompts — the model responds naturally without formatting or behavioral instructions.</span>
               )}
               {internetEnabled && (
