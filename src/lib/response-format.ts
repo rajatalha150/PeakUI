@@ -13,9 +13,8 @@ interface PromptMessage {
 }
 
 const FILE_OUTPUT_SYSTEM_PROMPT = [
-  'When the user explicitly asks you to create a downloadable file, return the file content in a fenced code block with a filename marker.',
-  'Use a fence info string like `filename="report.md"` for text files or `base64 filename="image.png"` for binary files.',
-  'Do not invent binary bytes unless the user explicitly asks for a base64 file.',
+  'When the user asks for a downloadable file, return file content in a fenced code block with a filename marker like `filename="report.md"` for text or `base64 filename="image.png"` for binary.',
+  'Only produce base64 binary when explicitly requested.',
 ].join(' ');
 
 const DOCUMENT_SUBJECT_RULES: Array<{ pattern: RegExp; subject: string }> = [
@@ -104,38 +103,34 @@ function buildDocumentPrompt(subject: string | undefined): string {
     `The user wants a polished ${normalizedSubject} synthesized from the provided source material.`,
     `Return only the finished ${normalizedSubject}.`,
     'Keep the output presentation-ready and easy to paste into a document editor.',
-    'Do not add markdown code fences, JSON, or explanatory preambles.',
-    'Do not use markdown syntax such as # headings, bold markers, tables, or blockquotes unless the user explicitly asked for markdown.',
+    'Return only the content — no code fences, JSON, or explanatory preambles.',
+    'Use plain text unless the user requested markdown.',
     subjectSpecificNotes[normalizedSubject] || subjectSpecificNotes.document,
-    'Do not invent facts, placeholders, or metrics. If something is missing, omit it instead of making it up.',
+    'Omit missing information rather than inventing it.',
   ].join(' ');
 }
 
 function buildListPrompt(): string {
   return [
-    'The user wants a presentation-ready list, outline, checklist, or step-by-step answer.',
-    'Return only the list content.',
-    'Use numbered or bulleted items that are short, clear, and easy to scan.',
-    'Do not add markdown code fences or explanatory preambles.',
-    'Keep the structure tidy and consistent.',
+    'The user wants a list, outline, checklist, or step-by-step answer.',
+    'Return only the list content with short, clear items.',
+    'No code fences or explanatory preambles.',
   ].join(' ');
 }
 
 function buildTablePrompt(): string {
   return [
-    'The user wants a table or comparison that is easy to read in chat.',
-    'Return only the table content.',
-    'Use a clean plain-text table with short headers and aligned columns when possible.',
-    'If the user explicitly asked for markdown, use markdown table syntax; otherwise keep it plain text.',
-    'Do not add explanatory prose or code fences unless the user explicitly asked for them.',
+    'The user wants a table or comparison.',
+    'Return only the table content with short headers and aligned columns.',
+    'Use plain text unless the user requested markdown.',
   ].join(' ');
 }
 
 function buildDataPrompt(dataFormat: ResponseDataFormat | null): string {
   const format = dataFormat || 'structured data';
   return [
-    `The user wants only valid ${format}.`,
-    'Return no commentary, no markdown fences, and no extra prose.',
+    `Return only valid ${format}.`,
+    'No commentary, no markdown fences, no extra prose.',
     format === 'csv'
       ? 'Use a header row if it improves readability.'
       : 'Make sure the output is syntactically valid and ready to parse.',
@@ -145,8 +140,7 @@ function buildDataPrompt(dataFormat: ResponseDataFormat | null): string {
 function buildCodePrompt(): string {
   return [
     'The user wants code or a code-related answer.',
-    'Return only the code or patch content that was requested.',
-    'Keep the formatting clean and avoid explanatory prose unless the user explicitly asked for an explanation.',
+    'Return only the code or patch content requested. No explanatory prose unless explicitly asked.',
   ].join(' ');
 }
 

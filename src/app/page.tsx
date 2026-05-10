@@ -708,6 +708,7 @@ export default function Home() {
   const [ollamaHealthLoading, setOllamaHealthLoading] = useState(false);
   const [lastSubmittedDraft, setLastSubmittedDraft] = useState<RetryableChatDraft | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   
   const abortControllerRef = useRef<AbortController | null>(null);
   const clientSessionIdRef = useRef<string>('');
@@ -872,6 +873,7 @@ export default function Home() {
 
   const resetComposerState = () => {
     setMessage('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
     setRagContext(null);
     setRagContextSources([]);
     setPendingImages([]);
@@ -1556,6 +1558,11 @@ export default function Home() {
     return true;
   });
 
+  function autoResizeTextarea(el: HTMLTextAreaElement) {
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+  }
+
   const handleSendMessage = async (draft?: RetryableChatDraft) => {
     const messageText = draft?.content ?? message;
     const messageImages = draft ? [...draft.images] : [...pendingImages];
@@ -1682,6 +1689,7 @@ export default function Home() {
 
     pinToBottom();
     setMessage('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
     setPendingImages([]);
     setPendingAttachments([]);
     setAttachmentError(null);
@@ -1837,7 +1845,7 @@ export default function Home() {
 
       // Tool loop: stream model response, check for web tool requests,
       // execute them, and re-stream with results (max 2 rounds).
-      const MAX_TOOL_ROUNDS = 2;
+      const MAX_TOOL_ROUNDS = 4;
       let toolRoundMessages = [...augmentedMessages];
       let toolRoundSources = [...activeSources];
       let assistantContent = '';
@@ -1872,7 +1880,8 @@ export default function Home() {
           pageWasInsideToolTag = false;
           finalMeta = undefined;
           setStreamPhase('connecting');
-          // Reset the assistant message content in chat history for the new response
+          // Show a brief "searching" placeholder so the user sees activity
+          // instead of a blank message while the next round starts
           setChatHistory(prev => {
             const updated = [...prev];
             const lastIdx = updated.length - 1;
@@ -2094,14 +2103,34 @@ export default function Home() {
                 toolRoundMessages = [
                   ...toolRoundMessages,
                   { role: 'assistant' as const, content: assistantContent },
-                  { role: 'user' as const, content: `Web research results for "${query}":\n\n${webData.context}\n\nUse the above web research results to answer the original question. Cite specific claims with [^N] markers using the provided sources.` },
+                  { role: 'user' as const, content: [
+                    `Web research results for "${query}":`,
+                    '',
+                    webData.context,
+                    '',
+                    'Answer the original question using the results above. Cite every factual claim with [^N] markers. If evidence is thin, conflicting, or stale, say so. If results are insufficient, issue another web search with a refined query.',
+                  ].join('\n') },
+                ];
+              } else {
+                // Web search returned empty results or server error — inform the model so it can respond honestly
+                const reason = !webRes.ok
+                  ? `The web search service returned an error (status ${webData.error || webRes.status}).`
+                  : 'The web search returned no relevant results for this query.';
+                toolRoundMessages = [
+                  ...toolRoundMessages,
+                  { role: 'assistant' as const, content: assistantContent },
+                  { role: 'user' as const, content: `${reason} Answer the original question using your own knowledge, and clearly state that web search was unavailable or returned no results so the answer may not reflect the latest information. Do not fabricate search results or citations.` },
                 ];
               }
             } catch (webError) {
               if (controller.signal.aborted) throw webError;
               console.error('Web research failed:', webError);
-              // Continue without web context
-              break;
+              // Network error — inform the model and continue without web context
+              toolRoundMessages = [
+                ...toolRoundMessages,
+                { role: 'assistant' as const, content: assistantContent },
+                { role: 'user' as const, content: 'The web search request failed due to a network or service error. Answer the original question using your own knowledge, and clearly state that web search was unavailable so the answer may not reflect the latest information. Do not fabricate search results or citations.' },
+              ];
             }
             setStreamPhase(null);
             // Continue to next tool round
@@ -3469,14 +3498,23 @@ export default function Home() {
             >
               {processingAttachments ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : <Paperclip size={16} />}
             </button>
-            <input 
-              type="text" 
-              className="input-field" 
+            <textarea
+              ref={textareaRef}
+              className="input-field"
               placeholder={models.length > 0 ? (internetEnabled ? '🌐 Internet mode — the model will search when needed...' : ragEnabled ? '🔍 RAG mode — asking with knowledge base context...' : ragContext ? '📎 KB context attached — type your question...' : 'Message local model...') : 'Waiting for Ollama to connect...'}
-              style={{ background: 'transparent', border: 'none', padding: '8px', boxShadow: 'none' }}
+              style={{ background: 'transparent', border: 'none', padding: '8px', boxShadow: 'none', resize: 'none', minHeight: '20px', maxHeight: '160px', overflowY: 'auto', lineHeight: '1.5', fieldSizing: 'content' } as React.CSSProperties}
               value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+              onChange={(e) => {
+                setMessage(e.target.value);
+                autoResizeTextarea(e.target);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendMessage();
+                }
+              }}
+              rows={1}
               disabled={isStreaming}
             />
             {ragContext && !ragEnabled && (

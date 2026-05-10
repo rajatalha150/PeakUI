@@ -114,16 +114,27 @@ function renderInline(text: string, keyPrefix: string, sources?: MessageSource[]
   let tokenIndex = 0;
 
   const pushTextWithEmphasis = (segment: string, segmentPrefix: string) => {
+    // First pass: extract markdown links [text](url) and citations [^N]
+    const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
     const citationRegex = /\[\^(\d+)\]/g;
-    const parts: Array<{ type: 'text'; value: string } | { type: 'citation'; index: number }> = [];
+    type Extracted = { type: 'text'; value: string } | { type: 'citation'; index: number } | { type: 'link'; text: string; url: string };
+    const parts: Extracted[] = [];
+    // Combined regex to match both links and citations in order of appearance
+    const combinedRegex = /\[([^\]]+)\]\(([^)]+)\)|\[\^(\d+)\]/g;
     let lastIndex = 0;
-    let match: RegExpExecArray | null;
-    while ((match = citationRegex.exec(segment)) !== null) {
-      if (match.index > lastIndex) {
-        parts.push({ type: 'text', value: segment.slice(lastIndex, match.index) });
+    let combinedMatch: RegExpExecArray | null;
+    while ((combinedMatch = combinedRegex.exec(segment)) !== null) {
+      if (combinedMatch.index > lastIndex) {
+        parts.push({ type: 'text', value: segment.slice(lastIndex, combinedMatch.index) });
       }
-      parts.push({ type: 'citation', index: Number(match[1]) });
-      lastIndex = match.index + match[0].length;
+      if (combinedMatch[3] !== undefined) {
+        // Citation [^N]
+        parts.push({ type: 'citation', index: Number(combinedMatch[3]) });
+      } else {
+        // Markdown link [text](url)
+        parts.push({ type: 'link', text: combinedMatch[1], url: combinedMatch[2] });
+      }
+      lastIndex = combinedMatch.index + combinedMatch[0].length;
     }
     if (lastIndex < segment.length) {
       parts.push({ type: 'text', value: segment.slice(lastIndex) });
@@ -134,6 +145,16 @@ function renderInline(text: string, keyPrefix: string, sources?: MessageSource[]
     for (const part of parts) {
       if (part.type === 'citation') {
         nodes.push(<CitationLink key={`${segmentPrefix}-cite-${tokenIndex++}`} index={part.index} sources={sources} />);
+        continue;
+      }
+      if (part.type === 'link') {
+        nodes.push(
+          <a key={`${segmentPrefix}-link-${tokenIndex++}`} href={part.url} target="_blank" rel="noreferrer"
+            style={{ color: 'var(--accent-primary)', textDecoration: 'underline', wordBreak: 'break-word' }}
+            onClick={e => e.stopPropagation()}>
+            {part.text}
+          </a>
+        );
         continue;
       }
       const strongSegments = part.value.split(/(\*\*[^*]+\*\*|__[^_]+__)/g);
@@ -355,6 +376,74 @@ function parseStructuredBlocks(content: string): StructuredBlock[] {
   return blocks;
 }
 
+function CodeBlock({ info, code, blockIndex }: { info: string; code: string; blockIndex: number }) {
+  const [copied, setCopied] = React.useState(false);
+  const handleCopy = React.useCallback(() => {
+    navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {});
+  }, [code]);
+  return (
+    <div
+      key={`code-${blockIndex}`}
+      style={{
+        borderRadius: '12px',
+        border: '1px solid var(--border-color)',
+        background: 'rgba(255,255,255,0.03)',
+        padding: '12px',
+        overflowX: 'auto',
+        position: 'relative',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: info.trim() ? '8px' : '4px' }}>
+        {info.trim() && (
+          <div
+            style={{
+              fontSize: '0.74rem',
+              color: 'var(--text-secondary)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.08em',
+            }}
+          >
+            {info.trim()}
+          </div>
+        )}
+        <button
+          onClick={handleCopy}
+          style={{
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid var(--border-color)',
+            borderRadius: '6px',
+            padding: '2px 8px',
+            fontSize: '0.72rem',
+            color: copied ? 'var(--accent-primary)' : 'var(--text-secondary)',
+            cursor: 'pointer',
+            marginLeft: 'auto',
+            transition: 'color 0.2s',
+            fontFamily: 'inherit',
+          }}
+          title={copied ? 'Copied!' : 'Copy code'}
+        >
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
+      </div>
+      <pre
+        style={{
+          margin: 0,
+          whiteSpace: 'pre',
+          overflowX: 'auto',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+          fontSize: '0.86rem',
+          lineHeight: 1.65,
+        }}
+      >
+        <code>{code}</code>
+      </pre>
+    </div>
+  );
+}
+
 function renderBlock(block: StructuredBlock, blockIndex: number, sources?: MessageSource[]): React.ReactNode {
   switch (block.type) {
     case 'heading': {
@@ -511,41 +600,7 @@ function renderBlock(block: StructuredBlock, blockIndex: number, sources?: Messa
       );
     case 'code':
       return (
-        <div
-          key={`code-${blockIndex}`}
-          style={{
-            borderRadius: '12px',
-            border: '1px solid var(--border-color)',
-            background: 'rgba(255,255,255,0.03)',
-            padding: '12px',
-            overflowX: 'auto',
-          }}
-        >
-          {block.info.trim() && (
-            <div
-              style={{
-                marginBottom: '8px',
-                fontSize: '0.74rem',
-                color: 'var(--text-secondary)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.08em',
-              }}
-            >
-              {block.info.trim()}
-            </div>
-          )}
-          <pre
-            style={{
-              margin: 0,
-              whiteSpace: 'pre-wrap',
-              fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-              fontSize: '0.86rem',
-              lineHeight: 1.65,
-            }}
-          >
-            <code>{block.code}</code>
-          </pre>
-        </div>
+        <CodeBlock key={`code-${blockIndex}`} info={block.info} code={block.code} blockIndex={blockIndex} />
       );
     case 'rule':
       return (

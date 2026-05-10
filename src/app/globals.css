@@ -254,6 +254,16 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--text-secondary);
 }
 
+/* Chat textarea — auto-resizing input */
+textarea.input-field {
+  resize: none;
+  min-height: 24px;
+  max-height: 160px;
+  overflow-y: auto;
+  line-height: 1.5;
+  field-sizing: content;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
@@ -493,6 +503,8 @@ h1, h2, h3, h4, h5, h6 {
   min-width: 0;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  will-change: scroll-position;
+  overflow-anchor: auto;
 }
 
 .chat-scroll-shell {

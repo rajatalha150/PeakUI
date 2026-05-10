@@ -15,6 +15,9 @@ export function useStickyScroll(options: UseStickyScrollOptions) {
   const shouldStickToBottomRef = useRef(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [resetToken, setResetToken] = useState(0);
+  const rafIdRef = useRef<number>(0);
+  const prevContentKeyRef = useRef<unknown>(null);
+  const prevStreamingRef = useRef(isStreaming);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const area = scrollAreaRef.current;
@@ -52,23 +55,64 @@ export function useStickyScroll(options: UseStickyScrollOptions) {
     setShowScrollToBottom(!nearBottom && area.scrollHeight > area.clientHeight);
   }, [threshold]);
 
-  // Auto-scroll during streaming or when content changes while pinned
+  // Auto-scroll when content changes while pinned to bottom.
+  // Uses a single RAF to batch multiple state updates into one scroll per frame.
+  // Only fires when contentKey actually changes (new reference) or streaming state toggles.
   useEffect(() => {
     if (!shouldStickToBottomRef.current) return;
-    const frame = window.requestAnimationFrame(() => {
-      scrollToBottom(isStreaming ? 'auto' : 'smooth');
+
+    // Only scroll when content or streaming state actually changed
+    const contentChanged = contentKey !== prevContentKeyRef.current;
+    const streamingToggled = isStreaming !== prevStreamingRef.current;
+    if (!contentChanged && !streamingToggled) return;
+
+    prevContentKeyRef.current = contentKey;
+    prevStreamingRef.current = isStreaming;
+
+    cancelAnimationFrame(rafIdRef.current);
+    rafIdRef.current = requestAnimationFrame(() => {
+      if (!shouldStickToBottomRef.current) return;
+      const area = scrollAreaRef.current;
+      if (!area) return;
+      area.scrollTo({ top: area.scrollHeight, behavior: isStreaming ? 'auto' : 'smooth' });
     });
-    return () => window.cancelAnimationFrame(frame);
-  }, [contentKey, isStreaming, scrollToBottom]);
+
+    return () => cancelAnimationFrame(rafIdRef.current);
+  }, [contentKey, isStreaming]);
 
   // Immediate scroll on reset (e.g., session switch)
   useEffect(() => {
     if (resetToken === 0) return;
-    const frame = window.requestAnimationFrame(() => {
+    const frame = requestAnimationFrame(() => {
       scrollToBottom('auto');
     });
-    return () => window.cancelAnimationFrame(frame);
+    return () => cancelAnimationFrame(frame);
   }, [resetToken, scrollToBottom]);
+
+  // When the input area resizes (textarea auto-grow), preserve the user's
+  // scroll position relative to the bottom of the content. Without this,
+  // growing the textarea shrinks the chat area and shifts the visible content.
+  useEffect(() => {
+    const area = scrollAreaRef.current;
+    if (!area) return;
+
+    let prevHeight = area.clientHeight;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const newHeight = entry.contentRect.height;
+        if (newHeight !== prevHeight && shouldStickToBottomRef.current) {
+          // If we were pinned to bottom, stay pinned after resize
+          requestAnimationFrame(() => {
+            area.scrollTo({ top: area.scrollHeight, behavior: 'auto' });
+          });
+        }
+        prevHeight = newHeight;
+      }
+    });
+
+    observer.observe(area, { box: 'border-box' });
+    return () => observer.disconnect();
+  }, []);
 
   return {
     handleScroll,

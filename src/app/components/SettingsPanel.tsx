@@ -121,7 +121,7 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
     ollamaHost: 'http://127.0.0.1:11434',
     systemPrompt: '',
     temperature: 0.7,
-    contextLength: 4096,
+    contextLength: 16384,
     theme: 'aurora',
   });
   const [models, setModels] = useState<Model[]>([]);

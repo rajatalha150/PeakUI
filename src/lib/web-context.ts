@@ -888,12 +888,12 @@ function buildContext(query: string, sources: MessageSource[]): string {
   })
 
   const citationInstructions = [
-    'You are answering using public web research.',
-    'Cite EVERY factual claim with inline markers like [^1], [^2], etc.',
-    'Place the citation immediately after the claim, before punctuation when possible.',
-    'If multiple sources support one claim, use multiple citations like [^1][^3].',
-    'Do not guess. If the evidence is thin or conflicting, say so explicitly.',
-    'Prioritize more recent sources when dates are available.',
+    'Answer using public web research.',
+    'Cite every factual claim with inline [^N] markers.',
+    'Use [^1][^3] for overlapping sources.',
+    'Prefer recent authoritative sources.',
+    'If evidence is thin, conflicting, or undated, say so.',
+    'Only reference sources listed below — do not invent URLs or citations.',
   ].join(' ')
 
   return truncate(

@@ -20,19 +20,16 @@ import { normalizeOpenClawProvider } from '@/lib/settings';
 import { unloadOtherOllamaModels } from '@/lib/ollama-control';
 import type { ServerStreamStatus } from '@/lib/stream-status';
 import { isHuggingFaceRouterUrl } from './chat-platforms';
+import { trimMessagesToFit, estimateStringTokens } from './message-trim';
 
 const CHAT_HEARTBEAT_INTERVAL_MS = 15000;
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
-const DEFAULT_OLLAMA_CONTEXT_LENGTH = 4096;
+const DEFAULT_OLLAMA_CONTEXT_LENGTH = 16384;
 const MIN_CONTEXT_LENGTH = 512;
 const OLLAMA_CONTEXT_CAP_ENV = 'VIEW_LLAMA_OLLAMA_CONTEXT_CAP';
 const OLLAMA_START_TIMEOUT_MS = 60000;
 
-const IMAGE_INSTRUCTIONS = `IMPORTANT: When responding to requests for images, pictures, or visuals:
-- Use markdown image syntax with actual image URLs: ![description](https://...)
-- Search for and include direct image URLs from reliable sources
-- Always render images inline, not just as links
-- Format: ![alt text](full-https-url-to-image)`;
+const IMAGE_INSTRUCTIONS = 'For image requests, include actual image URLs using markdown syntax: ![description](https://...). Search for real URLs from reliable sources and render images inline.';
 type ChatProvider = 'ollama' | 'openai-compatible' | 'huggingface';
 
 function normalizeContextCap(value: string | undefined): number {
@@ -577,7 +574,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
       ? buildChatInternetToolPrompt()
       : '';
     const systemPromptParts = [
-      IMAGE_INSTRUCTIONS,
+      ...(surface === 'chat' ? [IMAGE_INSTRUCTIONS] : []),
       settings.systemPrompt.trim(),
       openClawPrompt,
       chatInternetPrompt,
@@ -588,9 +585,14 @@ export async function createChatCompletionResponse(req: NextRequest) {
     ].filter(Boolean);
 
     const systemPrompt = systemPromptParts.join('\n\n');
-    const outboundMessages: InternalChatMessage[] = systemPrompt
+    const untrimmedMessages: InternalChatMessage[] = systemPrompt
       ? [{ role: 'system', content: systemPrompt }, ...nonSystemMessages]
       : nonSystemMessages;
+
+    // Trim conversation history to fit within context window
+    const systemOverhead = estimateStringTokens(systemPrompt);
+    const trimResult = trimMessagesToFit(untrimmedMessages, settings.contextLength, systemOverhead);
+    const outboundMessages: InternalChatMessage[] = trimResult.messages as InternalChatMessage[];
 
     const encoder = new TextEncoder();
     const upstreamAbort = new AbortController();
