@@ -2018,11 +2018,6 @@ export default function Home() {
           }
           // Accumulate response content
           if (typeof messageFrame.content === 'string' && messageFrame.content) {
-            // Strip uncensored prefill prefix if the model echoes it back during streaming
-            let dripContent = messageFrame.content;
-            if (uncensoredEnabled && assistantContent === '' && dripContent.startsWith('Here is the complete and direct answer:')) {
-              dripContent = dripContent.slice('Here is the complete and direct answer:'.length).replace(/^\s+/, '');
-            }
             assistantContent += messageFrame.content;
             tokenCountRef.current += 1;
             // Suppress <openclaw_tool> tags from the display drip.
@@ -2034,7 +2029,7 @@ export default function Home() {
             const insideToolTag = toolTagOpen !== -1 && (toolTagClose === -1 || toolTagOpen > toolTagClose);
             const justClosedToolTag = pageWasInsideToolTag && !insideToolTag;
             if (!insideToolTag && !justClosedToolTag) {
-              scheduleUpdate({ content: dripContent });
+              scheduleUpdate({ content: messageFrame.content });
             }
             pageWasInsideToolTag = insideToolTag;
           }
@@ -2187,11 +2182,7 @@ export default function Home() {
       if (dripTimer) { clearInterval(dripTimer); dripTimer = null; }
 
       // Strip any remaining tool tags from final content
-      let { cleanedContent: finalContent } = extractOpenClawToolRequest(assistantContent);
-      // Strip uncensored prefill prefix if the model echoed it back
-      if (uncensoredEnabled && finalContent.startsWith('Here is the complete and direct answer:')) {
-        finalContent = finalContent.slice('Here is the complete and direct answer:'.length).replace(/^\s+/, '');
-      }
+      const { cleanedContent: finalContent } = extractOpenClawToolRequest(assistantContent);
       if (finalContent !== assistantContent) {
         assistantContent = finalContent;
         setChatHistory(prev => {
