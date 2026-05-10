@@ -550,6 +550,7 @@ interface UserSettings {
   systemPrompt?: string;
   ragMode?: string;
   ragModel?: string;
+  ragTopK?: number;
   ollamaHost?: string;
   theme?: string;
 }
