@@ -13,92 +13,70 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - **Backend:** Next.js API Routes
 - **Database:** PostgreSQL 15 via Prisma ORM (`prisma.config.ts` adapter pattern)
 - **Auth:** `jose` Edge-compatible JWTs + `bcryptjs`, `httpOnly` cookies
-- **WebSocket:** `ws` library for screencast server (port 3001)
+- **WebSocket:** `ws` library for screencast server (standalone on port 3001 + upgrade handler on Next.js HTTP server)
 - **Browser:** Playwright-core with CDP (Chrome DevTools Protocol) for live browser streaming and input relay
-- **Deployment:** Docker + Docker Compose (`network_mode: host` for Ollama, Tor, and screencast access)
+- **Deployment:** Docker + Docker Compose (`network_mode: host`)
 
-## 🚀 Recent Fixes & Changes
+## ⚠️ Known Issues — Live Interactive Browser (IN PROGRESS)
 
-### Live Interactive Browser (New Feature)
-A real-time interactive browser view that replaces the static screenshot preview in OpenClaw's sidebar. When the internet toggle is enabled, the sidebar shows a live JPEG stream of the browser, with the ability to take over control.
+The live browser feature is partially implemented but has significant issues that need fixing:
 
-**Architecture:**
-- `src/lib/screencast-server.ts`: Standalone WebSocket server on port 3001. Authenticates via `httpOnly` cookie (`auth_token` JWT) from the WebSocket upgrade request — no client-side token needed. Creates a CDP session via `page.context().newCDPSession(page)` and streams JPEG frames using `Page.startScreencast`. Supports interrupt/resume state with 2-minute auto-resume timer.
-- `src/instrumentation.ts`: Starts/stops the screencast WebSocket server on Next.js `register()` lifecycle hook.
-- `src/app/components/LiveBrowserView.tsx`: Sidebar component. Connects to WebSocket, renders live JPEG frames, shows connection status (Connecting/Live/Offline), Take Over/Resume AI buttons. Falls back to static screenshot when disconnected. Shows a "Connecting to browser..." placeholder when no frames are available yet.
-- `src/app/components/BrowserModal.tsx`: Full-screen overlay for expanded live browser. Supports click, type, scroll, and keypress relay via CDP `Input.dispatchMouseEvent` / `Input.dispatchKeyEvent` / `Input.insertText`. Coordinate scaling from client viewport to 1280×720. Shows "YOU HAVE CONTROL" banner when interrupted.
-- `src/app/components/UwafBrowserPreview.tsx`: Static screenshot fallback — used when Live Browser is disabled in settings.
+1. **WebSocket connectivity behind reverse proxy**: The client tries same-origin `/ws/screencast` first, then falls back to port 3001. Both fail when behind an Nginx reverse proxy with TLS because:
+   - Same-origin path requires Nginx to proxy WebSocket upgrades for `/ws/screencast` to port 3001 (not configured by default)
+   - Direct port 3001 uses `wss://` but the port doesn't have TLS certificates
+   - **Fix needed**: Either add Nginx proxy config for `/ws/screencast`, or integrate the WebSocket into the Next.js server properly
 
-**WebSocket Protocol:**
-- Client → Server: `{ type: 'input', payload: { inputType: 'click'|'scroll'|'type'|'keypress', ... } }`, `{ type: 'interrupt' }`, `{ type: 'resume' }`, `{ type: 'ping' }`
-- Server → Client: `{ type: 'frame', data: '<base64 jpeg>' }`, `{ type: 'state', aiActive: boolean, interrupted: boolean }`, `{ type: 'notification', message: string }`, `{ type: 'pong' }`
+2. **`instrumentation.ts` HTTP server attachment is fragile**: The `setTimeout(1000)` approach to find the Next.js HTTP server via `process._getActiveHandles()` is unreliable. The server may not be ready yet, and the internal API is undocumented.
 
-**Interrupt/Resume Mechanism:**
-- "Take Over" button sets `client.interrupted = true` on the screencast server
-- `/api/openclaw/uwaf-browser` route polls `isBrowserInterrupted(userId, sessionId)` — waits up to 2 minutes while browser is interrupted
-- User input events (click/type/scroll) only relayed through CDP when `interrupted === true`
-- Auto-resume timer resets on every user input; after 2 min of inactivity, AI control resumes automatically
-- "Resume AI" button clears the interrupt flag immediately
+3. **Screencast server creates a new browser page for each WebSocket connection**: If the UWAF browser hasn't been used yet, `getPage()` creates a new context which shows a blank page. The live view should show "about:blank" or a loading state, not a blank page.
 
-**Rendering Logic:**
-- LiveBrowserView appears in the sidebar whenever: `internetEnabled && openClawUwafBrowserMode !== 'deny' && openClawUwafLiveBrowser && currentSessionId`
-- Does NOT require a screenshot to exist — shows connecting/waiting state when no browser activity yet
-- UwafBrowserPreview (static screenshot) only shows when Live Browser is disabled and a screenshot exists
-- BrowserModal "Expand" button opens a full-screen popup with interactive browser view
+4. **No graceful degradation**: When the WebSocket fails to connect, the user sees "Connecting..." indefinitely with no helpful message or fallback to screenshot mode.
 
-**Authentication:**
-- WebSocket auth reads `auth_token` from the `httpOnly` cookie in the upgrade request headers (no client-side JS needed)
-- Falls back to URL `?token=` parameter if cookie not present
-- JWT validated via `verifyToken()` — same auth as the rest of the app
+5. **BrowserModal input relay not tested**: Click/type/scroll relay via CDP hasn't been tested end-to-end yet.
 
-**Settings:**
-- `openClawUwafLiveBrowser` boolean toggle in Settings Panel (default: true)
-- Added to Prisma schema, settings lib, API route, SettingsPanel UI
-- When disabled, falls back to static UwafBrowserPreview
+6. **The `scripts/start-with-ws.mjs` and `src/app/api/ws/screencast/route.ts` files are unused/placeholder**: They should be cleaned up or properly integrated.
 
-### Chat Mode System (All Modes)
-- **Uncensored/Unrestricted modes now have full tool access.** Previous bug: `openClawPrompt` was excluded from uncensored/unrestricted system prompts.
-- **Uncensored instructions updated:** Dynamic tool-aware clause replaces anti-tool language.
-- **Current date/time injected into ALL system prompts** so the AI always knows the current date.
+## 🔑 Key Files — Live Browser
+| File | Purpose |
+|---|---|
+| `src/lib/screencast-server.ts` | WebSocket server (noServer mode), CDP screencast, interrupt/resume, cookie auth |
+| `src/instrumentation.ts` | Starts screencast server, tries to attach to Next.js HTTP server |
+| `src/app/components/LiveBrowserView.tsx` | Sidebar live view, WebSocket connection with fallback URLs |
+| `src/app/components/BrowserModal.tsx` | Full-screen expandable browser with CDP input relay |
+| `src/app/components/UwafBrowserPreview.tsx` | Static screenshot fallback |
+| `src/app/components/OpenClawWorkspace.tsx` | Integration: LiveBrowserView shows when internet toggle is on |
 
-### RAG Knowledge Base (Full Access Fix)
-- **topK=-1 (full access)** fixed across 5 code paths (client, search route, rag.ts, page.tsx)
-- **KB stale detection:** 10 min timeout; moved from GET handler to POST/health only
-- **KB embedding retry:** 2 retries with exponential backoff
-- **KB error recovery:** Errored docs can be re-uploaded
+## 🚀 Recent Fixes & Changes (Stable)
+
+### Chat Mode System
+- **Uncensored/Unrestricted modes have full tool access.** Dynamic tool-aware clause replaces anti-tool language.
+- **Current date/time injected into ALL system prompts.**
+
+### RAG Knowledge Base
+- **topK=-1 (full access)** fixed across all code paths
+- **KB stale detection**: 10 min timeout, moved from GET handler to POST/health only
+- **KB embedding retry**: 2 retries with exponential backoff
+- **KB error recovery**: Errored docs can be re-uploaded
 
 ### UWAF Browser
 - Removed crash-causing Chromium flags; added retry logic in `getPage()`
 
-## 🔑 Key Files
-| File | Purpose |
-|---|---|
-| `src/app/page.tsx` | Main dashboard, chat, session management, surface-aware navigation |
-| `src/app/components/OpenClawWorkspace.tsx` | Open Claw agent workspace, internet toggle, live browser integration |
-| `src/app/components/LiveBrowserView.tsx` | Live browser view (WebSocket JPEG stream, Take Over/Resume) |
-| `src/app/components/BrowserModal.tsx` | Full-screen expandable browser with CDP input relay |
-| `src/app/components/UwafBrowserPreview.tsx` | Static screenshot fallback |
-| `src/app/components/UwafNetworkPanel.tsx` | Network hub panel (Direct/Stealth mode toggle) |
-| `src/app/components/SettingsPanel.tsx` | Settings UI (includes Live Browser toggle) |
-| `src/lib/screencast-server.ts` | WebSocket screencast server (CDP frames, interrupt/resume, input relay, cookie auth) |
-| `src/lib/uwaf-pool.ts` | Playwright browser pool manager (contexts, pages, Tor proxy) |
-| `src/lib/uwaf-browser.ts` | UWAF browser actions (navigate, click, extract, etc.) |
-| `src/lib/chat-completion.ts` | System prompt assembly, mode handling, streaming completion |
-| `src/lib/rag.ts` | RAG search, context building, RRF fusion |
-| `src/instrumentation.ts` | Next.js startup hook (screencast server lifecycle) |
-| `src/app/api/openclaw/uwaf-browser/route.ts` | UWAF browser API with interrupt check |
-
 ## 🌐 Deployment Notes
 - App runs on port `3000`, screencast WebSocket on port `3001`
-- `network_mode: host` allows container to reach Ollama (`127.0.0.1:11434`), Tor (`localhost:9050`), and screencast (`localhost:3001`)
-- `SCREENCAST_PORT` env var configures WebSocket port (default: 3001)
-- `SCREENCAST_QUALITY`, `SCREENCAST_WIDTH`, `SCREENCAST_HEIGHT` env vars configure stream params
-- Behind Nginx Proxy Manager: add `proxy_buffering off; proxy_read_timeout 300s; proxy_http_version 1.1; proxy_set_header Connection '';` and for WebSocket: `proxy_set_header Upgrade $http_upgrade; proxy_set_header Connection "upgrade";` for port 3001
+- `network_mode: host` allows container to reach Ollama, Tor, and screencast server
+- **Nginx Proxy Manager**: To enable WebSocket for live browser, add a custom location for `/ws/screencast` that proxies to `http://localhost:3001` with WebSocket upgrade headers:
+  ```
+  proxy_http_version 1.1;
+  proxy_set_header Upgrade $http_upgrade;
+  proxy_set_header Connection "upgrade";
+  proxy_read_timeout 86400;
+  ```
 - **IMPORTANT:** Never use `prisma db push --force-reset` on production — it wipes all data!
 
 ## ⏭️ Next Steps
+- **Fix live browser WebSocket connectivity** — either integrate into Next.js server properly or document Nginx proxy config
+- **Test and fix BrowserModal input relay** — click/type/scroll via CDP needs end-to-end testing
+- **Add graceful degradation** — fall back to screenshot mode when WebSocket fails, show helpful messages
+- **Clean up unused files** — `scripts/start-with-ws.mjs`, `src/app/api/ws/screencast/route.ts`
 - Open Claw agent infrastructure: heartbeats/autonomous scheduling, sub-agent delegation
 - Development section: Code Interpreter, Docker orchestration, VM management
-- Internet mode Phase 2: browser extension context flow
-- RAG: consider raising context limits further for large knowledge bases
-- Live Browser: mobile touch optimization, FPS/resolution settings UI, error boundary
