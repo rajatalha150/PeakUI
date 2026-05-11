@@ -29,7 +29,6 @@ export default function LiveBrowserView({
   fallbackScreenshot,
   currentUrl,
   title,
-  onClose,
   onInterruptChange,
   enabled = true,
   autoResumeMs = 120000,
@@ -77,7 +76,6 @@ export default function LiveBrowserView({
               onInterruptChange?.(msg.interrupted ?? false)
               break
             case 'notification':
-              // Could display a toast here in the future
               break
             case 'error':
               console.warn('[LiveBrowserView] Server error:', msg.message)
@@ -157,11 +155,9 @@ export default function LiveBrowserView({
     ? { label: 'Stealth', bg: 'rgba(168, 85, 247, 0.15)', color: '#a855f7', border: '1px solid rgba(168, 85, 247, 0.3)' }
     : { label: 'Direct', bg: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.3)' }
 
-  // Determine what to show: live frame > fallback screenshot > nothing
+  // Determine what to show: live frame > fallback screenshot > empty state
   const showLive = enabled && status === 'live' && frameData
   const imageData = showLive ? frameData : fallbackScreenshot
-
-  if (!imageData) return null
 
   return (
     <div style={{
@@ -187,26 +183,9 @@ export default function LiveBrowserView({
               fontSize: '0.62rem',
               color: status === 'live' ? '#22c55e' : status === 'connecting' ? '#f59e0b' : '#ef4444',
             }}>
-                {status === 'live' ? <Wifi size={10} /> : status === 'connecting' ? <Loader size={10} style={{ animation: 'spin 1s linear infinite' }} /> : <WifiOff size={10} />}
-                {status === 'live' ? 'Live' : status === 'connecting' ? 'Connecting' : 'Offline'}
-              </div>
-          )}
-          {onClose && (
-            <button
-              onClick={onClose}
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: 'var(--text-secondary)',
-                padding: 2,
-                display: 'flex',
-                alignItems: 'center',
-              }}
-              title="Close preview"
-            >
-              ✕
-            </button>
+              {status === 'live' ? <Wifi size={10} /> : status === 'connecting' ? <Loader size={10} style={{ animation: 'spin 1s linear infinite' }} /> : <WifiOff size={10} />}
+              {status === 'live' ? 'Live' : status === 'connecting' ? 'Connecting' : 'Offline'}
+            </div>
           )}
         </div>
       </div>
@@ -254,17 +233,33 @@ export default function LiveBrowserView({
         overflow: 'hidden',
         border: '1px solid var(--border-color)',
         position: 'relative',
+        background: '#111',
       }}>
-        <img
-          src={`data:image/jpeg;base64,${imageData}`}
-          alt={enabled && status === 'live' ? 'Live browser view' : 'Browser screenshot'}
-          style={{
+        {imageData ? (
+          <img
+            src={`data:image/jpeg;base64,${imageData}`}
+            alt={showLive ? 'Live browser view' : 'Browser screenshot'}
+            style={{
+              width: '100%',
+              height: 'auto',
+              display: 'block',
+              objectFit: 'contain',
+            }}
+          />
+        ) : (
+          <div style={{
             width: '100%',
-            height: 'auto',
-            display: 'block',
-            objectFit: 'contain',
-          }}
-        />
+            aspectRatio: '16/9',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--text-secondary)',
+            fontSize: '0.75rem',
+            opacity: 0.6,
+          }}>
+            {status === 'connecting' ? 'Connecting to browser...' : status === 'disconnected' ? 'Browser offline' : 'Waiting for browser activity...'}
+          </div>
+        )}
         {/* Live indicator overlay */}
         {showLive && !interrupted && (
           <div style={{

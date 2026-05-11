@@ -32,7 +32,8 @@ function clientKey(userId: string, sessionId: string): string {
 
 async function startScreencastForClient(client: ScreencastClient): Promise<void> {
   try {
-    const page = await getPage(client.sessionId, client.mode)
+    const contextKey = `${client.userId}:${client.sessionId}`
+    const page = await getPage(contextKey, client.mode)
     const context = page.context()
     const cdp = await (context as any).newCDPSession(page)
     client.cdpSession = cdp

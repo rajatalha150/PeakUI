@@ -18,7 +18,32 @@
       "Bash(git add *)",
       "Bash(git -C /home/raza/Desktop/ViewLlama-internet-access config user.name \"rajatalha150\")",
       "Bash(git -C /home/raza/Desktop/ViewLlama-internet-access config user.email \"rajatalha150@gmail.com\")",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(git commit *)",
+      "Bash(sudo iptables -L -n)",
+      "Bash(sudo ufw status)",
+      "Bash(sudo nft list ruleset)",
+      "Bash(iptables -L INPUT -n)",
+      "Bash(iptables -L -n)",
+      "Bash(git *)",
+      "Bash(sudo docker compose up -d --build)",
+      "Bash(sg docker *)",
+      "WebSearch",
+      "Bash(npx next *)",
+      "Bash(node_modules/.bin/next build *)",
+      "Bash(node_modules/.bin/tsc --noEmit --pretty)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:leaked-system-prompts.com)",
+      "WebFetch(domain:llmrefs.com)",
+      "WebFetch(domain:docs.perplexity.ai)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(sudo docker compose build)",
+      "Bash(node *)",
+      "Bash(ssh-keygen *)",
+      "Bash(sudo docker compose exec app npx tsc --noEmit)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(npm ls *)",
+      "Bash(xargs cat)"
     ]
   }
 }

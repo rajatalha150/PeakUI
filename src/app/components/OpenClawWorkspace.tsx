@@ -5834,33 +5834,30 @@ export default function OpenClawWorkspace({
               />
             )}
 
-            {/* UWAF Browser Preview — Live or Static */}
-            {uwafShowPreview && uwafScreenshot && (
-              settings?.openClawUwafLiveBrowser && authToken && currentSessionId ? (
-                <LiveBrowserView
-                  authToken={authToken}
-                  sessionId={currentSessionId}
-                  mode={uwafBrowserMode}
-                  fallbackScreenshot={uwafScreenshot}
-                  currentUrl={uwafCurrentUrl}
-                  title={uwafCurrentTitle}
-                  onClose={() => setUwafShowPreview(false)}
-                  onInterruptChange={setBrowserInterrupted}
-                  enabled={settings?.openClawUwafLiveBrowser ?? true}
-                />
-              ) : (
-                <UwafBrowserPreview
-                  screenshot={uwafScreenshot}
-                  currentUrl={uwafCurrentUrl}
-                  title={uwafCurrentTitle}
-                  mode={uwafBrowserMode}
-                  onClose={() => setUwafShowPreview(false)}
-                />
-              )
-            )}
+            {/* UWAF Browser — Live View (shown when internet is enabled) */}
+            {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && authToken && currentSessionId ? (
+              <LiveBrowserView
+                authToken={authToken}
+                sessionId={currentSessionId}
+                mode={uwafBrowserMode}
+                fallbackScreenshot={uwafScreenshot}
+                currentUrl={uwafCurrentUrl}
+                title={uwafCurrentTitle}
+                onInterruptChange={setBrowserInterrupted}
+                enabled={true}
+              />
+            ) : uwafShowPreview && uwafScreenshot ? (
+              <UwafBrowserPreview
+                screenshot={uwafScreenshot}
+                currentUrl={uwafCurrentUrl}
+                title={uwafCurrentTitle}
+                mode={uwafBrowserMode}
+                onClose={() => setUwafShowPreview(false)}
+              />
+            ) : null}
 
             {/* Live Browser Expand Button */}
-            {uwafShowPreview && uwafScreenshot && settings?.openClawUwafLiveBrowser && authToken && currentSessionId && (
+            {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && authToken && currentSessionId && (
               <div style={{ padding: '4px 12px' }}>
                 <button
                   onClick={() => setBrowserModalOpen(true)}
