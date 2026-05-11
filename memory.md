@@ -54,6 +54,30 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - **Stream phases:** UI shows "Searching knowledge base..." during lookup
 - **KB browser:** The Knowledge Base dashboard now pages documents server-side, lets users choose the page size, supports multi-select/select-all, and can bulk delete selected entries
 
+### RAG Full Access & Indexing Fixes ✅
+- **topK=-1 (full access) was broken:** Client pre-search hardcoded `topK: 4`; `/api/rag/search` `normalizeTopK()` converted -1 to 1 and capped at 12; semantic thresholds (0.3/0.2) dropped chunks in full access; `buildRagContextBlock` truncated to 10K chars regardless; client and server both injected RAG context causing double injection
+- **All fixed:** Client now uses `userSettings?.ragTopK`; `normalizeTopK()` maps -1 to 10000 and caps normal at 200; semantic threshold is 0 for full access; context limit raised to 100K for full access; client-side context injection removed (server handles it); `rag_topk` sent in chat request body; KB system message inserted AFTER main system prompt; KB instruction strengthened to "IMPORTANT: You MUST use this context"
+- **KB stale detection:** Increased processing timeout from 2 min to 10 min; moved `markStaleProcessingDocuments()` from GET handler to POST handler and health endpoint only
+- **KB embedding retry:** 2 retries with 5s/15s exponential backoff before falling back to keyword mode
+- **KB error recovery:** Errored documents with matching content hash can be re-uploaded to retry indexing
+- **KB UI:** Document preview modal z-index raised from 80 to 1100
+
+### Chat Mode System Fixes ✅
+- **Uncensored/unrestricted modes had no tool access:** `openClawPrompt` (shell, browser, filesystem, internet definitions) was completely excluded from uncensored/unrestricted system prompts — AI couldn't use any tools in those modes
+- **Fixed:** `openClawPrompt` and `chatInternetPrompt` now included in ALL mode branches (uncensored, unrestricted, normal)
+- **Uncensored anti-tool language removed:** Removed "Skip deliberation — go straight to the answer" and "Start with the answer immediately" clauses that suppressed tool invocation
+- **Dynamic tool-aware clause:** When tools are available, uncensored mode says "use tools proactively to get accurate, current information instead of guessing"; when no tools, it says "start with the answer immediately"
+- **Reinforcement updated:** `UNCENSORED_REINFORCEMENT` now includes "When tools are available, use them proactively"
+- `UNCENSORED_INSTRUCTIONS` renamed to `UNCENSORED_BASE_INSTRUCTIONS` (array, joined dynamically with tool clause)
+
+### Date/Time Injection ✅
+- **Current date/time + timezone injected into ALL system prompts** (all modes, all surfaces) so AI always knows the current date and acknowledges training data may be outdated
+- Applied to both `chat-completion.ts` (all three mode branches) and `openclaw-prompt.ts` (after model name line)
+
+### UWAF Browser Fix ✅
+- Removed `--single-process` and `--no-zygote` Chromium flags that caused `browserContext.newPage: Target page, context or browser has been closed` crashes
+- Added retry logic in `getPage()`: if `newPage()` fails, clear stale references, relaunch browser, and retry
+
 ### Core Chat
 - **Inline image rendering:** AI-generated markdown images (`![alt](url)`) now render inline directly in chat messages via `AssistantContent` component
 - **AI image awareness:** `IMAGE_INSTRUCTIONS` injected into system prompt guides models to use markdown image syntax for picture requests
@@ -321,8 +345,15 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `feat: add UWAF dual-mode browser (Clear Web + Dark Web/Tor) with Playwright, Tor proxy, sanitize pipeline, and UI`
-- **Previous committed baseline:** `feat: add Open Claw host shell executor`
+- **Current committed baseline:** `fix: uncensored mode now uses tools instead of suppressing them`
+- **Previous committed baseline:** `feat: add UWAF dual-mode browser (Clear Web + Dark Web/Tor) with Playwright, Tor proxy, sanitize pipeline, and UI`
+
+### Latest Hotfixes (post v0.10.0)
+- **Uncensored/unrestricted tool access fix:** `openClawPrompt` and `chatInternetPrompt` now included in all mode branches; anti-tool language removed from `UNCENSORED_BASE_INSTRUCTIONS`; dynamic tool-aware clause added; `UNCENSORED_REINFORCEMENT` updated to encourage tool use
+- **RAG full access fix:** `normalizeTopK()` maps -1 to 10000; semantic threshold lowered to 0 for full access; context limit raised from 10K to 100K; client-side context injection removed; KB system message positioned after main prompt; KB instruction strengthened
+- **RAG indexing fixes:** Stale timeout increased to 10 min; stale detection moved from GET to POST/health; embedding retry with backoff; error document re-upload recovery; extraction cap at 2M chars
+- **Date/time injection:** Current date+time+timezone injected in all system prompts and OpenClaw prompt
+- **UWAF browser fix:** Removed `--single-process`/`--no-zygote` Chromium flags; added `newPage()` retry logic
 
 ### Latest Changes (v0.10.0) 🕸️
 - **UWAF (Unified Web Agent Framework):** Dual-mode browser engine supporting Direct (Clear Web) and Stealth (Tor-routed) research modes, fully integrated into Open Claw as the `unified_browser` tool
