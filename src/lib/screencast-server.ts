@@ -368,7 +368,7 @@ export function getScreencastState(userId: string, sessionId: string): { connect
   const key = clientKey(userId, sessionId)
   const client = clients.get(key)
   return {
-    connected: client?.ws.readyState === WebSocket.OPEN ?? false,
+    connected: client != null && client.ws.readyState === WebSocket.OPEN,
     interrupted: client?.interrupted ?? false,
   }
 }
