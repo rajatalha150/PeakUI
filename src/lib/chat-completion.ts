@@ -623,10 +623,11 @@ export async function createChatCompletionResponse(req: NextRequest) {
 
     // PERSISTENT_INSTRUCTIONS always included — even in unrestricted/uncensored modes
     // the model must always respond in English and stay grounded
+    // openClawPrompt and tool instructions are always included so tools remain available
     const systemPromptParts = uncensored
-      ? [UNCENSORED_INSTRUCTIONS, PERSISTENT_INSTRUCTIONS, dateTimeInstruction, chatInternetPrompt]
+      ? [UNCENSORED_INSTRUCTIONS, PERSISTENT_INSTRUCTIONS, dateTimeInstruction, openClawPrompt, chatInternetPrompt]
       : unrestricted
-      ? [PERSISTENT_INSTRUCTIONS, dateTimeInstruction, chatInternetPrompt]
+      ? [PERSISTENT_INSTRUCTIONS, dateTimeInstruction, openClawPrompt, chatInternetPrompt]
       : [
           PERSISTENT_INSTRUCTIONS,
           dateTimeInstruction,
