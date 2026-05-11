@@ -617,14 +617,19 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const chatInternetPrompt = surface === 'chat' && internetToolEnabled
       ? buildChatInternetToolPrompt()
       : '';
+    // Current date/time so the model stays grounded in the present
+    const now = new Date()
+    const dateTimeInstruction = `Current date and time: ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}. Always consider this when answering questions about dates, schedules, time-sensitive topics, or current events. Your training data has a cutoff and may be outdated — when in doubt, acknowledge uncertainty about recent developments rather than guessing.`
+
     // PERSISTENT_INSTRUCTIONS always included — even in unrestricted/uncensored modes
     // the model must always respond in English and stay grounded
     const systemPromptParts = uncensored
-      ? [UNCENSORED_INSTRUCTIONS, PERSISTENT_INSTRUCTIONS, chatInternetPrompt]
+      ? [UNCENSORED_INSTRUCTIONS, PERSISTENT_INSTRUCTIONS, dateTimeInstruction, chatInternetPrompt]
       : unrestricted
-      ? [PERSISTENT_INSTRUCTIONS, chatInternetPrompt]
+      ? [PERSISTENT_INSTRUCTIONS, dateTimeInstruction, chatInternetPrompt]
       : [
           PERSISTENT_INSTRUCTIONS,
+          dateTimeInstruction,
           ...(surface === 'chat' ? [IMAGE_INSTRUCTIONS] : []),
           settings.systemPrompt.trim(),
           openClawPrompt,

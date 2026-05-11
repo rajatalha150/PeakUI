@@ -95,6 +95,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
       : 'No external tools are available for this turn beyond the context already attached.',
     'At most one tool block is allowed in a single response. After each tool result arrives, decide whether to answer, ask one clarification, or request the next tool.',
     `Current model: ${context.model || 'unspecified'}.`,
+    `Current date and time: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}. Always consider this when answering questions about dates, schedules, time-sensitive topics, or current events. Your training data has a cutoff and may be outdated — when in doubt, acknowledge uncertainty about recent developments rather than guessing.`,
   ];
 
   if (context.internetToolEnabled) {
