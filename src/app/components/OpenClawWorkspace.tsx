@@ -1030,7 +1030,6 @@ export default function OpenClawWorkspace({
   const [uwafShowPreview, setUwafShowPreview] = useState(false);
   const [browserModalOpen, setBrowserModalOpen] = useState(false);
   const [browserInterrupted, setBrowserInterrupted] = useState(false);
-  const [authToken, setAuthToken] = useState<string>('');
   const [stoppingModel, setStoppingModel] = useState(false);
   const [modelControlNote, setModelControlNote] = useState('');
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -1110,14 +1109,6 @@ export default function OpenClawWorkspace({
     } finally {
       setApiKeyLoaded(true);
     }
-  }, []);
-
-  // Read auth token from cookies for LiveBrowserView
-  useEffect(() => {
-    try {
-      const match = document.cookie.match(/(?:^|; )auth_token=([^;]*)/);
-      if (match) setAuthToken(decodeURIComponent(match[1]));
-    } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
@@ -5835,9 +5826,8 @@ export default function OpenClawWorkspace({
             )}
 
             {/* UWAF Browser — Live View (shown when internet is enabled) */}
-            {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && authToken && currentSessionId ? (
+            {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && currentSessionId ? (
               <LiveBrowserView
-                authToken={authToken}
                 sessionId={currentSessionId}
                 mode={uwafBrowserMode}
                 fallbackScreenshot={uwafScreenshot}
@@ -5857,7 +5847,7 @@ export default function OpenClawWorkspace({
             ) : null}
 
             {/* Live Browser Expand Button */}
-            {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && authToken && currentSessionId && (
+            {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && currentSessionId && (
               <div style={{ padding: '4px 12px' }}>
                 <button
                   onClick={() => setBrowserModalOpen(true)}
@@ -5883,9 +5873,8 @@ export default function OpenClawWorkspace({
             )}
 
             {/* Browser Modal */}
-            {browserModalOpen && authToken && currentSessionId && (
+            {browserModalOpen && currentSessionId && (
               <BrowserModal
-                authToken={authToken}
                 sessionId={currentSessionId}
                 mode={uwafBrowserMode}
                 fallbackScreenshot={uwafScreenshot}

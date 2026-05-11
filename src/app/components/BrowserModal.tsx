@@ -6,7 +6,6 @@ import { X, Maximize2, Minimize2, Wifi, WifiOff, Loader } from 'lucide-react'
 type ConnectionStatus = 'connecting' | 'live' | 'disconnected'
 
 interface BrowserModalProps {
-  authToken: string
   sessionId: string
   mode: 'direct' | 'stealth'
   /** Static screenshot to show as fallback */
@@ -25,7 +24,6 @@ interface BrowserModalProps {
 }
 
 export default function BrowserModal({
-  authToken,
   sessionId,
   mode,
   fallbackScreenshot,
@@ -51,12 +49,12 @@ export default function BrowserModal({
   const maxReconnectDelay = 30000
 
   const connect = useCallback(() => {
-    if (!enabled || !authToken || !sessionId) return
+    if (!enabled || !sessionId) return
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.hostname
     const port = process.env.NEXT_PUBLIC_SCREENCAST_PORT || '3001'
-    const url = `${protocol}//${host}:${port}?token=${encodeURIComponent(authToken)}&sessionId=${encodeURIComponent(sessionId)}&mode=${mode}&autoResumeMs=${autoResumeMs}`
+    const url = `${protocol}//${host}:${port}?sessionId=${encodeURIComponent(sessionId)}&mode=${mode}&autoResumeMs=${autoResumeMs}`
 
     try {
       const ws = new WebSocket(url)
@@ -99,7 +97,7 @@ export default function BrowserModal({
       setStatus('disconnected')
       scheduleReconnect()
     }
-  }, [enabled, authToken, sessionId, mode, autoResumeMs, onInterruptChange, externalWsRef])
+  }, [enabled, sessionId, mode, autoResumeMs, onInterruptChange, externalWsRef])
 
   const scheduleReconnect = useCallback(() => {
     if (reconnectTimerRef.current) return

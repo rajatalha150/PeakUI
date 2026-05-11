@@ -6,7 +6,6 @@ import { Wifi, WifiOff, Loader } from 'lucide-react'
 type ConnectionStatus = 'connecting' | 'live' | 'disconnected'
 
 interface LiveBrowserViewProps {
-  authToken: string
   sessionId: string
   mode: 'direct' | 'stealth'
   /** Static screenshot to show as fallback when WebSocket is not connected */
@@ -23,7 +22,6 @@ interface LiveBrowserViewProps {
 }
 
 export default function LiveBrowserView({
-  authToken,
   sessionId,
   mode,
   fallbackScreenshot,
@@ -44,12 +42,12 @@ export default function LiveBrowserView({
   const maxReconnectDelay = 30000
 
   const connect = useCallback(() => {
-    if (!enabled || !authToken || !sessionId) return
+    if (!enabled || !sessionId) return
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.hostname
     const port = process.env.NEXT_PUBLIC_SCREENCAST_PORT || '3001'
-    const url = `${protocol}//${host}:${port}?token=${encodeURIComponent(authToken)}&sessionId=${encodeURIComponent(sessionId)}&mode=${mode}&autoResumeMs=${autoResumeMs}`
+    const url = `${protocol}//${host}:${port}?sessionId=${encodeURIComponent(sessionId)}&mode=${mode}&autoResumeMs=${autoResumeMs}`
 
     try {
       const ws = new WebSocket(url)
@@ -99,7 +97,7 @@ export default function LiveBrowserView({
       setStatus('disconnected')
       scheduleReconnect()
     }
-  }, [enabled, authToken, sessionId, mode, autoResumeMs, onInterruptChange])
+  }, [enabled, sessionId, mode, autoResumeMs, onInterruptChange])
 
   const scheduleReconnect = useCallback(() => {
     if (reconnectTimerRef.current) return

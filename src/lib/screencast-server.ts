@@ -232,14 +232,31 @@ function handleMessage(client: ScreencastClient, data: string): void {
 
 async function authenticateConnection(ws: WebSocket, req: any): Promise<{ userId: string; sessionId: string; mode: BrowserMode; autoResumeMs: number } | null> {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
-  const token = url.searchParams.get('token')
   const sessionId = url.searchParams.get('sessionId')
   const mode = (url.searchParams.get('mode') || 'direct') as BrowserMode
   const autoResumeMs = parseInt(url.searchParams.get('autoResumeMs') || '120000', 10)
 
-  if (!token || !sessionId) {
-    ws.send(JSON.stringify({ type: 'error', message: 'Missing token or sessionId' }))
+  if (!sessionId) {
+    ws.send(JSON.stringify({ type: 'error', message: 'Missing sessionId' }))
     ws.close(4001, 'Missing parameters')
+    return null
+  }
+
+  // Try to get token from cookie first (httpOnly cookies not accessible from JS)
+  // then fall back to URL parameter
+  let token: string | null = null
+  const cookieHeader = req.headers?.cookie || ''
+  const cookieMatch = cookieHeader.match(/(?:^|; )auth_token=([^;]+)/)
+  if (cookieMatch) {
+    token = decodeURIComponent(cookieMatch[1])
+  }
+  if (!token) {
+    token = url.searchParams.get('token')
+  }
+
+  if (!token) {
+    ws.send(JSON.stringify({ type: 'error', message: 'Missing auth token' }))
+    ws.close(4001, 'Missing auth')
     return null
   }
 
