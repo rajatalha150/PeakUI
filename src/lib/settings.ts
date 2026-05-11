@@ -74,6 +74,7 @@ export interface AppSettings {
   openClawUwafBrowserMode: OpenClawUwafBrowserMode
   openClawUwafScreenshots: boolean
   openClawUwafDefaultMode: OpenClawUwafDefaultMode
+  openClawUwafLiveBrowser: boolean
   ragEnabled: boolean
   ragTopK: number
 }
@@ -120,6 +121,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   openClawUwafBrowserMode: 'deny',
   openClawUwafScreenshots: true,
   openClawUwafDefaultMode: 'direct',
+  openClawUwafLiveBrowser: true,
   ragEnabled: false,
   ragTopK: 8,
 }
@@ -325,6 +327,7 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     openClawUwafBrowserMode: normalizeOpenClawUwafBrowserMode(settings?.openClawUwafBrowserMode),
     openClawUwafScreenshots: normalizeBoolean(settings?.openClawUwafScreenshots, DEFAULT_SETTINGS.openClawUwafScreenshots),
     openClawUwafDefaultMode: normalizeOpenClawUwafDefaultMode(settings?.openClawUwafDefaultMode),
+    openClawUwafLiveBrowser: normalizeBoolean(settings?.openClawUwafLiveBrowser, DEFAULT_SETTINGS.openClawUwafLiveBrowser),
     ragEnabled: normalizeBoolean(settings?.ragEnabled, DEFAULT_SETTINGS.ragEnabled),
     ragTopK: normalizeRagTopK(settings?.ragTopK),
   }

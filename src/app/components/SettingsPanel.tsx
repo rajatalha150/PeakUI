@@ -43,6 +43,7 @@ interface UserSettings {
   openClawUwafBrowserMode: string;
   openClawUwafScreenshots: boolean;
   openClawUwafDefaultMode: string;
+  openClawUwafLiveBrowser: boolean;
   ragModel: string;
   ragMode: string;
   ragEnabled: boolean;
@@ -114,6 +115,7 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
     openClawUwafBrowserMode: 'deny',
     openClawUwafScreenshots: true,
     openClawUwafDefaultMode: 'direct',
+    openClawUwafLiveBrowser: true,
     ragModel: 'nomic-embed-text',
     ragMode: 'semantic',
     ragEnabled: false,
@@ -1080,6 +1082,23 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
                   <div style={{
                     position: 'absolute', top: '3px',
                     left: settings.openClawUwafScreenshots ? '25px' : '3px',
+                    width: '20px', height: '20px', borderRadius: '50%',
+                    background: '#fff', transition: 'left 0.2s',
+                  }} />
+                </div>
+              </Field>
+              <Field label="Live Browser" help="Stream a live view of the browser in the sidebar. When enabled, you can see the browser in real time and take over control using the Take Over button. Falls back to static screenshots when disabled.">
+                <div
+                  onClick={() => update('openClawUwafLiveBrowser', !settings.openClawUwafLiveBrowser)}
+                  style={{
+                    position: 'relative', width: '48px', height: '26px', borderRadius: '13px',
+                    background: settings.openClawUwafLiveBrowser ? 'var(--accent-primary)' : 'rgba(255,255,255,0.1)',
+                    cursor: 'pointer', transition: 'all 0.2s',
+                  }}
+                >
+                  <div style={{
+                    position: 'absolute', top: '3px',
+                    left: settings.openClawUwafLiveBrowser ? '25px' : '3px',
                     width: '20px', height: '20px', borderRadius: '50%',
                     background: '#fff', transition: 'left 0.2s',
                   }} />

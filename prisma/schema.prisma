@@ -72,6 +72,7 @@ model UserSettings {
   openClawUwafBrowserMode String @default("deny") // "deny" | "direct" | "stealth"
   openClawUwafScreenshots Boolean @default(true)
   openClawUwafDefaultMode String @default("direct") // "direct" | "stealth"
+  openClawUwafLiveBrowser Boolean @default(true)
   // Knowledge Base RAG Settings
   ragEnabled       Boolean @default(false)
   ragTopK          Int     @default(8)

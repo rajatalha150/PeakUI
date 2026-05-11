@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserId } from '@/lib/request-auth'
 import { runUwafBrowserAction, getUwafBrowserSession, type UwafBrowserRequest } from '@/lib/uwaf-browser'
+import { isBrowserInterrupted } from '@/lib/screencast-server'
 import { prisma } from '@/lib/prisma'
 import { normalizeOpenClawUwafBrowserMode, normalizeOpenClawUwafDefaultMode, normalizeBoolean, DEFAULT_SETTINGS } from '@/lib/settings'
 
@@ -136,6 +137,15 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    // If user has interrupted the browser, wait for them to resume (up to 2 minutes)
+    const maxWaitMs = 120_000
+    const checkIntervalMs = 1_000
+    let waited = 0
+    while (isBrowserInterrupted(userId, sessionId) && waited < maxWaitMs) {
+      await new Promise(r => setTimeout(r, checkIntervalMs))
+      waited += checkIntervalMs
+    }
+
     const result = await runUwafBrowserAction(userId, uwafRequest, {
       openClawUwafBrowserMode: settings.openClawUwafBrowserMode,
       openClawUwafScreenshots: normalizeBoolean(settings.openClawUwafScreenshots),

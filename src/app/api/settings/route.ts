@@ -74,6 +74,7 @@ interface SettingsBody {
   openClawUwafBrowserMode?: unknown;
   openClawUwafScreenshots?: unknown;
   openClawUwafDefaultMode?: unknown;
+  openClawUwafLiveBrowser?: unknown;
   ragEnabled?: unknown;
   ragTopK?: unknown;
 }
@@ -151,6 +152,7 @@ console.log('[SETTINGS POST] ragEnabled:', body.ragEnabled, 'ragTopK:', body.rag
     if (body.openClawUwafBrowserMode !== undefined) data.openClawUwafBrowserMode = normalizeOpenClawUwafBrowserMode(body.openClawUwafBrowserMode);
     if (Object.prototype.hasOwnProperty.call(body, 'openClawUwafScreenshots')) data.openClawUwafScreenshots = normalizeBoolean(body.openClawUwafScreenshots);
     if (body.openClawUwafDefaultMode !== undefined) data.openClawUwafDefaultMode = normalizeOpenClawUwafDefaultMode(body.openClawUwafDefaultMode);
+    if (Object.prototype.hasOwnProperty.call(body, 'openClawUwafLiveBrowser')) data.openClawUwafLiveBrowser = normalizeBoolean(body.openClawUwafLiveBrowser);
     if (Object.prototype.hasOwnProperty.call(body, 'ragEnabled')) data.ragEnabled = normalizeBoolean(body.ragEnabled);
     if (Object.prototype.hasOwnProperty.call(body, 'ragTopK')) {
       const parsed = Number(body.ragTopK);

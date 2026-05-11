@@ -51,6 +51,8 @@ import {
 } from '@/lib/openclaw-tools';
 import UwafNetworkPanel from './UwafNetworkPanel';
 import UwafBrowserPreview from './UwafBrowserPreview';
+import LiveBrowserView from './LiveBrowserView';
+import BrowserModal from './BrowserModal';
 
 type OpenClawProvider = 'ollama' | 'openai-compatible';
 const MOBILE_BREAKPOINT = 960;
@@ -132,6 +134,7 @@ interface OpenClawSettings {
   openClawUwafBrowserMode: 'deny' | 'direct' | 'stealth';
   openClawUwafDefaultMode: 'direct' | 'stealth';
   openClawUwafScreenshots: boolean;
+  openClawUwafLiveBrowser: boolean;
   openClawPersonaTemplate: string;
   openClawPersonaName: string;
   openClawPersonaTone: string;
@@ -1025,6 +1028,9 @@ export default function OpenClawWorkspace({
   const [uwafCurrentUrl, setUwafCurrentUrl] = useState<string>('');
   const [uwafCurrentTitle, setUwafCurrentTitle] = useState<string>('');
   const [uwafShowPreview, setUwafShowPreview] = useState(false);
+  const [browserModalOpen, setBrowserModalOpen] = useState(false);
+  const [browserInterrupted, setBrowserInterrupted] = useState(false);
+  const [authToken, setAuthToken] = useState<string>('');
   const [stoppingModel, setStoppingModel] = useState(false);
   const [modelControlNote, setModelControlNote] = useState('');
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -1104,6 +1110,14 @@ export default function OpenClawWorkspace({
     } finally {
       setApiKeyLoaded(true);
     }
+  }, []);
+
+  // Read auth token from cookies for LiveBrowserView
+  useEffect(() => {
+    try {
+      const match = document.cookie.match(/(?:^|; )auth_token=([^;]*)/);
+      if (match) setAuthToken(decodeURIComponent(match[1]));
+    } catch { /* ignore */ }
   }, []);
 
   useEffect(() => {
@@ -1253,6 +1267,7 @@ export default function OpenClawWorkspace({
         : 'deny',
       openClawUwafDefaultMode: data.openClawUwafDefaultMode === 'stealth' ? 'stealth' : 'direct',
       openClawUwafScreenshots: data.openClawUwafScreenshots !== false,
+      openClawUwafLiveBrowser: data.openClawUwafLiveBrowser !== false,
       openClawPersonaTemplate: typeof data.openClawPersonaTemplate === 'string' ? data.openClawPersonaTemplate : 'custom',
       openClawPersonaName: typeof data.openClawPersonaName === 'string' ? data.openClawPersonaName : '',
       openClawPersonaTone: typeof data.openClawPersonaTone === 'string' ? data.openClawPersonaTone : '',
@@ -1544,6 +1559,7 @@ export default function OpenClawWorkspace({
           : 'deny',
         openClawUwafDefaultMode: data.openClawUwafDefaultMode === 'stealth' ? 'stealth' : 'direct',
         openClawUwafScreenshots: data.openClawUwafScreenshots !== false,
+      openClawUwafLiveBrowser: data.openClawUwafLiveBrowser !== false,
         openClawPersonaTemplate: typeof data.openClawPersonaTemplate === 'string' ? data.openClawPersonaTemplate : 'custom',
         openClawPersonaName: typeof data.openClawPersonaName === 'string' ? data.openClawPersonaName : '',
         openClawPersonaTone: typeof data.openClawPersonaTone === 'string' ? data.openClawPersonaTone : '',
@@ -5818,14 +5834,70 @@ export default function OpenClawWorkspace({
               />
             )}
 
-            {/* UWAF Browser Preview */}
+            {/* UWAF Browser Preview — Live or Static */}
             {uwafShowPreview && uwafScreenshot && (
-              <UwafBrowserPreview
-                screenshot={uwafScreenshot}
+              settings?.openClawUwafLiveBrowser && authToken && currentSessionId ? (
+                <LiveBrowserView
+                  authToken={authToken}
+                  sessionId={currentSessionId}
+                  mode={uwafBrowserMode}
+                  fallbackScreenshot={uwafScreenshot}
+                  currentUrl={uwafCurrentUrl}
+                  title={uwafCurrentTitle}
+                  onClose={() => setUwafShowPreview(false)}
+                  onInterruptChange={setBrowserInterrupted}
+                  enabled={settings?.openClawUwafLiveBrowser ?? true}
+                />
+              ) : (
+                <UwafBrowserPreview
+                  screenshot={uwafScreenshot}
+                  currentUrl={uwafCurrentUrl}
+                  title={uwafCurrentTitle}
+                  mode={uwafBrowserMode}
+                  onClose={() => setUwafShowPreview(false)}
+                />
+              )
+            )}
+
+            {/* Live Browser Expand Button */}
+            {uwafShowPreview && uwafScreenshot && settings?.openClawUwafLiveBrowser && authToken && currentSessionId && (
+              <div style={{ padding: '4px 12px' }}>
+                <button
+                  onClick={() => setBrowserModalOpen(true)}
+                  style={{
+                    width: '100%',
+                    fontSize: '0.68rem',
+                    fontWeight: 600,
+                    padding: '6px 0',
+                    borderRadius: 4,
+                    border: '1px solid var(--border-color)',
+                    background: 'var(--bg-secondary)',
+                    color: 'var(--text-secondary)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 4,
+                  }}
+                >
+                  Expand Browser
+                </button>
+              </div>
+            )}
+
+            {/* Browser Modal */}
+            {browserModalOpen && authToken && currentSessionId && (
+              <BrowserModal
+                authToken={authToken}
+                sessionId={currentSessionId}
+                mode={uwafBrowserMode}
+                fallbackScreenshot={uwafScreenshot}
                 currentUrl={uwafCurrentUrl}
                 title={uwafCurrentTitle}
-                mode={uwafBrowserMode}
-                onClose={() => setUwafShowPreview(false)}
+                enabled={settings?.openClawUwafLiveBrowser ?? true}
+                isOpen={browserModalOpen}
+                onOpenChange={setBrowserModalOpen}
+                onInterruptChange={setBrowserInterrupted}
               />
             )}
 
