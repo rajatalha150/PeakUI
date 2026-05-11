@@ -51,15 +51,27 @@ export default function BrowserModal({
   const connect = useCallback(() => {
     if (!enabled || !sessionId) return
 
+    // Try same-origin first (works through reverse proxy), then direct port
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = window.location.hostname
-    const port = process.env.NEXT_PUBLIC_SCREENCAST_PORT || '3001'
-    const url = `${protocol}//${host}:${port}?sessionId=${encodeURIComponent(sessionId)}&mode=${mode}&autoResumeMs=${autoResumeMs}`
+    const host = window.location.host
+    const params = `sessionId=${encodeURIComponent(sessionId)}&mode=${mode}&autoResumeMs=${autoResumeMs}`
+    const sameOriginUrl = `${protocol}//${host}/ws/screencast?${params}`
+    const directUrl = `${protocol}//${window.location.hostname}:3001/?${params}`
 
-    try {
-      const ws = new WebSocket(url)
-      wsRef.current = ws
-      if (externalWsRef) externalWsRef.current = ws
+    // Try same-origin first, then direct port fallback
+    const urls = [sameOriginUrl, directUrl]
+    let urlIndex = 0
+
+    const tryUrl = () => {
+      if (urlIndex >= urls.length) {
+        setStatus('disconnected')
+        return
+      }
+      const url = urls[urlIndex++]
+      try {
+        const ws = new WebSocket(url)
+        wsRef.current = ws
+        if (externalWsRef) externalWsRef.current = ws
 
       ws.onopen = () => {
         setStatus('live')
@@ -92,10 +104,12 @@ export default function BrowserModal({
         scheduleReconnect()
       }
 
-      ws.onerror = () => { /* onclose fires */ }
+      ws.onerror = () => {
+        // This URL didn't work, try next
+        tryUrl()
+      }
     } catch {
-      setStatus('disconnected')
-      scheduleReconnect()
+      tryUrl()
     }
   }, [enabled, sessionId, mode, autoResumeMs, onInterruptChange, externalWsRef])
 

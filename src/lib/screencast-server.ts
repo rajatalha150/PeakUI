@@ -1,9 +1,9 @@
 import { createServer, type Server as HttpServer } from 'node:http'
-import { WebSocketServer, WebSocket } from 'ws'
+import { WebSocketServer, type WebSocket } from 'ws'
 import { getPage, type BrowserMode } from './uwaf-pool'
 import { verifyToken } from './auth'
 
-const SCREAMCAST_PORT = parseInt(process.env.SCREENCAST_PORT || '3001', 10)
+const SCREENCAST_PORT = parseInt(process.env.SCREENCAST_PORT || '3001', 10)
 const FRAME_QUALITY = parseInt(process.env.SCREENCAST_QUALITY || '60', 10)
 const FRAME_MAX_WIDTH = parseInt(process.env.SCREENCAST_WIDTH || '1280', 10)
 const FRAME_MAX_HEIGHT = parseInt(process.env.SCREENCAST_HEIGHT || '720', 10)
@@ -23,8 +23,9 @@ interface ScreencastClient {
 
 const clients = new Map<string, ScreencastClient>()
 
-let httpServer: HttpServer | null = null
 let wss: WebSocketServer | null = null
+let standaloneHttpServer: HttpServer | null = null
+let attachedToHttpServer = false
 
 function clientKey(userId: string, sessionId: string): string {
   return `${userId}:${sessionId}`
@@ -61,7 +62,6 @@ async function startScreencastForClient(client: ScreencastClient): Promise<void>
       maxHeight: FRAME_MAX_HEIGHT,
     })
 
-    // Send initial state
     sendState(client)
   } catch (err) {
     console.error('[screencast] Failed to start screencast:', err instanceof Error ? err.message : String(err))
@@ -80,16 +80,8 @@ async function stopScreencastForClient(client: ScreencastClient): Promise<void> 
     client.autoResumeTimer = null
   }
   if (client.cdpSession) {
-    try {
-      await client.cdpSession.send('Page.stopScreencast')
-    } catch {
-      // already stopped or detached
-    }
-    try {
-      await client.cdpSession.detach()
-    } catch {
-      // already detached
-    }
+    try { await client.cdpSession.send('Page.stopScreencast') } catch {}
+    try { await client.cdpSession.detach() } catch {}
     client.cdpSession = null
   }
 }
@@ -110,10 +102,7 @@ function startAutoResumeTimer(client: ScreencastClient): void {
       client.interrupted = false
       sendState(client)
       if (client.ws.readyState === WebSocket.OPEN) {
-        client.ws.send(JSON.stringify({
-          type: 'notification',
-          message: 'Auto-resumed: 2 minutes of inactivity',
-        }))
+        client.ws.send(JSON.stringify({ type: 'notification', message: 'Auto-resumed: 2 minutes of inactivity' }))
       }
     }
   }, client.autoResumeTimeoutMs)
@@ -121,66 +110,32 @@ function startAutoResumeTimer(client: ScreencastClient): void {
 
 async function handleInput(client: ScreencastClient, payload: any): Promise<void> {
   if (!client.cdpSession) return
-
-  // Update last user input timestamp
   client.lastUserInputAt = Date.now()
-  if (client.autoResumeTimer) {
-    // Reset the auto-resume timer on user activity
-    startAutoResumeTimer(client)
-  }
+  if (client.autoResumeTimer) startAutoResumeTimer(client)
 
   try {
     switch (payload.inputType) {
       case 'click': {
         const { x, y, button = 'left', clickCount = 1 } = payload
-        await client.cdpSession.send('Input.dispatchMouseEvent', {
-          type: 'mousePressed',
-          x,
-          y,
-          button,
-          clickCount,
-        })
-        await client.cdpSession.send('Input.dispatchMouseEvent', {
-          type: 'mouseReleased',
-          x,
-          y,
-          button,
-          clickCount,
-        })
+        await client.cdpSession.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button, clickCount })
+        await client.cdpSession.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button, clickCount })
         break
       }
       case 'scroll': {
         const { x, y, deltaX, deltaY } = payload
-        await client.cdpSession.send('Input.dispatchMouseEvent', {
-          type: 'mouseWheel',
-          x,
-          y,
-          deltaX: deltaX || 0,
-          deltaY: deltaY || 0,
-        })
+        await client.cdpSession.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x, y, deltaX: deltaX || 0, deltaY: deltaY || 0 })
         break
       }
       case 'keypress': {
         const { key, keyCode, code } = payload
-        const keyDownParams: any = {
-          type: 'keyDown',
-          key,
-          code: code || key,
-          windowsVirtualKeyCode: keyCode,
-          nativeVirtualKeyCode: keyCode,
-        }
+        const keyDownParams: any = { type: 'keyDown', key, code: code || key, windowsVirtualKeyCode: keyCode, nativeVirtualKeyCode: keyCode }
         await client.cdpSession.send('Input.dispatchKeyEvent', keyDownParams)
-        await client.cdpSession.send('Input.dispatchKeyEvent', {
-          ...keyDownParams,
-          type: 'keyUp',
-        })
+        await client.cdpSession.send('Input.dispatchKeyEvent', { ...keyDownParams, type: 'keyUp' })
         break
       }
       case 'type': {
         const { text } = payload
-        if (text) {
-          await client.cdpSession.send('Input.insertText', { text })
-        }
+        if (text) await client.cdpSession.send('Input.insertText', { text })
         break
       }
     }
@@ -191,41 +146,24 @@ async function handleInput(client: ScreencastClient, payload: any): Promise<void
 
 function handleMessage(client: ScreencastClient, data: string): void {
   let msg: any
-  try {
-    msg = JSON.parse(data)
-  } catch {
-    return
-  }
+  try { msg = JSON.parse(data) } catch { return }
 
   switch (msg.type) {
     case 'input':
-      if (client.interrupted) {
-        // User has full control during interrupt — pass input through
-        handleInput(client, msg.payload)
-      } else {
-        // AI is active — ignore user input (or queue for future)
-      }
+      if (client.interrupted) handleInput(client, msg.payload)
       break
-
     case 'interrupt':
       client.interrupted = true
       startAutoResumeTimer(client)
       sendState(client)
       break
-
     case 'resume':
       client.interrupted = false
-      if (client.autoResumeTimer) {
-        clearTimeout(client.autoResumeTimer)
-        client.autoResumeTimer = null
-      }
+      if (client.autoResumeTimer) { clearTimeout(client.autoResumeTimer); client.autoResumeTimer = null }
       sendState(client)
       break
-
     case 'ping':
-      if (client.ws.readyState === WebSocket.OPEN) {
-        client.ws.send(JSON.stringify({ type: 'pong' }))
-      }
+      if (client.ws.readyState === WebSocket.OPEN) client.ws.send(JSON.stringify({ type: 'pong' }))
       break
   }
 }
@@ -242,17 +180,12 @@ async function authenticateConnection(ws: WebSocket, req: any): Promise<{ userId
     return null
   }
 
-  // Try to get token from cookie first (httpOnly cookies not accessible from JS)
-  // then fall back to URL parameter
+  // Try cookie first (httpOnly), then URL param
   let token: string | null = null
   const cookieHeader = req.headers?.cookie || ''
   const cookieMatch = cookieHeader.match(/(?:^|; )auth_token=([^;]+)/)
-  if (cookieMatch) {
-    token = decodeURIComponent(cookieMatch[1])
-  }
-  if (!token) {
-    token = url.searchParams.get('token')
-  }
+  if (cookieMatch) token = decodeURIComponent(cookieMatch[1])
+  if (!token) token = url.searchParams.get('token')
 
   if (!token) {
     ws.send(JSON.stringify({ type: 'error', message: 'Missing auth token' }))
@@ -260,7 +193,6 @@ async function authenticateConnection(ws: WebSocket, req: any): Promise<{ userId
     return null
   }
 
-  // Validate JWT
   const payload = await verifyToken(token)
   if (!payload || typeof payload.id !== 'string') {
     ws.send(JSON.stringify({ type: 'error', message: 'Invalid or expired token' }))
@@ -273,13 +205,11 @@ async function authenticateConnection(ws: WebSocket, req: any): Promise<{ userId
 
 function handleConnection(ws: WebSocket, req: any): void {
   authenticateConnection(ws, req).then((auth) => {
-    if (!auth) return // already closed
+    if (!auth) return
 
     const { userId, sessionId, mode, autoResumeMs } = auth
-
     const key = clientKey(userId, sessionId)
 
-    // Close existing client for this session if reconnecting
     const existing = clients.get(key)
     if (existing) {
       stopScreencastForClient(existing).catch(() => {})
@@ -288,16 +218,8 @@ function handleConnection(ws: WebSocket, req: any): void {
     }
 
     const client: ScreencastClient = {
-      ws,
-      userId,
-      sessionId,
-      mode,
-      cdpSession: null,
-      frameAckId: 0,
-      interrupted: false,
-      lastUserInputAt: 0,
-      autoResumeTimer: null,
-      autoResumeTimeoutMs: autoResumeMs,
+      ws, userId, sessionId, mode, cdpSession: null, frameAckId: 0,
+      interrupted: false, lastUserInputAt: 0, autoResumeTimer: null, autoResumeTimeoutMs: autoResumeMs,
     }
 
     clients.set(key, client)
@@ -309,22 +231,12 @@ function handleConnection(ws: WebSocket, req: any): void {
 
     ws.on('close', () => {
       const c = clients.get(key)
-      if (c) {
-        stopScreencastForClient(c).catch(() => {})
-        clients.delete(key)
-      }
+      if (c) { stopScreencastForClient(c).catch(() => {}); clients.delete(key) }
     })
 
-    ws.on('error', (err) => {
-      console.warn('[screencast] WebSocket error:', err.message)
-    })
+    ws.on('error', (err) => { console.warn('[screencast] WebSocket error:', err.message) })
 
-    // Start screencast
-    startScreencastForClient(client).catch((err) => {
-      console.error('[screencast] Failed to start:', err)
-    })
-
-    // Send connected status
+    startScreencastForClient(client).catch((err) => { console.error('[screencast] Failed to start:', err) })
     ws.send(JSON.stringify({ type: 'state', aiActive: true, interrupted: false }))
   }).catch((err) => {
     console.error('[screencast] Auth failed:', err)
@@ -332,56 +244,69 @@ function handleConnection(ws: WebSocket, req: any): void {
   })
 }
 
+/**
+ * Start the screencast WebSocket server on SCREENCAST_PORT.
+ * Also used to handle upgrades at /ws/screencast when attached to the Next.js HTTP server.
+ */
 export function startScreencastServer(): void {
-  if (httpServer) return // already running
+  if (wss) return
 
-  httpServer = createServer()
-
-  wss = new WebSocketServer({ server: httpServer })
-
+  wss = new WebSocketServer({ noServer: true })
   wss.on('connection', handleConnection)
 
-  httpServer.listen(SCREAMCAST_PORT, () => {
-    console.log(`[screencast] WebSocket server listening on port ${SCREAMCAST_PORT}`)
+  // Always start standalone server on SCREENCAST_PORT as fallback
+  standaloneHttpServer = createServer()
+  standaloneHttpServer.on('upgrade', (request: any, socket: any, head: any) => {
+    wss!.handleUpgrade(request, socket, head, (ws) => {
+      wss!.emit('connection', ws, request)
+    })
+  })
+  standaloneHttpServer.listen(SCREENCAST_PORT, () => {
+    console.log(`[screencast] Standalone WebSocket server listening on port ${SCREENCAST_PORT}`)
+  })
+}
+
+/**
+ * Attach WebSocket upgrade handler to an existing HTTP server (e.g., Next.js).
+ * This enables same-origin WebSocket at /ws/screencast — no separate port needed.
+ */
+export function attachToHttpServer(server: HttpServer): void {
+  if (attachedToHttpServer) return
+  attachedToHttpServer = true
+
+  server.on('upgrade', (request: any, socket: any, head: any) => {
+    if ((request.url || '').startsWith('/ws/screencast')) {
+      if (!wss) return
+      wss.handleUpgrade(request, socket, head, (ws) => {
+        wss.emit('connection', ws, request)
+      })
+    }
   })
 }
 
 export async function stopScreencastServer(): Promise<void> {
-  if (!wss && !httpServer) return
+  if (!wss && !standaloneHttpServer) return
 
-  // Close all clients
-  for (const [key, client] of clients) {
+  for (const [, client] of clients) {
     await stopScreencastForClient(client).catch(() => {})
     client.ws.close(1001, 'Server shutting down')
   }
   clients.clear()
 
-  if (wss) {
-    wss.close()
-    wss = null
-  }
+  if (wss) { wss.close(); wss = null }
 
-  if (httpServer) {
-    await new Promise<void>((resolve) => {
-      httpServer!.close(() => resolve())
-    })
-    httpServer = null
+  if (standaloneHttpServer) {
+    await new Promise<void>((resolve) => { standaloneHttpServer!.close(() => resolve()) })
+    standaloneHttpServer = null
   }
 }
 
-/**
- * Check if a browser session is currently interrupted by user.
- * Called by OpenClaw before executing browser tool actions.
- */
 export function isBrowserInterrupted(userId: string, sessionId: string): boolean {
   const key = clientKey(userId, sessionId)
   const client = clients.get(key)
   return client?.interrupted ?? false
 }
 
-/**
- * Get current screencast client state.
- */
 export function getScreencastState(userId: string, sessionId: string): { connected: boolean; interrupted: boolean } {
   const key = clientKey(userId, sessionId)
   const client = clients.get(key)
