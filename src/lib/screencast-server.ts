@@ -1,5 +1,5 @@
 import { createServer, type Server as HttpServer } from 'node:http'
-import { WebSocketServer, type WebSocket } from 'ws'
+import { WebSocketServer, WebSocket } from 'ws'
 import { getPage, type BrowserMode } from './uwaf-pool'
 import { verifyToken } from './auth'
 
