@@ -1827,7 +1827,7 @@ export default function Home() {
       } else if (draftRagContext) {
         // One-shot context injected from KB "Send to Chat" button
         activeSources = [...activeSources, ...draftRagContextSources];
-        contextMessages.push({ role: 'system' as const, content: `Use the following knowledge base context when it is relevant. Most entries are retrieved excerpts from indexed files, but small files may be included as full-document context when safe. If the context is not enough, ask for a broader lookup or direct file inspection by naming the file, folder, or chunk you need. Cite the source and chunk when you can.\n\n${draftRagContext}` });
+        contextMessages.push({ role: 'system' as const, content: `IMPORTANT: You have access to the user's knowledge base. Use this context to answer their question — prioritize information from these sources over your training data when they are relevant. Each entry is source context from an indexed document. Always cite the source number when referencing this content.\n\n${draftRagContext}` });
         if (!draft) {
           setRagContext(null); // consume it
           setRagContextSources([]);

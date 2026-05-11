@@ -811,7 +811,9 @@ export async function createChatCompletionResponse(req: NextRequest) {
                       role: 'system',
                       content: kbResult.context,
                     };
-                    openAiMessages = [kbSystemMessage, ...openAiMessages];
+                    // Insert KB context AFTER the system prompt so models weight it heavily
+                    const systemMsgCount = openAiMessages.filter(m => m.role === 'system').length;
+                    openAiMessages = [...openAiMessages.slice(0, systemMsgCount), kbSystemMessage, ...openAiMessages.slice(systemMsgCount)];
                     knowledgeSources = kbResult.sources;
                   }
                 }
@@ -873,7 +875,9 @@ export async function createChatCompletionResponse(req: NextRequest) {
                         role: 'system',
                         content: kbResult.context,
                       };
-                      messagesForStream = [kbSystemMessage, ...messagesForStream];
+                      // Insert KB context AFTER the system prompt so models weight it heavily
+                      const systemMsgCount = messagesForStream.filter(m => m.role === 'system').length;
+                      messagesForStream = [...messagesForStream.slice(0, systemMsgCount), kbSystemMessage, ...messagesForStream.slice(systemMsgCount)];
                       knowledgeSources = kbResult.sources;
                     }
                   }

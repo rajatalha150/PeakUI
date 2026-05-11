@@ -245,11 +245,11 @@ function mergeRagFilters(primary?: RagSearchFilters, secondary?: RagSearchFilter
 
 export function buildKnowledgeBaseRetrievalContract(): string {
   return [
-    'Knowledge base context is usually retrieved excerpts, but small files may be passed as full-document context when that is safe.',
-    'Treat each numbered entry as source context from the indexed document; if it says full document, treat it as complete for that file.',
+    'IMPORTANT: You have access to the user\'s knowledge base. You MUST use this context to answer their question — prioritize information from these sources over your training data when they are relevant.',
+    'Each numbered entry is source context from an indexed document. If an entry says "full document", treat it as the complete file.',
     'If the context is not enough, ask for a broader lookup or direct file inspection by naming the file, folder, or chunk you want.',
     'Use query directives like file:, folder:, type:, or ext: when you need a narrower KB lookup.',
-    'Cite the relevant source number and chunk number when you can.',
+    'Always cite the source number and chunk number when referencing knowledge base content.',
   ].join(' ')
 }
 
