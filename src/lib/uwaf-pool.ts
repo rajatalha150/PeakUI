@@ -1,6 +1,6 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core'
 
-const TOR_PROXY_URL = process.env.TOR_PROXY_URL || 'socks5://localhost:9050'
+const TOR_PROXY_URL = process.env.TOR_PROXY_URL || 'socks5h://localhost:9150'
 const CHROMIUM_PATH = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium-browser'
 
 const STEALTH_USER_AGENTS = [
