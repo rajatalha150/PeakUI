@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Wifi, WifiOff, Loader } from 'lucide-react'
 
-type ConnectionStatus = 'connecting' | 'live' | 'disconnected'
+type ConnectionStatus = 'connecting' | 'live' | 'disconnected' | 'failed'
 
 interface LiveBrowserViewProps {
   sessionId: string
@@ -12,6 +12,7 @@ interface LiveBrowserViewProps {
   currentUrl?: string
   title?: string
   onInterruptChange?: (interrupted: boolean) => void
+  onStatusChange?: (status: ConnectionStatus) => void
   enabled?: boolean
   autoResumeMs?: number
 }
@@ -23,17 +24,24 @@ export default function LiveBrowserView({
   currentUrl,
   title,
   onInterruptChange,
+  onStatusChange,
   enabled = true,
   autoResumeMs = 120000,
 }: LiveBrowserViewProps) {
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [frameData, setFrameData] = useState<string | null>(null)
   const [interrupted, setInterrupted] = useState(false)
+  const failedAttempts = useRef(0)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const frameRef = useRef<string | null>(null)
-  const reconnectAttempts = useRef(0)
   const maxReconnectDelay = 30000
+  const MAX_RECONNECT_ATTEMPTS = 5
+
+  const updateStatus = useCallback((newStatus: ConnectionStatus) => {
+    setStatus(newStatus)
+    onStatusChange?.(newStatus)
+  }, [onStatusChange])
 
   const connect = useCallback(() => {
     if (!enabled || !sessionId) return
@@ -42,8 +50,8 @@ export default function LiveBrowserView({
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
 
-    // Try same-origin first (works through reverse proxies),
-    // then fall back to direct port (works when port is accessible)
+    // Try same-origin first (works through reverse proxies with WebSocket support),
+    // then fall back to direct port (works on localhost / direct access)
     const urls = [
       `${protocol}//${host}/ws/screencast?${params}`,
       `${protocol}//${window.location.hostname}:3001/?${params}`,
@@ -53,7 +61,12 @@ export default function LiveBrowserView({
 
     const tryNext = () => {
       if (urlIndex >= urls.length) {
-        setStatus('disconnected')
+        // All URLs failed — check if we should keep trying
+        if (failedAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
+          updateStatus('failed')
+          return
+        }
+        updateStatus('disconnected')
         scheduleReconnect()
         return
       }
@@ -70,12 +83,12 @@ export default function LiveBrowserView({
             ws.close()
             tryNext()
           }
-        }, 3000) // 3s timeout per attempt
+        }, 4000) // 4s timeout per URL attempt
 
         ws.onopen = () => {
           clearTimeout(timeout)
-          setStatus('live')
-          reconnectAttempts.current = 0
+          updateStatus('live')
+          failedAttempts.current = 0
         }
 
         ws.onmessage = (event) => {
@@ -104,40 +117,46 @@ export default function LiveBrowserView({
         ws.onclose = () => {
           clearTimeout(timeout)
           if (wsRef.current === ws) {
-            setStatus('disconnected')
+            updateStatus('disconnected')
             wsRef.current = null
-            scheduleReconnect()
+            if (failedAttempts.current < MAX_RECONNECT_ATTEMPTS) {
+              scheduleReconnect()
+            } else {
+              updateStatus('failed')
+            }
           }
         }
 
         ws.onerror = () => {
           clearTimeout(timeout)
-          if (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.CLOSED) {
-            // This URL didn't work, try next
-            if (urlIndex < urls.length) {
-              tryNext()
-            }
-            // onclose will fire and trigger reconnect
+          // This URL didn't work, try next
+          if (urlIndex < urls.length) {
+            tryNext()
           }
+          // onclose will fire and trigger reconnect
         }
-      } catch (err) {
+      } catch {
         tryNext()
       }
     }
 
     tryNext()
-  }, [enabled, sessionId, mode, autoResumeMs, onInterruptChange])
+  }, [enabled, sessionId, mode, autoResumeMs, onInterruptChange, updateStatus])
 
   const scheduleReconnect = useCallback(() => {
     if (reconnectTimerRef.current) return
-    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), maxReconnectDelay)
-    reconnectAttempts.current++
+    failedAttempts.current++
+    if (failedAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
+      updateStatus('failed')
+      return
+    }
+    const delay = Math.min(1000 * Math.pow(2, failedAttempts.current - 1), maxReconnectDelay)
     reconnectTimerRef.current = setTimeout(() => {
       reconnectTimerRef.current = null
-      setStatus('connecting')
+      updateStatus('connecting')
       connect()
     }, delay)
-  }, [connect])
+  }, [connect, updateStatus])
 
   const sendInterrupt = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -175,6 +194,11 @@ export default function LiveBrowserView({
   const showLive = enabled && status === 'live' && frameData
   const imageData = showLive ? frameData : fallbackScreenshot
 
+  const statusMessage = status === 'connecting' ? 'Connecting to browser...'
+    : status === 'failed' ? 'Browser offline — using screenshot fallback'
+    : status === 'disconnected' ? 'Reconnecting...'
+    : 'Waiting for browser activity...'
+
   return (
     <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border-color)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -183,9 +207,9 @@ export default function LiveBrowserView({
         </span>
         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
           {enabled && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.62rem', color: status === 'live' ? '#22c55e' : status === 'connecting' ? '#f59e0b' : '#ef4444' }}>
-              {status === 'live' ? <Wifi size={10} /> : status === 'connecting' ? <Loader size={10} style={{ animation: 'spin 1s linear infinite' }} /> : <WifiOff size={10} />}
-              {status === 'live' ? 'Live' : status === 'connecting' ? 'Connecting' : 'Offline'}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.62rem', color: status === 'live' ? '#22c55e' : status === 'connecting' || status === 'disconnected' ? '#f59e0b' : '#ef4444' }}>
+              {status === 'live' ? <Wifi size={10} /> : status === 'connecting' || status === 'disconnected' ? <Loader size={10} style={{ animation: 'spin 1s linear infinite' }} /> : <WifiOff size={10} />}
+              {status === 'live' ? 'Live' : status === 'connecting' ? 'Connecting' : status === 'disconnected' ? 'Reconnecting' : 'Offline'}
             </div>
           )}
         </div>
@@ -206,8 +230,9 @@ export default function LiveBrowserView({
         {imageData ? (
           <img src={`data:image/jpeg;base64,${imageData}`} alt={showLive ? 'Live browser view' : 'Browser screenshot'} style={{ width: '100%', height: 'auto', display: 'block', objectFit: 'contain' }} />
         ) : (
-          <div style={{ width: '100%', aspectRatio: '16/9', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: '0.75rem', opacity: 0.6 }}>
-            {status === 'connecting' ? 'Connecting to browser...' : status === 'disconnected' ? 'Browser offline' : 'Waiting for browser activity...'}
+          <div style={{ width: '100%', aspectRatio: '16/9', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: '0.75rem', opacity: 0.6, gap: 4 }}>
+            {status === 'failed' && <WifiOff size={16} />}
+            {statusMessage}
           </div>
         )}
         {showLive && !interrupted && (

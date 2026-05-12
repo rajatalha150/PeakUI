@@ -1030,6 +1030,7 @@ export default function OpenClawWorkspace({
   const [uwafShowPreview, setUwafShowPreview] = useState(false);
   const [browserModalOpen, setBrowserModalOpen] = useState(false);
   const [browserInterrupted, setBrowserInterrupted] = useState(false);
+  const [browserLiveStatus, setBrowserLiveStatus] = useState<'connecting' | 'live' | 'disconnected' | 'failed'>('connecting');
   const [stoppingModel, setStoppingModel] = useState(false);
   const [modelControlNote, setModelControlNote] = useState('');
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -5826,7 +5827,7 @@ export default function OpenClawWorkspace({
             )}
 
             {/* UWAF Browser — Live View (shown when internet is enabled) */}
-            {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && currentSessionId ? (
+            {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && currentSessionId && browserLiveStatus !== 'failed' ? (
               <LiveBrowserView
                 sessionId={currentSessionId}
                 mode={uwafBrowserMode}
@@ -5834,6 +5835,7 @@ export default function OpenClawWorkspace({
                 currentUrl={uwafCurrentUrl}
                 title={uwafCurrentTitle}
                 onInterruptChange={setBrowserInterrupted}
+                onStatusChange={setBrowserLiveStatus}
                 enabled={true}
               />
             ) : uwafShowPreview && uwafScreenshot ? (
@@ -5847,7 +5849,7 @@ export default function OpenClawWorkspace({
             ) : null}
 
             {/* Live Browser Expand Button */}
-            {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && currentSessionId && (
+            {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && currentSessionId && browserLiveStatus !== 'failed' && (
               <div style={{ padding: '4px 12px' }}>
                 <button
                   onClick={() => setBrowserModalOpen(true)}

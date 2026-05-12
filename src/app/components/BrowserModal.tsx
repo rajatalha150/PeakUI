@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { X, Maximize2, Minimize2, Wifi, WifiOff, Loader } from 'lucide-react'
 
-type ConnectionStatus = 'connecting' | 'live' | 'disconnected'
+type ConnectionStatus = 'connecting' | 'live' | 'disconnected' | 'failed'
 
 interface BrowserModalProps {
   sessionId: string
@@ -39,7 +39,6 @@ export default function BrowserModal({
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [frameData, setFrameData] = useState<string | null>(null)
   const [interrupted, setInterrupted] = useState(false)
-  const [aiActive, setAiActive] = useState(true)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const frameRef = useRef<string | null>(null)
@@ -47,24 +46,30 @@ export default function BrowserModal({
   const imgRef = useRef<HTMLImageElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const maxReconnectDelay = 30000
+  const MAX_RECONNECT_ATTEMPTS = 5
 
   const connect = useCallback(() => {
     if (!enabled || !sessionId) return
 
-    // Try same-origin first (works through reverse proxy), then direct port
+    // Try same-origin first (works through reverse proxies with WebSocket support),
+    // then fall back to direct port (works on localhost / direct access)
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const host = window.location.host
     const params = `sessionId=${encodeURIComponent(sessionId)}&mode=${mode}&autoResumeMs=${autoResumeMs}`
     const sameOriginUrl = `${protocol}//${host}/ws/screencast?${params}`
     const directUrl = `${protocol}//${window.location.hostname}:3001/?${params}`
 
-    // Try same-origin first, then direct port fallback
     const urls = [sameOriginUrl, directUrl]
     let urlIndex = 0
 
     const tryUrl = () => {
       if (urlIndex >= urls.length) {
+        if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
+          setStatus('failed')
+          return
+        }
         setStatus('disconnected')
+        scheduleReconnect()
         return
       }
       const url = urls[urlIndex++]
@@ -73,48 +78,55 @@ export default function BrowserModal({
         wsRef.current = ws
         if (externalWsRef) externalWsRef.current = ws
 
-      ws.onopen = () => {
-        setStatus('live')
-        reconnectAttempts.current = 0
-      }
+        ws.onopen = () => {
+          setStatus('live')
+          reconnectAttempts.current = 0
+        }
 
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data)
-          switch (msg.type) {
-            case 'frame':
-              if (msg.data && msg.data !== frameRef.current) {
-                frameRef.current = msg.data
-                setFrameData(msg.data)
-              }
-              break
-            case 'state':
-              setAiActive(msg.aiActive ?? true)
-              setInterrupted(msg.interrupted ?? false)
-              onInterruptChange?.(msg.interrupted ?? false)
-              break
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data)
+            switch (msg.type) {
+              case 'frame':
+                if (msg.data && msg.data !== frameRef.current) {
+                  frameRef.current = msg.data
+                  setFrameData(msg.data)
+                }
+                break
+              case 'state':
+                setInterrupted(msg.interrupted ?? false)
+                onInterruptChange?.(msg.interrupted ?? false)
+                break
+            }
+          } catch { /* ignore */ }
+        }
+
+        ws.onclose = () => {
+          setStatus('disconnected')
+          wsRef.current = null
+          if (externalWsRef) externalWsRef.current = null
+          if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
+            setStatus('failed')
+          } else {
+            scheduleReconnect()
           }
-        } catch { /* ignore */ }
-      }
+        }
 
-      ws.onclose = () => {
-        setStatus('disconnected')
-        wsRef.current = null
-        if (externalWsRef) externalWsRef.current = null
-        scheduleReconnect()
-      }
-
-      ws.onerror = () => {
-        // This URL didn't work, try next
+        ws.onerror = () => {
+          // This URL didn't work, try next
+          tryUrl()
+        }
+      } catch {
         tryUrl()
       }
-    } catch {
-      tryUrl()
     }
+
+    tryUrl()
   }, [enabled, sessionId, mode, autoResumeMs, onInterruptChange, externalWsRef])
 
   const scheduleReconnect = useCallback(() => {
     if (reconnectTimerRef.current) return
+    if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) return
     const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), maxReconnectDelay)
     reconnectAttempts.current++
     reconnectTimerRef.current = setTimeout(() => {
@@ -286,10 +298,10 @@ export default function BrowserModal({
             alignItems: 'center',
             gap: 4,
             fontSize: '0.7rem',
-            color: status === 'live' ? '#22c55e' : status === 'connecting' ? '#f59e0b' : '#ef4444',
+            color: status === 'live' ? '#22c55e' : status === 'connecting' || status === 'disconnected' ? '#f59e0b' : '#ef4444',
           }}>
-            {status === 'live' ? <Wifi size={12} /> : status === 'connecting' ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <WifiOff size={12} />}
-            {status === 'live' ? 'Live' : status === 'connecting' ? 'Connecting...' : 'Offline'}
+            {status === 'live' ? <Wifi size={12} /> : status === 'connecting' || status === 'disconnected' ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <WifiOff size={12} />}
+            {status === 'live' ? 'Live' : status === 'connecting' ? 'Connecting...' : status === 'disconnected' ? 'Reconnecting...' : 'Offline'}
           </div>
 
           {/* URL */}
@@ -387,13 +399,16 @@ export default function BrowserModal({
         ) : (
           <div style={{
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
             height: '100%',
             color: 'rgba(255,255,255,0.4)',
             fontSize: '0.85rem',
+            gap: 8,
           }}>
-            No browser content
+            {status === 'failed' && <WifiOff size={24} />}
+            {status === 'failed' ? 'Browser connection unavailable' : status === 'connecting' || status === 'disconnected' ? 'Connecting to browser...' : 'No browser content'}
           </div>
         )}
 

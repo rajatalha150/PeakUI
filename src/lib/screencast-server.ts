@@ -1,5 +1,5 @@
 import { createServer, type Server as HttpServer } from 'node:http'
-import { WebSocketServer, type WebSocket } from 'ws'
+import { WebSocketServer, WebSocket } from 'ws'
 import { getPage, type BrowserMode } from './uwaf-pool'
 import { verifyToken } from './auth'
 
@@ -277,8 +277,9 @@ export function attachToHttpServer(server: HttpServer): void {
   server.on('upgrade', (request: any, socket: any, head: any) => {
     if ((request.url || '').startsWith('/ws/screencast')) {
       if (!wss) return
-      wss.handleUpgrade(request, socket, head, (ws) => {
-        wss.emit('connection', ws, request)
+      const server = wss
+      server.handleUpgrade(request, socket, head, (ws) => {
+        server.emit('connection', ws, request)
       })
     }
   })
