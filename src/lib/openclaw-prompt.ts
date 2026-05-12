@@ -70,8 +70,8 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     filesystemAvailable ? 'filesystem' : null,
     filesystemWriteAvailable ? 'filesystem writes' : null,
     codeExecutionAvailable ? 'code sandbox' : null,
-    browserAvailable ? 'browser' : null,
-    uwafBrowserAvailable ? 'unified browser' : null,
+    browserAvailable && context.internetToolEnabled ? 'browser' : null,
+    uwafBrowserAvailable && context.internetToolEnabled ? 'unified browser' : null,
   ].filter(Boolean) as string[];
 
   const lines: string[] = [
@@ -168,7 +168,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     );
   }
 
-  if (browserAvailable) {
+  if (browserAvailable && context.internetToolEnabled) {
     lines.push(
       'BROWSER CAPABILITY: You can navigate public web pages, inspect links/forms, and extract page content using a controlled browsing session.',
       'This browser is limited to public HTTP/HTTPS pages. Local/private hosts, non-standard ports, and credentialed URLs are blocked.',
@@ -184,7 +184,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     );
   }
 
-  if (uwafBrowserAvailable) {
+  if (uwafBrowserAvailable && context.internetToolEnabled) {
     const modeLabel = uwafBrowserMode === 'stealth' ? 'Stealth (Tor-routed)' : 'Direct (clear web)';
     lines.push(
       'UNIFIED BROWSER CAPABILITY: You have access to a dual-mode web research engine that can browse in Direct (clear web) or Stealth (Tor-routed) mode.',

@@ -608,8 +608,8 @@ export async function createChatCompletionResponse(req: NextRequest) {
             ? settings.openClawWritablePaths.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean)
             : [],
           codeExecutionEnabled: settings.openClawCodeExecutionMode !== 'deny',
-          browserMode: settings.openClawBrowserMode,
-          uwafBrowserMode: settings.openClawUwafBrowserMode,
+          browserMode: internetToolEnabled ? settings.openClawBrowserMode : 'deny',
+          uwafBrowserMode: internetToolEnabled ? settings.openClawUwafBrowserMode : 'deny',
         })
       : '';
     const chatInternetPrompt = surface === 'chat' && internetToolEnabled

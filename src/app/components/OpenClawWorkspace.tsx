@@ -3686,6 +3686,9 @@ export default function OpenClawWorkspace({
         }
 
         if (request.name === 'browser') {
+          if (!draftInternetEnabled) {
+            break;
+          }
           lastToolRequestSignature = effectiveToolSignature;
           duplicateToolRequestCount = 0;
           try {
@@ -3719,6 +3722,9 @@ export default function OpenClawWorkspace({
         }
 
         if (request.name === 'unified_browser') {
+          if (!draftInternetEnabled) {
+            break;
+          }
           lastToolRequestSignature = effectiveToolSignature;
           duplicateToolRequestCount = 0;
           try {
