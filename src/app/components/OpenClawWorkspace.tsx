@@ -5833,7 +5833,7 @@ export default function OpenClawWorkspace({
             )}
 
             {/* UWAF Browser — Live View (shown when internet is enabled) */}
-            {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && currentSessionId && browserLiveStatus !== 'failed' ? (
+            {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && currentSessionId && browserLiveStatus !== 'failed' && !browserModalOpen ? (
               <LiveBrowserView
                 sessionId={currentSessionId}
                 mode={uwafBrowserMode}
@@ -5855,7 +5855,7 @@ export default function OpenClawWorkspace({
             ) : null}
 
             {/* Live Browser Expand Button */}
-            {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && currentSessionId && browserLiveStatus !== 'failed' && (
+            {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && currentSessionId && browserLiveStatus !== 'failed' && !browserModalOpen && (
               <div style={{ padding: '4px 12px' }}>
                 <button
                   onClick={() => setBrowserModalOpen(true)}

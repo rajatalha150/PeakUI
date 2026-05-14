@@ -78,6 +78,13 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Removed `--single-process` and `--no-zygote` Chromium flags that caused `browserContext.newPage: Target page, context or browser has been closed` crashes
 - Added retry logic in `getPage()`: if `newPage()` fails, clear stale references, relaunch browser, and retry
 
+### Live Browser Stability Fix ✅
+- Fixed the white-screen live browser regression in Open Claw by treating tiny startup screencast frames as provisional instead of immediately replacing a valid fallback screenshot with a blank white image
+- Added a shared `useLiveBrowserConnection` hook so the sidebar preview and full-screen modal now use the same WebSocket/reconnect/interrupt logic instead of drifting into separate behavior
+- Prevented the sidebar live preview and expanded modal from fighting over the same browser session; opening the modal now suspends the sidebar connection instead of creating a competing second screencast client
+- Reworked screencast visual transport to poll Playwright screenshots for display frames while keeping CDP attached for click/scroll/key input relay, reducing dependence on the old raw `Page.startScreencast` visual path
+- Live browser UI now distinguishes between `Live` and `Starting`, keeps showing the latest real screenshot until a usable painted live frame arrives, and falls back more gracefully when the stream has not produced a valid visual frame yet
+
 ### Core Chat
 - **Inline image rendering:** AI-generated markdown images (`![alt](url)`) now render inline directly in chat messages via `AssistantContent` component
 - **AI image awareness:** `IMAGE_INSTRUCTIONS` injected into system prompt guides models to use markdown image syntax for picture requests

@@ -1,9 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { X, Maximize2, Minimize2, Wifi, WifiOff, Loader } from 'lucide-react'
-
-type ConnectionStatus = 'connecting' | 'live' | 'disconnected' | 'failed'
+import { useRef, useCallback } from 'react'
+import { Minimize2, Wifi, WifiOff, Loader } from 'lucide-react'
+import { useLiveBrowserConnection } from './useLiveBrowserConnection'
 
 interface BrowserModalProps {
   sessionId: string
@@ -19,8 +18,6 @@ interface BrowserModalProps {
   onOpenChange: (open: boolean) => void
   /** Called when interrupt state changes */
   onInterruptChange?: (interrupted: boolean) => void
-  /** Callback to send messages to the sidebar's WebSocket (shared WS ref) */
-  wsRef?: React.MutableRefObject<WebSocket | null>
 }
 
 export default function BrowserModal({
@@ -34,140 +31,23 @@ export default function BrowserModal({
   isOpen,
   onOpenChange,
   onInterruptChange,
-  wsRef: externalWsRef,
 }: BrowserModalProps) {
-  const [status, setStatus] = useState<ConnectionStatus>('connecting')
-  const [frameData, setFrameData] = useState<string | null>(null)
-  const [interrupted, setInterrupted] = useState(false)
-  const wsRef = useRef<WebSocket | null>(null)
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const frameRef = useRef<string | null>(null)
-  const reconnectAttempts = useRef(0)
-  const imgRef = useRef<HTMLImageElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const maxReconnectDelay = 30000
-  const MAX_RECONNECT_ATTEMPTS = 5
-
-  const connect = useCallback(() => {
-    if (!enabled || !sessionId) return
-
-    // Try same-origin first (works through reverse proxies with WebSocket support),
-    // then fall back to direct port (works on localhost / direct access)
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = window.location.host
-    const params = `sessionId=${encodeURIComponent(sessionId)}&mode=${mode}&autoResumeMs=${autoResumeMs}`
-    const sameOriginUrl = `${protocol}//${host}/ws/screencast?${params}`
-    const directUrl = `${protocol}//${window.location.hostname}:3001/?${params}`
-
-    const urls = [sameOriginUrl, directUrl]
-    let urlIndex = 0
-
-    const tryUrl = () => {
-      if (urlIndex >= urls.length) {
-        if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
-          setStatus('failed')
-          return
-        }
-        setStatus('disconnected')
-        scheduleReconnect()
-        return
-      }
-      const url = urls[urlIndex++]
-      try {
-        const ws = new WebSocket(url)
-        wsRef.current = ws
-        if (externalWsRef) externalWsRef.current = ws
-
-        ws.onopen = () => {
-          setStatus('live')
-          reconnectAttempts.current = 0
-        }
-
-        ws.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data)
-            switch (msg.type) {
-              case 'frame':
-                if (msg.data && msg.data !== frameRef.current) {
-                  frameRef.current = msg.data
-                  setFrameData(msg.data)
-                }
-                break
-              case 'state':
-                setInterrupted(msg.interrupted ?? false)
-                onInterruptChange?.(msg.interrupted ?? false)
-                break
-            }
-          } catch { /* ignore */ }
-        }
-
-        ws.onclose = () => {
-          setStatus('disconnected')
-          wsRef.current = null
-          if (externalWsRef) externalWsRef.current = null
-          if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
-            setStatus('failed')
-          } else {
-            scheduleReconnect()
-          }
-        }
-
-        ws.onerror = () => {
-          // This URL didn't work, try next
-          tryUrl()
-        }
-      } catch {
-        tryUrl()
-      }
-    }
-
-    tryUrl()
-  }, [enabled, sessionId, mode, autoResumeMs, onInterruptChange, externalWsRef])
-
-  const scheduleReconnect = useCallback(() => {
-    if (reconnectTimerRef.current) return
-    if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) return
-    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), maxReconnectDelay)
-    reconnectAttempts.current++
-    reconnectTimerRef.current = setTimeout(() => {
-      reconnectTimerRef.current = null
-      setStatus('connecting')
-      connect()
-    }, delay)
-  }, [connect])
-
-  useEffect(() => {
-    if (isOpen && enabled) {
-      connect()
-    }
-    return () => {
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current)
-        reconnectTimerRef.current = null
-      }
-      if (wsRef.current) {
-        wsRef.current.close(1000, 'Modal closing')
-        wsRef.current = null
-      }
-    }
-  }, [isOpen, enabled, connect])
-
-  // Heartbeat
-  useEffect(() => {
-    if (status !== 'live') return
-    const interval = setInterval(() => {
-      wsRef.current?.readyState === WebSocket.OPEN && wsRef.current.send(JSON.stringify({ type: 'ping' }))
-    }, 30000)
-    return () => clearInterval(interval)
-  }, [status])
-
-  const sendInterrupt = useCallback(() => {
-    wsRef.current?.readyState === WebSocket.OPEN && wsRef.current.send(JSON.stringify({ type: 'interrupt' }))
-  }, [])
-
-  const sendResume = useCallback(() => {
-    wsRef.current?.readyState === WebSocket.OPEN && wsRef.current.send(JSON.stringify({ type: 'resume' }))
-  }, [])
+  const {
+    status,
+    frameData,
+    interrupted,
+    hasUsableFrame,
+    sendInterrupt,
+    sendResume,
+    sendInput,
+  } = useLiveBrowserConnection({
+    sessionId,
+    mode,
+    enabled: isOpen && enabled,
+    autoResumeMs,
+    onInterruptChange,
+  })
 
   // --- Input relay ---
   const BROWSER_WIDTH = 1280
@@ -183,26 +63,20 @@ export default function BrowserModal({
   }, [])
 
   const handleClick = useCallback((e: React.MouseEvent) => {
-    if (!interrupted || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
+    if (!interrupted) return
     const { x, y } = scaleCoords(e.clientX, e.clientY)
-    wsRef.current.send(JSON.stringify({
-      type: 'input',
-      payload: { inputType: 'click', x, y, button: 'left', clickCount: 1 },
-    }))
-  }, [interrupted, scaleCoords])
+    sendInput({ inputType: 'click', x, y, button: 'left', clickCount: 1 })
+  }, [interrupted, scaleCoords, sendInput])
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
-    if (!interrupted || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
+    if (!interrupted) return
     const { x, y } = scaleCoords(e.clientX, e.clientY)
-    wsRef.current.send(JSON.stringify({
-      type: 'input',
-      payload: { inputType: 'scroll', x, y, deltaX: e.deltaX, deltaY: e.deltaY },
-    }))
+    sendInput({ inputType: 'scroll', x, y, deltaX: e.deltaX, deltaY: e.deltaY })
     e.preventDefault()
-  }, [interrupted, scaleCoords])
+  }, [interrupted, scaleCoords, sendInput])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (!interrupted || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
+    if (!interrupted) return
     // Special keys
     if (e.key === 'Enter' || e.key === 'Tab' || e.key === 'Escape' || e.key === 'Backspace' || e.key === 'Delete') {
       const keyMap: Record<string, { key: string; code: string; keyCode: number }> = {
@@ -215,10 +89,7 @@ export default function BrowserModal({
       const mapping = keyMap[e.key]
       if (mapping) {
         e.preventDefault()
-        wsRef.current.send(JSON.stringify({
-          type: 'input',
-          payload: { inputType: 'keypress', ...mapping },
-        }))
+        sendInput({ inputType: 'keypress', ...mapping })
         return
       }
     }
@@ -226,29 +97,30 @@ export default function BrowserModal({
     // Regular typing
     if (e.key.length === 1) {
       e.preventDefault()
-      wsRef.current.send(JSON.stringify({
-        type: 'input',
-        payload: { inputType: 'type', text: e.key },
-      }))
+      sendInput({ inputType: 'type', text: e.key })
     }
-  }, [interrupted])
+  }, [interrupted, sendInput])
 
   // Touch support
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (!interrupted || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
+    if (!interrupted) return
     const touch = e.touches[0]
     if (!touch) return
     const { x, y } = scaleCoords(touch.clientX, touch.clientY)
-    wsRef.current.send(JSON.stringify({
-      type: 'input',
-      payload: { inputType: 'click', x, y, button: 'left', clickCount: 1 },
-    }))
-  }, [interrupted, scaleCoords])
+    sendInput({ inputType: 'click', x, y, button: 'left', clickCount: 1 })
+  }, [interrupted, scaleCoords, sendInput])
 
   if (!isOpen) return null
 
-  const showLive = enabled && status === 'live' && frameData
+  const showLive = enabled && status === 'live' && hasUsableFrame && frameData
   const imageData = showLive ? frameData : fallbackScreenshot
+  const connectionLabel = status === 'live'
+    ? (hasUsableFrame ? 'Live' : 'Starting...')
+    : status === 'connecting'
+      ? 'Connecting...'
+      : status === 'disconnected'
+        ? 'Reconnecting...'
+        : 'Offline'
 
   return (
     <div
@@ -301,7 +173,7 @@ export default function BrowserModal({
             color: status === 'live' ? '#22c55e' : status === 'connecting' || status === 'disconnected' ? '#f59e0b' : '#ef4444',
           }}>
             {status === 'live' ? <Wifi size={12} /> : status === 'connecting' || status === 'disconnected' ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <WifiOff size={12} />}
-            {status === 'live' ? 'Live' : status === 'connecting' ? 'Connecting...' : status === 'disconnected' ? 'Reconnecting...' : 'Offline'}
+            {connectionLabel}
           </div>
 
           {/* URL */}
@@ -383,7 +255,6 @@ export default function BrowserModal({
       >
         {imageData ? (
           <img
-            ref={imgRef}
             src={`data:image/jpeg;base64,${imageData}`}
             alt="Browser view"
             style={{
@@ -408,7 +279,13 @@ export default function BrowserModal({
             gap: 8,
           }}>
             {status === 'failed' && <WifiOff size={24} />}
-            {status === 'failed' ? 'Browser connection unavailable' : status === 'connecting' || status === 'disconnected' ? 'Connecting to browser...' : 'No browser content'}
+            {status === 'failed'
+              ? 'Browser connection unavailable'
+              : status === 'connecting' || status === 'disconnected'
+                ? 'Connecting to browser...'
+                : hasUsableFrame
+                  ? 'No browser content'
+                  : 'Waiting for first painted browser frame...'}
           </div>
         )}
 

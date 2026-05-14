@@ -1,9 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
 import { Wifi, WifiOff, Loader } from 'lucide-react'
-
-type ConnectionStatus = 'connecting' | 'live' | 'disconnected' | 'failed'
+import { type LiveBrowserConnectionStatus, useLiveBrowserConnection } from './useLiveBrowserConnection'
 
 interface LiveBrowserViewProps {
   sessionId: string
@@ -12,7 +10,7 @@ interface LiveBrowserViewProps {
   currentUrl?: string
   title?: string
   onInterruptChange?: (interrupted: boolean) => void
-  onStatusChange?: (status: ConnectionStatus) => void
+  onStatusChange?: (status: LiveBrowserConnectionStatus) => void
   enabled?: boolean
   autoResumeMs?: number
 }
@@ -28,176 +26,40 @@ export default function LiveBrowserView({
   enabled = true,
   autoResumeMs = 120000,
 }: LiveBrowserViewProps) {
-  const [status, setStatus] = useState<ConnectionStatus>('connecting')
-  const [frameData, setFrameData] = useState<string | null>(null)
-  const [interrupted, setInterrupted] = useState(false)
-  const failedAttempts = useRef(0)
-  const wsRef = useRef<WebSocket | null>(null)
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const frameRef = useRef<string | null>(null)
-  const maxReconnectDelay = 30000
-  const MAX_RECONNECT_ATTEMPTS = 5
-
-  const updateStatus = useCallback((newStatus: ConnectionStatus) => {
-    setStatus(newStatus)
-    onStatusChange?.(newStatus)
-  }, [onStatusChange])
-
-  const connect = useCallback(() => {
-    if (!enabled || !sessionId) return
-
-    const params = `sessionId=${encodeURIComponent(sessionId)}&mode=${mode}&autoResumeMs=${autoResumeMs}`
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = window.location.host
-
-    // Try same-origin first (works through reverse proxies with WebSocket support),
-    // then fall back to direct port (works on localhost / direct access)
-    const urls = [
-      `${protocol}//${host}/ws/screencast?${params}`,
-      `${protocol}//${window.location.hostname}:3001/?${params}`,
-    ]
-
-    let urlIndex = 0
-
-    const tryNext = () => {
-      if (urlIndex >= urls.length) {
-        // All URLs failed — check if we should keep trying
-        if (failedAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
-          updateStatus('failed')
-          return
-        }
-        updateStatus('disconnected')
-        scheduleReconnect()
-        return
-      }
-
-      const url = urls[urlIndex]
-      urlIndex++
-
-      try {
-        const ws = new WebSocket(url)
-        wsRef.current = ws
-
-        const timeout = setTimeout(() => {
-          if (ws.readyState === WebSocket.CONNECTING) {
-            ws.close()
-            tryNext()
-          }
-        }, 4000) // 4s timeout per URL attempt
-
-        ws.onopen = () => {
-          clearTimeout(timeout)
-          updateStatus('live')
-          failedAttempts.current = 0
-        }
-
-        ws.onmessage = (event) => {
-          try {
-            const msg = JSON.parse(event.data)
-            switch (msg.type) {
-              case 'frame':
-                if (msg.data && msg.data !== frameRef.current) {
-                  frameRef.current = msg.data
-                  setFrameData(msg.data)
-                }
-                break
-              case 'state':
-                setInterrupted(msg.interrupted ?? false)
-                onInterruptChange?.(msg.interrupted ?? false)
-                break
-              case 'notification':
-                break
-              case 'error':
-                console.warn('[LiveBrowserView] Server error:', msg.message)
-                break
-            }
-          } catch { /* ignore */ }
-        }
-
-        ws.onclose = () => {
-          clearTimeout(timeout)
-          if (wsRef.current === ws) {
-            updateStatus('disconnected')
-            wsRef.current = null
-            if (failedAttempts.current < MAX_RECONNECT_ATTEMPTS) {
-              scheduleReconnect()
-            } else {
-              updateStatus('failed')
-            }
-          }
-        }
-
-        ws.onerror = () => {
-          clearTimeout(timeout)
-          // This URL didn't work, try next
-          if (urlIndex < urls.length) {
-            tryNext()
-          }
-          // onclose will fire and trigger reconnect
-        }
-      } catch {
-        tryNext()
-      }
-    }
-
-    tryNext()
-  }, [enabled, sessionId, mode, autoResumeMs, onInterruptChange, updateStatus])
-
-  const scheduleReconnect = useCallback(() => {
-    if (reconnectTimerRef.current) return
-    failedAttempts.current++
-    if (failedAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
-      updateStatus('failed')
-      return
-    }
-    const delay = Math.min(1000 * Math.pow(2, failedAttempts.current - 1), maxReconnectDelay)
-    reconnectTimerRef.current = setTimeout(() => {
-      reconnectTimerRef.current = null
-      updateStatus('connecting')
-      connect()
-    }, delay)
-  }, [connect, updateStatus])
-
-  const sendInterrupt = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'interrupt' }))
-    }
-  }, [])
-
-  const sendResume = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'resume' }))
-    }
-  }, [])
-
-  useEffect(() => {
-    if (enabled) { connect() }
-    return () => {
-      if (reconnectTimerRef.current) { clearTimeout(reconnectTimerRef.current); reconnectTimerRef.current = null }
-      if (wsRef.current) { wsRef.current.close(1000, 'Component unmounting'); wsRef.current = null }
-    }
-  }, [enabled, connect])
-
-  // Heartbeat
-  useEffect(() => {
-    if (status !== 'live') return
-    const interval = setInterval(() => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(JSON.stringify({ type: 'ping' }))
-    }, 30000)
-    return () => clearInterval(interval)
-  }, [status])
+  const {
+    status,
+    frameData,
+    interrupted,
+    hasUsableFrame,
+    sendInterrupt,
+    sendResume,
+  } = useLiveBrowserConnection({
+    sessionId,
+    mode,
+    enabled,
+    autoResumeMs,
+    onInterruptChange,
+    onStatusChange,
+  })
 
   const modeBadge = mode === 'stealth'
     ? { label: 'Stealth', bg: 'rgba(168, 85, 247, 0.15)', color: '#a855f7', border: '1px solid rgba(168, 85, 247, 0.3)' }
     : { label: 'Direct', bg: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.3)' }
 
-  const showLive = enabled && status === 'live' && frameData
+  const showLive = enabled && status === 'live' && hasUsableFrame && frameData
   const imageData = showLive ? frameData : fallbackScreenshot
+  const connectionLabel = status === 'live'
+    ? (hasUsableFrame ? 'Live' : 'Starting')
+    : status === 'connecting'
+      ? 'Connecting'
+      : status === 'disconnected'
+        ? 'Reconnecting'
+        : 'Offline'
 
   const statusMessage = status === 'connecting' ? 'Connecting to browser...'
     : status === 'failed' ? 'Browser offline — using screenshot fallback'
     : status === 'disconnected' ? 'Reconnecting...'
-    : 'Waiting for browser activity...'
+    : hasUsableFrame ? 'Waiting for browser activity...' : 'Waiting for first painted browser frame...'
 
   return (
     <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border-color)' }}>
@@ -209,7 +71,7 @@ export default function LiveBrowserView({
           {enabled && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: '0.62rem', color: status === 'live' ? '#22c55e' : status === 'connecting' || status === 'disconnected' ? '#f59e0b' : '#ef4444' }}>
               {status === 'live' ? <Wifi size={10} /> : status === 'connecting' || status === 'disconnected' ? <Loader size={10} style={{ animation: 'spin 1s linear infinite' }} /> : <WifiOff size={10} />}
-              {status === 'live' ? 'Live' : status === 'connecting' ? 'Connecting' : status === 'disconnected' ? 'Reconnecting' : 'Offline'}
+              {connectionLabel}
             </div>
           )}
         </div>

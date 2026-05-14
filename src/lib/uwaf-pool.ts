@@ -22,26 +22,37 @@ interface ManagedContext {
   lastUsed: number
 }
 
-let browserInstance: Browser | null = null
-let browserLaunchPromise: Promise<Browser> | null = null
-const contexts = new Map<string, ManagedContext>()
+const globalForUwafPool = globalThis as typeof globalThis & {
+  __peakuiUwafPool?: {
+    browserInstance: Browser | null
+    browserLaunchPromise: Promise<Browser> | null
+    contexts: Map<string, ManagedContext>
+  }
+}
+
+const uwafPoolState = globalForUwafPool.__peakuiUwafPool ??= {
+  browserInstance: null,
+  browserLaunchPromise: null,
+  contexts: new Map<string, ManagedContext>(),
+}
+
 const CONTEXT_TTL_MS = 30 * 60 * 1000 // 30 minutes
 
 function handleBrowserDisconnect() {
   console.warn('[uwaf-pool] Browser disconnected — clearing stale references')
-  browserInstance = null
-  for (const [id, managed] of contexts) {
+  uwafPoolState.browserInstance = null
+  for (const [id, managed] of uwafPoolState.contexts) {
     managed.context.close().catch(() => {})
-    contexts.delete(id)
+    uwafPoolState.contexts.delete(id)
   }
 }
 
 async function launchBrowser(): Promise<Browser> {
-  if (browserInstance && browserInstance.isConnected()) return browserInstance
+  if (uwafPoolState.browserInstance && uwafPoolState.browserInstance.isConnected()) return uwafPoolState.browserInstance
 
-  if (browserLaunchPromise) return browserLaunchPromise
+  if (uwafPoolState.browserLaunchPromise) return uwafPoolState.browserLaunchPromise
 
-  browserLaunchPromise = chromium.launch({
+  uwafPoolState.browserLaunchPromise = chromium.launch({
     executablePath: CHROMIUM_PATH,
     args: [
       '--no-sandbox',
@@ -54,14 +65,14 @@ async function launchBrowser(): Promise<Browser> {
   })
 
   try {
-    browserInstance = await browserLaunchPromise
-    browserInstance.on('disconnected', handleBrowserDisconnect)
-    return browserInstance
+    uwafPoolState.browserInstance = await uwafPoolState.browserLaunchPromise
+    uwafPoolState.browserInstance.on('disconnected', handleBrowserDisconnect)
+    return uwafPoolState.browserInstance
   } catch (error) {
-    browserLaunchPromise = null
+    uwafPoolState.browserLaunchPromise = null
     throw error
   } finally {
-    browserLaunchPromise = null
+    uwafPoolState.browserLaunchPromise = null
   }
 }
 
@@ -104,7 +115,7 @@ export async function createContext(contextId: string, mode: BrowserMode): Promi
     })
   }
 
-  contexts.set(contextId, {
+  uwafPoolState.contexts.set(contextId, {
     context,
     mode,
     createdAt: Date.now(),
@@ -115,15 +126,15 @@ export async function createContext(contextId: string, mode: BrowserMode): Promi
 }
 
 export async function getPage(contextId: string, mode: BrowserMode): Promise<Page> {
-  let managed = contexts.get(contextId)
+  let managed = uwafPoolState.contexts.get(contextId)
 
   if (!managed || managed.mode !== mode || Date.now() - managed.lastUsed > CONTEXT_TTL_MS) {
     if (managed) {
       await managed.context.close().catch(() => {})
-      contexts.delete(contextId)
+      uwafPoolState.contexts.delete(contextId)
     }
     await createContext(contextId, mode)
-    managed = contexts.get(contextId)
+    managed = uwafPoolState.contexts.get(contextId)
     if (!managed) throw new Error('Failed to create browser context')
   }
 
@@ -138,12 +149,12 @@ export async function getPage(contextId: string, mode: BrowserMode): Promise<Pag
     // Browser may have disconnected — clear stale references and retry once
     console.warn('[uwaf-pool] newPage failed, retrying with fresh browser:', pageError instanceof Error ? pageError.message : String(pageError))
     await managed.context.close().catch(() => {})
-    contexts.delete(contextId)
-    browserInstance?.close().catch(() => {})
-    browserInstance = null
-    browserLaunchPromise = null
+    uwafPoolState.contexts.delete(contextId)
+    uwafPoolState.browserInstance?.close().catch(() => {})
+    uwafPoolState.browserInstance = null
+    uwafPoolState.browserLaunchPromise = null
     await createContext(contextId, mode)
-    managed = contexts.get(contextId)
+    managed = uwafPoolState.contexts.get(contextId)
     if (!managed) throw new Error('Failed to recreate browser context after page error')
     const retryPages = managed.context.pages()
     if (retryPages.length > 0) return retryPages[retryPages.length - 1]
@@ -152,10 +163,10 @@ export async function getPage(contextId: string, mode: BrowserMode): Promise<Pag
 }
 
 export async function closeContext(contextId: string): Promise<void> {
-  const managed = contexts.get(contextId)
+  const managed = uwafPoolState.contexts.get(contextId)
   if (managed) {
     await managed.context.close().catch(() => {})
-    contexts.delete(contextId)
+    uwafPoolState.contexts.delete(contextId)
   }
 }
 
@@ -246,19 +257,19 @@ export async function getStealthInfo(): Promise<{ ip: string; country: string } 
 }
 
 export async function shutdownPlaywright(): Promise<void> {
-  const closables = Array.from(contexts.values())
-  contexts.clear()
+  const closables = Array.from(uwafPoolState.contexts.values())
+  uwafPoolState.contexts.clear()
 
   for (const managed of closables) {
     await managed.context.close().catch(() => {})
   }
 
-  if (browserInstance) {
-    await browserInstance.close().catch(() => {})
-    browserInstance = null
+  if (uwafPoolState.browserInstance) {
+    await uwafPoolState.browserInstance.close().catch(() => {})
+    uwafPoolState.browserInstance = null
   }
 }
 
 export function getManagedContext(contextId: string): ManagedContext | undefined {
-  return contexts.get(contextId)
+  return uwafPoolState.contexts.get(contextId)
 }

@@ -60,6 +60,7 @@ The live browser feature is partially implemented but has significant issues tha
 
 ### UWAF Browser
 - Removed crash-causing Chromium flags; added retry logic in `getPage()`
+- Live browser preview now ignores blank startup frames, shares connection logic between sidebar and modal, disables the sidebar feed while the modal is open, and prefers the last valid screenshot until a usable live frame arrives
 
 ## 🌐 Deployment Notes
 - App runs on port `3000`, screencast WebSocket on port `3001`
@@ -74,9 +75,8 @@ The live browser feature is partially implemented but has significant issues tha
 - **IMPORTANT:** Never use `prisma db push --force-reset` on production — it wipes all data!
 
 ## ⏭️ Next Steps
-- **Fix live browser WebSocket connectivity** — either integrate into Next.js server properly or document Nginx proxy config
-- **Test and fix BrowserModal input relay** — click/type/scroll via CDP needs end-to-end testing
-- **Add graceful degradation** — fall back to screenshot mode when WebSocket fails, show helpful messages
+- **Finish live browser transport hardening behind reverse proxies** — same-origin `/ws/screencast` still depends on correct Nginx/WebSocket proxying in front of the app
+- **Test and refine BrowserModal input relay** — click/type/scroll via CDP now has cleaner connection handling but still needs broader manual validation
 - **Clean up unused files** — `scripts/start-with-ws.mjs`, `src/app/api/ws/screencast/route.ts`
 - Open Claw agent infrastructure: heartbeats/autonomous scheduling, sub-agent delegation
 - Development section: Code Interpreter, Docker orchestration, VM management

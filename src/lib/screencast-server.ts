@@ -7,6 +7,7 @@ const SCREENCAST_PORT = parseInt(process.env.SCREENCAST_PORT || '3001', 10)
 const FRAME_QUALITY = parseInt(process.env.SCREENCAST_QUALITY || '60', 10)
 const FRAME_MAX_WIDTH = parseInt(process.env.SCREENCAST_WIDTH || '1280', 10)
 const FRAME_MAX_HEIGHT = parseInt(process.env.SCREENCAST_HEIGHT || '720', 10)
+const SCREENCAST_POLL_INTERVAL_MS = parseInt(process.env.SCREENCAST_POLL_INTERVAL_MS || '750', 10)
 
 interface ScreencastClient {
   ws: WebSocket
@@ -14,21 +15,57 @@ interface ScreencastClient {
   sessionId: string
   mode: BrowserMode
   cdpSession: any | null
-  frameAckId: number
+  frameInterval: ReturnType<typeof setInterval> | null
+  lastFrameData: string | null
   interrupted: boolean
   lastUserInputAt: number
   autoResumeTimer: ReturnType<typeof setTimeout> | null
   autoResumeTimeoutMs: number
 }
 
-const clients = new Map<string, ScreencastClient>()
+const globalForScreencast = globalThis as typeof globalThis & {
+  __peakuiScreencast?: {
+    clients: Map<string, ScreencastClient>
+    wss: WebSocketServer | null
+    standaloneHttpServer: HttpServer | null
+    attachedToHttpServer: boolean
+  }
+}
 
-let wss: WebSocketServer | null = null
-let standaloneHttpServer: HttpServer | null = null
-let attachedToHttpServer = false
+const screencastState = globalForScreencast.__peakuiScreencast ??= {
+  clients: new Map<string, ScreencastClient>(),
+  wss: null,
+  standaloneHttpServer: null,
+  attachedToHttpServer: false,
+}
 
 function clientKey(userId: string, sessionId: string): string {
   return `${userId}:${sessionId}`
+}
+
+async function captureAndSendFrame(client: ScreencastClient): Promise<void> {
+  const contextKey = `${client.userId}:${client.sessionId}`
+  const page = await getPage(contextKey, client.mode)
+  const buffer = await page.screenshot({
+    type: 'jpeg',
+    quality: FRAME_QUALITY,
+    fullPage: false,
+  })
+  const data = Buffer.from(buffer).toString('base64')
+
+  if (data === client.lastFrameData) return
+  client.lastFrameData = data
+
+  if (client.ws.readyState === WebSocket.OPEN) {
+    client.ws.send(JSON.stringify({
+      type: 'frame',
+      data,
+      metadata: {
+        width: FRAME_MAX_WIDTH,
+        height: FRAME_MAX_HEIGHT,
+      },
+    }))
+  }
 }
 
 async function startScreencastForClient(client: ScreencastClient): Promise<void> {
@@ -39,28 +76,12 @@ async function startScreencastForClient(client: ScreencastClient): Promise<void>
     const cdp = await (context as any).newCDPSession(page)
     client.cdpSession = cdp
 
-    cdp.on('Page.screencastFrame', async (event: any) => {
-      client.frameAckId = event.sessionId
-      if (client.ws.readyState === WebSocket.OPEN) {
-        client.ws.send(JSON.stringify({
-          type: 'frame',
-          data: event.data,
-          metadata: event.metadata,
-        }))
-      }
-      try {
-        await cdp.send('Page.screencastFrameAck', { sessionId: event.sessionId })
-      } catch {
-        // frame ack may fail if screencast already stopped
-      }
-    })
-
-    await cdp.send('Page.startScreencast', {
-      format: 'jpeg',
-      quality: FRAME_QUALITY,
-      maxWidth: FRAME_MAX_WIDTH,
-      maxHeight: FRAME_MAX_HEIGHT,
-    })
+    await captureAndSendFrame(client)
+    client.frameInterval = setInterval(() => {
+      captureAndSendFrame(client).catch((err) => {
+        console.warn('[screencast] Frame capture failed:', err instanceof Error ? err.message : String(err))
+      })
+    }, SCREENCAST_POLL_INTERVAL_MS)
 
     sendState(client)
   } catch (err) {
@@ -79,8 +100,11 @@ async function stopScreencastForClient(client: ScreencastClient): Promise<void> 
     clearTimeout(client.autoResumeTimer)
     client.autoResumeTimer = null
   }
+  if (client.frameInterval) {
+    clearInterval(client.frameInterval)
+    client.frameInterval = null
+  }
   if (client.cdpSession) {
-    try { await client.cdpSession.send('Page.stopScreencast') } catch {}
     try { await client.cdpSession.detach() } catch {}
     client.cdpSession = null
   }
@@ -210,19 +234,19 @@ function handleConnection(ws: WebSocket, req: any): void {
     const { userId, sessionId, mode, autoResumeMs } = auth
     const key = clientKey(userId, sessionId)
 
-    const existing = clients.get(key)
+    const existing = screencastState.clients.get(key)
     if (existing) {
       stopScreencastForClient(existing).catch(() => {})
       existing.ws.close(4002, 'Replaced by new connection')
-      clients.delete(key)
+      screencastState.clients.delete(key)
     }
 
     const client: ScreencastClient = {
-      ws, userId, sessionId, mode, cdpSession: null, frameAckId: 0,
+      ws, userId, sessionId, mode, cdpSession: null, frameInterval: null, lastFrameData: null,
       interrupted: false, lastUserInputAt: 0, autoResumeTimer: null, autoResumeTimeoutMs: autoResumeMs,
     }
 
-    clients.set(key, client)
+    screencastState.clients.set(key, client)
 
     ws.on('message', (raw: any) => {
       const data = typeof raw === 'string' ? raw : raw.toString('utf-8')
@@ -230,8 +254,8 @@ function handleConnection(ws: WebSocket, req: any): void {
     })
 
     ws.on('close', () => {
-      const c = clients.get(key)
-      if (c) { stopScreencastForClient(c).catch(() => {}); clients.delete(key) }
+      const c = screencastState.clients.get(key)
+      if (c) { stopScreencastForClient(c).catch(() => {}); screencastState.clients.delete(key) }
     })
 
     ws.on('error', (err) => { console.warn('[screencast] WebSocket error:', err.message) })
@@ -249,19 +273,19 @@ function handleConnection(ws: WebSocket, req: any): void {
  * Also used to handle upgrades at /ws/screencast when attached to the Next.js HTTP server.
  */
 export function startScreencastServer(): void {
-  if (wss) return
+  if (screencastState.wss) return
 
-  wss = new WebSocketServer({ noServer: true })
-  wss.on('connection', handleConnection)
+  screencastState.wss = new WebSocketServer({ noServer: true })
+  screencastState.wss.on('connection', handleConnection)
 
   // Always start standalone server on SCREENCAST_PORT as fallback
-  standaloneHttpServer = createServer()
-  standaloneHttpServer.on('upgrade', (request: any, socket: any, head: any) => {
-    wss!.handleUpgrade(request, socket, head, (ws) => {
-      wss!.emit('connection', ws, request)
+  screencastState.standaloneHttpServer = createServer()
+  screencastState.standaloneHttpServer.on('upgrade', (request: any, socket: any, head: any) => {
+    screencastState.wss!.handleUpgrade(request, socket, head, (ws) => {
+      screencastState.wss!.emit('connection', ws, request)
     })
   })
-  standaloneHttpServer.listen(SCREENCAST_PORT, () => {
+  screencastState.standaloneHttpServer.listen(SCREENCAST_PORT, () => {
     console.log(`[screencast] Standalone WebSocket server listening on port ${SCREENCAST_PORT}`)
   })
 }
@@ -271,48 +295,59 @@ export function startScreencastServer(): void {
  * This enables same-origin WebSocket at /ws/screencast — no separate port needed.
  */
 export function attachToHttpServer(server: HttpServer): void {
-  if (attachedToHttpServer) return
-  attachedToHttpServer = true
+  if (screencastState.attachedToHttpServer) return
+  screencastState.attachedToHttpServer = true
 
   server.on('upgrade', (request: any, socket: any, head: any) => {
     if ((request.url || '').startsWith('/ws/screencast')) {
-      if (!wss) return
-      const server = wss
-      server.handleUpgrade(request, socket, head, (ws) => {
-        server.emit('connection', ws, request)
+      if (!screencastState.wss) return
+      const webSocketServer = screencastState.wss
+      webSocketServer.handleUpgrade(request, socket, head, (ws) => {
+        webSocketServer.emit('connection', ws, request)
       })
     }
   })
 }
 
 export async function stopScreencastServer(): Promise<void> {
-  if (!wss && !standaloneHttpServer) return
+  if (!screencastState.wss && !screencastState.standaloneHttpServer) return
 
-  for (const [, client] of clients) {
+  for (const [, client] of screencastState.clients) {
     await stopScreencastForClient(client).catch(() => {})
     client.ws.close(1001, 'Server shutting down')
   }
-  clients.clear()
+  screencastState.clients.clear()
 
-  if (wss) { wss.close(); wss = null }
+  if (screencastState.wss) { screencastState.wss.close(); screencastState.wss = null }
 
-  if (standaloneHttpServer) {
-    await new Promise<void>((resolve) => { standaloneHttpServer!.close(() => resolve()) })
-    standaloneHttpServer = null
+  if (screencastState.standaloneHttpServer) {
+    await new Promise<void>((resolve) => { screencastState.standaloneHttpServer!.close(() => resolve()) })
+    screencastState.standaloneHttpServer = null
   }
 }
 
 export function isBrowserInterrupted(userId: string, sessionId: string): boolean {
   const key = clientKey(userId, sessionId)
-  const client = clients.get(key)
+  const client = screencastState.clients.get(key)
   return client?.interrupted ?? false
 }
 
 export function getScreencastState(userId: string, sessionId: string): { connected: boolean; interrupted: boolean } {
   const key = clientKey(userId, sessionId)
-  const client = clients.get(key)
+  const client = screencastState.clients.get(key)
   return {
     connected: client != null && client.ws.readyState === WebSocket.OPEN,
     interrupted: client?.interrupted ?? false,
   }
+}
+
+export async function restartScreencastForSession(userId: string, sessionId: string): Promise<void> {
+  const key = clientKey(userId, sessionId)
+  const client = screencastState.clients.get(key)
+  if (!client || client.ws.readyState !== WebSocket.OPEN) return
+
+  await stopScreencastForClient(client).catch(() => {})
+  await startScreencastForClient(client).catch((err) => {
+    console.error('[screencast] Failed to restart after browser action:', err instanceof Error ? err.message : String(err))
+  })
 }

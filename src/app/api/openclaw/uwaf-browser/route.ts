@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserId } from '@/lib/request-auth'
 import { runUwafBrowserAction, getUwafBrowserSession, type UwafBrowserRequest } from '@/lib/uwaf-browser'
-import { isBrowserInterrupted } from '@/lib/screencast-server'
+import { isBrowserInterrupted, restartScreencastForSession } from '@/lib/screencast-server'
 import { prisma } from '@/lib/prisma'
 import { normalizeOpenClawUwafBrowserMode, normalizeOpenClawUwafDefaultMode, normalizeBoolean, DEFAULT_SETTINGS } from '@/lib/settings'
 
@@ -151,6 +151,11 @@ export async function POST(request: NextRequest) {
       openClawUwafScreenshots: normalizeBoolean(settings.openClawUwafScreenshots),
       openClawUwafDefaultMode: settings.openClawUwafDefaultMode,
     })
+
+    if (result.action === 'open' || result.action === 'click' || result.action === 'fill' || result.action === 'submit' || result.action === 'research_batch') {
+      await restartScreencastForSession(userId, sessionId)
+    }
+
     return NextResponse.json(result)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
