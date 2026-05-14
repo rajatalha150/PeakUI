@@ -1087,7 +1087,7 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
                   }} />
                 </div>
               </Field>
-              <Field label="Live Browser" help="Stream a live view of the browser in the sidebar. When enabled, you can see the browser in real time and take over control using the Take Over button. Falls back to static screenshots when disabled.">
+              <Field label="Live Browser" help="Launch a real interactive browser surface in the sidebar. When enabled, you can watch the actual browser session live and take over control using the Take Over button. Static screenshots remain available separately when live browser is disabled or unavailable.">
                 <div
                   onClick={() => update('openClawUwafLiveBrowser', !settings.openClawUwafLiveBrowser)}
                   style={{

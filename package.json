@@ -12,6 +12,7 @@
     "openclaw:host-executor": "node scripts/openclaw-host-executor.mjs"
   },
   "dependencies": {
+    "@novnc/novnc": "^1.7.0",
     "@prisma/adapter-pg": "^7.7.0",
     "@prisma/client": "^7.7.0",
     "bcryptjs": "^3.0.3",

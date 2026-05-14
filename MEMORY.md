@@ -13,36 +13,28 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - **Backend:** Next.js API Routes
 - **Database:** PostgreSQL 15 via Prisma ORM (`prisma.config.ts` adapter pattern)
 - **Auth:** `jose` Edge-compatible JWTs + `bcryptjs`, `httpOnly` cookies
-- **WebSocket:** `ws` library for screencast server (standalone on port 3001 + upgrade handler on Next.js HTTP server)
-- **Browser:** Playwright-core with CDP (Chrome DevTools Protocol) for live browser streaming and input relay
+- **WebSocket:** `ws` library for authenticated control + VNC bridge (standalone on port 3001 + upgrade handler on Next.js HTTP server)
+- **Browser:** Playwright-core with headed Chromium per session, `Xvfb`, `x11vnc`, and noVNC for true live interactive browser sharing
 - **Deployment:** Docker + Docker Compose (`network_mode: host`)
 
-## ⚠️ Known Issues — Live Interactive Browser (IN PROGRESS)
+## ⚠️ Known Issues — Live Interactive Browser
 
-The live browser feature is partially implemented but has significant issues that need fixing:
+The old screenshot/CDP screencast path has been replaced. The current live browser architecture is a real headed-browser display share and is working, but there are still a few follow-ups:
 
-1. **WebSocket connectivity behind reverse proxy**: The client tries same-origin `/ws/screencast` first, then falls back to port 3001. Both fail when behind an Nginx reverse proxy with TLS because:
-   - Same-origin path requires Nginx to proxy WebSocket upgrades for `/ws/screencast` to port 3001 (not configured by default)
-   - Direct port 3001 uses `wss://` but the port doesn't have TLS certificates
-   - **Fix needed**: Either add Nginx proxy config for `/ws/screencast`, or integrate the WebSocket into the Next.js server properly
-
-2. **`instrumentation.ts` HTTP server attachment is fragile**: The `setTimeout(1000)` approach to find the Next.js HTTP server via `process._getActiveHandles()` is unreliable. The server may not be ready yet, and the internal API is undocumented.
-
-3. **Screencast server creates a new browser page for each WebSocket connection**: If the UWAF browser hasn't been used yet, `getPage()` creates a new context which shows a blank page. The live view should show "about:blank" or a loading state, not a blank page.
-
-4. **No graceful degradation**: When the WebSocket fails to connect, the user sees "Connecting..." indefinitely with no helpful message or fallback to screenshot mode.
-
-5. **BrowserModal input relay not tested**: Click/type/scroll relay via CDP hasn't been tested end-to-end yet.
-
-6. **The `scripts/start-with-ws.mjs` and `src/app/api/ws/screencast/route.ts` files are unused/placeholder**: They should be cleaned up or properly integrated.
+1. **Reverse-proxy websocket support still matters**: the preferred path is now same-origin `/ws/live-browser/control` and `/ws/live-browser/vnc`, attached directly to the Next.js HTTP server. Fronting proxies still need to pass websocket upgrades correctly.
+2. **`instrumentation.ts` server attachment still relies on active-handle discovery**: the transport no longer depends on a separate screenshot port, but attaching upgrade handlers still uses `process._getActiveHandles()` polling and should eventually move to a more explicit startup hook if Next exposes one.
+3. **Unused legacy files should still be cleaned up**: `scripts/start-with-ws.mjs` and `src/app/api/ws/screencast/route.ts` are still legacy leftovers.
 
 ## 🔑 Key Files — Live Browser
 | File | Purpose |
 |---|---|
-| `src/lib/screencast-server.ts` | WebSocket server (noServer mode), CDP screencast, interrupt/resume, cookie auth |
-| `src/instrumentation.ts` | Starts screencast server, tries to attach to Next.js HTTP server |
-| `src/app/components/LiveBrowserView.tsx` | Sidebar live view, WebSocket connection with fallback URLs |
-| `src/app/components/BrowserModal.tsx` | Full-screen expandable browser with CDP input relay |
+| `src/lib/live-browser-server.ts` | Authenticated control socket + raw VNC WebSocket bridge for the real interactive browser |
+| `src/lib/screencast-server.ts` | Compatibility re-export for older imports |
+| `src/lib/uwaf-pool.ts` | Per-session headed Chromium runtime under `Xvfb` + `x11vnc` |
+| `src/instrumentation.ts` | Starts the live-browser bridge and attaches websocket upgrades to the Next.js HTTP server |
+| `src/app/components/useLiveBrowserConnection.ts` | Shared control/noVNC connection hook for sidebar and modal |
+| `src/app/components/LiveBrowserView.tsx` | Sidebar live interactive browser surface |
+| `src/app/components/BrowserModal.tsx` | Full-screen expandable interactive browser surface |
 | `src/app/components/UwafBrowserPreview.tsx` | Static screenshot fallback |
 | `src/app/components/OpenClawWorkspace.tsx` | Integration: LiveBrowserView shows when internet toggle is on |
 
@@ -60,12 +52,13 @@ The live browser feature is partially implemented but has significant issues tha
 
 ### UWAF Browser
 - Removed crash-causing Chromium flags; added retry logic in `getPage()`
-- Live browser preview now ignores blank startup frames, shares connection logic between sidebar and modal, disables the sidebar feed while the modal is open, and prefers the last valid screenshot until a usable live frame arrives
+- Live browser is now a true interactive remote display instead of frame polling: headed Chromium runs under `Xvfb`, `x11vnc` exposes the session, and the client embeds noVNC over authenticated websocket paths
+- Manual user navigation now refreshes AI-side page metadata before later click/fill/extract actions, so Take Over no longer leaves the agent acting on stale page structure
 
 ## 🌐 Deployment Notes
-- App runs on port `3000`, screencast WebSocket on port `3001`
-- `network_mode: host` allows container to reach Ollama, Tor, and screencast server
-- **Nginx Proxy Manager**: To enable WebSocket for live browser, add a custom location for `/ws/screencast` that proxies to `http://localhost:3001` with WebSocket upgrade headers:
+- App runs on port `3000`, and the standalone live-browser websocket bridge listens on `3001` as a fallback if same-origin attachment is unavailable
+- `network_mode: host` allows the container to reach Ollama, Tor, and the live-browser bridge
+- **Nginx Proxy Manager**: if you proxy the app externally, websocket upgrades must reach the app server so `/ws/live-browser/control` and `/ws/live-browser/vnc` work:
   ```
   proxy_http_version 1.1;
   proxy_set_header Upgrade $http_upgrade;
@@ -75,8 +68,7 @@ The live browser feature is partially implemented but has significant issues tha
 - **IMPORTANT:** Never use `prisma db push --force-reset` on production — it wipes all data!
 
 ## ⏭️ Next Steps
-- **Finish live browser transport hardening behind reverse proxies** — same-origin `/ws/screencast` still depends on correct Nginx/WebSocket proxying in front of the app
-- **Test and refine BrowserModal input relay** — click/type/scroll via CDP now has cleaner connection handling but still needs broader manual validation
+- **Manual UX validation of noVNC interaction** — protocol-level VNC handshake is confirmed, but broader browser-side mouse/keyboard validation across sidebar and modal is still worth doing
 - **Clean up unused files** — `scripts/start-with-ws.mjs`, `src/app/api/ws/screencast/route.ts`
 - Open Claw agent infrastructure: heartbeats/autonomous scheduling, sub-agent delegation
 - Development section: Code Interpreter, Docker orchestration, VM management

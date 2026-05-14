@@ -1,29 +1,24 @@
 'use client'
 
-import { useRef, useCallback } from 'react'
-import { Minimize2, Wifi, WifiOff, Loader } from 'lucide-react'
+import { Minimize2, Loader, Wifi, WifiOff } from 'lucide-react'
 import { useLiveBrowserConnection } from './useLiveBrowserConnection'
 
 interface BrowserModalProps {
   sessionId: string
   mode: 'direct' | 'stealth'
-  /** Static screenshot to show as fallback */
   fallbackScreenshot?: string | null
   currentUrl?: string
   title?: string
   enabled?: boolean
   autoResumeMs?: number
-  /** Called from parent to toggle modal */
   isOpen: boolean
   onOpenChange: (open: boolean) => void
-  /** Called when interrupt state changes */
   onInterruptChange?: (interrupted: boolean) => void
 }
 
 export default function BrowserModal({
   sessionId,
   mode,
-  fallbackScreenshot,
   currentUrl,
   title,
   enabled = true,
@@ -32,15 +27,15 @@ export default function BrowserModal({
   onOpenChange,
   onInterruptChange,
 }: BrowserModalProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
   const {
     status,
-    frameData,
     interrupted,
-    hasUsableFrame,
+    currentUrl: liveCurrentUrl,
+    title: liveTitle,
+    setViewportElement,
     sendInterrupt,
     sendResume,
-    sendInput,
+    noteActivity,
   } = useLiveBrowserConnection({
     sessionId,
     mode,
@@ -49,78 +44,33 @@ export default function BrowserModal({
     onInterruptChange,
   })
 
-  // --- Input relay ---
-  const BROWSER_WIDTH = 1280
-  const BROWSER_HEIGHT = 720
-
-  const scaleCoords = useCallback((clientX: number, clientY: number): { x: number; y: number } => {
-    if (!containerRef.current) return { x: 0, y: 0 }
-    const rect = containerRef.current.getBoundingClientRect()
-    return {
-      x: Math.round((clientX - rect.left) / rect.width * BROWSER_WIDTH),
-      y: Math.round((clientY - rect.top) / rect.height * BROWSER_HEIGHT),
-    }
-  }, [])
-
-  const handleClick = useCallback((e: React.MouseEvent) => {
-    if (!interrupted) return
-    const { x, y } = scaleCoords(e.clientX, e.clientY)
-    sendInput({ inputType: 'click', x, y, button: 'left', clickCount: 1 })
-  }, [interrupted, scaleCoords, sendInput])
-
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    if (!interrupted) return
-    const { x, y } = scaleCoords(e.clientX, e.clientY)
-    sendInput({ inputType: 'scroll', x, y, deltaX: e.deltaX, deltaY: e.deltaY })
-    e.preventDefault()
-  }, [interrupted, scaleCoords, sendInput])
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (!interrupted) return
-    // Special keys
-    if (e.key === 'Enter' || e.key === 'Tab' || e.key === 'Escape' || e.key === 'Backspace' || e.key === 'Delete') {
-      const keyMap: Record<string, { key: string; code: string; keyCode: number }> = {
-        Enter: { key: 'Enter', code: 'Enter', keyCode: 13 },
-        Tab: { key: 'Tab', code: 'Tab', keyCode: 9 },
-        Escape: { key: 'Escape', code: 'Escape', keyCode: 27 },
-        Backspace: { key: 'Backspace', code: 'Backspace', keyCode: 8 },
-        Delete: { key: 'Delete', code: 'Delete', keyCode: 46 },
-      }
-      const mapping = keyMap[e.key]
-      if (mapping) {
-        e.preventDefault()
-        sendInput({ inputType: 'keypress', ...mapping })
-        return
-      }
-    }
-
-    // Regular typing
-    if (e.key.length === 1) {
-      e.preventDefault()
-      sendInput({ inputType: 'type', text: e.key })
-    }
-  }, [interrupted, sendInput])
-
-  // Touch support
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (!interrupted) return
-    const touch = e.touches[0]
-    if (!touch) return
-    const { x, y } = scaleCoords(touch.clientX, touch.clientY)
-    sendInput({ inputType: 'click', x, y, button: 'left', clickCount: 1 })
-  }, [interrupted, scaleCoords, sendInput])
-
   if (!isOpen) return null
 
-  const showLive = enabled && status === 'live' && hasUsableFrame && frameData
-  const imageData = showLive ? frameData : fallbackScreenshot
+  const resolvedUrl = liveCurrentUrl || currentUrl
+  const resolvedTitle = liveTitle || title
   const connectionLabel = status === 'live'
-    ? (hasUsableFrame ? 'Live' : 'Starting...')
+    ? 'Interactive'
     : status === 'connecting'
-      ? 'Connecting...'
+      ? 'Starting...'
       : status === 'disconnected'
         ? 'Reconnecting...'
         : 'Offline'
+
+  const statusMessage = status === 'connecting'
+    ? 'Starting interactive browser session...'
+    : status === 'disconnected'
+      ? 'Reconnecting to the live browser...'
+      : status === 'failed'
+        ? 'Interactive browser unavailable'
+        : interrupted
+          ? 'You have control of the browser'
+          : 'AI is controlling the browser. Use Take Over to interact.'
+
+  const signalActivity = () => {
+    if (interrupted) {
+      noteActivity()
+    }
+  }
 
   return (
     <div
@@ -135,9 +85,8 @@ export default function BrowserModal({
         justifyContent: 'center',
         backdropFilter: 'blur(8px)',
       }}
-      onClick={(e) => e.target === e.currentTarget && onOpenChange(false)}
+      onClick={(event) => event.target === event.currentTarget && onOpenChange(false)}
     >
-      {/* Header bar */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -148,7 +97,6 @@ export default function BrowserModal({
         marginBottom: 8,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* Mode badge */}
           <div style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -164,7 +112,6 @@ export default function BrowserModal({
             {mode === 'stealth' ? '🛡 Stealth' : '🌐 Direct'}
           </div>
 
-          {/* Connection status */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
@@ -176,43 +123,39 @@ export default function BrowserModal({
             {connectionLabel}
           </div>
 
-          {/* URL */}
-          {currentUrl && (
+          {resolvedUrl && (
             <div style={{
               fontSize: '0.68rem',
               color: 'rgba(255,255,255,0.6)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              maxWidth: 400,
+              maxWidth: 420,
             }}>
-              {title && <span style={{ fontWeight: 600, color: 'rgba(255,255,255,0.8)' }}>{title}</span>}
-              {title && ' · '}
-              {currentUrl}
+              {resolvedTitle && <span style={{ fontWeight: 600, color: 'rgba(255,255,255,0.8)' }}>{resolvedTitle}</span>}
+              {resolvedTitle && ' · '}
+              {resolvedUrl}
             </div>
           )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* Interrupt / Resume button */}
-          {enabled && status === 'live' && (
-            <button
-              onClick={interrupted ? sendResume : sendInterrupt}
-              style={{
-                fontSize: '0.72rem',
-                fontWeight: 700,
-                padding: '6px 14px',
-                borderRadius: 6,
-                border: interrupted ? '1px solid #22c55e' : '1px solid #f59e0b',
-                background: interrupted ? 'rgba(34, 197, 94, 0.2)' : 'rgba(245, 158, 11, 0.2)',
-                color: interrupted ? '#22c55e' : '#f59e0b',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-              }}
-            >
-              {interrupted ? '▶ Resume AI' : '⏸ Take Over'}
-            </button>
-          )}
+          <button
+            onClick={interrupted ? sendResume : sendInterrupt}
+            style={{
+              fontSize: '0.72rem',
+              fontWeight: 700,
+              padding: '6px 14px',
+              borderRadius: 6,
+              border: interrupted ? '1px solid #22c55e' : '1px solid #f59e0b',
+              background: interrupted ? 'rgba(34, 197, 94, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+              color: interrupted ? '#22c55e' : '#f59e0b',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            {interrupted ? '▶ Resume AI' : '⏸ Take Over'}
+          </button>
           <button
             onClick={() => onOpenChange(false)}
             style={{
@@ -233,9 +176,7 @@ export default function BrowserModal({
         </div>
       </div>
 
-      {/* Browser view container */}
       <div
-        ref={containerRef}
         style={{
           width: '90vw',
           maxWidth: 1200,
@@ -245,52 +186,36 @@ export default function BrowserModal({
           border: '1px solid rgba(255,255,255,0.15)',
           background: '#111',
           position: 'relative',
-          cursor: interrupted ? 'crosshair' : 'default',
         }}
-        onClick={handleClick}
-        onWheel={handleWheel}
-        onKeyDown={handleKeyDown}
-        onTouchStart={handleTouchStart}
-        tabIndex={0}
+        onMouseDown={signalActivity}
+        onWheel={signalActivity}
+        onKeyDown={signalActivity}
+        onTouchStart={signalActivity}
       >
-        {imageData ? (
-          <img
-            src={`data:image/jpeg;base64,${imageData}`}
-            alt="Browser view"
-            style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'contain',
-              display: 'block',
-              pointerEvents: 'none',
-              userSelect: 'none',
-            }}
-            draggable={false}
-          />
-        ) : (
+        <div
+          ref={setViewportElement}
+          style={{
+            width: '100%',
+            height: '100%',
+            background: '#111',
+          }}
+        />
+        {status !== 'live' && (
           <div style={{
+            position: 'absolute',
+            inset: 0,
             display: 'flex',
-            flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            height: '100%',
-            color: 'rgba(255,255,255,0.4)',
+            color: 'rgba(255,255,255,0.5)',
             fontSize: '0.85rem',
-            gap: 8,
+            textAlign: 'center',
+            padding: 16,
           }}>
-            {status === 'failed' && <WifiOff size={24} />}
-            {status === 'failed'
-              ? 'Browser connection unavailable'
-              : status === 'connecting' || status === 'disconnected'
-                ? 'Connecting to browser...'
-                : hasUsableFrame
-                  ? 'No browser content'
-                  : 'Waiting for first painted browser frame...'}
+            {statusMessage}
           </div>
         )}
-
-        {/* Live indicator */}
-        {showLive && !interrupted && (
+        {status === 'live' && !interrupted && (
           <div style={{
             position: 'absolute',
             top: 10,
@@ -312,11 +237,9 @@ export default function BrowserModal({
               background: '#fff',
               animation: 'blink 1s infinite',
             }} />
-            LIVE
+            AI ACTIVE
           </div>
         )}
-
-        {/* User control indicator */}
         {interrupted && (
           <div style={{
             position: 'absolute',
@@ -330,22 +253,19 @@ export default function BrowserModal({
             padding: '3px 10px',
             borderRadius: 4,
           }}>
-            YOU HAVE CONTROL — click, type, or scroll to interact
+            YOU HAVE CONTROL
           </div>
         )}
       </div>
 
-      {/* Instruction text */}
-      {interrupted && (
-        <div style={{
-          marginTop: 10,
-          fontSize: '0.7rem',
-          color: 'rgba(255,255,255,0.5)',
-          textAlign: 'center',
-        }}>
-          Click on the browser view to interact. Type with your keyboard. Press &quot;Resume AI&quot; when done.
-        </div>
-      )}
+      <div style={{
+        marginTop: 10,
+        fontSize: '0.72rem',
+        color: 'rgba(255,255,255,0.6)',
+        textAlign: 'center',
+      }}>
+        {statusMessage}
+      </div>
 
       <style>{`
         @keyframes blink {

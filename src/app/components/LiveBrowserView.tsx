@@ -1,6 +1,6 @@
 'use client'
 
-import { Wifi, WifiOff, Loader } from 'lucide-react'
+import { Loader, Wifi, WifiOff } from 'lucide-react'
 import { type LiveBrowserConnectionStatus, useLiveBrowserConnection } from './useLiveBrowserConnection'
 
 interface LiveBrowserViewProps {
@@ -18,7 +18,6 @@ interface LiveBrowserViewProps {
 export default function LiveBrowserView({
   sessionId,
   mode,
-  fallbackScreenshot,
   currentUrl,
   title,
   onInterruptChange,
@@ -28,11 +27,13 @@ export default function LiveBrowserView({
 }: LiveBrowserViewProps) {
   const {
     status,
-    frameData,
     interrupted,
-    hasUsableFrame,
+    currentUrl: liveCurrentUrl,
+    title: liveTitle,
+    setViewportElement,
     sendInterrupt,
     sendResume,
+    noteActivity,
   } = useLiveBrowserConnection({
     sessionId,
     mode,
@@ -46,20 +47,31 @@ export default function LiveBrowserView({
     ? { label: 'Stealth', bg: 'rgba(168, 85, 247, 0.15)', color: '#a855f7', border: '1px solid rgba(168, 85, 247, 0.3)' }
     : { label: 'Direct', bg: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.3)' }
 
-  const showLive = enabled && status === 'live' && hasUsableFrame && frameData
-  const imageData = showLive ? frameData : fallbackScreenshot
+  const resolvedUrl = liveCurrentUrl || currentUrl
+  const resolvedTitle = liveTitle || title
   const connectionLabel = status === 'live'
-    ? (hasUsableFrame ? 'Live' : 'Starting')
+    ? 'Interactive'
     : status === 'connecting'
-      ? 'Connecting'
+      ? 'Starting'
       : status === 'disconnected'
         ? 'Reconnecting'
         : 'Offline'
 
-  const statusMessage = status === 'connecting' ? 'Connecting to browser...'
-    : status === 'failed' ? 'Browser offline — using screenshot fallback'
-    : status === 'disconnected' ? 'Reconnecting...'
-    : hasUsableFrame ? 'Waiting for browser activity...' : 'Waiting for first painted browser frame...'
+  const statusMessage = status === 'connecting'
+    ? 'Starting interactive browser session...'
+    : status === 'disconnected'
+      ? 'Reconnecting to the live browser...'
+      : status === 'failed'
+        ? 'Interactive browser unavailable'
+        : interrupted
+          ? 'You have control of the browser'
+          : 'AI is controlling the browser. Use Take Over to interact.'
+
+  const signalActivity = () => {
+    if (interrupted) {
+      noteActivity()
+    }
+  }
 
   return (
     <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border-color)' }}>
@@ -81,26 +93,52 @@ export default function LiveBrowserView({
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px', borderRadius: 4, fontSize: '0.62rem', fontWeight: 600, background: modeBadge.bg, color: modeBadge.color, border: modeBadge.border }}>
           {mode === 'stealth' ? '🛡' : '🌐'} {modeBadge.label}
         </div>
-        {enabled && status === 'live' && (
-          <button onClick={interrupted ? sendResume : sendInterrupt} style={{ fontSize: '0.6rem', fontWeight: 600, padding: '2px 8px', borderRadius: 4, border: interrupted ? '1px solid #22c55e' : '1px solid #f59e0b', background: interrupted ? 'rgba(34, 197, 94, 0.15)' : 'rgba(245, 158, 11, 0.15)', color: interrupted ? '#22c55e' : '#f59e0b', cursor: 'pointer', transition: 'all 0.15s ease' }} title={interrupted ? 'Resume AI control' : 'Take over browser control'}>
+        {enabled && (
+          <button
+            onClick={interrupted ? sendResume : sendInterrupt}
+            style={{
+              fontSize: '0.6rem',
+              fontWeight: 600,
+              padding: '2px 8px',
+              borderRadius: 4,
+              border: interrupted ? '1px solid #22c55e' : '1px solid #f59e0b',
+              background: interrupted ? 'rgba(34, 197, 94, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+              color: interrupted ? '#22c55e' : '#f59e0b',
+              cursor: 'pointer',
+              transition: 'all 0.15s ease',
+            }}
+            title={interrupted ? 'Resume AI control' : 'Take over browser control'}
+          >
             {interrupted ? '▶ Resume AI' : '⏸ Take Over'}
           </button>
         )}
       </div>
 
-      <div style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border-color)', position: 'relative', background: '#111' }}>
-        {imageData ? (
-          <img src={`data:image/jpeg;base64,${imageData}`} alt={showLive ? 'Live browser view' : 'Browser screenshot'} style={{ width: '100%', height: 'auto', display: 'block', objectFit: 'contain' }} />
-        ) : (
-          <div style={{ width: '100%', aspectRatio: '16/9', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: '0.75rem', opacity: 0.6, gap: 4 }}>
-            {status === 'failed' && <WifiOff size={16} />}
+      <div
+        style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border-color)', position: 'relative', background: '#111', aspectRatio: '16/9' }}
+        onMouseDown={signalActivity}
+        onWheel={signalActivity}
+        onKeyDown={signalActivity}
+        onTouchStart={signalActivity}
+      >
+        <div
+          ref={setViewportElement}
+          style={{
+            width: '100%',
+            height: '100%',
+            minHeight: 200,
+            background: '#111',
+          }}
+        />
+        {status !== 'live' && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.75rem', opacity: 0.8, padding: 12 }}>
             {statusMessage}
           </div>
         )}
-        {showLive && !interrupted && (
+        {status === 'live' && !interrupted && (
           <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(239, 68, 68, 0.9)', color: '#fff', fontSize: '0.55rem', fontWeight: 700, padding: '2px 5px', borderRadius: 3, display: 'flex', alignItems: 'center', gap: 3 }}>
             <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#fff', animation: 'blink 1s infinite' }} />
-            LIVE
+            AI ACTIVE
           </div>
         )}
         {interrupted && (
@@ -110,12 +148,16 @@ export default function LiveBrowserView({
         )}
       </div>
 
-      {currentUrl && (
+      <div style={{ marginTop: 6, fontSize: '0.62rem', color: 'var(--text-secondary)' }}>
+        {statusMessage}
+      </div>
+
+      {resolvedUrl && (
         <div style={{ marginTop: 4 }}>
           <div style={{ fontSize: '0.62rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {title && <span style={{ fontWeight: 600 }}>{title}</span>}
-            {title && ' · '}
-            <span style={{ color: 'var(--accent-primary)', opacity: 0.8 }}>{currentUrl}</span>
+            {resolvedTitle && <span style={{ fontWeight: 600 }}>{resolvedTitle}</span>}
+            {resolvedTitle && ' · '}
+            <span style={{ color: 'var(--accent-primary)', opacity: 0.8 }}>{resolvedUrl}</span>
           </div>
         </div>
       )}

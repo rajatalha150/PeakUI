@@ -78,12 +78,17 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Removed `--single-process` and `--no-zygote` Chromium flags that caused `browserContext.newPage: Target page, context or browser has been closed` crashes
 - Added retry logic in `getPage()`: if `newPage()` fails, clear stale references, relaunch browser, and retry
 
-### Live Browser Stability Fix ✅
-- Fixed the white-screen live browser regression in Open Claw by treating tiny startup screencast frames as provisional instead of immediately replacing a valid fallback screenshot with a blank white image
-- Added a shared `useLiveBrowserConnection` hook so the sidebar preview and full-screen modal now use the same WebSocket/reconnect/interrupt logic instead of drifting into separate behavior
-- Prevented the sidebar live preview and expanded modal from fighting over the same browser session; opening the modal now suspends the sidebar connection instead of creating a competing second screencast client
-- Reworked screencast visual transport to poll Playwright screenshots for display frames while keeping CDP attached for click/scroll/key input relay, reducing dependence on the old raw `Page.startScreencast` visual path
-- Live browser UI now distinguishes between `Live` and `Starting`, keeps showing the latest real screenshot until a usable painted live frame arrives, and falls back more gracefully when the stream has not produced a valid visual frame yet
+### Interactive Live Browser Rewrite ✅
+- Replaced the screenshot/frame-based “live browser” transport with a real interactive remote display session: headed Chromium now runs per UWAF session under `Xvfb`, `x11vnc` exposes that display, and the app bridges VNC over authenticated WebSocket paths
+- Added `src/lib/live-browser-server.ts` as the new control + VNC bridge layer; `src/lib/screencast-server.ts` is now only a compatibility re-export
+- Reworked `src/lib/uwaf-pool.ts` from a single shared headless browser into per-session headed browser runtimes so the AI and the user act on the same visible page instead of separate hidden contexts
+- Swapped the sidebar and modal UI from `<img>` frame rendering to embedded noVNC sessions via `@novnc/novnc`, keeping the existing Take Over / Resume AI control flow through a separate control socket
+- Hardened shared-session behavior so manual user navigation no longer leaves AI-side form/link metadata stale: UWAF browser actions now refresh page structure from the current live page before acting
+- Validated the new transport end-to-end in Docker: authenticated `/ws/live-browser/control` returns `ready`, authenticated `/ws/live-browser/vnc` returns a real `RFB 003.008` handshake, and UWAF `open` still returns page content + screenshot normally
+
+### Build Recovery ✅
+- Fixed the repo’s pre-existing Prisma/typecheck blockers so `npm run build` works again after the live-browser rewrite
+- Regenerated Prisma client types locally and corrected stale test/type assumptions in the RAG files that were preventing redeploy
 
 ### Core Chat
 - **Inline image rendering:** AI-generated markdown images (`![alt](url)`) now render inline directly in chat messages via `AssistantContent` component

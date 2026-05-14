@@ -30,8 +30,6 @@ describe('RAG retrieval', () => {
         documentId: 'doc-a',
         filename: 'rag-notes.md',
         content: 'Retrieval evaluation should verify recall, grounding, and file-type coverage. Recall matters most here.',
-        score: 1,
-        mode: 'keyword',
         wholeDocument: true,
       },
       {
@@ -41,8 +39,6 @@ describe('RAG retrieval', () => {
         documentId: 'doc-b',
         filename: 'garden-notes.md',
         content: 'Tomatoes need sun and water. Compost improves soil and mulch reduces evaporation.',
-        score: 1,
-        mode: 'keyword',
         wholeDocument: true,
       },
     ]
@@ -83,7 +79,7 @@ describe('RAG grounding', () => {
       },
     ], 'keyword')
 
-    expect(buildKnowledgeBaseRetrievalContract()).toContain('full-document context')
+    expect(buildKnowledgeBaseRetrievalContract()).toContain('If an entry says "full document"')
     expect(context).toContain('full document')
     expect(context).toContain('This short note should be injected in full when the file is small enough.')
   })

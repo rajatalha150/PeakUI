@@ -1,6 +1,6 @@
 import { isIP } from 'node:net'
 import { lookup } from 'node:dns/promises'
-import { createContext, getPage, closeContext, type BrowserMode } from './uwaf-pool'
+import { getPage, closeContext, type BrowserMode } from './uwaf-pool'
 import {
   sanitizeHtmlToMarkdown,
   extractTables,
@@ -234,6 +234,21 @@ async function captureScreenshot(page: any): Promise<string | undefined> {
   }
 }
 
+async function syncSessionCurrentPage(session: UwafBrowserSession, page: any): Promise<void> {
+  const [title, links, forms] = await Promise.all([
+    page.title().catch(() => ''),
+    extractLinksFromPage(page),
+    extractFormsFromPage(page),
+  ])
+
+  session.currentPage = {
+    url: page.url(),
+    title,
+    links,
+    forms,
+  }
+}
+
 async function navigateToUrl(
   page: any,
   url: string,
@@ -359,6 +374,7 @@ export async function runUwafBrowserAction(
     }
 
     case 'click': {
+      await syncSessionCurrentPage(session, page)
       if (!session.currentPage) throw new Error('No page is currently open. Use "open" first.')
       let targetUrl: string | undefined
       if (request.linkIndex !== undefined && request.linkIndex >= 0 && request.linkIndex < session.currentPage.links.length) {
@@ -389,6 +405,7 @@ export async function runUwafBrowserAction(
     }
 
     case 'extract': {
+      await syncSessionCurrentPage(session, page)
       if (!session.currentPage) throw new Error('No page is currently open. Use "open" first.')
       const html = await page.content()
       const extractMode = request.mode || 'summary'
@@ -416,6 +433,7 @@ export async function runUwafBrowserAction(
     }
 
     case 'extract_table': {
+      await syncSessionCurrentPage(session, page)
       if (!session.currentPage) throw new Error('No page is currently open. Use "open" first.')
       const html = await page.content()
       const tables = extractTables(html)
@@ -503,6 +521,7 @@ export async function runUwafBrowserAction(
     }
 
     case 'fill': {
+      await syncSessionCurrentPage(session, page)
       if (!session.currentPage) throw new Error('No page is currently open. Use "open" first.')
       if (request.formIndex === undefined || request.formIndex === null) throw new Error('formIndex is required for "fill".')
       if (!request.values || Object.keys(request.values).length === 0) throw new Error('values object is required for "fill".')
@@ -535,6 +554,7 @@ export async function runUwafBrowserAction(
     }
 
     case 'submit': {
+      await syncSessionCurrentPage(session, page)
       if (!session.currentPage) throw new Error('No page is currently open. Use "open" first.')
 
       const formIndex = request.formIndex ?? 0

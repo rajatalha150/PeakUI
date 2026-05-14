@@ -1,5 +1,6 @@
 'use client'
 
+import type RFB from '@novnc/novnc'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 export type LiveBrowserConnectionStatus = 'connecting' | 'live' | 'disconnected' | 'failed'
@@ -15,19 +16,7 @@ interface UseLiveBrowserConnectionOptions {
 
 const MAX_RECONNECT_ATTEMPTS = 5
 const MAX_RECONNECT_DELAY_MS = 30000
-const CONNECT_TIMEOUT_MS = 4000
-const MIN_VISIBLE_FRAME_BYTES = 12_000
-
-function estimateBase64ByteLength(input: string): number {
-  if (!input) return 0
-  const padding = input.endsWith('==') ? 2 : input.endsWith('=') ? 1 : 0
-  return Math.floor((input.length * 3) / 4) - padding
-}
-
-function isLikelyBlankStartupFrame(input: string): boolean {
-  const bytes = estimateBase64ByteLength(input)
-  return bytes > 0 && bytes < MIN_VISIBLE_FRAME_BYTES
-}
+const CONNECT_TIMEOUT_MS = 8000
 
 export function useLiveBrowserConnection({
   sessionId,
@@ -38,37 +27,57 @@ export function useLiveBrowserConnection({
   onStatusChange,
 }: UseLiveBrowserConnectionOptions) {
   const [status, setStatus] = useState<LiveBrowserConnectionStatus>('connecting')
-  const [frameData, setFrameData] = useState<string | null>(null)
   const [interrupted, setInterrupted] = useState(false)
-  const [hasUsableFrame, setHasUsableFrame] = useState(false)
+  const [currentUrl, setCurrentUrl] = useState<string | null>(null)
+  const [title, setTitle] = useState<string | null>(null)
+  const [viewportElement, setViewportElementState] = useState<HTMLDivElement | null>(null)
+  const [vncUrl, setVncUrl] = useState<string | null>(null)
 
   const failedAttempts = useRef(0)
-  const wsRef = useRef<WebSocket | null>(null)
+  const controlSocketRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const frameRef = useRef<string | null>(null)
-  const hasUsableFrameRef = useRef(false)
   const connectRef = useRef<() => void>(() => {})
+  const activeControlUrlRef = useRef<string | null>(null)
+  const rfbRef = useRef<RFB | null>(null)
+  const interruptedRef = useRef(false)
+  const disposedRef = useRef(false)
 
   const updateStatus = useCallback((nextStatus: LiveBrowserConnectionStatus) => {
     setStatus(nextStatus)
     onStatusChange?.(nextStatus)
   }, [onStatusChange])
 
-  const sendMessage = useCallback((message: Record<string, unknown>) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(message))
+  const disconnectRfb = useCallback(() => {
+    const existing = rfbRef.current
+    rfbRef.current = null
+    if (!existing) return
+    try {
+      existing.disconnect()
+    } catch {
+      // Ignore teardown failures from noVNC during unmount/reconnect.
+    }
+  }, [])
+
+  const setViewportElement = useCallback((element: HTMLDivElement | null) => {
+    setViewportElementState(element)
+  }, [])
+
+  const sendControlMessage = useCallback((message: Record<string, unknown>) => {
+    if (controlSocketRef.current?.readyState === WebSocket.OPEN) {
+      controlSocketRef.current.send(JSON.stringify(message))
     }
   }, [])
 
   const scheduleReconnect = useCallback(() => {
-    if (reconnectTimerRef.current) return
+    if (disposedRef.current || reconnectTimerRef.current) return
+
     failedAttempts.current += 1
     if (failedAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
       updateStatus('failed')
       return
     }
 
-    const delay = Math.min(1000 * Math.pow(2, failedAttempts.current - 1), MAX_RECONNECT_DELAY_MS)
+    const delay = Math.min(1000 * 2 ** (failedAttempts.current - 1), MAX_RECONNECT_DELAY_MS)
     reconnectTimerRef.current = setTimeout(() => {
       reconnectTimerRef.current = null
       updateStatus('connecting')
@@ -76,44 +85,77 @@ export function useLiveBrowserConnection({
     }, delay)
   }, [updateStatus])
 
-  const handleFrame = useCallback((nextFrame: string) => {
-    if (!nextFrame || nextFrame === frameRef.current) return
-    frameRef.current = nextFrame
+  const connectRfb = useCallback(async (nextVncUrl: string) => {
+    if (!enabled || !viewportElement || !nextVncUrl) return
 
-    // CDP often emits a tiny all-white startup frame before the page paints.
-    // Keep showing the fallback screenshot or placeholder until we receive a
-    // more substantial frame from the live page.
-    if (!hasUsableFrameRef.current && isLikelyBlankStartupFrame(nextFrame)) {
-      return
-    }
+    disconnectRfb()
 
-    if (!hasUsableFrameRef.current) {
-      hasUsableFrameRef.current = true
-      setHasUsableFrame(true)
-    }
+    const { default: RFB } = await import('@novnc/novnc')
+    if (disposedRef.current || !viewportElement) return
 
-    setFrameData(nextFrame)
-  }, [])
+    viewportElement.replaceChildren()
+
+    const rfb = new RFB(viewportElement, nextVncUrl, { shared: true })
+    rfb.background = 'transparent'
+    rfb.scaleViewport = true
+    rfb.resizeSession = false
+    rfb.clipViewport = false
+    rfb.focusOnClick = true
+    rfb.qualityLevel = 8
+    rfb.compressionLevel = 2
+    rfb.viewOnly = !interruptedRef.current
+
+    rfb.addEventListener('connect', () => {
+      failedAttempts.current = 0
+      updateStatus('live')
+      if (interruptedRef.current) {
+        rfb.focus()
+      }
+    })
+
+    rfb.addEventListener('disconnect', () => {
+      if (disposedRef.current) return
+      if (rfbRef.current === rfb) {
+        rfbRef.current = null
+      }
+      updateStatus('disconnected')
+      scheduleReconnect()
+    })
+
+    rfb.addEventListener('securityfailure', () => {
+      updateStatus('failed')
+    })
+
+    rfb.addEventListener('credentialsrequired', () => {
+      updateStatus('failed')
+    })
+
+    rfbRef.current = rfb
+  }, [disconnectRfb, enabled, scheduleReconnect, updateStatus, viewportElement])
 
   const connect = useCallback(() => {
     if (!enabled || !sessionId) return
 
-    const params = `sessionId=${encodeURIComponent(sessionId)}&mode=${mode}&autoResumeMs=${autoResumeMs}`
+    interruptedRef.current = false
+    setInterrupted(false)
+    setCurrentUrl(null)
+    setTitle(null)
+    setVncUrl(null)
+    updateStatus('connecting')
+
+    const params = `sessionId=${encodeURIComponent(sessionId)}&mode=${encodeURIComponent(mode)}&autoResumeMs=${autoResumeMs}`
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = window.location.host
+    const primaryHost = window.location.host
+    const fallbackHost = `${window.location.hostname}:3001`
     const urls = [
-      `${protocol}//${host}/ws/screencast?${params}`,
-      `${protocol}//${window.location.hostname}:3001/?${params}`,
+      `${protocol}//${primaryHost}/ws/live-browser/control?${params}`,
+      `${protocol}//${fallbackHost}/ws/live-browser/control?${params}`,
     ]
 
     let urlIndex = 0
 
     const tryNext = () => {
-      if (urlIndex >= urls.length) {
-        if (failedAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
-          updateStatus('failed')
-          return
-        }
+      if (disposedRef.current || urlIndex >= urls.length) {
         updateStatus('disconnected')
         scheduleReconnect()
         return
@@ -121,10 +163,11 @@ export function useLiveBrowserConnection({
 
       const url = urls[urlIndex]
       urlIndex += 1
+      activeControlUrlRef.current = url
 
       try {
         const ws = new WebSocket(url)
-        wsRef.current = ws
+        controlSocketRef.current = ws
 
         const timeout = setTimeout(() => {
           if (ws.readyState === WebSocket.CONNECTING) {
@@ -135,45 +178,52 @@ export function useLiveBrowserConnection({
 
         ws.onopen = () => {
           clearTimeout(timeout)
-          updateStatus('live')
-          failedAttempts.current = 0
+          updateStatus('connecting')
         }
 
         ws.onmessage = (event) => {
           try {
             const message = JSON.parse(event.data)
             switch (message.type) {
-              case 'frame':
-                if (typeof message.data === 'string') {
-                  handleFrame(message.data)
+              case 'ready':
+                if (typeof message.vncPath === 'string' && activeControlUrlRef.current) {
+                  const resolvedVncUrl = new URL(message.vncPath, activeControlUrlRef.current).toString()
+                  setVncUrl(resolvedVncUrl)
                 }
                 break
               case 'state': {
-                const nextInterrupted = message.interrupted ?? false
+                const nextInterrupted = message.interrupted === true
+                interruptedRef.current = nextInterrupted
                 setInterrupted(nextInterrupted)
                 onInterruptChange?.(nextInterrupted)
                 break
               }
+              case 'page':
+                setCurrentUrl(typeof message.currentUrl === 'string' ? message.currentUrl : null)
+                setTitle(typeof message.title === 'string' ? message.title : null)
+                break
               case 'notification':
                 break
               case 'error':
-                console.warn('[live-browser] Server error:', message.message)
+                console.warn('[live-browser] Control error:', message.message)
+                break
+              case 'pong':
                 break
             }
           } catch {
-            // Ignore malformed messages from the stream.
+            // Ignore malformed control messages.
           }
         }
 
         ws.onclose = () => {
           clearTimeout(timeout)
-          if (wsRef.current === ws) {
-            wsRef.current = null
-            updateStatus('disconnected')
-            if (failedAttempts.current < MAX_RECONNECT_ATTEMPTS) {
+          if (controlSocketRef.current === ws) {
+            controlSocketRef.current = null
+            setVncUrl(null)
+            disconnectRfb()
+            if (!disposedRef.current) {
+              updateStatus('disconnected')
               scheduleReconnect()
-            } else {
-              updateStatus('failed')
             }
           }
         }
@@ -190,54 +240,85 @@ export function useLiveBrowserConnection({
     }
 
     tryNext()
-  }, [autoResumeMs, enabled, handleFrame, mode, onInterruptChange, scheduleReconnect, sessionId, updateStatus])
-
-  connectRef.current = connect
+  }, [autoResumeMs, disconnectRfb, enabled, mode, onInterruptChange, scheduleReconnect, sessionId, updateStatus])
 
   useEffect(() => {
-    setFrameData(null)
-    frameRef.current = null
-    setHasUsableFrame(false)
-    hasUsableFrameRef.current = false
-    setInterrupted(false)
+    connectRef.current = connect
+  }, [connect])
+
+  useEffect(() => {
+    disposedRef.current = false
     failedAttempts.current = 0
-    if (enabled && sessionId) {
-      updateStatus('connecting')
-    }
-  }, [enabled, mode, sessionId, updateStatus])
-
-  useEffect(() => {
-    if (enabled) {
-      connect()
-    }
 
     return () => {
+      disposedRef.current = true
       if (reconnectTimerRef.current) {
         clearTimeout(reconnectTimerRef.current)
         reconnectTimerRef.current = null
       }
-      if (wsRef.current) {
-        wsRef.current.close(1000, 'Component unmounting')
-        wsRef.current = null
+      if (controlSocketRef.current) {
+        controlSocketRef.current.close(1000, 'Unmounting live browser')
+        controlSocketRef.current = null
       }
+      disconnectRfb()
+    }
+  }, [disconnectRfb, enabled, mode, sessionId])
+
+  useEffect(() => {
+    if (!enabled) return
+
+    const timeout = setTimeout(() => {
+      connect()
+    }, 0)
+
+    return () => {
+      clearTimeout(timeout)
     }
   }, [connect, enabled])
 
   useEffect(() => {
+    if (!enabled || !vncUrl || !viewportElement) return
+    void connectRfb(vncUrl)
+
+    return () => {
+      disconnectRfb()
+    }
+  }, [connectRfb, disconnectRfb, enabled, viewportElement, vncUrl])
+
+  useEffect(() => {
+    if (!rfbRef.current) return
+    rfbRef.current.viewOnly = !interrupted
+    if (interrupted) {
+      rfbRef.current.focus()
+    } else {
+      rfbRef.current.blur()
+    }
+  }, [interrupted])
+
+  useEffect(() => {
     if (status !== 'live') return
     const interval = setInterval(() => {
-      sendMessage({ type: 'ping' })
+      sendControlMessage({ type: 'ping' })
     }, 30000)
     return () => clearInterval(interval)
-  }, [sendMessage, status])
+  }, [sendControlMessage, status])
+
+  useEffect(() => {
+    if (!interrupted || status !== 'live') return
+    const interval = setInterval(() => {
+      sendControlMessage({ type: 'activity' })
+    }, 15000)
+    return () => clearInterval(interval)
+  }, [interrupted, sendControlMessage, status])
 
   return {
     status,
-    frameData,
     interrupted,
-    hasUsableFrame,
-    sendInterrupt: () => sendMessage({ type: 'interrupt' }),
-    sendResume: () => sendMessage({ type: 'resume' }),
-    sendInput: (payload: Record<string, unknown>) => sendMessage({ type: 'input', payload }),
+    currentUrl,
+    title,
+    setViewportElement,
+    sendInterrupt: () => sendControlMessage({ type: 'interrupt' }),
+    sendResume: () => sendControlMessage({ type: 'resume' }),
+    noteActivity: () => sendControlMessage({ type: 'activity' }),
   }
 }
