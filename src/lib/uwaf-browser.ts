@@ -1,5 +1,6 @@
 import { isIP } from 'node:net'
 import { lookup } from 'node:dns/promises'
+import type { Page } from 'playwright-core'
 import { getPage, closeContext, type BrowserMode } from './uwaf-pool'
 import {
   sanitizeHtmlToMarkdown,
@@ -22,11 +23,12 @@ const RESEARCH_BATCH_MAX_DEPTH = 3
 const RESEARCH_BATCH_MAX_PAGES = 10
 const SESSION_TTL_MS = 60 * 60 * 1000
 
-export type UwafAction = 'open' | 'click' | 'extract_table' | 'research_batch' | 'fill' | 'submit' | 'extract'
+export type UwafAction = 'search' | 'open' | 'click' | 'extract_table' | 'research_batch' | 'fill' | 'submit' | 'extract' | 'wait_for_user'
 
 export interface UwafBrowserRequest {
   action: UwafAction
   sessionId: string
+  query?: string
   url?: string
   linkIndex?: number
   linkText?: string
@@ -178,7 +180,7 @@ async function assertUwafUrlAllowed(rawUrl: string, mode: BrowserMode): Promise<
   return url
 }
 
-function extractLinksFromPage(page: any): Promise<UwafBrowserLink[]> {
+function extractLinksFromPage(page: Page): Promise<UwafBrowserLink[]> {
   return page.evaluate((maxLinks: number) => {
     const links: { index: number; text: string; url: string }[] = []
     const anchors = document.querySelectorAll('a[href]')
@@ -195,9 +197,9 @@ function extractLinksFromPage(page: any): Promise<UwafBrowserLink[]> {
   }, MAX_LINKS)
 }
 
-function extractFormsFromPage(page: any): Promise<UwafBrowserForm[]> {
-  return page.evaluate((maxForms: number) => {
-    const forms: { index: number; action: string; method: string; fields: { name: string; type: string; value?: string }[] }[] = []
+function extractFormsFromPage(page: Page): Promise<UwafBrowserForm[]> {
+  return page.evaluate<UwafBrowserForm[], number>((maxForms: number) => {
+    const forms: UwafBrowserForm[] = []
     const formElements = document.querySelectorAll('form')
     for (let i = 0; i < formElements.length && forms.length < maxForms; i++) {
       const form = formElements[i] as HTMLFormElement
@@ -210,10 +212,11 @@ function extractFormsFromPage(page: any): Promise<UwafBrowserForm[]> {
         const value = input.getAttribute('value') || ''
         fields.push({ name, type, value })
       }
+      const normalizedMethod = (form.method || 'GET').toUpperCase() === 'POST' ? 'POST' : 'GET'
       forms.push({
         index: i,
         action: form.action || window.location.href,
-        method: (form.method || 'GET').toUpperCase(),
+        method: normalizedMethod,
         fields,
       })
     }
@@ -221,7 +224,7 @@ function extractFormsFromPage(page: any): Promise<UwafBrowserForm[]> {
   }, 10)
 }
 
-async function captureScreenshot(page: any): Promise<string | undefined> {
+async function captureScreenshot(page: Page): Promise<string | undefined> {
   try {
     const buffer = await page.screenshot({
       type: 'jpeg',
@@ -234,7 +237,8 @@ async function captureScreenshot(page: any): Promise<string | undefined> {
   }
 }
 
-async function syncSessionCurrentPage(session: UwafBrowserSession, page: any): Promise<void> {
+async function syncSessionCurrentPage(session: UwafBrowserSession, page: Page): Promise<void> {
+  await page.bringToFront().catch(() => {})
   const [title, links, forms] = await Promise.all([
     page.title().catch(() => ''),
     extractLinksFromPage(page),
@@ -250,7 +254,7 @@ async function syncSessionCurrentPage(session: UwafBrowserSession, page: any): P
 }
 
 async function navigateToUrl(
-  page: any,
+  page: Page,
   url: string,
   mode: BrowserMode,
   takeScreenshot: boolean,
@@ -271,7 +275,9 @@ async function navigateToUrl(
     throw new Error(`Blocked: URLs pointing to executable files are not allowed for security reasons. If you need this file, request manual unpacking approval.`)
   }
 
+  await page.bringToFront().catch(() => {})
   await page.goto(url, { timeout: 30000, waitUntil: 'domcontentloaded' })
+  await page.bringToFront().catch(() => {})
 
   await page.waitForTimeout(500)
 
@@ -314,6 +320,10 @@ async function navigateToUrl(
   }
 }
 
+function buildSearchUrl(query: string): string {
+  return `https://duckduckgo.com/?q=${encodeURIComponent(query.trim())}`
+}
+
 export async function runUwafBrowserAction(
   userId: string,
   request: UwafBrowserRequest,
@@ -344,6 +354,35 @@ export async function runUwafBrowserAction(
   const page = await getPage(contextKey, mode)
 
   switch (request.action) {
+    case 'search': {
+      if (!request.query?.trim()) throw new Error('Query is required for the "search" action.')
+      const result = await navigateToUrl(page, buildSearchUrl(request.query), mode, takeScreenshot)
+
+      session.currentPage = {
+        url: result.url,
+        title: result.title,
+        links: result.links,
+        forms: result.forms,
+      }
+      if (result.screenshot) {
+        pushScreenshot(session, result.screenshot)
+      }
+
+      return {
+        action: 'search',
+        currentUrl: result.url,
+        title: result.title,
+        text: result.text,
+        markdown: result.markdown,
+        links: result.links,
+        forms: result.forms,
+        tables: result.tables,
+        screenshot: result.screenshot,
+        mode,
+        source: getSourceMode(mode),
+      }
+    }
+
     case 'open': {
       if (!request.url) throw new Error('URL is required for the "open" action.')
       const result = await navigateToUrl(page, request.url, mode, takeScreenshot)
@@ -610,6 +649,9 @@ export async function runUwafBrowserAction(
         },
       }
     }
+
+    case 'wait_for_user':
+      throw new Error('wait_for_user is handled by the OpenClaw client so the human can take over the live browser.')
 
     default:
       throw new Error(`Unknown UWAF browser action: ${request.action}`)

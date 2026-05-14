@@ -5,7 +5,7 @@ import { isBrowserInterrupted, restartScreencastForSession } from '@/lib/live-br
 import { prisma } from '@/lib/prisma'
 import { normalizeOpenClawUwafBrowserMode, normalizeOpenClawUwafDefaultMode, normalizeBoolean, DEFAULT_SETTINGS } from '@/lib/settings'
 
-const VALID_ACTIONS: UwafBrowserRequest['action'][] = ['open', 'click', 'extract', 'extract_table', 'research_batch', 'fill', 'submit']
+const VALID_ACTIONS: UwafBrowserRequest['action'][] = ['search', 'open', 'click', 'extract', 'extract_table', 'research_batch', 'fill', 'submit']
 
 export async function POST(request: NextRequest) {
   const userId = await getCurrentUserIdWithPermissions(['openclaw.use', 'openclaw.uwaf'])
@@ -114,6 +114,7 @@ export async function POST(request: NextRequest) {
     sessionId,
   }
 
+  if (typeof body.query === 'string' && body.query.trim()) uwafRequest.query = body.query.trim()
   if (typeof body.url === 'string' && body.url.trim()) uwafRequest.url = body.url.trim()
   if (typeof body.linkIndex === 'number' && Number.isInteger(body.linkIndex) && body.linkIndex >= 0) uwafRequest.linkIndex = body.linkIndex
   if (typeof body.linkText === 'string' && body.linkText.trim()) uwafRequest.linkText = body.linkText.trim()

@@ -36,7 +36,8 @@ export interface OpenClawBrowserToolRequest {
 }
 
 export interface OpenClawUwafBrowserToolRequest {
-  action: 'open' | 'click' | 'extract_table' | 'research_batch' | 'fill' | 'submit' | 'extract'
+  action: 'search' | 'open' | 'click' | 'extract_table' | 'research_batch' | 'fill' | 'submit' | 'extract' | 'wait_for_user'
+  query?: string
   url?: string
   linkIndex?: number
   linkText?: string
@@ -99,17 +100,19 @@ export const OPENCLAW_BROWSER_TOOL_EXAMPLE = `<openclaw_tool name="browser">
 </openclaw_tool>`
 
 export const OPENCLAW_UWAF_BROWSER_TOOL_EXAMPLE = `<openclaw_tool name="unified_browser">
-{"action":"open","url":"https://example.com","browserMode":"direct","description":"Open a page in Direct (clear web) mode"}
+{"action":"search","query":"latest Next.js route handlers","browserMode":"direct","description":"Search in the visible shared browser"}
 </openclaw_tool>`
 
 function isUwafAction(value: unknown): value is OpenClawUwafBrowserToolRequest['action'] {
-  return value === 'open'
+  return value === 'search'
+    || value === 'open'
     || value === 'click'
     || value === 'extract_table'
     || value === 'research_batch'
     || value === 'fill'
     || value === 'submit'
     || value === 'extract'
+    || value === 'wait_for_user'
 }
 
 function isUwafBrowserMode(value: unknown): value is 'direct' | 'stealth' {
@@ -323,6 +326,10 @@ export function extractOpenClawToolRequest(content: string): {
           : undefined,
       }
 
+      if (typeof parsed.query === 'string' && parsed.query.trim()) {
+        request.query = parsed.query.trim()
+      }
+
       if (typeof parsed.url === 'string' && parsed.url.trim()) {
         request.url = parsed.url.trim()
       }
@@ -361,7 +368,8 @@ export function extractOpenClawToolRequest(content: string): {
       }
 
       if (
-        (action === 'open' && !request.url)
+        (action === 'search' && !request.query)
+        || (action === 'open' && !request.url)
         || (action === 'click' && request.linkIndex === undefined && !request.linkText)
         || (action === 'research_batch' && !request.url)
       ) {

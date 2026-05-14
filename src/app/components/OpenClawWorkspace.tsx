@@ -56,6 +56,7 @@ import BrowserModal from './BrowserModal';
 
 type OpenClawProvider = 'ollama' | 'openai-compatible';
 const MOBILE_BREAKPOINT = 960;
+const HUMAN_BROWSER_ASSIST_TIMEOUT_MS = 10 * 60 * 1000;
 
 interface OpenClawSession {
   id: string;
@@ -437,6 +438,11 @@ function describeBrowserRequest(request: OpenClawBrowserToolRequest) {
 
 function describeUwafBrowserRequest(request: OpenClawUwafBrowserToolRequest) {
   const modeLabel = request.browserMode === 'stealth' ? 'Stealth' : 'Direct';
+  if (request.action === 'search') {
+    return request.description?.trim()
+      ? `UWAF ${modeLabel} Search: ${request.description.trim()}`
+      : `UWAF ${modeLabel} Search: \`${request.query}\``;
+  }
   if (request.action === 'open') {
     return request.description?.trim()
       ? `UWAF ${modeLabel}: ${request.description.trim()}`
@@ -457,6 +463,11 @@ function describeUwafBrowserRequest(request: OpenClawUwafBrowserToolRequest) {
   }
   if (request.action === 'submit') {
     return `UWAF ${modeLabel}: Submitting form ${request.formIndex ?? '?'}`;
+  }
+  if (request.action === 'wait_for_user') {
+    return request.description?.trim()
+      ? `UWAF ${modeLabel}: Waiting for human help - ${request.description.trim()}`
+      : `UWAF ${modeLabel}: Waiting for human help`;
   }
   return request.description?.trim()
     ? `UWAF ${modeLabel}: ${request.description.trim()}`
@@ -548,7 +559,7 @@ function getOpenClawToolRequestSignature(request: OpenClawToolRequest) {
 
   if (request.name === 'unified_browser') {
     const uwaf = request.request as OpenClawUwafBrowserToolRequest
-    return `unified_browser:${uwaf.action}:${uwaf.url?.trim() || ''}:${uwaf.browserMode || ''}:${uwaf.linkIndex ?? ''}:${uwaf.linkText?.trim() || ''}:${uwaf.formIndex ?? ''}:${JSON.stringify(uwaf.values || {})}:${uwaf.mode || ''}:${uwaf.depth ?? ''}`;
+    return `unified_browser:${uwaf.action}:${uwaf.query?.trim() || ''}:${uwaf.url?.trim() || ''}:${uwaf.browserMode || ''}:${uwaf.linkIndex ?? ''}:${uwaf.linkText?.trim() || ''}:${uwaf.formIndex ?? ''}:${JSON.stringify(uwaf.values || {})}:${uwaf.mode || ''}:${uwaf.depth ?? ''}`;
   }
 
   return `filesystem:${request.request.action}:${request.request.path.trim()}`;
@@ -1031,6 +1042,8 @@ export default function OpenClawWorkspace({
   const [browserModalOpen, setBrowserModalOpen] = useState(false);
   const [browserInterrupted, setBrowserInterrupted] = useState(false);
   const [browserLiveStatus, setBrowserLiveStatus] = useState<'connecting' | 'live' | 'disconnected' | 'failed'>('connecting');
+  const [browserTakeoverRequestId, setBrowserTakeoverRequestId] = useState(0);
+  const browserInterruptedRef = useRef(false);
   const [stoppingModel, setStoppingModel] = useState(false);
   const [modelControlNote, setModelControlNote] = useState('');
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -1090,6 +1103,10 @@ export default function OpenClawWorkspace({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const railCollapsed = rightRailCollapsed && !isMobileViewport;
+
+  useEffect(() => {
+    browserInterruptedRef.current = browserInterrupted;
+  }, [browserInterrupted]);
   const {
     handleScroll: handleChatScroll,
     messagesEndRef,
@@ -2555,6 +2572,12 @@ export default function OpenClawWorkspace({
       browserMode: request.browserMode || uwafBrowserMode,
     };
 
+    if (request.action === 'wait_for_user') {
+      return await waitForHumanBrowserAssistance(
+        payload as OpenClawUwafBrowserToolRequest & { sessionId: string; browserMode: 'direct' | 'stealth' }
+      );
+    }
+
     if (request.action !== 'submit' && request.action !== 'research_batch') {
       return await executeUwafBrowserAction(payload);
     }
@@ -2619,6 +2642,70 @@ export default function OpenClawWorkspace({
         error: error instanceof Error ? error.message : 'UWAF browser request failed',
       };
     }
+  };
+
+  const waitForHumanBrowserAssistance = async (
+    request: OpenClawUwafBrowserToolRequest & { sessionId: string; browserMode: 'direct' | 'stealth' }
+  ): Promise<UwafBrowserToolResultEntry> => {
+    setBrowserModalOpen(true);
+    setBrowserTakeoverRequestId(previous => previous + 1);
+
+    const startedAt = Date.now();
+    while (!browserInterruptedRef.current && Date.now() - startedAt < 15000) {
+      await new Promise(resolve => window.setTimeout(resolve, 250));
+    }
+
+    if (!browserInterruptedRef.current) {
+      return {
+        action: request.action,
+        currentUrl: '',
+        title: '',
+        text: '',
+        links: [],
+        forms: [],
+        mode: request.browserMode,
+        source: request.browserMode === 'stealth' ? 'dark_web' : 'clear_web',
+        success: false,
+        error: 'The live browser did not enter human-control mode.',
+      };
+    }
+
+    while (browserInterruptedRef.current && Date.now() - startedAt < HUMAN_BROWSER_ASSIST_TIMEOUT_MS) {
+      await new Promise(resolve => window.setTimeout(resolve, 500));
+    }
+
+    if (browserInterruptedRef.current) {
+      return {
+        action: request.action,
+        currentUrl: '',
+        title: '',
+        text: '',
+        links: [],
+        forms: [],
+        mode: request.browserMode,
+        source: request.browserMode === 'stealth' ? 'dark_web' : 'clear_web',
+        success: false,
+        error: 'Timed out waiting for human browser assistance.',
+      };
+    }
+
+    const observed = await executeUwafBrowserAction({
+      action: 'extract',
+      sessionId: request.sessionId,
+      browserMode: request.browserMode,
+      mode: request.mode || 'summary',
+    });
+
+    return {
+      ...observed,
+      action: request.action,
+      text: [
+        request.description?.trim()
+          ? `Human assistance completed: ${request.description.trim()}`
+          : 'Human assistance completed.',
+        observed.text || observed.markdown || '',
+      ].filter(Boolean).join('\n\n'),
+    };
   };
 
   const executeUwafBrowserAction = async (payload: Record<string, unknown>): Promise<UwafBrowserToolResultEntry> => {
@@ -5892,6 +5979,7 @@ export default function OpenClawWorkspace({
                 isOpen={browserModalOpen}
                 onOpenChange={setBrowserModalOpen}
                 onInterruptChange={setBrowserInterrupted}
+                takeoverRequestId={browserTakeoverRequestId}
               />
             )}
 

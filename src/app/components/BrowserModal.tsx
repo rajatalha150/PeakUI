@@ -1,6 +1,7 @@
 'use client'
 
 import { Minimize2, Loader, Wifi, WifiOff } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import { useLiveBrowserConnection } from './useLiveBrowserConnection'
 
 interface BrowserModalProps {
@@ -14,6 +15,7 @@ interface BrowserModalProps {
   isOpen: boolean
   onOpenChange: (open: boolean) => void
   onInterruptChange?: (interrupted: boolean) => void
+  takeoverRequestId?: number
 }
 
 export default function BrowserModal({
@@ -26,7 +28,9 @@ export default function BrowserModal({
   isOpen,
   onOpenChange,
   onInterruptChange,
+  takeoverRequestId = 0,
 }: BrowserModalProps) {
+  const lastTakeoverRequestRef = useRef(0)
   const {
     status,
     interrupted,
@@ -43,6 +47,13 @@ export default function BrowserModal({
     autoResumeMs,
     onInterruptChange,
   })
+
+  useEffect(() => {
+    if (!isOpen || !enabled || !takeoverRequestId || status !== 'live') return
+    if (lastTakeoverRequestRef.current === takeoverRequestId) return
+    lastTakeoverRequestRef.current = takeoverRequestId
+    sendInterrupt()
+  }, [enabled, isOpen, sendInterrupt, status, takeoverRequestId])
 
   if (!isOpen) return null
 

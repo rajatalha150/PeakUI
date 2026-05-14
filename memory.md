@@ -86,6 +86,13 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Hardened shared-session behavior so manual user navigation no longer leaves AI-side form/link metadata stale: UWAF browser actions now refresh page structure from the current live page before acting
 - Validated the new transport end-to-end in Docker: authenticated `/ws/live-browser/control` returns `ready`, authenticated `/ws/live-browser/vnc` returns a real `RFB 003.008` handshake, and UWAF `open` still returns page content + screenshot normally
 
+### Live Browser AI Routing & Human Assist ✅
+- Open Claw now prefers the shared `unified_browser` tool for visible web searches and page visits when UWAF is available, instead of silently using the backend-only web research path
+- Added a `search` action to `unified_browser` so the agent can begin visible DuckDuckGo searches in the same headed browser session the user is watching
+- The UWAF pool now tracks the active Playwright page and brings it to the front before/after actions, so popups, search results, and manually focused tabs no longer leave the user looking at a stale `about:blank` page
+- Added a client-side `wait_for_user` tool action: when the model hits CAPTCHA, "I am human" checks, MFA, login, or bot verification, Open Claw opens the live browser, switches to user takeover, waits for Resume AI, then re-observes the page and returns the updated page state to the model
+- The Open Claw prompt explicitly tells the model that the live browser is shared with the user and that the user can help with verification/auth flows when requested
+
 ### Build Recovery ✅
 - Fixed the repo’s pre-existing Prisma/typecheck blockers so `npm run build` works again after the live-browser rewrite
 - Regenerated Prisma client types locally and corrected stale test/type assumptions in the RAG files that were preventing redeploy
@@ -357,10 +364,11 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `fix: uncensored mode now uses tools instead of suppressing them`
+- **Current committed baseline:** `fix: make live browser follow ai browsing`
 - **Previous committed baseline:** `feat: add UWAF dual-mode browser (Clear Web + Dark Web/Tor) with Playwright, Tor proxy, sanitize pipeline, and UI`
 
 ### Latest Hotfixes (post v0.10.0)
+- **Live browser AI routing fix:** `unified_browser` now supports visible `search`; Open Claw prefers UWAF for visible browsing when available; active page tracking keeps the visible noVNC browser aligned with AI actions; `wait_for_user` lets the model pause for human CAPTCHA/login/MFA help and resume with a fresh page observation
 - **Uncensored/unrestricted tool access fix:** `openClawPrompt` and `chatInternetPrompt` now included in all mode branches; anti-tool language removed from `UNCENSORED_BASE_INSTRUCTIONS`; dynamic tool-aware clause added; `UNCENSORED_REINFORCEMENT` updated to encourage tool use
 - **RAG full access fix:** `normalizeTopK()` maps -1 to 10000; semantic threshold lowered to 0 for full access; context limit raised from 10K to 100K; client-side context injection removed; KB system message positioned after main prompt; KB instruction strengthened
 - **RAG indexing fixes:** Stale timeout increased to 10 min; stale detection moved from GET to POST/health; embedding retry with backoff; error document re-upload recovery; extraction cap at 2M chars

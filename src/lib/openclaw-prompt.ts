@@ -65,7 +65,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
   const uwafBrowserAvailable = uwafBrowserMode !== 'deny';
   const shellTarget = context.shellTarget || 'container';
   const toolLabels = [
-    context.internetToolEnabled ? 'web research' : null,
+    context.internetToolEnabled && !uwafBrowserAvailable ? 'web research' : null,
     context.shellEnabled ? 'shell' : null,
     filesystemAvailable ? 'filesystem' : null,
     filesystemWriteAvailable ? 'filesystem writes' : null,
@@ -98,7 +98,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     `Current date and time: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}. Always consider this when answering questions about dates, schedules, time-sensitive topics, or current events. Your training data has a cutoff and may be outdated — when in doubt, acknowledge uncertainty about recent developments rather than guessing.`,
   ];
 
-  if (context.internetToolEnabled) {
+  if (context.internetToolEnabled && !uwafBrowserAvailable) {
     lines.push(buildChatInternetToolPrompt());
   }
 
@@ -187,23 +187,27 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
   if (uwafBrowserAvailable && context.internetToolEnabled) {
     const modeLabel = uwafBrowserMode === 'stealth' ? 'Stealth (Tor-routed)' : 'Direct (clear web)';
     lines.push(
-      'UNIFIED BROWSER CAPABILITY: You have access to a dual-mode web research engine that can browse in Direct (clear web) or Stealth (Tor-routed) mode.',
+      'UNIFIED BROWSER CAPABILITY: You have access to a dual-mode shared browser that the user can watch live and take over when help is needed.',
       `Current default mode: ${modeLabel}.`,
+      'For web searches, public page visits, and source gathering, prefer unified_browser over the background web tool so the user can see what you are opening.',
       'Direct mode uses standard web access for public sites (.com, .org, .edu, etc.).',
       'Stealth mode routes all traffic through the Tor network for anonymous research, including .onion addresses.',
       '.onion URLs are ONLY accessible in Stealth mode. If you see an .onion URL, switch to Stealth mode.',
       'The unified browser renders pages with a real browser engine, generates screenshots, and returns sanitized Markdown content with tables extracted.',
       `Use this exact format:\n${OPENCLAW_UWAF_BROWSER_TOOL_EXAMPLE}`,
-      'Supported unified_browser actions: open, click, extract, extract_table, research_batch.',
+      'Supported unified_browser actions: search, open, click, extract, extract_table, research_batch, fill, submit, wait_for_user.',
+      'search: Search the web inside the visible shared browser. Use concise search phrases.',
       'open: Navigate to a URL. Returns page content, links, forms, tables, and a screenshot.',
       'click: Follow a link by index or text from the last opened page.',
       'extract: Re-extract the current page in a specific mode (summary, text, links, forms, html).',
       'extract_table: Extract all HTML tables from the current page as Markdown or CSV.',
       'research_batch: Crawl a URL and follow links up to a depth (1-3). Returns aggregated content from multiple pages.',
+      'wait_for_user: Pause for the human to take over the visible browser, solve CAPTCHA/MFA/login/bot checks, then resume after the page is re-observed.',
       'browserMode can be "direct" (default, clear web) or "stealth" (Tor-routed, for .onion and anonymous research).',
       'In Stealth mode, content is sanitized more aggressively to remove trackers, ads, and scripts.',
       'Executable file downloads (.exe, .sh, .bin, etc.) are blocked for security. If you need a binary, explain the risk and request unpacking approval.',
-      'If a site requires login, has CAPTCHA, or blocks automated access, explain that limitation.',
+      'If a site requires login, CAPTCHA, MFA, "I am human" checks, or bot verification, request wait_for_user instead of giving up. Tell the user exactly what help is needed, then wait for the observed page state after they resume you.',
+      'After wait_for_user returns, continue from the updated observed URL, title, links, forms, and page text. Do not assume the verification succeeded unless the observed page shows it.',
     );
   }
 

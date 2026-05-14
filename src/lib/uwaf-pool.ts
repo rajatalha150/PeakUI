@@ -28,6 +28,7 @@ export type BrowserMode = 'direct' | 'stealth'
 interface ManagedSession {
   browser: Browser
   context: BrowserContext
+  activePage: Page | null
   mode: BrowserMode
   display: number
   vncPort: number
@@ -221,6 +222,13 @@ async function closeManagedSession(contextId: string): Promise<void> {
   await terminateChildProcess(managed.xvfbProcess)
 }
 
+async function focusPage(managed: ManagedSession, page: Page): Promise<Page> {
+  if (page.isClosed()) return page
+  managed.activePage = page
+  await page.bringToFront().catch(() => {})
+  return page
+}
+
 async function createManagedSession(contextId: string, mode: BrowserMode): Promise<ManagedSession> {
   const display = await allocateDisplayNumber()
   const vncPort = await allocateVncPort()
@@ -268,7 +276,20 @@ async function createManagedSession(contextId: string, mode: BrowserMode): Promi
       await applyStealthInitScript(context)
     }
 
+    let activePage: Page | null = null
     const page = await context.newPage()
+    activePage = page
+
+    context.on('page', (nextPage) => {
+      activePage = nextPage
+      nextPage.once('close', () => {
+        if (activePage === nextPage) {
+          activePage = context?.pages().find(candidate => !candidate.isClosed()) ?? null
+        }
+      })
+      void nextPage.bringToFront().catch(() => {})
+    })
+
     await page.bringToFront().catch(() => {})
 
     x11vncProcess = spawnProcess('x11vnc', [
@@ -287,6 +308,12 @@ async function createManagedSession(contextId: string, mode: BrowserMode): Promi
     const managed: ManagedSession = {
       browser,
       context,
+      get activePage() {
+        return activePage
+      },
+      set activePage(pageValue: Page | null) {
+        activePage = pageValue
+      },
       mode,
       display,
       vncPort,
@@ -348,15 +375,23 @@ export async function getPage(contextId: string, mode: BrowserMode): Promise<Pag
   managed.lastUsed = Date.now()
 
   const pages = managed.context.pages()
-  if (pages.length > 0) {
-    const page = pages[pages.length - 1]
-    await page.bringToFront().catch(() => {})
-    return page
+  const activePage = managed.activePage && !managed.activePage.isClosed()
+    ? managed.activePage
+    : null
+
+  if (activePage) {
+    return focusPage(managed, activePage)
+  }
+
+  const visiblePage = [...pages].reverse().find(page => !page.isClosed() && page.url() !== 'about:blank')
+    ?? [...pages].reverse().find(page => !page.isClosed())
+
+  if (visiblePage) {
+    return focusPage(managed, visiblePage)
   }
 
   const page = await managed.context.newPage()
-  await page.bringToFront().catch(() => {})
-  return page
+  return focusPage(managed, page)
 }
 
 export async function getLiveBrowserInfo(contextId: string, mode: BrowserMode): Promise<{

@@ -54,6 +54,9 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - Removed crash-causing Chromium flags; added retry logic in `getPage()`
 - Live browser is now a true interactive remote display instead of frame polling: headed Chromium runs under `Xvfb`, `x11vnc` exposes the session, and the client embeds noVNC over authenticated websocket paths
 - Manual user navigation now refreshes AI-side page metadata before later click/fill/extract actions, so Take Over no longer leaves the agent acting on stale page structure
+- Open Claw now routes visible searches/page visits through the shared `unified_browser` when UWAF is available, including a new visible `search` action
+- UWAF session tracking now follows the active Playwright page and brings it to the front before/after actions, preventing the user-facing noVNC view from staying on a stale blank tab while the AI browses elsewhere
+- Added `wait_for_user` human-assist flow: the model can pause for CAPTCHA/login/MFA/bot checks, the UI opens the live browser in Take Over mode, and after Resume AI the agent observes the updated page state and continues
 
 ## 🌐 Deployment Notes
 - App runs on port `3000`, and the standalone live-browser websocket bridge listens on `3001` as a fallback if same-origin attachment is unavailable
@@ -72,6 +75,7 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - Consider propagating role/permission state into the main navigation so feature tabs hide proactively instead of relying only on backend enforcement
 - Consider dedicated account recovery / forced-password-rotation flows if this app will be shared across more operators
 - **Manual UX validation of noVNC interaction** — protocol-level VNC handshake is confirmed, but broader browser-side mouse/keyboard validation across sidebar and modal is still worth doing
+- **End-to-end human-assist validation** — test a real CAPTCHA/auth/MFA-style site manually to confirm `wait_for_user` pauses, takeover, resume, and post-resume extraction all behave correctly with the selected model
 - **Clean up unused files** — `scripts/start-with-ws.mjs`, `src/app/api/ws/screencast/route.ts`
 - Open Claw agent infrastructure: heartbeats/autonomous scheduling, sub-agent delegation
 - Development section: Code Interpreter, Docker orchestration, VM management
