@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserId } from '@/lib/request-auth'
+import { getCurrentUserIdWithPermissions } from '@/lib/request-auth'
 import { createShellAudit } from '@/lib/shell-audit'
 import { getHostExecutorStatus, type HostExecutorStatus } from '@/lib/openclaw-host-executor'
 import { getUserSettings } from '@/lib/settings'
@@ -33,7 +33,7 @@ function resolveShellTarget(input: {
 }
 
 export async function POST(request: NextRequest) {
-  const userId = await getCurrentUserId()
+  const userId = await getCurrentUserIdWithPermissions(['openclaw.use', 'openclaw.shell'])
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

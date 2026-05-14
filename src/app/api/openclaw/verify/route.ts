@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getCurrentUserId } from '@/lib/request-auth';
+import { getCurrentUserIdWithPermission } from '@/lib/request-auth';
 import { getUserSettings, normalizeOpenClawProvider, normalizeOllamaHost } from '@/lib/settings';
 
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
@@ -29,7 +29,7 @@ function normalizeProviderBaseUrl(value: unknown, provider: 'ollama' | 'openai-c
 
 export async function POST(req: Request) {
   try {
-    const userId = await getCurrentUserId();
+    const userId = await getCurrentUserIdWithPermission('openclaw.use');
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const settings = await getUserSettings(userId);

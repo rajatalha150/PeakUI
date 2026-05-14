@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getCurrentUserId } from '@/lib/request-auth'
+import { getCurrentUserIdWithPermissions } from '@/lib/request-auth'
 import {
   buildOpenClawBrowserApprovalPayload,
   getOpenClawBrowserSession,
@@ -17,7 +17,7 @@ function isBrowserAction(value: unknown): value is OpenClawBrowserRequest['actio
 }
 
 export async function POST(request: NextRequest) {
-  const userId = await getCurrentUserId()
+  const userId = await getCurrentUserIdWithPermissions(['openclaw.use', 'openclaw.browser'])
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

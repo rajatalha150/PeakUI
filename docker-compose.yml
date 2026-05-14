@@ -30,7 +30,7 @@ services:
       - "3000:3000"
     environment:
       - DATABASE_URL=postgresql://peakui:password@localhost:5432/peakui
-      - JWT_SECRET=super-secret-key-for-jwt-auth-that-should-be-long-and-secure
+      - JWT_SECRET=${JWT_SECRET:-}
       - OPENCLAW_HOST_HOME_DIR=${OPENCLAW_HOST_HOME_DIR:-/home}
       - OPENCLAW_HOST_TMP_DIR=${OPENCLAW_HOST_TMP_DIR:-/tmp}
       - OPENCLAW_HOST_WORKSPACE_DIR=${OPENCLAW_HOST_WORKSPACE_DIR:-/tmp/peakui-openclaw-workspace}
@@ -52,6 +52,8 @@ services:
       - ${OPENCLAW_HOST_HOME_DIR:-/home}:/mnt/openclaw/home:ro
       - ${OPENCLAW_HOST_TMP_DIR:-/tmp}:/mnt/openclaw/tmp:ro
       - ${OPENCLAW_HOST_WORKSPACE_DIR:-/tmp/peakui-openclaw-workspace}:/mnt/openclaw/workspace
+      - app_runtime:/var/lib/peakui
 
 volumes:
   db_data:
+  app_runtime:

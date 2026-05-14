@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Settings, Server, Bot, Database, MessageSquare,
-  CheckCircle, AlertCircle, Loader2, Save, Palette
+  CheckCircle, AlertCircle, Loader2, Save, Palette, Users, Shield, Trash2
 } from 'lucide-react';
 import { ollamaModelKey, RECOMMENDED_EMBEDDING_MODELS } from '@/lib/embedding-models';
 import { applyTheme, THEME_OPTIONS } from '@/lib/theme-options';
@@ -59,9 +59,85 @@ interface Model {
   name: string;
 }
 
+interface SessionUser {
+  id: string;
+  username: string;
+  role: 'ADMIN' | 'MANAGER' | 'USER';
+  isActive: boolean;
+  lastLoginAt: string | null;
+  permissions: string[];
+}
+
+interface PermissionDefinition {
+  key: string;
+  label: string;
+  description: string;
+  category: string;
+}
+
+interface RoleDefinition {
+  key: 'ADMIN' | 'MANAGER' | 'USER';
+  label: string;
+  description: string;
+}
+
+interface PermissionOverrides {
+  allow: string[];
+  deny: string[];
+}
+
+interface ManagedUser {
+  id: string;
+  username: string;
+  role: 'ADMIN' | 'MANAGER' | 'USER';
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastLoginAt: string | null;
+  permissions: string[];
+  permissionOverrides: PermissionOverrides;
+}
+
 interface Props {
   onSettingsChange?: (settings: UserSettings) => void;
 }
+
+const INITIAL_SETTINGS: UserSettings = {
+  chatPlatform: 'ollama',
+  chatModel: '',
+  chatModelProvider: 'ollama',
+  huggingFaceBaseUrl: DEFAULT_HUGGING_FACE_BASE_URL,
+  exclusiveOllamaModels: false,
+  openClawProvider: 'ollama',
+  openClawModel: '',
+  openClawBaseUrl: '',
+  shellExecutionTarget: 'container',
+  shellExecutionMode: 'ask-first',
+  shellAllowedCommands: '',
+  shellHostAllowedRoots: '/tmp/peakui-openclaw-workspace',
+  shellHostAllowedEnvVars: 'PATH\nHOME\nUSER\nSHELL\nLANG\nTERM',
+  shellHostMaxTimeoutMs: 60000,
+  shellHostMaxOutputBytes: 262144,
+  openClawFileAccessMode: 'deny',
+  openClawAllowedPaths: '',
+  openClawFileWriteMode: 'deny',
+  openClawWritablePaths: '/tmp/peakui-openclaw-workspace',
+  openClawCodeExecutionMode: 'deny',
+  openClawBrowserMode: 'deny',
+  openClawUwafBrowserMode: 'deny',
+  openClawUwafScreenshots: true,
+  openClawUwafDefaultMode: 'direct',
+  openClawUwafLiveBrowser: true,
+  ragModel: 'nomic-embed-text',
+  ragMode: 'semantic',
+  ragEnabled: false,
+  ragTopK: 8,
+  ollamaHost: 'http://127.0.0.1:11434',
+  systemPrompt: '',
+  temperature: 0.7,
+  contextLength: 16384,
+  theme: 'aurora',
+};
 
 function Section({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
   return (
@@ -89,43 +165,24 @@ function Field({ label, help, children }: { label: React.ReactNode; help?: strin
   );
 }
 
+function setPermissionOverride(overrides: PermissionOverrides, key: string, mode: 'default' | 'allow' | 'deny'): PermissionOverrides {
+  const allow = overrides.allow.filter(permission => permission !== key);
+  const deny = overrides.deny.filter(permission => permission !== key);
+
+  if (mode === 'allow') allow.push(key);
+  if (mode === 'deny') deny.push(key);
+
+  return { allow, deny };
+}
+
+function formatTimestamp(value: string | null) {
+  if (!value) return 'Never';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleString();
+}
+
 export default function SettingsPanel({ onSettingsChange }: Props) {
-  const [settings, setSettings] = useState<UserSettings>({
-    chatPlatform: 'ollama',
-    chatModel: '',
-    chatModelProvider: 'ollama',
-    huggingFaceBaseUrl: DEFAULT_HUGGING_FACE_BASE_URL,
-    exclusiveOllamaModels: false,
-    openClawProvider: 'ollama',
-    openClawModel: '',
-    openClawBaseUrl: '',
-    shellExecutionTarget: 'container',
-    shellExecutionMode: 'ask-first',
-    shellAllowedCommands: '',
-    shellHostAllowedRoots: '/tmp/peakui-openclaw-workspace',
-    shellHostAllowedEnvVars: 'PATH\nHOME\nUSER\nSHELL\nLANG\nTERM',
-    shellHostMaxTimeoutMs: 60000,
-    shellHostMaxOutputBytes: 262144,
-    openClawFileAccessMode: 'deny',
-    openClawAllowedPaths: '',
-    openClawFileWriteMode: 'deny',
-    openClawWritablePaths: '/tmp/peakui-openclaw-workspace',
-    openClawCodeExecutionMode: 'deny',
-    openClawBrowserMode: 'deny',
-    openClawUwafBrowserMode: 'deny',
-    openClawUwafScreenshots: true,
-    openClawUwafDefaultMode: 'direct',
-    openClawUwafLiveBrowser: true,
-    ragModel: 'nomic-embed-text',
-    ragMode: 'semantic',
-    ragEnabled: false,
-    ragTopK: 8,
-    ollamaHost: 'http://127.0.0.1:11434',
-    systemPrompt: '',
-    temperature: 0.7,
-    contextLength: 16384,
-    theme: 'aurora',
-  });
+  const [settings, setSettings] = useState<UserSettings>(INITIAL_SETTINGS);
   const [models, setModels] = useState<Model[]>([]);
   const [chatModels, setChatModels] = useState<ChatModelOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -145,6 +202,25 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
   const [embedStatus, setEmbedStatus] = useState<'idle' | 'ok' | 'error'>('idle');
   const [embedError, setEmbedError] = useState('');
   const [embedDetails, setEmbedDetails] = useState('');
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [managedUsers, setManagedUsers] = useState<ManagedUser[]>([]);
+  const [permissionDefinitions, setPermissionDefinitions] = useState<PermissionDefinition[]>([]);
+  const [roleDefinitions, setRoleDefinitions] = useState<RoleDefinition[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState('');
+  const [userNotice, setUserNotice] = useState('');
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
+  const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({});
+  const [createUserForm, setCreateUserForm] = useState({
+    username: '',
+    password: '',
+    confirmPassword: '',
+    role: 'USER' as ManagedUser['role'],
+    isActive: true,
+    permissionOverrides: { allow: [], deny: [] } as PermissionOverrides,
+  });
 
   const fetchSettings = useCallback(async () => {
     try {
@@ -226,18 +302,66 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
     }
   }, []);
 
+  const fetchSession = useCallback(async () => {
+    try {
+      const res = await fetch('/api/auth/session');
+      if (!res.ok) {
+        setSessionUser(null);
+        return null;
+      }
+      const data = await res.json() as { user?: SessionUser };
+      const nextUser = data.user || null;
+      setSessionUser(nextUser);
+      return nextUser;
+    } catch {
+      setSessionUser(null);
+      return null;
+    }
+  }, []);
+
+  const fetchManagedUsers = useCallback(async () => {
+    setUsersLoading(true);
+    setUsersError('');
+    try {
+      const res = await fetch('/api/admin/users');
+      const data = await res.json() as {
+        error?: string;
+        users?: ManagedUser[];
+        permissionDefinitions?: PermissionDefinition[];
+        roleDefinitions?: RoleDefinition[];
+      };
+      if (!res.ok) {
+        setUsersError(data.error || 'Failed to load users.');
+        return;
+      }
+      setManagedUsers(Array.isArray(data.users) ? data.users : []);
+      setPermissionDefinitions(Array.isArray(data.permissionDefinitions) ? data.permissionDefinitions : []);
+      setRoleDefinitions(Array.isArray(data.roleDefinitions) ? data.roleDefinitions : []);
+    } catch (error) {
+      setUsersError(error instanceof Error ? error.message : 'Failed to load users.');
+    } finally {
+      setUsersLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const loadInitialSettings = async () => {
-      const loadedSettings = await fetchSettings();
-      const nextSettings = loadedSettings || settings;
+      const [loadedSettings, authUser] = await Promise.all([
+        fetchSettings(),
+        fetchSession(),
+      ]);
+      const nextSettings = loadedSettings || INITIAL_SETTINGS;
       await Promise.all([
         fetchModels(nextSettings.ollamaHost),
         fetchChatModels(nextSettings, huggingFaceApiKey),
       ]);
+      if (authUser?.permissions.includes('users.manage')) {
+        await fetchManagedUsers();
+      }
     };
 
     void loadInitialSettings();
-  }, [fetchSettings, fetchModels, fetchChatModels, huggingFaceApiKey]);
+  }, [fetchSettings, fetchModels, fetchChatModels, fetchManagedUsers, fetchSession, huggingFaceApiKey]);
 
   useEffect(() => {
     if (loading) return;
@@ -245,7 +369,7 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
       void fetchChatModels(settings);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [loading, settings.chatPlatform, settings.ollamaHost, settings.huggingFaceBaseUrl, huggingFaceApiKey, fetchChatModels]);
+  }, [loading, settings, huggingFaceApiKey, fetchChatModels]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -323,6 +447,126 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
     setSaved(false);
   };
 
+  const canManageUsers = sessionUser?.permissions.includes('users.manage') ?? false;
+
+  const updateManagedUser = (userId: string, updater: (user: ManagedUser) => ManagedUser) => {
+    setManagedUsers(prev => prev.map(user => user.id === userId ? updater(user) : user));
+  };
+
+  const saveManagedUser = async (user: ManagedUser) => {
+    setUpdatingUserId(user.id);
+    setUsersError('');
+    setUserNotice('');
+    try {
+      const password = passwordDrafts[user.id]?.trim() || undefined;
+      const res = await fetch(`/api/admin/users/${user.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: user.username,
+          role: user.role,
+          isActive: user.isActive,
+          permissionOverrides: user.permissionOverrides,
+          ...(password ? { password } : {}),
+        }),
+      });
+      const data = await res.json() as { error?: string; user?: ManagedUser };
+      if (!res.ok || !data.user) {
+        setUsersError(data.error || 'Failed to update user.');
+        return;
+      }
+      setManagedUsers(prev => prev.map(entry => entry.id === data.user!.id ? data.user! : entry));
+      setPasswordDrafts(prev => {
+        const next = { ...prev };
+        delete next[user.id];
+        return next;
+      });
+      setUserNotice(`Updated ${data.user.username}.`);
+      if (sessionUser && data.user.id === sessionUser.id) {
+        void fetchSession();
+      }
+    } catch (error) {
+      setUsersError(error instanceof Error ? error.message : 'Failed to update user.');
+    } finally {
+      setUpdatingUserId(null);
+    }
+  };
+
+  const deleteManagedUser = async (user: ManagedUser) => {
+    const confirmed = window.confirm(`Delete user "${user.username}"? This also removes their settings, chats, documents, and artifacts.`);
+    if (!confirmed) return;
+
+    setDeletingUserId(user.id);
+    setUsersError('');
+    setUserNotice('');
+    try {
+      const res = await fetch(`/api/admin/users/${user.id}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) {
+        setUsersError(data.error || 'Failed to delete user.');
+        return;
+      }
+      setManagedUsers(prev => prev.filter(entry => entry.id !== user.id));
+      setUserNotice(`Deleted ${user.username}.`);
+      if (sessionUser?.id === user.id) {
+        window.location.href = '/login';
+      }
+    } catch (error) {
+      setUsersError(error instanceof Error ? error.message : 'Failed to delete user.');
+    } finally {
+      setDeletingUserId(null);
+    }
+  };
+
+  const createManagedUser = async () => {
+    setUsersError('');
+    setUserNotice('');
+    if (!createUserForm.username.trim() || !createUserForm.password) {
+      setUsersError('Username and password are required.');
+      return;
+    }
+    if (createUserForm.password !== createUserForm.confirmPassword) {
+      setUsersError('New user passwords do not match.');
+      return;
+    }
+
+    setCreatingUser(true);
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: createUserForm.username,
+          password: createUserForm.password,
+          role: createUserForm.role,
+          isActive: createUserForm.isActive,
+          permissionOverrides: createUserForm.permissionOverrides,
+        }),
+      });
+      const data = await res.json() as { error?: string; user?: ManagedUser };
+      if (!res.ok || !data.user) {
+        setUsersError(data.error || 'Failed to create user.');
+        return;
+      }
+      setManagedUsers(prev => [...prev, data.user!].sort((left, right) => left.username.localeCompare(right.username)));
+      setCreateUserForm({
+        username: '',
+        password: '',
+        confirmPassword: '',
+        role: 'USER',
+        isActive: true,
+        permissionOverrides: { allow: [], deny: [] },
+      });
+      setUserNotice(`Created ${data.user.username}.`);
+    } catch (error) {
+      setUsersError(error instanceof Error ? error.message : 'Failed to create user.');
+    } finally {
+      setCreatingUser(false);
+    }
+  };
+
   if (loading) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
@@ -345,6 +589,16 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
   const needsHuggingFaceTokenForDiscovery = (
     settings.chatPlatform === 'huggingface' || settings.chatPlatform === 'hybrid'
   ) && isHuggingFaceRouterUrl(settings.huggingFaceBaseUrl) && !huggingFaceApiKey.trim();
+  const availableRoles = roleDefinitions.length > 0 ? roleDefinitions : [
+    { key: 'ADMIN' as const, label: 'Admin', description: 'Full access' },
+    { key: 'MANAGER' as const, label: 'Manager', description: 'Power-user access' },
+    { key: 'USER' as const, label: 'User', description: 'Standard access' },
+  ];
+  const permissionsByCategory = permissionDefinitions.reduce<Record<string, PermissionDefinition[]>>((acc, permission) => {
+    if (!acc[permission.category]) acc[permission.category] = [];
+    acc[permission.category].push(permission);
+    return acc;
+  }, {});
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', padding: '24px', gap: '4px', maxWidth: '680px', margin: '0 auto' }}>
@@ -371,6 +625,282 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
           {saving ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : saved ? <><CheckCircle size={16} /> Saved!</> : <><Save size={16} /> Save</>}
         </button>
       </div>
+
+      {canManageUsers && (
+        <Section icon={<Users size={18} />} title="User Management">
+          <div style={{ padding: '14px 16px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: '0.92rem', marginBottom: '4px' }}>Access control</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  Bootstrap stays unchanged: the first deployed login still creates the initial admin. After that, admins manage all accounts here.
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                style={{ padding: '8px 14px' }}
+                onClick={() => void fetchManagedUsers()}
+                disabled={usersLoading}
+              >
+                {usersLoading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : 'Refresh'}
+              </button>
+            </div>
+
+            {usersError && (
+              <div style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--danger)', background: 'rgba(239,68,68,0.08)', color: '#fca5a5', fontSize: '0.82rem' }}>
+                {usersError}
+              </div>
+            )}
+
+            {userNotice && (
+              <div style={{ padding: '12px', borderRadius: '10px', border: '1px solid rgba(34,197,94,0.2)', background: 'rgba(34,197,94,0.08)', color: 'var(--success)', fontSize: '0.82rem' }}>
+                {userNotice}
+              </div>
+            )}
+
+            <div style={{ padding: '14px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'var(--bg-glass)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Shield size={16} color="var(--accent-primary)" />
+                <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>Create user</div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                <input
+                  className="input-field"
+                  placeholder="Username"
+                  value={createUserForm.username}
+                  onChange={e => setCreateUserForm(prev => ({ ...prev, username: e.target.value }))}
+                />
+                <input
+                  className="input-field"
+                  type="password"
+                  placeholder="Password"
+                  value={createUserForm.password}
+                  onChange={e => setCreateUserForm(prev => ({ ...prev, password: e.target.value }))}
+                />
+                <input
+                  className="input-field"
+                  type="password"
+                  placeholder="Confirm password"
+                  value={createUserForm.confirmPassword}
+                  onChange={e => setCreateUserForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                />
+                <select
+                  className="input-field"
+                  value={createUserForm.role}
+                  onChange={e => setCreateUserForm(prev => ({ ...prev, role: e.target.value as ManagedUser['role'] }))}
+                >
+                  {availableRoles.map(role => (
+                    <option key={role.key} value={role.key}>{role.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                New passwords must use 10+ characters with uppercase, lowercase, and a number.
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <input
+                  id="create-user-active"
+                  type="checkbox"
+                  checked={createUserForm.isActive}
+                  onChange={e => setCreateUserForm(prev => ({ ...prev, isActive: e.target.checked }))}
+                />
+                <label htmlFor="create-user-active" style={{ fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                  User starts active
+                </label>
+              </div>
+
+              {createUserForm.role !== 'ADMIN' && permissionDefinitions.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {Object.entries(permissionsByCategory).map(([category, permissions]) => (
+                    <div key={category} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{category}</div>
+                      {permissions.map(permission => {
+                        const mode = createUserForm.permissionOverrides.allow.includes(permission.key)
+                          ? 'allow'
+                          : createUserForm.permissionOverrides.deny.includes(permission.key)
+                            ? 'deny'
+                            : 'default';
+
+                        return (
+                          <div key={permission.key} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 120px', gap: '10px', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>{permission.label}</div>
+                              <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>{permission.description}</div>
+                            </div>
+                            <select
+                              className="input-field"
+                              value={mode}
+                              onChange={e => setCreateUserForm(prev => ({
+                                ...prev,
+                                permissionOverrides: setPermissionOverride(prev.permissionOverrides, permission.key, e.target.value as 'default' | 'allow' | 'deny'),
+                              }))}
+                            >
+                              <option value="default">Role default</option>
+                              <option value="allow">Allow</option>
+                              <option value="deny">Deny</option>
+                            </select>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {createUserForm.role === 'ADMIN' && (
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  Admin users always receive the full permission set.
+                </div>
+              )}
+
+              <div>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => void createManagedUser()}
+                  disabled={creatingUser}
+                  style={{ padding: '10px 16px' }}
+                >
+                  {creatingUser ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : 'Create User'}
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {managedUsers.map(user => (
+                <div key={user.id} style={{ padding: '14px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'var(--bg-glass)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                        <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>{user.username}</div>
+                        {sessionUser?.id === user.id && (
+                          <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '999px', background: 'var(--accent-soft)', color: 'var(--accent-primary)', border: '1px solid var(--accent-border)' }}>
+                            You
+                          </span>
+                        )}
+                        <span style={{ fontSize: '0.72rem', padding: '2px 8px', borderRadius: '999px', background: user.isActive ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)', color: user.isActive ? 'var(--success)' : '#fca5a5', border: `1px solid ${user.isActive ? 'rgba(34,197,94,0.2)' : 'rgba(239,68,68,0.2)'}` }}>
+                          {user.isActive ? 'Active' : 'Disabled'}
+                        </span>
+                      </div>
+                      <div style={{ marginTop: '6px', fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                        Last login: {formatTimestamp(user.lastLoginAt)} · Created: {formatTimestamp(user.createdAt)}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => void saveManagedUser(user)}
+                        disabled={updatingUserId === user.id}
+                        style={{ padding: '8px 14px' }}
+                      >
+                        {updatingUserId === user.id ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : 'Save'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => void deleteManagedUser(user)}
+                        disabled={deletingUserId === user.id}
+                        style={{ padding: '8px 14px', color: '#fca5a5' }}
+                      >
+                        {deletingUserId === user.id ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Trash2 size={14} />}
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+                    <input
+                      className="input-field"
+                      value={user.username}
+                      onChange={e => updateManagedUser(user.id, current => ({ ...current, username: e.target.value }))}
+                    />
+                    <select
+                      className="input-field"
+                      value={user.role}
+                      onChange={e => updateManagedUser(user.id, current => ({ ...current, role: e.target.value as ManagedUser['role'] }))}
+                    >
+                      {availableRoles.map(role => (
+                        <option key={role.key} value={role.key}>{role.label}</option>
+                      ))}
+                    </select>
+                    <input
+                      className="input-field"
+                      type="password"
+                      placeholder="Leave blank to keep password"
+                      value={passwordDrafts[user.id] || ''}
+                      onChange={e => setPasswordDrafts(prev => ({ ...prev, [user.id]: e.target.value }))}
+                    />
+                  </div>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                    <input
+                      type="checkbox"
+                      checked={user.isActive}
+                      onChange={e => updateManagedUser(user.id, current => ({ ...current, isActive: e.target.checked }))}
+                    />
+                    Account is active
+                  </label>
+
+                  {user.role === 'ADMIN' ? (
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                      Admin role grants the full permission set. Override controls are not applied.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {Object.entries(permissionsByCategory).map(([category, permissions]) => (
+                        <div key={category} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                          <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{category}</div>
+                          {permissions.map(permission => {
+                            const mode = user.permissionOverrides.allow.includes(permission.key)
+                              ? 'allow'
+                              : user.permissionOverrides.deny.includes(permission.key)
+                                ? 'deny'
+                                : 'default';
+
+                            return (
+                              <div key={permission.key} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 120px', gap: '10px', alignItems: 'center' }}>
+                                <div>
+                                  <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>{permission.label}</div>
+                                  <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>{permission.description}</div>
+                                </div>
+                                <select
+                                  className="input-field"
+                                  value={mode}
+                                  onChange={e => updateManagedUser(user.id, current => ({
+                                    ...current,
+                                    permissionOverrides: setPermissionOverride(current.permissionOverrides, permission.key, e.target.value as 'default' | 'allow' | 'deny'),
+                                  }))}
+                                >
+                                  <option value="default">Role default</option>
+                                  <option value="allow">Allow</option>
+                                  <option value="deny">Deny</option>
+                                </select>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                    {user.permissions.map(permission => (
+                      <span key={permission} style={{ fontSize: '0.72rem', padding: '4px 8px', borderRadius: '999px', border: '1px solid var(--accent-border)', background: 'var(--accent-faint)', color: 'var(--accent-primary)' }}>
+                        {permission}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Section>
+      )}
 
       {/* Appearance */}
       <Section icon={<Palette size={18} />} title="Appearance">

@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { AUTH_COOKIE_NAME } from './lib/auth'
 import { verifyToken } from './lib/auth'
 
-export async function middleware(request: NextRequest) {
-  const token = request.cookies.get('auth_token')?.value
+export async function proxy(request: NextRequest) {
+  const token = request.cookies.get(AUTH_COOKIE_NAME)?.value
   const isLoginPage = request.nextUrl.pathname.startsWith('/login')
-  
+
   if (!token) {
     if (!isLoginPage) {
       return NextResponse.redirect(new URL('/login', request.url))
@@ -14,7 +15,6 @@ export async function middleware(request: NextRequest) {
   }
 
   const payload = await verifyToken(token)
-  
   if (!payload) {
     if (!isLoginPage) {
       return NextResponse.redirect(new URL('/login', request.url))
@@ -22,7 +22,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next()
   }
 
-  // Already authenticated, trying to access login
   if (isLoginPage) {
     return NextResponse.redirect(new URL('/', request.url))
   }
@@ -31,7 +30,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  // API routes perform their own auth checks. Keeping them out of middleware
-  // avoids Next cloning large upload bodies before route handlers read them.
   matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
 }

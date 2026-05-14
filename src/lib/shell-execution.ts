@@ -7,10 +7,10 @@
 import { exec } from 'child_process'
 import { createHmac, timingSafeEqual } from 'crypto'
 import { promisify } from 'util'
+import { getJwtSecret } from './auth'
 import { ensureOpenClawWorkspaceAlias } from './openclaw-workspace'
 
 const execAsync = promisify(exec)
-const approvalSecret = process.env.JWT_SECRET || 'super-secret-key-for-jwt-auth-that-should-be-long-and-secure'
 const APPROVAL_TTL_MS = 10 * 60 * 1000
 
 export type ShellExecutionMode = 'auto-approve' | 'ask-first' | 'deny'
@@ -57,6 +57,10 @@ export interface ShellApprovalClaims {
   command: string
   cwd?: string
   issuedAt: number
+}
+
+function getApprovalSecret() {
+  return getJwtSecret()
 }
 
 const DANGEROUS_COMMAND_PREFIXES = [
@@ -403,7 +407,7 @@ export function createShellApprovalToken(input: {
   }
 
   const encodedClaims = Buffer.from(JSON.stringify(claims)).toString('base64url')
-  const signature = createHmac('sha256', approvalSecret).update(encodedClaims).digest('hex')
+  const signature = createHmac('sha256', getApprovalSecret()).update(encodedClaims).digest('hex')
   return `${encodedClaims}.${signature}`
 }
 
@@ -420,7 +424,7 @@ export function verifyShellApprovalToken(
     return { valid: false, reason: 'Missing or malformed approval token' }
   }
 
-  const expectedSignature = createHmac('sha256', approvalSecret).update(encodedClaims).digest('hex')
+  const expectedSignature = createHmac('sha256', getApprovalSecret()).update(encodedClaims).digest('hex')
 
   try {
     const actualBuffer = Buffer.from(signature, 'hex')

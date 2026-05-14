@@ -68,7 +68,38 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - **IMPORTANT:** Never use `prisma db push --force-reset` on production — it wipes all data!
 
 ## ⏭️ Next Steps
+- Manual UI pass for Settings → User Management: create user, role change, permission override, deactivate, reset password, delete
+- Consider propagating role/permission state into the main navigation so feature tabs hide proactively instead of relying only on backend enforcement
+- Consider dedicated account recovery / forced-password-rotation flows if this app will be shared across more operators
 - **Manual UX validation of noVNC interaction** — protocol-level VNC handshake is confirmed, but broader browser-side mouse/keyboard validation across sidebar and modal is still worth doing
 - **Clean up unused files** — `scripts/start-with-ws.mjs`, `src/app/api/ws/screencast/route.ts`
 - Open Claw agent infrastructure: heartbeats/autonomous scheduling, sub-agent delegation
 - Development section: Code Interpreter, Docker orchestration, VM management
+
+## 🔐 Latest Changes — Auth & User Management
+- Hardened authentication:
+  - JWTs now carry issuer/audience/subject/type/tokenVersion claims
+  - auth cookies now use consistent `sameSite=lax`, `priority=high`, secure detection, and mirrored logout clearing
+  - production now requires a real `JWT_SECRET`; container runtime auto-generates and persists one in `/var/lib/peakui/jwt-secret` when none is supplied
+  - login/bootstrap now validates usernames and strong passwords, checks inactive accounts, updates `lastLoginAt`, and uses a serializable transaction for first-admin bootstrap races
+- Expanded user model:
+  - `User` now tracks `isActive`, `tokenVersion`, `permissionOverrides`, `lastLoginAt`, and `updatedAt`
+  - added `MANAGER` role between `ADMIN` and `USER`
+- Added centralized authorization:
+  - new `src/lib/permissions.ts` defines role defaults plus explicit allow/deny overrides
+  - new `src/lib/request-auth.ts` resolves the current authenticated DB user, rejects inactive users and stale token versions, and exposes permission-aware helpers
+  - migrated deprecated `src/middleware.ts` to `src/proxy.ts`
+- Added admin user-management APIs:
+  - `GET/POST /api/admin/users`
+  - `PATCH/DELETE /api/admin/users/[id]`
+  - includes last-active-admin safeguards, password reset, activation toggle, role changes, and permission override persistence
+- Added authenticated session API:
+  - `GET /api/auth/session` returns current user role and effective permissions
+- Added Settings UI for user management:
+  - admin-only section in `src/app/components/SettingsPanel.tsx`
+  - create users, change roles, toggle activation, reset passwords, set per-permission overrides, and view effective permissions
+- Enforced permissions server-side for:
+  - knowledge base routes (`knowledge.use`)
+  - canvas artifact routes (`canvas.use`)
+  - OpenClaw access, including filesystem/browser/UWAF/shell sub-capabilities
+  - live-browser WebSocket authentication now checks DB-backed permission state, not just JWT validity

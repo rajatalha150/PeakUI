@@ -5,10 +5,10 @@
 
 import { NextResponse } from 'next/server'
 import { loadRecentMemory, buildMemoryContext, loadLongTermMemory } from '@/lib/memory'
-import { getCurrentUserId } from '@/lib/request-auth'
+import { getCurrentUserIdWithPermission } from '@/lib/request-auth'
 
 export async function GET() {
-  const userId = await getCurrentUserId()
+  const userId = await getCurrentUserIdWithPermission('openclaw.use')
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

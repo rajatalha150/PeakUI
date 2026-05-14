@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getCurrentUserId } from '@/lib/request-auth'
+import { getCurrentUserIdWithPermission } from '@/lib/request-auth'
 import {
   buildOpenClawCodeApprovalPayload,
   prepareOpenClawCodeExecutionRequest,
@@ -12,7 +12,7 @@ import { createOpenClawApprovalToken } from '@/lib/openclaw-tool-approvals'
 export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
-  const userId = await getCurrentUserId()
+  const userId = await getCurrentUserIdWithPermission('openclaw.use')
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

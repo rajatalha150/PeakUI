@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getCurrentUserId } from '@/lib/request-auth';
+import { getCurrentUserIdWithPermission } from '@/lib/request-auth';
 import { getUserSettings } from '@/lib/settings';
 import { isSameOllamaModel } from '@/lib/embedding-models';
 import { detectFileKind, getFileExtension, type FileKind } from '@/lib/file-shared';
@@ -64,7 +64,7 @@ function mergeFilters(primary?: RagSearchFilters, secondary?: RagSearchFilters):
 // POST: Search the knowledge base for relevant chunks
 export async function POST(req: Request) {
   try {
-    const userId = await getCurrentUserId();
+    const userId = await getCurrentUserIdWithPermission('knowledge.use');
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json() as SearchBody;

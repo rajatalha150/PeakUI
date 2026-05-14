@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserId } from '@/lib/request-auth'
+import { getCurrentUserIdWithPermissions } from '@/lib/request-auth'
 import { runUwafBrowserAction, getUwafBrowserSession, type UwafBrowserRequest } from '@/lib/uwaf-browser'
 import { isBrowserInterrupted, restartScreencastForSession } from '@/lib/live-browser-server'
 import { prisma } from '@/lib/prisma'
@@ -8,7 +8,7 @@ import { normalizeOpenClawUwafBrowserMode, normalizeOpenClawUwafDefaultMode, nor
 const VALID_ACTIONS: UwafBrowserRequest['action'][] = ['open', 'click', 'extract', 'extract_table', 'research_batch', 'fill', 'submit']
 
 export async function POST(request: NextRequest) {
-  const userId = await getCurrentUserId()
+  const userId = await getCurrentUserIdWithPermissions(['openclaw.use', 'openclaw.uwaf'])
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

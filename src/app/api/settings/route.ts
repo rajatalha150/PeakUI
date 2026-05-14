@@ -107,7 +107,6 @@ export async function POST(req: Request) {
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json() as SettingsBody;
-console.log('[SETTINGS POST] ragEnabled:', body.ragEnabled, 'ragTopK:', body.ragTopK, 'ragModel:', body.ragModel, 'ragMode:', body.ragMode);
 
     // Whitelist only known fields
     const data: Partial<typeof DEFAULT_SETTINGS> = {};
@@ -166,12 +165,11 @@ console.log('[SETTINGS POST] ragEnabled:', body.ragEnabled, 'ragTopK:', body.rag
       }
     }
 
-const settings = await prisma.userSettings.upsert({
+    const settings = await prisma.userSettings.upsert({
       where: { userId },
       update: data,
       create: { userId, ...DEFAULT_SETTINGS, ...data }
     });
-    console.log('[SETTINGS POST] Saved successfully, ragTopK:', settings.ragTopK, 'ragEnabled:', settings.ragEnabled);
 
     return NextResponse.json(normalizeAppSettings(settings));
   } catch (error) {

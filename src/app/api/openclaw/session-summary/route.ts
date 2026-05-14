@@ -12,10 +12,10 @@ import {
   appendToDailyMemory,
   type SessionSummary,
 } from '@/lib/memory'
-import { getCurrentUserId } from '@/lib/request-auth'
+import { getCurrentUserIdWithPermission } from '@/lib/request-auth'
 
 export async function POST(request: NextRequest) {
-  const userId = await getCurrentUserId()
+  const userId = await getCurrentUserIdWithPermission('openclaw.use')
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

@@ -3,7 +3,7 @@ import net from 'node:net'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, WebSocket } from 'ws'
 import { getLiveBrowserInfo, getPage, type BrowserMode } from './uwaf-pool'
-import { verifyToken } from './auth'
+import { getAuthContextFromToken } from './request-auth'
 
 const LIVE_BROWSER_PORT = parseInt(process.env.SCREENCAST_PORT || '3001', 10)
 const PAGE_POLL_INTERVAL_MS = parseInt(process.env.LIVE_BROWSER_PAGE_POLL_INTERVAL_MS || '1000', 10)
@@ -218,15 +218,15 @@ async function authenticateConnection(ws: WebSocket, req: IncomingMessage): Prom
     return null
   }
 
-  const payload = await verifyToken(token)
-  if (!payload || typeof payload.id !== 'string') {
+  const auth = await getAuthContextFromToken(token)
+  if (!auth || !auth.permissions.includes('openclaw.use') || !auth.permissions.includes('openclaw.uwaf')) {
     sendJson(ws, { type: 'error', message: 'Invalid or expired token' })
     ws.close(4003, 'Unauthorized')
     return null
   }
 
   return {
-    userId: payload.id,
+    userId: auth.user.id,
     sessionId,
     mode,
     autoResumeMs,

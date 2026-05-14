@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
-import { getCurrentUserId } from '@/lib/request-auth'
+import { getCurrentUserIdWithPermissions } from '@/lib/request-auth'
 import { checkTorProxyStatus, getDirectIp, getStealthInfo } from '@/lib/uwaf-pool'
 
 export async function GET(request: Request) {
-  const userId = await getCurrentUserId()
+  const userId = await getCurrentUserIdWithPermissions(['openclaw.use', 'openclaw.uwaf'])
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

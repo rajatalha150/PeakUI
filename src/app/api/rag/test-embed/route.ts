@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getCurrentUserId } from '@/lib/request-auth';
+import { getCurrentUserIdWithPermission } from '@/lib/request-auth';
 import { getUserSettings, normalizeOllamaHost } from '@/lib/settings';
 import { getEmbedding, getErrorMessage } from '@/lib/rag';
 import { ollamaModelKey } from '@/lib/embedding-models';
@@ -65,7 +65,7 @@ export async function POST(req: Request) {
   const startedAt = Date.now();
 
   try {
-    const userId = await getCurrentUserId();
+    const userId = await getCurrentUserIdWithPermission('knowledge.use');
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json() as TestEmbedBody;

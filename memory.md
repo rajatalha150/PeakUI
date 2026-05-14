@@ -445,6 +445,36 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 ### ⚠️ DATABASE RESET NOTE
 The database was wiped during development (accidental `--force-reset`). All users, chats, documents, and settings prior to the current commit are lost. Fresh database starting from this commit.
+
+### Latest Changes (v1.0.0) 🔐
+- **Bulletproofed auth flow:** JWTs now use issuer/audience/subject/type/tokenVersion claims, stronger cookie settings, DB-backed token invalidation, inactive-account enforcement, `lastLoginAt`, and serializable first-admin bootstrap protection.
+- **Runtime JWT secret generation:** Compose no longer ships a hardcoded auth secret. The app container now persists a generated secret in `/var/lib/peakui/jwt-secret` unless `JWT_SECRET` is explicitly provided.
+- **Expanded user model:** Added `isActive`, `tokenVersion`, `permissionOverrides`, `lastLoginAt`, `updatedAt`, and a new `MANAGER` role.
+- **Permission framework:** New `src/lib/permissions.ts` defines role defaults plus allow/deny overrides. New request-auth helpers resolve the current DB user and effective permissions on every authenticated route.
+- **Admin user management APIs:** Added `GET/POST /api/admin/users` and `PATCH/DELETE /api/admin/users/[id]` with last-admin safeguards, password reset support, role changes, activation toggles, and override persistence.
+- **Settings UI:** Added an admin-only User Management section in Settings for creating users, managing roles, editing permission overrides, resetting passwords, disabling accounts, and deleting users.
+- **Bootstrap preserved:** First deployment still uses the existing login/setup screen to create the initial admin. That screen now also enforces password confirmation and the stronger password policy.
+- **Permission enforcement added:** Knowledge base, canvas, OpenClaw, shell, filesystem, browser, UWAF browser, and live-browser websocket access now check effective permissions server-side.
+- **Next.js auth gate cleanup:** Replaced deprecated `src/middleware.ts` with `src/proxy.ts`.
+- **Changed files:**
+  - `prisma/schema.prisma` — Expanded `User` model and added `MANAGER` role
+  - `src/lib/auth.ts` — Stronger JWT claims, cookie helpers, secure secret handling
+  - `src/lib/auth-validation.ts` (new) — Username/password validation and password policy helpers
+  - `src/lib/permissions.ts` (new) — Role defaults, permission metadata, overrides parsing/serialization
+  - `src/lib/request-auth.ts` — DB-backed auth resolution, inactive-user rejection, tokenVersion checks, permission-aware helpers
+  - `src/proxy.ts` (new) — Replacement for deprecated middleware auth gate
+  - `src/app/api/auth/login/route.ts` — Hardened bootstrap/login flow
+  - `src/app/api/auth/check/route.ts` — Now returns auth/session state when available
+  - `src/app/api/auth/logout/route.ts` — Consistent cookie clearing
+  - `src/app/api/auth/session/route.ts` (new) — Current authenticated user/session info
+  - `src/app/api/admin/users/route.ts` (new) — Admin list/create users
+  - `src/app/api/admin/users/[id]/route.ts` (new) — Admin update/delete users
+  - `src/app/components/SettingsPanel.tsx` — Admin-only user management UI
+  - `src/app/login/page.tsx` — Bootstrap password confirmation/policy
+  - `src/lib/live-browser-server.ts` — DB-backed permission check for live UWAF connections
+  - `src/app/api/rag/*`, `src/app/api/canvas/artifacts*`, `src/app/api/openclaw/*` — Permission enforcement on protected feature routes
+  - `src/lib/openclaw-tool-approvals.ts`, `src/lib/shell-execution.ts` — Reuse hardened JWT secret source
+  - `Dockerfile`, `docker-compose.yml` — Persisted runtime JWT secret volume and startup generation
 - **Summary:** 
   - Added `CanvasPanel` component with visual artifact cards, syntax highlighting (via `react-syntax-highlighter`), markdown rendering, image previews, and edit-in-place functionality
   - Added `CanvasPreview` standalone component for individual artifact previews

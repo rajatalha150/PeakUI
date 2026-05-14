@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserId } from '@/lib/request-auth'
+import { getCurrentUserIdWithPermissions } from '@/lib/request-auth'
 import { getUwafBrowserSession } from '@/lib/uwaf-browser'
 import { createOpenClawApprovalToken } from '@/lib/openclaw-tool-approvals'
 import { prisma } from '@/lib/prisma'
 import { normalizeOpenClawUwafBrowserMode, DEFAULT_SETTINGS } from '@/lib/settings'
 
 export async function POST(request: NextRequest) {
-  const userId = await getCurrentUserId()
+  const userId = await getCurrentUserIdWithPermissions(['openclaw.use', 'openclaw.uwaf'])
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }

@@ -1,6 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from 'crypto'
+import { getJwtSecret } from './auth'
 
-const approvalSecret = process.env.JWT_SECRET || 'super-secret-key-for-jwt-auth-that-should-be-long-and-secure'
 const APPROVAL_TTL_MS = 10 * 60 * 1000
 
 export type OpenClawApprovalTool = 'filesystem' | 'code' | 'browser' | 'unified_browser'
@@ -11,6 +11,10 @@ interface OpenClawApprovalClaims {
   action: string
   requestHash: string
   issuedAt: number
+}
+
+function getApprovalSecret() {
+  return getJwtSecret()
 }
 
 function serializeStable(value: unknown): string {
@@ -48,7 +52,7 @@ export function createOpenClawApprovalToken(input: {
   }
 
   const payload = Buffer.from(JSON.stringify(claims)).toString('base64url')
-  const signature = createHmac('sha256', approvalSecret).update(payload).digest('base64url')
+  const signature = createHmac('sha256', getApprovalSecret()).update(payload).digest('base64url')
   return `${payload}.${signature}`
 }
 
@@ -66,7 +70,7 @@ export function verifyOpenClawApprovalToken(
     return { valid: false, reason: 'Invalid approval token format' }
   }
 
-  const expectedSignature = createHmac('sha256', approvalSecret).update(payload).digest('base64url')
+  const expectedSignature = createHmac('sha256', getApprovalSecret()).update(payload).digest('base64url')
   const providedBuffer = Buffer.from(signature)
   const expectedBuffer = Buffer.from(expectedSignature)
 

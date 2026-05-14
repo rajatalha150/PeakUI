@@ -3,11 +3,13 @@
 import React, { useState, useEffect } from 'react';
 import { Cpu, Lock, User, ArrowRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import { getPasswordPolicyText } from '@/lib/auth-validation';
 
 export default function LoginPage() {
   const [isSetupNeeded, setIsSetupNeeded] = useState<boolean | null>(null);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -22,6 +24,11 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !password) return;
+
+    if (isSetupNeeded && password !== confirmPassword) {
+      setError('Passwords do not match.');
+      return;
+    }
     
     setLoading(true);
     setError('');
@@ -107,6 +114,27 @@ export default function LoginPage() {
                 required
               />
             </div>
+
+            {isSetupNeeded && (
+              <>
+                <div style={{ position: 'relative' }}>
+                  <Lock size={18} color="var(--text-secondary)" style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)' }} />
+                  <input
+                    type="password"
+                    className="input-field"
+                    placeholder="Confirm Password"
+                    style={{ paddingLeft: '44px' }}
+                    value={confirmPassword}
+                    onChange={e => setConfirmPassword(e.target.value)}
+                    required
+                  />
+                </div>
+
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', lineHeight: 1.5, marginTop: '-6px' }}>
+                  {getPasswordPolicyText()}
+                </div>
+              </>
+            )}
 
             <button 
               type="submit" 

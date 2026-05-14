@@ -1,7 +1,7 @@
 import { after, NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
-import { getCurrentUserId } from '@/lib/request-auth';
+import { getCurrentUserIdWithPermission } from '@/lib/request-auth';
 import { type AppSettings, getUserSettings } from '@/lib/settings';
 import { chunkText, getEmbeddings, getErrorMessage } from '@/lib/rag';
 import { extractFilePayload } from '@/lib/file-extraction';
@@ -265,7 +265,7 @@ function parsePageSizeParam(value: string | null, fallback: number) {
 // GET: List documents for user
 export async function GET(req: Request) {
   try {
-    const userId = await getCurrentUserId();
+    const userId = await getCurrentUserIdWithPermission('knowledge.use');
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const url = new URL(req.url);
@@ -303,7 +303,7 @@ export async function GET(req: Request) {
 // POST: Upload and process a document
 export async function POST(req: Request) {
   try {
-    const userId = await getCurrentUserId();
+    const userId = await getCurrentUserIdWithPermission('knowledge.use');
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     await markStaleProcessingDocuments(userId);
@@ -430,7 +430,7 @@ export async function POST(req: Request) {
 // DELETE: Remove a document
 export async function DELETE(req: Request) {
   try {
-    const userId = await getCurrentUserId();
+    const userId = await getCurrentUserIdWithPermission('knowledge.use');
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const payload = await req.json().catch(() => ({})) as { id?: string; ids?: string[] };

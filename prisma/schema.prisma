@@ -7,18 +7,25 @@ datasource db {
 }
 
 model User {
-  id           String        @id @default(uuid())
-  username     String        @unique
-  passwordHash String
-  role         Role          @default(USER)
-  createdAt    DateTime      @default(now())
-  sessions     ChatSession[]
-  documents    Document[]
-  settings     UserSettings?
-  folders      Folder[]
-  artifacts    CanvasArtifact[]
-  tags         Tag[]
-  shellAudits  ShellCommandAudit[]
+  id                  String             @id @default(uuid())
+  username            String             @unique
+  passwordHash        String
+  role                Role               @default(USER)
+  permissionOverrides String             @default("{\"allow\":[],\"deny\":[]}")
+  isActive            Boolean            @default(true)
+  tokenVersion        Int                @default(0)
+  lastLoginAt         DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @default(now()) @updatedAt
+  sessions            ChatSession[]
+  documents           Document[]
+  settings            UserSettings?
+  folders             Folder[]
+  artifacts           CanvasArtifact[]
+  tags                Tag[]
+  shellAudits         ShellCommandAudit[]
+
+  @@index([role, isActive])
 }
 
 model UserSettings {
@@ -219,5 +226,6 @@ model ShellCommandAudit {
 
 enum Role {
   ADMIN
+  MANAGER
   USER
 }
