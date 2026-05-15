@@ -36,7 +36,7 @@ export interface OpenClawBrowserToolRequest {
 }
 
 export interface OpenClawUwafBrowserToolRequest {
-  action: 'search' | 'open' | 'click' | 'extract_table' | 'research_batch' | 'fill' | 'submit' | 'extract' | 'wait_for_user'
+  action: 'search' | 'open' | 'click' | 'type' | 'press' | 'wait_for_selector' | 'scroll' | 'back' | 'forward' | 'new_tab' | 'list_tabs' | 'switch_tab' | 'close_tab' | 'select' | 'hover' | 'extract_table' | 'research_batch' | 'fill' | 'submit' | 'extract' | 'wait_for_user'
   query?: string
   url?: string
   linkIndex?: number
@@ -46,6 +46,14 @@ export interface OpenClawUwafBrowserToolRequest {
   mode?: 'summary' | 'text' | 'links' | 'forms' | 'html'
   browserMode?: 'direct' | 'stealth'
   depth?: number
+  selector?: string
+  text?: string
+  key?: string
+  tabIndex?: number
+  timeoutMs?: number
+  deltaY?: number
+  optionValue?: string
+  optionLabel?: string
   description?: string
 }
 
@@ -107,6 +115,18 @@ function isUwafAction(value: unknown): value is OpenClawUwafBrowserToolRequest['
   return value === 'search'
     || value === 'open'
     || value === 'click'
+    || value === 'type'
+    || value === 'press'
+    || value === 'wait_for_selector'
+    || value === 'scroll'
+    || value === 'back'
+    || value === 'forward'
+    || value === 'new_tab'
+    || value === 'list_tabs'
+    || value === 'switch_tab'
+    || value === 'close_tab'
+    || value === 'select'
+    || value === 'hover'
     || value === 'extract_table'
     || value === 'research_batch'
     || value === 'fill'
@@ -367,10 +387,48 @@ export function extractOpenClawToolRequest(content: string): {
         request.depth = parsed.depth
       }
 
+      if (typeof parsed.selector === 'string' && parsed.selector.trim()) {
+        request.selector = parsed.selector.trim()
+      }
+
+      if (typeof parsed.text === 'string') {
+        request.text = parsed.text
+      }
+
+      if (typeof parsed.key === 'string' && parsed.key.trim()) {
+        request.key = parsed.key.trim()
+      }
+
+      if (typeof parsed.tabIndex === 'number' && Number.isInteger(parsed.tabIndex) && parsed.tabIndex >= 0) {
+        request.tabIndex = parsed.tabIndex
+      }
+
+      if (typeof parsed.timeoutMs === 'number' && Number.isFinite(parsed.timeoutMs) && parsed.timeoutMs >= 0) {
+        request.timeoutMs = parsed.timeoutMs
+      }
+
+      if (typeof parsed.deltaY === 'number' && Number.isFinite(parsed.deltaY)) {
+        request.deltaY = parsed.deltaY
+      }
+
+      if (typeof parsed.optionValue === 'string' && parsed.optionValue.trim()) {
+        request.optionValue = parsed.optionValue.trim()
+      }
+
+      if (typeof parsed.optionLabel === 'string' && parsed.optionLabel.trim()) {
+        request.optionLabel = parsed.optionLabel.trim()
+      }
+
       if (
         (action === 'search' && !request.query)
         || (action === 'open' && !request.url)
         || (action === 'click' && request.linkIndex === undefined && !request.linkText)
+        || (action === 'type' && (!request.selector || request.text === undefined))
+        || (action === 'press' && !request.key)
+        || (action === 'wait_for_selector' && !request.selector)
+        || (action === 'switch_tab' && request.tabIndex === undefined)
+        || (action === 'select' && (!request.selector || (!request.optionValue && !request.optionLabel)))
+        || (action === 'hover' && !request.selector)
         || (action === 'research_batch' && !request.url)
       ) {
         return { cleanedContent: stripAllToolTags(content) }

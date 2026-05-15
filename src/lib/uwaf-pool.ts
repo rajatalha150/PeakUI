@@ -180,6 +180,114 @@ function buildContextOptions(mode: BrowserMode): Parameters<Browser['newContext'
   return options
 }
 
+function buildStealthLandingHtml(): string {
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stealth Browser Ready</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0b1020;
+        --panel: rgba(15, 23, 42, 0.88);
+        --border: rgba(168, 85, 247, 0.35);
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --accent: #a855f7;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top, rgba(168, 85, 247, 0.18), transparent 35%),
+          linear-gradient(180deg, #0f172a 0%, var(--bg) 100%);
+        color: var(--text);
+      }
+      .panel {
+        width: min(760px, calc(100vw - 64px));
+        border: 1px solid var(--border);
+        background: var(--panel);
+        border-radius: 20px;
+        padding: 28px 32px;
+        box-shadow: 0 30px 80px rgba(2, 6, 23, 0.45);
+      }
+      .eyebrow {
+        display: inline-block;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(168, 85, 247, 0.15);
+        color: #d8b4fe;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      h1 {
+        margin: 18px 0 10px;
+        font-size: 32px;
+        line-height: 1.1;
+      }
+      p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.55;
+      }
+      .grid {
+        margin-top: 20px;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .card {
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        border-radius: 14px;
+        padding: 14px;
+        background: rgba(15, 23, 42, 0.55);
+      }
+      .label {
+        color: var(--muted);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .value {
+        margin-top: 8px;
+        font-size: 15px;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="panel">
+      <span class="eyebrow">Stealth Mode</span>
+      <h1>Tor-routed browser session is ready.</h1>
+      <p>This live browser is configured for Stealth mode. The AI can browse public sites through Tor, search Ahmia for onion discovery, and open <code>.onion</code> pages in the same visible session.</p>
+      <section class="grid">
+        <div class="card">
+          <div class="label">Routing</div>
+          <div class="value">Tor SOCKS proxy</div>
+        </div>
+        <div class="card">
+          <div class="label">Search</div>
+          <div class="value">Ahmia for Stealth</div>
+        </div>
+        <div class="card">
+          <div class="label">Onion Support</div>
+          <div class="value">Enabled</div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>`
+}
+
 async function applyStealthInitScript(context: BrowserContext): Promise<void> {
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
@@ -280,6 +388,10 @@ async function createManagedSession(contextId: string, mode: BrowserMode): Promi
     const page = await context.newPage()
     activePage = page
 
+    if (mode === 'stealth') {
+      await page.setContent(buildStealthLandingHtml(), { waitUntil: 'domcontentloaded' }).catch(() => {})
+    }
+
     context.on('page', (nextPage) => {
       activePage = nextPage
       nextPage.once('close', () => {
@@ -299,6 +411,10 @@ async function createManagedSession(contextId: string, mode: BrowserMode): Promi
       '-shared',
       '-xkb',
       '-noxdamage',
+      '-nowf',
+      '-nowcr',
+      '-noscr',
+      '-cursor', 'arrow',
       '-localhost',
       '-nopw',
     ])
@@ -488,7 +604,27 @@ export async function getDirectIp(): Promise<string> {
   }
 }
 
-export async function getStealthInfo(): Promise<{ ip: string; country: string } | null> {
+async function lookupTorExitCountry(context: BrowserContext, ip: string): Promise<string> {
+  try {
+    const page = await context.newPage()
+    await page.goto('https://ifconfig.co/json', {
+      timeout: 15000,
+      waitUntil: 'domcontentloaded',
+    })
+    const content = await page.textContent('body')
+    await page.close().catch(() => {})
+    if (!content) return 'unknown'
+    const data = JSON.parse(content)
+    const byIp = typeof data?.ip === 'string' && data.ip.trim() === ip
+    if (!byIp) return 'unknown'
+    const country = data?.country_iso || data?.country || 'unknown'
+    return typeof country === 'string' && country.trim() ? country.trim() : 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+export async function getStealthInfo(): Promise<{ ip: string; country: string; isTor: boolean } | null> {
   try {
     return await withEphemeralBrowser({
       proxy: { server: TOR_PROXY_URL },
@@ -502,9 +638,11 @@ export async function getStealthInfo(): Promise<{ ip: string; country: string } 
       const content = await page.textContent('body')
       if (!content) return null
       const data = JSON.parse(content)
+      const ip = data.IP || 'unknown'
       return {
-        ip: data.IP || 'unknown',
-        country: data.CountryCode || 'unknown',
+        ip,
+        country: data.CountryCode || await lookupTorExitCountry(context, ip),
+        isTor: data.IsTor === true,
       }
     })
   } catch {

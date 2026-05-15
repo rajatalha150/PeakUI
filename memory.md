@@ -93,6 +93,14 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Added a client-side `wait_for_user` tool action: when the model hits CAPTCHA, "I am human" checks, MFA, login, or bot verification, Open Claw opens the live browser, switches to user takeover, waits for Resume AI, then re-observes the page and returns the updated page state to the model
 - The Open Claw prompt explicitly tells the model that the live browser is shared with the user and that the user can help with verification/auth flows when requested
 
+### Unified Browser Reliability Pass ✅
+- Reworked the UWAF browser contract to be evidence-driven instead of optimistic: `search` now validates that the final page actually reflects the requested query and contains detectable result blocks before it is treated as a successful search
+- Search failures now surface explicit semantic failure codes like homepage bounce, zero-result search failure, anti-bot detection, login-required, timeout, selector-not-found, and no-effect instead of falling through as if the browser verified the claim
+- Added richer browser primitives for the model: `type`, `press`, `wait_for_selector`, `scroll`, `back`, `forward`, `new_tab`, `list_tabs`, `switch_tab`, `close_tab`, `select`, and `hover`
+- Browser results now include redirect state, HTTP status when available, query-match flags, result counts, active tab list, selector/wait outcomes, anti-bot/login detection, and recent JS/network failures captured from the live page
+- Updated the Open Claw unified-browser prompt so the model must treat those fields as authoritative evidence and explicitly report browser failure instead of converting prior/background knowledge into claimed live observations
+- Updated the UI-side tool result formatting so exact browser failure reasons and diagnostics are fed back into the model rather than collapsing everything into a generic browser error
+
 ### Build Recovery ✅
 - Fixed the repo’s pre-existing Prisma/typecheck blockers so `npm run build` works again after the live-browser rewrite
 - Regenerated Prisma client types locally and corrected stale test/type assumptions in the RAG files that were preventing redeploy

@@ -328,6 +328,32 @@ interface UwafBrowserToolResultEntry {
   source: 'clear_web' | 'dark_web';
   success: boolean;
   error?: string;
+  requestedUrl?: string;
+  requestedQuery?: string;
+  finalUrl?: string;
+  redirected?: boolean;
+  httpStatus?: number;
+  queryMatched?: boolean;
+  resultCount?: number;
+  antiBotDetected?: boolean;
+  loginDetected?: boolean;
+  jsErrors?: string[];
+  networkErrors?: string[];
+  failureCode?: string;
+  failureDetail?: string;
+  pageChanged?: boolean;
+  navigationChanged?: boolean;
+  selectorMatched?: boolean;
+  waitTimedOut?: boolean;
+  searchEngine?: string;
+  tabs?: Array<{
+    index: number;
+    url: string;
+    title: string;
+    active: boolean;
+  }>;
+  activeTabIndex?: number;
+  observations?: string[];
   batchResults?: Array<{
     url: string;
     title: string;
@@ -456,6 +482,38 @@ function describeUwafBrowserRequest(request: OpenClawUwafBrowserToolRequest) {
   if (request.action === 'extract_table') {
     return `UWAF ${modeLabel}: Extracting tables`;
   }
+  if (request.action === 'type') {
+    return `UWAF ${modeLabel}: Typing into \`${request.selector}\``;
+  }
+  if (request.action === 'press') {
+    return `UWAF ${modeLabel}: Pressing \`${request.key}\`${request.selector ? ` on \`${request.selector}\`` : ''}`;
+  }
+  if (request.action === 'wait_for_selector') {
+    return `UWAF ${modeLabel}: Waiting for \`${request.selector}\``;
+  }
+  if (request.action === 'scroll') {
+    return `UWAF ${modeLabel}: Scrolling page`;
+  }
+  if (request.action === 'back' || request.action === 'forward') {
+    return `UWAF ${modeLabel}: Navigating ${request.action}`;
+  }
+  if (request.action === 'new_tab') {
+    return request.url
+      ? `UWAF ${modeLabel}: Opening new tab for \`${request.url}\``
+      : `UWAF ${modeLabel}: Opening a new tab`;
+  }
+  if (request.action === 'list_tabs') {
+    return `UWAF ${modeLabel}: Listing tabs`;
+  }
+  if (request.action === 'switch_tab' || request.action === 'close_tab') {
+    return `UWAF ${modeLabel}: ${request.action} ${request.tabIndex ?? '?'}`;
+  }
+  if (request.action === 'select') {
+    return `UWAF ${modeLabel}: Selecting in \`${request.selector}\``;
+  }
+  if (request.action === 'hover') {
+    return `UWAF ${modeLabel}: Hovering \`${request.selector}\``;
+  }
   if (request.action === 'click') {
     return request.linkIndex !== undefined
       ? `UWAF ${modeLabel}: Clicking link ${request.linkIndex}`
@@ -559,7 +617,7 @@ function getOpenClawToolRequestSignature(request: OpenClawToolRequest) {
 
   if (request.name === 'unified_browser') {
     const uwaf = request.request as OpenClawUwafBrowserToolRequest
-    return `unified_browser:${uwaf.action}:${uwaf.query?.trim() || ''}:${uwaf.url?.trim() || ''}:${uwaf.browserMode || ''}:${uwaf.linkIndex ?? ''}:${uwaf.linkText?.trim() || ''}:${uwaf.formIndex ?? ''}:${JSON.stringify(uwaf.values || {})}:${uwaf.mode || ''}:${uwaf.depth ?? ''}`;
+    return `unified_browser:${uwaf.action}:${uwaf.query?.trim() || ''}:${uwaf.url?.trim() || ''}:${uwaf.browserMode || ''}:${uwaf.linkIndex ?? ''}:${uwaf.linkText?.trim() || ''}:${uwaf.formIndex ?? ''}:${JSON.stringify(uwaf.values || {})}:${uwaf.mode || ''}:${uwaf.depth ?? ''}:${uwaf.selector?.trim() || ''}:${uwaf.text || ''}:${uwaf.key?.trim() || ''}:${uwaf.tabIndex ?? ''}:${uwaf.timeoutMs ?? ''}:${uwaf.deltaY ?? ''}:${uwaf.optionValue?.trim() || ''}:${uwaf.optionLabel?.trim() || ''}`;
   }
 
   return `filesystem:${request.request.action}:${request.request.path.trim()}`;
@@ -808,8 +866,20 @@ function formatUwafBrowserToolResult(entry: UwafBrowserToolResultEntry): string 
   ];
 
   if (!entry.success) {
+    if (entry.failureCode) {
+      lines.push(`Failure code: ${entry.failureCode}`);
+    }
     if (entry.error?.trim()) {
       lines.push(`Error: ${entry.error.trim()}`);
+    }
+    if (entry.failureDetail?.trim() && entry.failureDetail.trim() !== entry.error?.trim()) {
+      lines.push(`Detail: ${entry.failureDetail.trim()}`);
+    }
+    if (entry.observations && entry.observations.length > 0) {
+      lines.push('', 'Observed issues:');
+      entry.observations.forEach(note => {
+        lines.push(`- ${note}`);
+      });
     }
     lines.push('', 'Use this result to continue the task. Do not claim browser actions or page state that did not happen.');
     return lines.join('\n');
@@ -817,6 +887,42 @@ function formatUwafBrowserToolResult(entry: UwafBrowserToolResultEntry): string 
 
   lines.push(`URL: ${entry.currentUrl}`);
   lines.push(`Title: ${entry.title}`);
+  if (entry.requestedQuery?.trim()) {
+    lines.push(`Query: ${entry.requestedQuery.trim()}`);
+  }
+  if (entry.searchEngine?.trim()) {
+    lines.push(`Search engine: ${entry.searchEngine.trim()}`);
+  }
+  if (typeof entry.queryMatched === 'boolean') {
+    lines.push(`Query matched page: ${entry.queryMatched ? 'yes' : 'no'}`);
+  }
+  if (typeof entry.resultCount === 'number') {
+    lines.push(`Detected result blocks: ${entry.resultCount}`);
+  }
+  if (typeof entry.httpStatus === 'number') {
+    lines.push(`HTTP status: ${entry.httpStatus}`);
+  }
+  if (entry.redirected) {
+    lines.push('Redirected: yes');
+  }
+  if (typeof entry.navigationChanged === 'boolean') {
+    lines.push(`Navigation changed: ${entry.navigationChanged ? 'yes' : 'no'}`);
+  }
+  if (typeof entry.pageChanged === 'boolean') {
+    lines.push(`Page changed: ${entry.pageChanged ? 'yes' : 'no'}`);
+  }
+  if (typeof entry.selectorMatched === 'boolean') {
+    lines.push(`Selector matched: ${entry.selectorMatched ? 'yes' : 'no'}`);
+  }
+  if (entry.waitTimedOut) {
+    lines.push('Wait timed out: yes');
+  }
+  if (entry.antiBotDetected) {
+    lines.push('Anti-bot detected: yes');
+  }
+  if (entry.loginDetected) {
+    lines.push('Login/auth detected: yes');
+  }
 
   if (entry.text?.trim()) {
     lines.push('', 'Page content:', entry.text.trim());
@@ -859,7 +965,35 @@ function formatUwafBrowserToolResult(entry: UwafBrowserToolResultEntry): string 
     });
   }
 
-  lines.push('', 'Use this result to continue the task. Cite sources with inline markers when making factual claims.');
+  if (entry.tabs && entry.tabs.length > 0) {
+    lines.push('', 'Tabs:');
+    entry.tabs.forEach(tab => {
+      lines.push(`- [${tab.index}] ${tab.active ? '*' : ' '} ${tab.title || '(untitled)'} -> ${tab.url}`);
+    });
+  }
+
+  if (entry.observations && entry.observations.length > 0) {
+    lines.push('', 'Observations:');
+    entry.observations.forEach(note => {
+      lines.push(`- ${note}`);
+    });
+  }
+
+  if (entry.jsErrors && entry.jsErrors.length > 0) {
+    lines.push('', 'JavaScript/runtime issues:');
+    entry.jsErrors.forEach(issue => {
+      lines.push(`- ${issue}`);
+    });
+  }
+
+  if (entry.networkErrors && entry.networkErrors.length > 0) {
+    lines.push('', 'Network issues:');
+    entry.networkErrors.forEach(issue => {
+      lines.push(`- ${issue}`);
+    });
+  }
+
+  lines.push('', 'Use this result to continue the task. Separate observed evidence from inference, and do not claim a search or interaction succeeded unless these browser fields show that it did.');
   return lines.join('\n');
 }
 
@@ -2718,7 +2852,23 @@ export default function OpenClawWorkspace({
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || `UWAF browser action failed: ${res.status}`);
+        return {
+          action: payload.action as string,
+          currentUrl: typeof data.currentUrl === 'string' ? data.currentUrl : '',
+          title: typeof data.title === 'string' ? data.title : '',
+          text: typeof data.text === 'string' ? data.text : '',
+          links: Array.isArray(data.links) ? data.links : [],
+          forms: Array.isArray(data.forms) ? data.forms : [],
+          mode: (payload.browserMode as 'direct' | 'stealth') || 'direct',
+          source: payload.browserMode === 'stealth' ? 'dark_web' as const : 'clear_web' as const,
+          success: false,
+        error: typeof data.error === 'string' ? data.error : `UWAF browser action failed: ${res.status}`,
+        failureCode: typeof data.failureCode === 'string' ? data.failureCode : undefined,
+        failureDetail: typeof data.failureDetail === 'string' ? data.failureDetail : undefined,
+        observations: Array.isArray(data.observations)
+            ? data.observations.filter((item: unknown): item is string => typeof item === 'string')
+            : [],
+        };
       }
 
       return {
@@ -2733,7 +2883,31 @@ export default function OpenClawWorkspace({
         screenshot: data.screenshot,
         mode: data.mode || 'direct',
         source: data.source || 'clear_web',
-        success: true,
+        success: data.success !== false,
+        error: typeof data.error === 'string' ? data.error : undefined,
+        requestedUrl: typeof data.requestedUrl === 'string' ? data.requestedUrl : undefined,
+        requestedQuery: typeof data.requestedQuery === 'string' ? data.requestedQuery : undefined,
+        finalUrl: typeof data.finalUrl === 'string' ? data.finalUrl : undefined,
+        redirected: typeof data.redirected === 'boolean' ? data.redirected : undefined,
+        httpStatus: typeof data.httpStatus === 'number' ? data.httpStatus : undefined,
+        queryMatched: typeof data.queryMatched === 'boolean' ? data.queryMatched : undefined,
+        resultCount: typeof data.resultCount === 'number' ? data.resultCount : undefined,
+        antiBotDetected: typeof data.antiBotDetected === 'boolean' ? data.antiBotDetected : undefined,
+        loginDetected: typeof data.loginDetected === 'boolean' ? data.loginDetected : undefined,
+        jsErrors: Array.isArray(data.jsErrors) ? data.jsErrors.filter((item: unknown): item is string => typeof item === 'string') : [],
+        networkErrors: Array.isArray(data.networkErrors) ? data.networkErrors.filter((item: unknown): item is string => typeof item === 'string') : [],
+        failureCode: typeof data.failureCode === 'string' ? data.failureCode : undefined,
+        failureDetail: typeof data.failureDetail === 'string' ? data.failureDetail : undefined,
+        pageChanged: typeof data.pageChanged === 'boolean' ? data.pageChanged : undefined,
+        navigationChanged: typeof data.navigationChanged === 'boolean' ? data.navigationChanged : undefined,
+        selectorMatched: typeof data.selectorMatched === 'boolean' ? data.selectorMatched : undefined,
+        waitTimedOut: typeof data.waitTimedOut === 'boolean' ? data.waitTimedOut : undefined,
+        searchEngine: typeof data.searchEngine === 'string' ? data.searchEngine : undefined,
+        tabs: Array.isArray(data.tabs) ? data.tabs : [],
+        activeTabIndex: typeof data.activeTabIndex === 'number' ? data.activeTabIndex : undefined,
+        observations: Array.isArray(data.observations)
+          ? data.observations.filter((item: unknown): item is string => typeof item === 'string')
+          : [],
         batchResults: data.batchResults,
       };
     } catch (error) {

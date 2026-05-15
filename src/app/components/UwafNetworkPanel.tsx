@@ -6,9 +6,12 @@ import { Globe, Shield, Wifi, WifiOff, RefreshCw } from 'lucide-react'
 interface UwafStatus {
   directIp: string
   torReachable: boolean
+  torIsReady?: boolean
   torError?: string
   torExitIp?: string
   torExitCountry?: string
+  stealthSearchEngine?: string
+  onionReady?: boolean
 }
 
 interface UwafNetworkPanelProps {
@@ -38,7 +41,10 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
   }, [])
 
   useEffect(() => {
-    fetchStatus()
+    const timeout = setTimeout(() => {
+      void fetchStatus()
+    }, 0)
+    return () => clearTimeout(timeout)
   }, [fetchStatus])
 
   return (
@@ -103,7 +109,7 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
         </button>
         <button
           onClick={() => onModeChange('stealth')}
-          disabled={disabled}
+          disabled={disabled || (status ? !status.torReachable : false)}
           style={{
             flex: 1,
             display: 'flex',
@@ -115,7 +121,7 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
             border: currentMode === 'stealth' ? '2px solid #a855f7' : '1px solid var(--border-color)',
             background: currentMode === 'stealth' ? 'rgba(168, 85, 247, 0.1)' : 'transparent',
             color: currentMode === 'stealth' ? '#a855f7' : 'var(--text-secondary)',
-            cursor: disabled ? 'not-allowed' : 'pointer',
+            cursor: disabled || (status ? !status.torReachable : false) ? 'not-allowed' : 'pointer',
             fontSize: '0.72rem',
             fontWeight: currentMode === 'stealth' ? 600 : 400,
           }}
@@ -145,10 +151,28 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
               <><WifiOff size={10} style={{ color: 'var(--danger, #ef4444)' }} /><span>Tor: Offline</span></>
             )}
           </div>
+          {status.torIsReady !== undefined && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+              <Shield size={10} style={{ color: status.torIsReady ? '#a855f7' : 'var(--danger, #ef4444)' }} />
+              <span>Stealth route: {status.torIsReady ? 'Verified over Tor' : 'Unverified'}</span>
+            </div>
+          )}
           {status.torReachable && status.torExitIp && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
               <Shield size={10} style={{ color: '#a855f7' }} />
               <span>Exit: {status.torExitIp}{status.torExitCountry ? ` (${status.torExitCountry})` : ''}</span>
+            </div>
+          )}
+          {status.stealthSearchEngine && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+              <Globe size={10} />
+              <span>Stealth search: {status.stealthSearchEngine}</span>
+            </div>
+          )}
+          {status.onionReady !== undefined && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+              <Shield size={10} style={{ color: status.onionReady ? '#a855f7' : 'var(--danger, #ef4444)' }} />
+              <span>.onion support: {status.onionReady ? 'Ready' : 'Unavailable'}</span>
             </div>
           )}
           {status.torError && (

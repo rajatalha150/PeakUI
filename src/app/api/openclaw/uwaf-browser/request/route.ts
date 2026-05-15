@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     : 'direct'
 
   if (action === 'submit') {
-    const session = getUwafBrowserSession(userId, sessionId)
+    const session = getUwafBrowserSession(userId, sessionId, browserMode)
     if (!session || !session.currentPage) {
       return NextResponse.json({ allowed: false, reason: 'No active browser session. Open a page first.' })
     }

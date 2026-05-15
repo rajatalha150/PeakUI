@@ -5,7 +5,28 @@ import { isBrowserInterrupted, restartScreencastForSession } from '@/lib/live-br
 import { prisma } from '@/lib/prisma'
 import { normalizeOpenClawUwafBrowserMode, normalizeOpenClawUwafDefaultMode, normalizeBoolean, DEFAULT_SETTINGS } from '@/lib/settings'
 
-const VALID_ACTIONS: UwafBrowserRequest['action'][] = ['search', 'open', 'click', 'extract', 'extract_table', 'research_batch', 'fill', 'submit']
+const VALID_ACTIONS: UwafBrowserRequest['action'][] = [
+  'search',
+  'open',
+  'click',
+  'type',
+  'press',
+  'wait_for_selector',
+  'scroll',
+  'back',
+  'forward',
+  'new_tab',
+  'list_tabs',
+  'switch_tab',
+  'close_tab',
+  'select',
+  'hover',
+  'extract',
+  'extract_table',
+  'research_batch',
+  'fill',
+  'submit',
+]
 
 export async function POST(request: NextRequest) {
   const userId = await getCurrentUserIdWithPermissions(['openclaw.use', 'openclaw.uwaf'])
@@ -45,6 +66,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'UWAF browser is disabled. Enable it in Settings.' }, { status: 403 })
   }
 
+  const requestBrowserMode = typeof body.browserMode === 'string' && ['direct', 'stealth'].includes(body.browserMode)
+    ? body.browserMode as 'direct' | 'stealth'
+    : settings.openClawUwafDefaultMode
+
   if (action === 'submit') {
     const approvalToken = typeof body.approvalToken === 'string' ? body.approvalToken : ''
     if (!approvalToken) {
@@ -52,7 +77,7 @@ export async function POST(request: NextRequest) {
     }
 
     const { verifyOpenClawApprovalToken } = await import('@/lib/openclaw-tool-approvals')
-    const session = getUwafBrowserSession(userId, sessionId)
+    const session = getUwafBrowserSession(userId, sessionId, requestBrowserMode)
     if (!session) {
       return NextResponse.json({ error: 'No active browser session for this submit request.' }, { status: 400 })
     }
@@ -94,7 +119,7 @@ export async function POST(request: NextRequest) {
       action: 'research_batch',
       sessionId,
       url: typeof body.url === 'string' ? body.url : '',
-      browserMode: typeof body.browserMode === 'string' ? body.browserMode : settings.openClawUwafDefaultMode,
+      browserMode: requestBrowserMode,
     }
 
     const verification = verifyOpenClawApprovalToken(approvalToken, {
@@ -130,19 +155,25 @@ export async function POST(request: NextRequest) {
   if (typeof body.mode === 'string' && ['summary', 'text', 'links', 'forms', 'html'].includes(body.mode)) {
     uwafRequest.mode = body.mode as UwafBrowserRequest['mode']
   }
-  if (typeof body.browserMode === 'string' && ['direct', 'stealth'].includes(body.browserMode)) {
-    uwafRequest.browserMode = body.browserMode as 'direct' | 'stealth'
-  }
+  uwafRequest.browserMode = requestBrowserMode
   if (typeof body.depth === 'number' && Number.isInteger(body.depth) && body.depth >= 1 && body.depth <= 3) {
     uwafRequest.depth = body.depth
   }
+  if (typeof body.selector === 'string' && body.selector.trim()) uwafRequest.selector = body.selector.trim()
+  if (typeof body.text === 'string') uwafRequest.text = body.text
+  if (typeof body.key === 'string' && body.key.trim()) uwafRequest.key = body.key.trim()
+  if (typeof body.tabIndex === 'number' && Number.isInteger(body.tabIndex) && body.tabIndex >= 0) uwafRequest.tabIndex = body.tabIndex
+  if (typeof body.timeoutMs === 'number' && Number.isFinite(body.timeoutMs) && body.timeoutMs >= 0) uwafRequest.timeoutMs = body.timeoutMs
+  if (typeof body.deltaY === 'number' && Number.isFinite(body.deltaY)) uwafRequest.deltaY = body.deltaY
+  if (typeof body.optionValue === 'string' && body.optionValue.trim()) uwafRequest.optionValue = body.optionValue.trim()
+  if (typeof body.optionLabel === 'string' && body.optionLabel.trim()) uwafRequest.optionLabel = body.optionLabel.trim()
 
   try {
     // If user has interrupted the browser, wait for them to resume (up to 2 minutes)
     const maxWaitMs = 120_000
     const checkIntervalMs = 1_000
     let waited = 0
-    while (isBrowserInterrupted(userId, sessionId) && waited < maxWaitMs) {
+    while (isBrowserInterrupted(userId, sessionId, requestBrowserMode) && waited < maxWaitMs) {
       await new Promise(r => setTimeout(r, checkIntervalMs))
       waited += checkIntervalMs
     }
@@ -153,8 +184,19 @@ export async function POST(request: NextRequest) {
       openClawUwafDefaultMode: settings.openClawUwafDefaultMode,
     })
 
-    if (result.action === 'open' || result.action === 'click' || result.action === 'fill' || result.action === 'submit' || result.action === 'research_batch') {
-      await restartScreencastForSession(userId, sessionId)
+    if (
+      result.action === 'open'
+      || result.action === 'click'
+      || result.action === 'fill'
+      || result.action === 'submit'
+      || result.action === 'research_batch'
+      || result.action === 'new_tab'
+      || result.action === 'switch_tab'
+      || result.action === 'close_tab'
+      || result.action === 'back'
+      || result.action === 'forward'
+    ) {
+      await restartScreencastForSession(userId, sessionId, requestBrowserMode)
     }
 
     return NextResponse.json(result)

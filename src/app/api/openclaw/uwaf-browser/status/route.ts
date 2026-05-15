@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getCurrentUserIdWithPermissions } from '@/lib/request-auth'
 import { checkTorProxyStatus, getDirectIp, getStealthInfo } from '@/lib/uwaf-pool'
 
-export async function GET(request: Request) {
+export async function GET() {
   const userId = await getCurrentUserIdWithPermissions(['openclaw.use', 'openclaw.uwaf'])
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -17,8 +17,11 @@ export async function GET(request: Request) {
   return NextResponse.json({
     directIp,
     torReachable: torStatus.reachable,
+    torIsReady: stealthInfo?.isTor === true,
     torError: torStatus.error,
     torExitIp: stealthInfo?.ip,
     torExitCountry: stealthInfo?.country,
+    stealthSearchEngine: 'Ahmia',
+    onionReady: torStatus.reachable,
   })
 }

@@ -96,7 +96,7 @@ export function useLiveBrowserConnection({
     viewportElement.replaceChildren()
 
     const rfb = new RFB(viewportElement, nextVncUrl, { shared: true })
-    rfb.background = 'transparent'
+    rfb.background = '#0b1020'
     rfb.scaleViewport = true
     rfb.resizeSession = false
     rfb.clipViewport = false

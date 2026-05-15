@@ -49,8 +49,8 @@ const liveBrowserState = globalForLiveBrowser.__peakuiLiveBrowser ??= {
   attachedToHttpServer: false,
 }
 
-function sessionKey(userId: string, sessionId: string): string {
-  return `${userId}:${sessionId}`
+function sessionKey(userId: string, sessionId: string, mode: BrowserMode): string {
+  return `${userId}:${sessionId}:${mode}`
 }
 
 function socketOpen(ws: WebSocket): boolean {
@@ -63,7 +63,7 @@ function sendJson(ws: WebSocket, payload: Record<string, unknown>): void {
 }
 
 function getOrCreateControlSession(auth: LiveBrowserAuth): BrowserControlSession {
-  const key = sessionKey(auth.userId, auth.sessionId)
+  const key = sessionKey(auth.userId, auth.sessionId, auth.mode)
   const existing = liveBrowserState.controlSessions.get(key)
   if (existing) {
     existing.mode = auth.mode
@@ -142,7 +142,7 @@ async function broadcastPageState(session: BrowserControlSession, force = false)
     return session.pagePollPromise
   }
 
-  const key = sessionKey(session.userId, session.sessionId)
+      const key = sessionKey(session.userId, session.sessionId, session.mode)
   session.pagePollPromise = (async () => {
     try {
       const page = await getPage(key, session.mode)
@@ -282,7 +282,7 @@ function handleControlConnection(ws: WebSocket, req: IncomingMessage): void {
 
     sendState(session)
 
-    const liveInfo = await getLiveBrowserInfo(sessionKey(auth.userId, auth.sessionId), auth.mode)
+    const liveInfo = await getLiveBrowserInfo(sessionKey(auth.userId, auth.sessionId, auth.mode), auth.mode)
     sendJson(ws, {
       type: 'ready',
       vncPath: `/ws/live-browser/vnc?sessionId=${encodeURIComponent(auth.sessionId)}&mode=${encodeURIComponent(auth.mode)}`,
@@ -301,7 +301,7 @@ function handleVncConnection(ws: WebSocket, req: IncomingMessage): void {
   void authenticateConnection(ws, req).then(async (auth) => {
     if (!auth) return
 
-    const liveInfo = await getLiveBrowserInfo(sessionKey(auth.userId, auth.sessionId), auth.mode)
+    const liveInfo = await getLiveBrowserInfo(sessionKey(auth.userId, auth.sessionId, auth.mode), auth.mode)
     const tcpSocket = net.createConnection({
       host: '127.0.0.1',
       port: liveInfo.vncPort,
@@ -446,20 +446,20 @@ export async function stopLiveBrowserServer(): Promise<void> {
   }
 }
 
-export function isBrowserInterrupted(userId: string, sessionId: string): boolean {
-  return liveBrowserState.controlSessions.get(sessionKey(userId, sessionId))?.interrupted ?? false
+export function isBrowserInterrupted(userId: string, sessionId: string, mode: BrowserMode): boolean {
+  return liveBrowserState.controlSessions.get(sessionKey(userId, sessionId, mode))?.interrupted ?? false
 }
 
-export function getLiveBrowserState(userId: string, sessionId: string): { connected: boolean; interrupted: boolean } {
-  const session = liveBrowserState.controlSessions.get(sessionKey(userId, sessionId))
+export function getLiveBrowserState(userId: string, sessionId: string, mode: BrowserMode): { connected: boolean; interrupted: boolean } {
+  const session = liveBrowserState.controlSessions.get(sessionKey(userId, sessionId, mode))
   return {
     connected: Boolean(session && session.controlClients.size > 0),
     interrupted: session?.interrupted ?? false,
   }
 }
 
-export async function restartScreencastForSession(userId: string, sessionId: string): Promise<void> {
-  const session = liveBrowserState.controlSessions.get(sessionKey(userId, sessionId))
+export async function restartScreencastForSession(userId: string, sessionId: string, mode: BrowserMode): Promise<void> {
+  const session = liveBrowserState.controlSessions.get(sessionKey(userId, sessionId, mode))
   if (!session) return
   await broadcastPageState(session, true)
 }

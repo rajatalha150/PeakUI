@@ -94,10 +94,14 @@ Open Claw includes a collapsible Canvas panel that:
 - **UWAF browser (Unified Web Agent Framework)**: Dual-mode browser engine supporting Direct (Clear Web) and Stealth (Tor-routed Dark Web) research modes
   - **Direct mode**: Standard Playwright Chromium browsing for public web research, screenshots, table extraction, and form interaction
   - **Stealth mode**: Tor-routed browsing via SOCKS5 proxy for anonymous research and `.onion` access, with randomized User-Agent, WebRTC disabled, and strict content sanitization
+  - **Validated search semantics**: `search` now verifies that the resulting page actually reflects the requested query and contains usable result blocks; homepage bounces, zero-result pages, and anti-bot/login gates are surfaced as explicit failures instead of being treated as evidence
+  - **Richer browser primitives**: Added `type`, `press`, `wait_for_selector`, `scroll`, `back`, `forward`, `new_tab`, `list_tabs`, `switch_tab`, `close_tab`, `select`, and `hover` so the model can operate on real browser state instead of relying on only open/click/fill
+  - **Action diagnostics**: Browser results now include redirect state, HTTP status when available, query-match checks, result counts, tab state, selector match/wait timeout flags, anti-bot/login detection, and recent JS/network failures
   - **Research batch**: Crawl a starting URL and follow links up to depth 3 (max 10 pages), returning aggregated Markdown content
   - **Table extraction**: Pull all `<table>` elements as structured Markdown or CSV
   - **Screenshots**: JPEG base64 thumbnails captured automatically, displayed in the Browser Preview panel
   - **Network Hub Panel**: Shows Direct IP, Tor connection status, Tor exit node country, and mode selector
+  - **Truthfulness guardrails**: The Open Claw prompt now instructs the model to treat browser evidence fields as authoritative and to report browser failure explicitly instead of converting prior knowledge into claimed live observations
   - **Source labeling**: Clear Web sources shown as blue chips, Dark Web sources as purple chips
   - **Security**: Binary download blocking (.exe, .sh, .bin, etc.), .onion URLs only in stealth mode, stealth fails closed if Tor proxy is unavailable
 - **Managed workspace**: Open Claw tools share `/mnt/openclaw/workspace` in-container and `/tmp/peakui-openclaw-workspace` as the host-style alias

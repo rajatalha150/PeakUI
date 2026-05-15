@@ -57,6 +57,9 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - Open Claw now routes visible searches/page visits through the shared `unified_browser` when UWAF is available, including a new visible `search` action
 - UWAF session tracking now follows the active Playwright page and brings it to the front before/after actions, preventing the user-facing noVNC view from staying on a stale blank tab while the AI browses elsewhere
 - Added `wait_for_user` human-assist flow: the model can pause for CAPTCHA/login/MFA/bot checks, the UI opens the live browser in Take Over mode, and after Resume AI the agent observes the updated page state and continues
+- Unified browser results are now evidence-driven instead of optimistic: validated search checks detect homepage bounces, zero-result pages, anti-bot gates, login redirects, and no-op interactions before the model can treat them as success
+- Added richer browser actions: `type`, `press`, `wait_for_selector`, `scroll`, `back`, `forward`, `new_tab`, `list_tabs`, `switch_tab`, `close_tab`, `select`, and `hover`
+- Browser results now return redirect state, HTTP status when available, query-match flags, result counts, tab state, selector/wait outcomes, and recent JS/network failures; the Open Claw prompt instructs the model to treat those fields as authoritative evidence
 
 ## 🌐 Deployment Notes
 - App runs on port `3000`, and the standalone live-browser websocket bridge listens on `3001` as a fallback if same-origin attachment is unavailable
