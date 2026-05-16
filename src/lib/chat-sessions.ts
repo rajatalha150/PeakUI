@@ -385,6 +385,40 @@ export async function deleteChatSession(userId: string, sessionId: string): Prom
   return true;
 }
 
+export async function deleteChatSessions(
+  userId: string,
+  options: {
+    ids?: string[]
+    surface?: ChatSessionSurface
+  } = {},
+): Promise<{ count: number }> {
+  const ids = Array.isArray(options.ids)
+    ? Array.from(new Set(options.ids.map(id => typeof id === 'string' ? id.trim() : '').filter(Boolean)))
+    : []
+
+  if (ids.length > 0) {
+    const result = await prisma.chatSession.deleteMany({
+      where: {
+        userId,
+        id: { in: ids },
+      },
+    })
+    return { count: result.count }
+  }
+
+  if (options.surface) {
+    const result = await prisma.chatSession.deleteMany({
+      where: {
+        userId,
+        surface: normalizeSurface(options.surface),
+      },
+    })
+    return { count: result.count }
+  }
+
+  return { count: 0 }
+}
+
 export async function finalizeChatSession(
   userId: string,
   input: FinalizeChatSessionInput,

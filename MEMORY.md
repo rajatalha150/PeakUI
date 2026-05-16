@@ -61,6 +61,11 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - Added richer browser actions: `type`, `press`, `wait_for_selector`, `scroll`, `back`, `forward`, `new_tab`, `list_tabs`, `switch_tab`, `close_tab`, `select`, and `hover`
 - Browser results now return redirect state, HTTP status when available, query-match flags, result counts, tab state, selector/wait outcomes, and recent JS/network failures; the Open Claw prompt instructs the model to treat those fields as authoritative evidence
 
+### Open Claw Session Management
+- Open Claw task threads now have parity with main chat organization controls: folder assignment/filtering, reusable tags, pin/unpin, inline rename, copy-to-clipboard, and per-thread delete
+- Added bulk session management in the Open Claw rail: select multiple task threads, delete the selected set, or clear all Open Claw sessions at once
+- Extended the shared `/api/chats` deletion path to support bulk deletes by explicit `ids` or by `surface`, so clear-all only removes `surface: 'openclaw'` sessions without touching normal chat history
+
 ## 🌐 Deployment Notes
 - App runs on port `3000`, and the standalone live-browser websocket bridge listens on `3001` as a fallback if same-origin attachment is unavailable
 - `network_mode: host` allows the container to reach Ollama, Tor, and the live-browser bridge

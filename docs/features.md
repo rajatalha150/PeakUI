@@ -116,6 +116,11 @@ Open Claw includes a collapsible Canvas panel that:
 - The left-side workspace rail includes a surface switcher:
   - `Go to Chat` returns to the normal chat surface and restores the main app sidebar.
   - `Knowledge Base (RAG)` opens the Knowledge Base dashboard inside the Open Claw shell while keeping the selected Open Claw task thread visible.
+- Open Claw task threads now support the same core organization controls as normal chat:
+  - **Folders**: assign task threads to folders and filter the rail by folder
+  - **Tags**: assign reusable tags and filter the rail by tag
+  - **Session actions**: pin, rename, copy to clipboard, delete, move to folder, and toggle tags from each task thread menu
+  - **Bulk management**: select multiple task threads, delete the selected set, or clear all Open Claw task threads at once
 - On desktop, the rail shows session controls, current task mode and response style, objective and status, next step, checklist, quick-start prompts, workspace notes, and success criteria.
 - Model selection lives in the shared top bar instead of the rail.
 - On mobile, the same chat-style top bar carries the model picker and overflow menu, while the rail collapses into a drawer so the active session stays in context while still fitting a narrow screen.

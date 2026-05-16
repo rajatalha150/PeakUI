@@ -101,6 +101,12 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Updated the Open Claw unified-browser prompt so the model must treat those fields as authoritative evidence and explicitly report browser failure instead of converting prior/background knowledge into claimed live observations
 - Updated the UI-side tool result formatting so exact browser failure reasons and diagnostics are fed back into the model rather than collapsing everything into a generic browser error
 
+### Open Claw Session Management Parity ✅
+- Open Claw task threads now support the same core organization controls as normal chat: folder assignment/filtering, reusable tags, pin/unpin, rename, copy-to-clipboard, and per-thread delete directly from the workspace rail
+- Added bulk task-thread management in the Open Claw rail: users can enter select mode, delete selected task threads, or clear all Open Claw sessions at once
+- Extended the shared chat-session backend so `/api/chats` delete now supports bulk deletion by explicit `ids` as well as by `surface`, allowing Open Claw clear-all without touching normal chat sessions
+- Reused the existing folder/tag/session relations in `ChatSession`, `Folder`, `Tag`, and `ChatSessionTag` instead of creating a separate Open Claw-only organization system
+
 ### Build Recovery ✅
 - Fixed the repo’s pre-existing Prisma/typecheck blockers so `npm run build` works again after the live-browser rewrite
 - Regenerated Prisma client types locally and corrected stale test/type assumptions in the RAG files that were preventing redeploy

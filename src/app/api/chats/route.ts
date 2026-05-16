@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUserId } from '@/lib/request-auth';
-import { deleteChatSession, listChatSessions, updateChatSession, upsertChatSession } from '@/lib/chat-sessions';
+import { deleteChatSession, deleteChatSessions, listChatSessions, updateChatSession, upsertChatSession } from '@/lib/chat-sessions';
 
 export const runtime = 'nodejs';
 
@@ -89,6 +89,16 @@ export async function DELETE(req: Request) {
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json();
+    const ids = Array.isArray(body.ids)
+      ? body.ids.filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
+      : [];
+    const surface = body.surface === 'openclaw' ? 'openclaw' : body.surface === 'chat' ? 'chat' : undefined;
+
+    if (ids.length > 0 || surface) {
+      const result = await deleteChatSessions(userId, { ids, surface });
+      return NextResponse.json({ success: true, count: result.count });
+    }
+
     const id = typeof body.id === 'string' ? body.id.trim() : '';
     if (!id) return NextResponse.json({ error: 'Session ID required' }, { status: 400 });
 

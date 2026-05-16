@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState, useDeferredValue, useCallback, memo } from 'react';
 import { randomUUID } from '@/lib/uuid';
-import { Activity, AlertCircle, BookOpen, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Cpu, Database, Download, FileText, Globe, ListTodo, Loader2, Menu, MessageSquare, MoreHorizontal, Paperclip, Plus, Redo2, RefreshCw, Send, Server, Shield, Square, Wand2, Wifi, WifiOff, X } from 'lucide-react';
+import { Activity, AlertCircle, BookOpen, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Cpu, Database, Download, FileText, Folder, Globe, ListTodo, Loader2, Menu, MessageSquare, MoreHorizontal, Paperclip, Pin, Plus, Redo2, RefreshCw, Send, Server, Shield, Square, Tag, Trash2, Wand2, Wifi, WifiOff, X } from 'lucide-react';
 import { ChatMessageContent, AssistantDownloads, ThinkingBlock } from './ChatMessageContent';
 import HelpHint from './HelpHint';
 import SourceChips from './SourceChips';
@@ -14,7 +14,6 @@ import {
   DEFAULT_OPENCLAW_AGENT_PREFERENCES,
   DEFAULT_OPENCLAW_TASK_STATE,
   OPENCLAW_AGENT_MODE_OPTIONS,
-  OPENCLAW_QUICK_PROMPTS,
   OPENCLAW_RESPONSE_STYLE_OPTIONS,
   createOpenClawChecklistItems,
   extractOpenClawChecklistSuggestions,
@@ -65,6 +64,22 @@ interface OpenClawSession {
   pinned: boolean;
   surface: 'openclaw';
   messages: OpenClawMessage[];
+  folderId?: string | null;
+  tags?: Array<{ id: string; name: string; color: string }>;
+}
+
+interface OpenClawFolder {
+  id: string;
+  name: string;
+  color: string;
+  _count?: { sessions: number };
+}
+
+interface OpenClawTag {
+  id: string;
+  name: string;
+  color: string;
+  _count?: { sessions: number };
 }
 
 interface OpenClawModel {
@@ -1159,6 +1174,20 @@ export default function OpenClawWorkspace({
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'checking' | 'ok' | 'error'>('idle');
   const [connectionSummary, setConnectionSummary] = useState('');
   const [sessionMenuOpen, setSessionMenuOpen] = useState<string | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [folders, setFolders] = useState<OpenClawFolder[]>([]);
+  const [tags, setTags] = useState<OpenClawTag[]>([]);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
+  const [showNewFolderModal, setShowNewFolderModal] = useState(false);
+  const [showNewTagModal, setShowNewTagModal] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [newFolderColor, setNewFolderColor] = useState('#6366f1');
+  const [newTagName, setNewTagName] = useState('');
+  const [newTagColor, setNewTagColor] = useState('#10b981');
+  const [sessionSelectionMode, setSessionSelectionMode] = useState(false);
+  const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
   const [selectedSessionInfo, setSelectedSessionInfo] = useState<string>('');
   const [ragEnabled, setRagEnabled] = useState(false);
   const [internetEnabled, setInternetEnabled] = useState(getStoredInternetEnabled);
@@ -1241,6 +1270,7 @@ export default function OpenClawWorkspace({
   useEffect(() => {
     browserInterruptedRef.current = browserInterrupted;
   }, [browserInterrupted]);
+
   const {
     handleScroll: handleChatScroll,
     messagesEndRef,
@@ -1455,6 +1485,7 @@ export default function OpenClawWorkspace({
 
     const nextSessions = data as OpenClawSession[];
     setSessions(nextSessions);
+    setSelectedSessionIds(current => current.filter(id => nextSessions.some(session => session.id === id)));
     const storedSelection = getStoredCurrentSessionSelection();
 
     if (storedSelection === OPENCLAW_DRAFT_TASK_ID) {
@@ -1478,6 +1509,18 @@ export default function OpenClawWorkspace({
       setChatHistory([]);
       setSelectedSessionInfo('No saved sessions yet');
     }
+  };
+
+  const loadFolders = async () => {
+    const res = await fetch('/api/folders');
+    const data = await res.json();
+    setFolders(Array.isArray(data) ? data : []);
+  };
+
+  const loadChatTags = async () => {
+    const res = await fetch('/api/chat-tags');
+    const data = await res.json();
+    setTags(Array.isArray(data) ? data : []);
   };
 
   const loadMemory = async () => {
@@ -1733,7 +1776,7 @@ export default function OpenClawWorkspace({
   useEffect(() => {
     void (async () => {
       try {
-        await Promise.all([loadSettings(), loadSessions(), loadMemory(), loadShellSettings()]);
+        await Promise.all([loadSettings(), loadSessions(), loadFolders(), loadChatTags(), loadMemory(), loadShellSettings()]);
       } catch (error) {
         console.error('Failed to initialize Open Claw workspace:', error);
       }
@@ -1912,6 +1955,8 @@ export default function OpenClawWorkspace({
     setLastSubmission(null);
     setSelectedSessionInfo(`${session.title} · updated ${formatTimestamp(session.updatedAt)}`);
     setSessionMenuOpen(null);
+    setRenamingSessionId(null);
+    setRenameValue('');
   };
 
   const createSession = async (baseMessages: OpenClawMessage[], sessionId: string) => {
@@ -1956,6 +2001,10 @@ export default function OpenClawWorkspace({
     setStreamPhase(null);
     setLiveStats(null);
     setSessionMenuOpen(null);
+    setRenamingSessionId(null);
+    setRenameValue('');
+    setSessionSelectionMode(false);
+    setSelectedSessionIds([]);
     setModelControlNote('');
     setSelectedSessionInfo('New Open Claw task thread');
     setLastSubmission(null);
@@ -2055,13 +2104,6 @@ export default function OpenClawWorkspace({
       // Ignore browser storage failures.
     }
     setInternetEnabled(nextValue);
-  };
-
-  const applyQuickPrompt = (prompt: string, mode: OpenClawAgentMode) => {
-    updateAgentPreferences({ mode });
-    setMessage(prompt);
-    pinToBottom();
-    window.requestAnimationFrame(() => composerRef.current?.focus());
   };
 
   const retryLastSubmission = async (options?: { disableInternet?: boolean; stopModelFirst?: boolean }) => {
@@ -3179,6 +3221,7 @@ export default function OpenClawWorkspace({
       body: JSON.stringify({ id: sessionId }),
     });
     setSessions(prev => prev.filter(session => session.id !== sessionId));
+    setSelectedSessionIds(prev => prev.filter(id => id !== sessionId));
     setTaskStates(current => {
       const next = { ...current };
       delete next[sessionId];
@@ -3186,6 +3229,192 @@ export default function OpenClawWorkspace({
     });
     if (currentSessionId === sessionId) handleNewSession();
     setSessionMenuOpen(null);
+  };
+
+  const handlePinSession = async (sessionId: string, pinned: boolean) => {
+    await fetch('/api/chats', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: sessionId, pinned: !pinned, surface: 'openclaw' }),
+    });
+    setSessions(prev => {
+      const updated = prev.map(session => session.id === sessionId ? { ...session, pinned: !pinned } : session);
+      return [...updated.filter(session => session.pinned), ...updated.filter(session => !session.pinned)];
+    });
+    setSessionMenuOpen(null);
+  };
+
+  const handleRenameSession = async (sessionId: string) => {
+    const trimmed = renameValue.trim();
+    if (!trimmed) return;
+    await fetch('/api/chats', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: sessionId, title: trimmed, surface: 'openclaw' }),
+    });
+    setSessions(prev => prev.map(session => session.id === sessionId ? { ...session, title: trimmed } : session));
+    if (currentSessionId === sessionId) {
+      setSelectedSessionInfo(`${trimmed} · updated ${formatTimestamp(Date.now())}`);
+    }
+    setRenamingSessionId(null);
+    setRenameValue('');
+    setSessionMenuOpen(null);
+  };
+
+  const handleCopySession = async (session: OpenClawSession) => {
+    const text = session.messages
+      .filter(messageItem => messageItem.role !== 'system')
+      .map(messageItem => {
+        const attachments = messageItem.attachments?.length
+          ? `\nFiles: ${messageItem.attachments.map(attachment => attachment.name).join(', ')}`
+          : '';
+        const images = messageItem.images?.length ? `\nImages: ${messageItem.images.length}` : '';
+        return `${messageItem.role === 'user' ? 'You' : 'AI'}: ${messageItem.content}${attachments}${images}`;
+      })
+      .join('\n\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      setSelectedSessionInfo(`Copied "${session.title}" to clipboard.`);
+    } catch {
+      setSelectedSessionInfo(`Could not copy "${session.title}" to clipboard.`);
+    }
+    setSessionMenuOpen(null);
+  };
+
+  const handleCreateFolder = async () => {
+    if (!newFolderName.trim()) return;
+    try {
+      const res = await fetch('/api/folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newFolderName, color: newFolderColor }),
+      });
+      if (res.ok) {
+        setNewFolderName('');
+        setShowNewFolderModal(false);
+        await loadFolders();
+      }
+    } catch (error) {
+      console.error('Failed to create folder:', error);
+    }
+  };
+
+  const handleCreateTag = async () => {
+    if (!newTagName.trim()) return;
+    try {
+      const res = await fetch('/api/chat-tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newTagName, color: newTagColor }),
+      });
+      if (res.ok) {
+        setNewTagName('');
+        setShowNewTagModal(false);
+        await loadChatTags();
+      }
+    } catch (error) {
+      console.error('Failed to create tag:', error);
+    }
+  };
+
+  const handleAddToFolder = async (sessionId: string, folderId: string | null) => {
+    try {
+      const res = await fetch('/api/chats', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: sessionId, folderId, surface: 'openclaw' }),
+      });
+      if (res.ok) {
+        await Promise.all([loadSessions(), loadFolders()]);
+      }
+    } catch (error) {
+      console.error('Failed to update Open Claw folder:', error);
+    }
+  };
+
+  const handleAddTagToSession = async (sessionId: string, tagId: string) => {
+    try {
+      await fetch(`/api/sessions/${sessionId}/tags`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagId }),
+      });
+      await Promise.all([loadSessions(), loadChatTags()]);
+    } catch (error) {
+      console.error('Failed to add Open Claw tag:', error);
+    }
+  };
+
+  const handleRemoveTagFromSession = async (sessionId: string, tagId: string) => {
+    try {
+      await fetch(`/api/sessions/${sessionId}/tags?tagId=${tagId}`, {
+        method: 'DELETE',
+      });
+      await Promise.all([loadSessions(), loadChatTags()]);
+    } catch (error) {
+      console.error('Failed to remove Open Claw tag:', error);
+    }
+  };
+
+  const toggleSessionSelection = (sessionId: string) => {
+    setSelectedSessionIds(current =>
+      current.includes(sessionId)
+        ? current.filter(id => id !== sessionId)
+        : [...current, sessionId],
+    );
+  };
+
+  const handleClearSelectedSessions = async () => {
+    const ids = selectedSessionIds.filter(id => sessions.some(session => session.id === id));
+    if (ids.length === 0) return;
+    if (isStreaming && currentSessionId && ids.includes(currentSessionId)) {
+      setSelectedSessionInfo('Stop the current Open Claw run before deleting the active task thread.');
+      return;
+    }
+    if (!confirm(`Delete ${ids.length} selected Open Claw ${ids.length === 1 ? 'session' : 'sessions'}?`)) return;
+    await fetch('/api/chats', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    });
+    setSessions(prev => prev.filter(session => !ids.includes(session.id)));
+    setTaskStates(current => {
+      const next = { ...current };
+      for (const id of ids) {
+        delete next[id];
+      }
+      return next;
+    });
+    setSelectedSessionIds([]);
+    setSessionSelectionMode(false);
+    if (currentSessionId && ids.includes(currentSessionId)) {
+      handleNewSession();
+    }
+  };
+
+  const handleClearAllSessions = async () => {
+    if (isStreaming) {
+      setSelectedSessionInfo('Stop the current Open Claw run before clearing all task threads.');
+      return;
+    }
+    if (!sessions.length) return;
+    if (!confirm(`Delete all ${sessions.length} Open Claw task threads? This cannot be undone.`)) return;
+    await fetch('/api/chats', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ surface: 'openclaw' }),
+    });
+    setSessions([]);
+    setSelectedSessionIds([]);
+    setSessionSelectionMode(false);
+    setTaskStates(current => {
+      const next = { ...current };
+      for (const session of sessions) {
+        delete next[session.id];
+      }
+      return next;
+    });
+    handleNewSession();
   };
 
 
@@ -4203,6 +4432,28 @@ export default function OpenClawWorkspace({
     || OPENCLAW_AGENT_MODE_OPTIONS[0];
   const activeStyleOption = OPENCLAW_RESPONSE_STYLE_OPTIONS.find(option => option.id === agentPreferences.responseStyle)
     || OPENCLAW_RESPONSE_STYLE_OPTIONS[1];
+  const visibleSessions = sessions.filter(session => {
+    if (selectedFolderId && session.folderId !== selectedFolderId) {
+      return false;
+    }
+    if (selectedTagId && !session.tags?.some(tagItem => tagItem.id === selectedTagId)) {
+      return false;
+    }
+    return true;
+  });
+  const folderSessionCounts = sessions.reduce<Record<string, number>>((accumulator, session) => {
+    if (session.folderId) {
+      accumulator[session.folderId] = (accumulator[session.folderId] || 0) + 1;
+    }
+    return accumulator;
+  }, {});
+  const tagSessionCounts = sessions.reduce<Record<string, number>>((accumulator, session) => {
+    for (const tagItem of session.tags || []) {
+      accumulator[tagItem.id] = (accumulator[tagItem.id] || 0) + 1;
+    }
+    return accumulator;
+  }, {});
+  const selectedVisibleSessionCount = selectedSessionIds.filter(id => visibleSessions.some(session => session.id === id)).length;
   const compactModeLabel = activeModeOption.label.slice(0, 3).toUpperCase();
   const selectedModelButtonLabel = selectedModel || (modelsLoading
     ? 'Loading models...'
@@ -4794,27 +5045,9 @@ export default function OpenClawWorkspace({
             {visibleChatHistory.length === 0 ? (
               <div className="openclaw-empty-state">
                 <div style={{ textAlign: 'center', maxWidth: '720px', margin: '0 auto' }}>
-                  <div style={{
-                    width: '88px',
-                    height: '88px',
-                    margin: '0 auto 20px',
-                    borderRadius: '26px',
-                    background: 'var(--accent-gradient)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    boxShadow: '0 14px 36px var(--accent-glow)',
-                  }}>
-                    <Wand2 size={40} color="white" />
-                  </div>
-                  <h1 style={{ margin: '0 0 12px', fontSize: '2rem', color: 'var(--text-primary)' }}>
-                    What should Open Claw drive next?
-                  </h1>
-                  <p style={{ margin: 0, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
-                    Treat this like an agent workspace instead of a plain chat. Pick a mode, attach workspace notes or success
-                    criteria in the rail, and keep separate task threads for planning, research, execution, and review.
+                  <p style={{ margin: '0 0 16px', fontSize: '0.95rem', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+                    Agent workspace ready for your next task.
                   </p>
-
                   <div className="openclaw-context-pills" style={{ justifyContent: 'center', marginTop: '16px' }}>
                     {persona.name && <span className="openclaw-pill accent">{persona.name}</span>}
                     <span className="openclaw-pill accent">{activeModeOption.label} mode</span>
@@ -4826,23 +5059,6 @@ export default function OpenClawWorkspace({
                     {unrestrictedEnabled && <span className="openclaw-pill" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>Unrestricted</span>}
                     {uncensoredEnabled && <span className="openclaw-pill" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>Uncensored</span>}
                   </div>
-                </div>
-
-                <div className="openclaw-quick-grid">
-                  {OPENCLAW_QUICK_PROMPTS.map(prompt => (
-                    <button
-                      key={prompt.title}
-                      type="button"
-                      className="openclaw-quick-card"
-                      onClick={() => applyQuickPrompt(prompt.prompt, prompt.mode)}
-                    >
-                      <div className="openclaw-section-label" style={{ marginBottom: '8px' }}>{prompt.mode}</div>
-                      <div style={{ fontSize: '0.96rem', fontWeight: 700, color: 'var(--text-primary)' }}>{prompt.title}</div>
-                      <div style={{ marginTop: '8px', fontSize: '0.84rem', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
-                        {prompt.description}
-                      </div>
-                    </button>
-                  ))}
                 </div>
               </div>
             ) : (
@@ -5234,108 +5450,369 @@ export default function OpenClawWorkspace({
                 <div className="openclaw-card-header">
                   <div>
                     <div className="openclaw-section-label">Sessions</div>
-                    <div style={{ marginTop: '4px', fontSize: '0.9rem', fontWeight: 700 }}>{sessions.length} task threads</div>
+                    <div style={{ marginTop: '4px', fontSize: '0.9rem', fontWeight: 700 }}>{visibleSessions.length} task threads</div>
                   </div>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={handleNewSession}
-                    disabled={isStreaming}
-                    style={{ padding: '8px 10px', borderRadius: '10px' }}
-                  >
-                    <Plus size={14} /> New
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setSessionSelectionMode(value => !value);
+                        setSelectedSessionIds([]);
+                        setSessionMenuOpen(null);
+                        setRenamingSessionId(null);
+                      }}
+                      style={{ padding: '8px 10px', borderRadius: '10px' }}
+                    >
+                      {sessionSelectionMode ? 'Cancel' : 'Select'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={handleNewSession}
+                      disabled={isStreaming}
+                      style={{ padding: '8px 10px', borderRadius: '10px' }}
+                    >
+                      <Plus size={14} /> New
+                    </button>
+                  </div>
                 </div>
 
-                <div className="openclaw-list-scroll">
-                  {sessions.length === 0 ? (
-                    <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', padding: '8px 4px' }}>
-                      No saved Open Claw sessions yet.
-                    </div>
-                  ) : sessions.map(session => {
-                    const active = session.id === currentSessionId;
-                    return (
-                      <div
-                        key={session.id}
-                        style={{
-                          position: 'relative',
-                          borderRadius: '12px',
-                          border: `1px solid ${active ? 'var(--accent-primary)' : 'var(--border-color)'}`,
-                          background: active ? 'var(--accent-soft)' : 'rgba(255,255,255,0.02)',
-                        }}
+                <div style={{ display: 'grid', gap: '12px' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <span className="openclaw-section-label">Folders</span>
+                      <button
+                        type="button"
+                        className="openclaw-inline-button"
+                        onClick={() => setShowNewFolderModal(true)}
                       >
+                        <Plus size={12} /> New
+                      </button>
+                    </div>
+                    <div style={{ display: 'grid', gap: '6px' }}>
+                      <button
+                        type="button"
+                        className={`openclaw-choice-row${selectedFolderId === null ? ' active' : ''}`}
+                        onClick={() => setSelectedFolderId(null)}
+                      >
+                        <span>All folders</span>
+                        <span style={{ color: 'var(--text-secondary)' }}>{sessions.length}</span>
+                      </button>
+                      {folders.map(folder => (
                         <button
+                          key={folder.id}
                           type="button"
-                          onClick={() => switchSession(session)}
-                          disabled={isStreaming}
-                          style={{
-                            width: '100%',
-                            display: 'grid',
-                            gap: '4px',
-                            border: 'none',
-                            background: 'transparent',
-                            color: 'inherit',
-                            padding: '10px 12px',
-                            cursor: isStreaming ? 'not-allowed' : 'pointer',
-                            opacity: isStreaming ? 0.7 : 1,
-                            textAlign: 'left',
-                            fontFamily: 'inherit',
-                          }}
+                          className={`openclaw-choice-row${selectedFolderId === folder.id ? ' active' : ''}`}
+                          onClick={() => setSelectedFolderId(selectedFolderId === folder.id ? null : folder.id)}
                         >
-                          <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.84rem', fontWeight: 700, color: active ? 'var(--accent-primary)' : 'var(--text-primary)' }}>
-                            {session.title}
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                            <Folder size={12} color={folder.color} />
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{folder.name}</span>
                           </span>
-                          <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                            Updated {formatTimestamp(session.updatedAt)}
-                          </span>
+                          <span style={{ color: 'var(--text-secondary)' }}>{folderSessionCounts[folder.id] || 0}</span>
                         </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                      <span className="openclaw-section-label">Tags</span>
+                      <button
+                        type="button"
+                        className="openclaw-inline-button"
+                        onClick={() => setShowNewTagModal(true)}
+                      >
+                        <Plus size={12} /> New
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      {tags.length > 0 ? tags.map(tagItem => (
                         <button
+                          key={tagItem.id}
                           type="button"
-                          onClick={() => setSessionMenuOpen(session.id === sessionMenuOpen ? null : session.id)}
+                          onClick={() => setSelectedTagId(selectedTagId === tagItem.id ? null : tagItem.id)}
                           style={{
-                            position: 'absolute',
-                            top: '10px',
-                            right: '10px',
-                            border: 'none',
-                            background: 'transparent',
-                            color: 'var(--text-secondary)',
+                            padding: '4px 10px',
+                            borderRadius: '999px',
+                            border: selectedTagId === tagItem.id ? `1px solid ${tagItem.color}` : '1px solid var(--border-color)',
+                            background: `${tagItem.color}20`,
+                            color: tagItem.color,
+                            fontSize: '0.74rem',
                             cursor: 'pointer',
-                            padding: '2px 4px',
+                            opacity: selectedTagId === tagItem.id ? 1 : 0.78,
                           }}
-                          aria-label="Session options"
                         >
-                          ···
+                          {tagItem.name} {tagSessionCounts[tagItem.id] || 0}
                         </button>
-                        {sessionMenuOpen === session.id && (
-                          <div style={{
-                            position: 'absolute',
-                            right: '10px',
-                            top: '34px',
-                            zIndex: 20,
-                            background: 'var(--sidebar-bg)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: '10px',
-                            padding: '4px',
-                            minWidth: '130px',
-                            boxShadow: '0 12px 24px rgba(0,0,0,0.35)',
-                          }}>
-                            <div
-                              onClick={() => void handleDeleteSession(session.id)}
-                              style={{
-                                padding: '7px 10px',
-                                borderRadius: '8px',
-                                cursor: 'pointer',
-                                fontSize: '0.82rem',
-                                color: 'var(--danger)',
-                              }}
-                            >
-                              Delete
-                            </div>
-                          </div>
-                        )}
+                      )) : (
+                        <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>No tags yet</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {sessionSelectionMode && (
+                    <div style={{ display: 'grid', gap: '8px', padding: '10px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.02)' }}>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                        {selectedVisibleSessionCount} selected in current view
                       </div>
-                    );
-                  })}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                        <button
+                          type="button"
+                          className="openclaw-inline-button"
+                          onClick={() => setSelectedSessionIds(visibleSessions.map(session => session.id))}
+                          disabled={visibleSessions.length === 0}
+                        >
+                          Select all
+                        </button>
+                        <button
+                          type="button"
+                          className="openclaw-inline-button"
+                          onClick={() => setSelectedSessionIds([])}
+                          disabled={selectedSessionIds.length === 0}
+                        >
+                          Clear selection
+                        </button>
+                        <button
+                          type="button"
+                          className="openclaw-inline-button"
+                          onClick={() => void handleClearSelectedSessions()}
+                          disabled={selectedSessionIds.length === 0}
+                          style={{ color: 'var(--danger)' }}
+                        >
+                          <Trash2 size={12} /> Delete selected
+                        </button>
+                        <button
+                          type="button"
+                          className="openclaw-inline-button"
+                          onClick={() => void handleClearAllSessions()}
+                          disabled={sessions.length === 0}
+                          style={{ color: 'var(--danger)' }}
+                        >
+                          Clear all
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="openclaw-list-scroll">
+                    {visibleSessions.length === 0 ? (
+                      <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', padding: '8px 4px' }}>
+                        {sessions.length === 0 ? 'No saved Open Claw sessions yet.' : 'No sessions match the current folder/tag filters.'}
+                      </div>
+                    ) : visibleSessions.map(session => {
+                      const active = session.id === currentSessionId;
+                      const selected = selectedSessionIds.includes(session.id);
+                      return (
+                        <div
+                          key={session.id}
+                          style={{
+                            position: 'relative',
+                            borderRadius: '12px',
+                            border: `1px solid ${active ? 'var(--accent-primary)' : selected ? 'var(--accent-border)' : 'var(--border-color)'}`,
+                            background: active ? 'var(--accent-soft)' : selected ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.02)',
+                          }}
+                        >
+                          {renamingSessionId === session.id ? (
+                            <form
+                              onSubmit={event => {
+                                event.preventDefault();
+                                void handleRenameSession(session.id);
+                              }}
+                              style={{ display: 'grid', gap: '8px', padding: '10px 12px' }}
+                            >
+                              <input
+                                autoFocus
+                                value={renameValue}
+                                onChange={event => setRenameValue(event.target.value)}
+                                onBlur={() => {
+                                  setRenamingSessionId(null);
+                                  setRenameValue('');
+                                }}
+                                onKeyDown={event => {
+                                  if (event.key === 'Escape') {
+                                    setRenamingSessionId(null);
+                                    setRenameValue('');
+                                  }
+                                }}
+                                className="input-field"
+                                style={{ width: '100%' }}
+                              />
+                            </form>
+                          ) : (
+                            <div style={{ display: 'flex', alignItems: 'stretch', gap: '6px' }}>
+                              {sessionSelectionMode && (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleSessionSelection(session.id)}
+                                  style={{
+                                    border: 'none',
+                                    background: 'transparent',
+                                    color: selected ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                                    cursor: 'pointer',
+                                    padding: '10px 0 10px 12px',
+                                  }}
+                                  aria-label={selected ? 'Deselect session' : 'Select session'}
+                                >
+                                  <Check size={14} style={{ opacity: selected ? 1 : 0.25 }} />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => switchSession(session)}
+                                disabled={isStreaming}
+                                style={{
+                                  width: '100%',
+                                  display: 'grid',
+                                  gap: '4px',
+                                  border: 'none',
+                                  background: 'transparent',
+                                  color: 'inherit',
+                                  padding: `10px 12px 10px ${sessionSelectionMode ? '4px' : '12px'}`,
+                                  cursor: isStreaming ? 'not-allowed' : 'pointer',
+                                  opacity: isStreaming ? 0.7 : 1,
+                                  textAlign: 'left',
+                                  fontFamily: 'inherit',
+                                }}
+                              >
+                                <span style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                                  {session.pinned ? <Pin size={12} /> : <MessageSquare size={12} style={{ opacity: 0.6 }} />}
+                                  <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.84rem', fontWeight: 700, color: active ? 'var(--accent-primary)' : 'var(--text-primary)' }}>
+                                    {session.title}
+                                  </span>
+                                </span>
+                                <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                                  Updated {formatTimestamp(session.updatedAt)}
+                                </span>
+                                {session.tags && session.tags.length > 0 && (
+                                  <span style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                    {session.tags.slice(0, 3).map(tagItem => (
+                                      <span
+                                        key={tagItem.id}
+                                        style={{
+                                          width: '8px',
+                                          height: '8px',
+                                          borderRadius: '50%',
+                                          background: tagItem.color,
+                                        }}
+                                        title={tagItem.name}
+                                      />
+                                    ))}
+                                  </span>
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSessionMenuOpen(session.id === sessionMenuOpen ? null : session.id)}
+                                style={{
+                                  border: 'none',
+                                  background: 'transparent',
+                                  color: 'var(--text-secondary)',
+                                  cursor: 'pointer',
+                                  padding: '10px 10px 10px 0',
+                                }}
+                                aria-label="Session options"
+                              >
+                                <MoreHorizontal size={14} />
+                              </button>
+                            </div>
+                          )}
+                          {sessionMenuOpen === session.id && renamingSessionId !== session.id && (
+                            <div style={{
+                              position: 'absolute',
+                              right: '10px',
+                              top: '34px',
+                              zIndex: 20,
+                              background: 'var(--sidebar-bg)',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: '10px',
+                              padding: '4px',
+                              minWidth: '180px',
+                              maxHeight: '280px',
+                              overflowY: 'auto',
+                              boxShadow: '0 12px 24px rgba(0,0,0,0.35)',
+                            }}>
+                              {([
+                                { icon: <Pin size={12} />, label: session.pinned ? 'Unpin' : 'Pin', action: () => void handlePinSession(session.id, session.pinned) },
+                                { icon: <BookOpen size={12} />, label: 'Rename', action: () => { setRenamingSessionId(session.id); setRenameValue(session.title); setSessionMenuOpen(null); } },
+                                { icon: <Copy size={12} />, label: 'Copy to clipboard', action: () => void handleCopySession(session) },
+                                { icon: <Trash2 size={12} />, label: 'Delete', action: () => void handleDeleteSession(session.id), danger: true },
+                              ]).map(item => (
+                                <div
+                                  key={item.label}
+                                  onClick={item.action}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    padding: '7px 10px',
+                                    borderRadius: '8px',
+                                    cursor: 'pointer',
+                                    fontSize: '0.82rem',
+                                    color: item.danger ? 'var(--danger)' : 'var(--text-primary)',
+                                  }}
+                                >
+                                  {item.icon}
+                                  <span>{item.label}</span>
+                                </div>
+                              ))}
+                              <div className="openclaw-section-label" style={{ padding: '8px 10px 4px', fontSize: '0.68rem' }}>Folder</div>
+                              <div
+                                onClick={() => { void handleAddToFolder(session.id, null); setSessionMenuOpen(null); }}
+                                style={{ padding: '7px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.82rem' }}
+                              >
+                                {session.folderId ? 'Remove from folder' : 'No folder'}
+                              </div>
+                              {folders.length > 0 ? folders.map(folder => (
+                                <div
+                                  key={folder.id}
+                                  onClick={() => { void handleAddToFolder(session.id, folder.id); setSessionMenuOpen(null); }}
+                                  style={{ padding: '7px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.82rem' }}
+                                >
+                                  {session.folderId === folder.id ? '✓ ' : ''}{folder.name}
+                                </div>
+                              )) : (
+                                <div
+                                  onClick={() => { setShowNewFolderModal(true); setSessionMenuOpen(null); }}
+                                  style={{ padding: '7px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.82rem' }}
+                                >
+                                  Create first folder
+                                </div>
+                              )}
+                              <div className="openclaw-section-label" style={{ padding: '8px 10px 4px', fontSize: '0.68rem' }}>Tags</div>
+                              {tags.length > 0 ? tags.map(tagItem => {
+                                const hasTag = Boolean(session.tags?.some(sessionTag => sessionTag.id === tagItem.id));
+                                return (
+                                  <div
+                                    key={tagItem.id}
+                                    onClick={() => {
+                                      if (hasTag) {
+                                        void handleRemoveTagFromSession(session.id, tagItem.id);
+                                      } else {
+                                        void handleAddTagToSession(session.id, tagItem.id);
+                                      }
+                                      setSessionMenuOpen(null);
+                                    }}
+                                    style={{ padding: '7px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.82rem' }}
+                                  >
+                                    {hasTag ? '✓ ' : ''}{tagItem.name}
+                                  </div>
+                                );
+                              }) : (
+                                <div
+                                  onClick={() => { setShowNewTagModal(true); setSessionMenuOpen(null); }}
+                                  style={{ padding: '7px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '0.82rem' }}
+                                >
+                                  Create first tag
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
               <div className="openclaw-card">
@@ -6163,6 +6640,126 @@ export default function OpenClawWorkspace({
           </>
         )}
       </aside>
+
+      {showNewFolderModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setShowNewFolderModal(false)}
+        >
+          <div
+            style={{
+              background: 'var(--sidebar-bg)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '16px',
+              padding: '24px',
+              width: '320px',
+              maxWidth: '90vw',
+            }}
+            onClick={event => event.stopPropagation()}
+          >
+            <h3 style={{ margin: '0 0 16px', fontSize: '1rem' }}>New Folder</h3>
+            <input
+              type="text"
+              placeholder="Folder name"
+              value={newFolderName}
+              onChange={event => setNewFolderName(event.target.value)}
+              className="input-field"
+              style={{ width: '100%', marginBottom: '12px' }}
+              autoFocus
+              onKeyDown={event => event.key === 'Enter' && void handleCreateFolder()}
+            />
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+              {['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'].map(color => (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => setNewFolderColor(color)}
+                  style={{
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: '50%',
+                    border: newFolderColor === color ? '2px solid white' : '2px solid transparent',
+                    background: color,
+                    cursor: 'pointer',
+                  }}
+                />
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowNewFolderModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={() => void handleCreateFolder()}>Create</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showNewTagModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setShowNewTagModal(false)}
+        >
+          <div
+            style={{
+              background: 'var(--sidebar-bg)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '16px',
+              padding: '24px',
+              width: '320px',
+              maxWidth: '90vw',
+            }}
+            onClick={event => event.stopPropagation()}
+          >
+            <h3 style={{ margin: '0 0 16px', fontSize: '1rem' }}>New Tag</h3>
+            <input
+              type="text"
+              placeholder="Tag name"
+              value={newTagName}
+              onChange={event => setNewTagName(event.target.value)}
+              className="input-field"
+              style={{ width: '100%', marginBottom: '12px' }}
+              autoFocus
+              onKeyDown={event => event.key === 'Enter' && void handleCreateTag()}
+            />
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+              {['#10b981', '#6366f1', '#f59e0b', '#ef4444', '#8b5cf6'].map(color => (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => setNewTagColor(color)}
+                  style={{
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: '50%',
+                    border: newTagColor === color ? '2px solid white' : '2px solid transparent',
+                    background: color,
+                    cursor: 'pointer',
+                  }}
+                />
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => setShowNewTagModal(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={() => void handleCreateTag()}>Create</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Shell command approval modal */}
       <ShellCommandModal
