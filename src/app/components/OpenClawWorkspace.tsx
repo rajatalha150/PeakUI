@@ -1180,6 +1180,7 @@ export default function OpenClawWorkspace({
   const [tags, setTags] = useState<OpenClawTag[]>([]);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [selectedTagId, setSelectedTagId] = useState<string | null>(null);
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [showNewTagModal, setShowNewTagModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
@@ -1210,6 +1211,7 @@ export default function OpenClawWorkspace({
   const [stoppingModel, setStoppingModel] = useState(false);
   const [modelControlNote, setModelControlNote] = useState('');
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [headerModeMenuOpen, setHeaderModeMenuOpen] = useState<string | null>(null);
   const [workspaceCapabilitiesOpen, setWorkspaceCapabilitiesOpen] = useState(false);
   const [rightRailCollapsed, setRightRailCollapsed] = useState(getStoredRightRailCollapsed);
   const [isMobileViewport, setIsMobileViewport] = useState(getIsMobileViewport);
@@ -1265,6 +1267,7 @@ export default function OpenClawWorkspace({
   const [processingAttachments, setProcessingAttachments] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const headerModeMenuRef = useRef<HTMLDivElement>(null);
   const railCollapsed = rightRailCollapsed && !isMobileViewport;
 
   useEffect(() => {
@@ -1325,6 +1328,9 @@ export default function OpenClawWorkspace({
         setMobileHeaderMenuOpen(false);
         setMobileModelMenuOpen(false);
       }
+      if (nextIsMobile) {
+        setHeaderModeMenuOpen(null);
+      }
     };
 
     syncViewport();
@@ -1332,11 +1338,34 @@ export default function OpenClawWorkspace({
     return () => window.removeEventListener('resize', syncViewport);
   }, []);
 
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!headerModeMenuRef.current) return;
+      if (!headerModeMenuRef.current.contains(event.target as Node)) {
+        setHeaderModeMenuOpen(null);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setHeaderModeMenuOpen(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
   const closeMobileChrome = () => {
     setMobileRailOpen(false);
     setMobileHeaderMenuOpen(false);
     setMobileModelMenuOpen(false);
     setModelMenuOpen(false);
+    setHeaderModeMenuOpen(null);
   };
 
   const filesystemEnabled = settings?.openClawFileAccessMode === 'read-only';
@@ -1955,6 +1984,7 @@ export default function OpenClawWorkspace({
     setLastSubmission(null);
     setSelectedSessionInfo(`${session.title} · updated ${formatTimestamp(session.updatedAt)}`);
     setSessionMenuOpen(null);
+    setCreateMenuOpen(false);
     setRenamingSessionId(null);
     setRenameValue('');
   };
@@ -2001,6 +2031,7 @@ export default function OpenClawWorkspace({
     setStreamPhase(null);
     setLiveStats(null);
     setSessionMenuOpen(null);
+    setCreateMenuOpen(false);
     setRenamingSessionId(null);
     setRenameValue('');
     setSessionSelectionMode(false);
@@ -4528,6 +4559,21 @@ export default function OpenClawWorkspace({
   [deferredChatHistory, isVisibleMessage]
 );
   const showingKnowledgeBase = view === 'knowledge-base';
+  const activeModeSummary = [
+    internetEnabled ? 'Internet' : null,
+    ragEnabled ? 'RAG' : null,
+    unrestrictedEnabled ? 'Unrestricted' : null,
+    uncensoredEnabled ? 'Uncensored' : null,
+    settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny'
+      ? uwafBrowserMode === 'stealth'
+        ? 'Stealth'
+        : 'UWAF'
+      : null,
+  ].filter(Boolean) as string[];
+  const activeModeCount = activeModeSummary.length;
+  const modeButtonSummary = activeModeCount > 0
+    ? activeModeSummary.slice(0, 2).join(' · ') + (activeModeCount > 2 ? ` +${activeModeCount - 2}` : '')
+    : 'Internet, browser, RAG, and answer modes';
   const openClawChrome = isMobileViewport ? (
     <header className="mobile-topbar">
       <button
@@ -4869,71 +4915,126 @@ export default function OpenClawWorkspace({
         )}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <div className="openclaw-mode-toolbar" ref={headerModeMenuRef}>
+        <div className={`openclaw-mode-dropdown is-featured${headerModeMenuOpen === 'modes' ? ' is-open' : ''}${activeModeCount > 0 ? ' is-active tone-danger' : ' tone-accent'}`}>
           <button
-            className="glass-panel"
-            style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', border: internetEnabled ? '1px solid var(--accent-primary)' : undefined, background: internetEnabled ? 'var(--accent-soft)' : undefined }}
-            onClick={() => toggleInternetAccess()}
+            type="button"
+            className="openclaw-mode-trigger glass-panel"
+            onClick={() => setHeaderModeMenuOpen(current => current === 'modes' ? null : 'modes')}
+            aria-haspopup="menu"
+            aria-expanded={headerModeMenuOpen === 'modes'}
           >
-            <Globe size={16} color={internetEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
-            <span style={{ fontSize: '0.85rem', color: internetEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>Internet</span>
+            <span className="openclaw-mode-icon">
+              <Wand2 size={16} color={activeModeCount > 0 ? '#f97316' : 'var(--accent-primary)'} />
+            </span>
+            <span className="openclaw-mode-copy">
+              <span className="openclaw-mode-label">Workspace modes</span>
+              <span className="openclaw-mode-status">{activeModeCount > 0 ? modeButtonSummary : 'Configure modes'}</span>
+            </span>
+            <ChevronDown
+              size={15}
+              className="openclaw-mode-chevron"
+              style={{ transform: headerModeMenuOpen === 'modes' ? 'rotate(180deg)' : 'rotate(0deg)' }}
+            />
           </button>
-          <HelpHint text="When enabled, PeakUI can run read-only public web searches and fetch cited pages before answering, while still blocking private or local network targets." />
-        </div>
-        {settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <button
-              className="glass-panel"
-              style={{
-                padding: '8px 16px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                cursor: 'pointer',
-                border: `1px solid ${uwafBrowserMode === 'stealth' ? '#a855f7' : 'var(--accent-primary)'}`,
-                background: uwafBrowserMode === 'stealth' ? 'rgba(168, 85, 247, 0.1)' : 'var(--accent-soft)',
-              }}
-              onClick={() => setUwafBrowserMode(prev => prev === 'direct' ? 'stealth' : 'direct')}
-            >
-              {uwafBrowserMode === 'stealth' ? <Shield size={16} color="#a855f7" /> : <Globe size={16} color="var(--accent-primary)" />}
-              <span style={{ fontSize: '0.85rem', color: uwafBrowserMode === 'stealth' ? '#a855f7' : 'var(--accent-primary)' }}>
-                {uwafBrowserMode === 'stealth' ? 'Stealth' : 'UWAF'}
-              </span>
-            </button>
-            <HelpHint text="UWAF browser: Direct mode uses standard web access. Stealth mode routes traffic through Tor for anonymous research and .onion sites." />
-          </div>
-        )}
-        <button
-          className={`glass-panel`}
-          style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', border: ragEnabled ? '1px solid var(--accent-primary)' : undefined, background: ragEnabled ? 'var(--accent-soft)' : undefined }}
-          onClick={() => setRagEnabled(!ragEnabled)}
-        >
-          <BookOpen size={16} color={ragEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
-          <span style={{ fontSize: '0.85rem', color: ragEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>RAG</span>
-        </button>
-        <HelpHint text="When enabled, each new chat prompt searches the Knowledge Base first and injects matching document context into the request." />
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <button
-            className="glass-panel"
-            style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', border: unrestrictedEnabled ? '1px solid #f59e0b' : undefined, background: unrestrictedEnabled ? 'rgba(245, 158, 11, 0.12)' : undefined }}
-            onClick={() => toggleUnrestricted()}
-          >
-            <Wand2 size={16} color={unrestrictedEnabled ? '#f59e0b' : 'var(--text-secondary)'} />
-            <span style={{ fontSize: '0.85rem', color: unrestrictedEnabled ? '#f59e0b' : 'var(--text-secondary)' }}>Unrestricted</span>
-          </button>
-          <HelpHint text="Removes all system prompts and formatting instructions. The agent responds naturally without guardrails or preset behavior." />
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <button
-            className="glass-panel"
-            style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', border: uncensoredEnabled ? '1px solid #ef4444' : undefined, background: uncensoredEnabled ? 'rgba(239, 68, 68, 0.12)' : undefined }}
-            onClick={() => toggleUncensored()}
-          >
-            <Wand2 size={16} color={uncensoredEnabled ? '#ef4444' : 'var(--text-secondary)'} />
-            <span style={{ fontSize: '0.85rem', color: uncensoredEnabled ? '#ef4444' : 'var(--text-secondary)' }}>Uncensored</span>
-          </button>
-          <HelpHint text="Instructs the agent to answer all questions directly without refusal, moral disclaimers, or hedging. Combine with Unrestricted for maximum openness." />
+          {headerModeMenuOpen === 'modes' && (
+            <div className="openclaw-mode-menu glass-panel" role="menu">
+              <div className="openclaw-mode-menu-header">
+                <div className="openclaw-mode-menu-title-row">
+                  <span className="openclaw-mode-menu-icon">
+                    <Wand2 size={16} color="#f97316" />
+                  </span>
+                  <div className="openclaw-mode-menu-title-copy">
+                    <div className="openclaw-mode-menu-title">Workspace modes</div>
+                    <div className="openclaw-mode-menu-status">{activeModeCount} active</div>
+                  </div>
+                </div>
+                <p className="openclaw-mode-menu-description">
+                  Keep the header clean and switch internet, browser, retrieval, and answer behavior from one place.
+                </p>
+              </div>
+
+              <div className="openclaw-mode-menu-actions">
+                <button
+                  type="button"
+                  className={`openclaw-mode-action${internetEnabled ? ' is-active' : ''}`}
+                  onClick={() => toggleInternetAccess()}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Globe size={15} color={internetEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
+                    Internet
+                  </span>
+                  <span>{internetEnabled ? 'On' : 'Off'}</span>
+                </button>
+
+                {settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && (
+                  <div className="openclaw-mode-section">
+                    <div className="openclaw-mode-section-header">
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {uwafBrowserMode === 'stealth'
+                          ? <Shield size={15} color="#a855f7" />
+                          : <Globe size={15} color="var(--accent-primary)" />}
+                        UWAF browser
+                      </span>
+                      <span>{uwafBrowserMode === 'stealth' ? 'Stealth' : 'Direct'}</span>
+                    </div>
+                    <div className="openclaw-mode-segmented">
+                      <button
+                        type="button"
+                        className={`openclaw-mode-segment${uwafBrowserMode === 'direct' ? ' is-active' : ''}`}
+                        onClick={() => setUwafBrowserMode('direct')}
+                      >
+                        Direct
+                      </button>
+                      <button
+                        type="button"
+                        className={`openclaw-mode-segment${uwafBrowserMode === 'stealth' ? ' is-active is-stealth' : ''}`}
+                        onClick={() => setUwafBrowserMode('stealth')}
+                      >
+                        Stealth
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  className={`openclaw-mode-action${ragEnabled ? ' is-active' : ''}`}
+                  onClick={() => setRagEnabled(value => !value)}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <BookOpen size={15} color={ragEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
+                    RAG
+                  </span>
+                  <span>{ragEnabled ? 'On' : 'Off'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  className={`openclaw-mode-action${unrestrictedEnabled ? ' is-active is-amber' : ''}`}
+                  onClick={() => toggleUnrestricted()}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Wand2 size={15} color={unrestrictedEnabled ? '#f59e0b' : 'var(--text-secondary)'} />
+                    Unrestricted
+                  </span>
+                  <span>{unrestrictedEnabled ? 'On' : 'Off'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  className={`openclaw-mode-action${uncensoredEnabled ? ' is-active is-danger' : ''}`}
+                  onClick={() => toggleUncensored()}
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Wand2 size={15} color={uncensoredEnabled ? '#ef4444' : 'var(--text-secondary)'} />
+                    Uncensored
+                  </span>
+                  <span>{uncensoredEnabled ? 'On' : 'Off'}</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </header>
@@ -5445,14 +5546,17 @@ export default function OpenClawWorkspace({
           </div>
         ) : (
           <>
-            <div className="openclaw-rail-scroll" onClick={() => sessionMenuOpen && setSessionMenuOpen(null)}>
+            <div className="openclaw-rail-scroll" onClick={() => {
+              if (sessionMenuOpen) setSessionMenuOpen(null);
+              if (createMenuOpen) setCreateMenuOpen(false);
+            }}>
               <div className="openclaw-card">
                 <div className="openclaw-card-header">
                   <div>
                     <div className="openclaw-section-label">Sessions</div>
                     <div style={{ marginTop: '4px', fontSize: '0.9rem', fontWeight: 700 }}>{visibleSessions.length} task threads</div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <button
                       type="button"
                       className="btn btn-secondary"
@@ -5469,86 +5573,148 @@ export default function OpenClawWorkspace({
                     <button
                       type="button"
                       className="btn btn-secondary"
-                      onClick={handleNewSession}
-                      disabled={isStreaming}
+                      onClick={event => {
+                        event.stopPropagation();
+                        setCreateMenuOpen(value => !value);
+                        setSessionMenuOpen(null);
+                      }}
                       style={{ padding: '8px 10px', borderRadius: '10px' }}
                     >
                       <Plus size={14} /> New
                     </button>
+                    {createMenuOpen && (
+                      <div
+                        onClick={event => event.stopPropagation()}
+                        style={{
+                          position: 'absolute',
+                          top: '42px',
+                          right: 0,
+                          zIndex: 30,
+                          minWidth: '180px',
+                          padding: '6px',
+                          borderRadius: '12px',
+                          border: '1px solid var(--border-color)',
+                          background: 'var(--sidebar-bg)',
+                          boxShadow: '0 12px 24px rgba(0,0,0,0.35)',
+                          display: 'grid',
+                          gap: '4px',
+                        }}
+                      >
+                        <button
+                          type="button"
+                          className="openclaw-choice-row"
+                          onClick={() => {
+                            handleNewSession();
+                            setCreateMenuOpen(false);
+                          }}
+                          disabled={isStreaming}
+                          style={{ padding: '9px 10px' }}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Plus size={12} /> New task thread</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="openclaw-choice-row"
+                          onClick={() => {
+                            setShowNewFolderModal(true);
+                            setCreateMenuOpen(false);
+                          }}
+                          style={{ padding: '9px 10px' }}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Folder size={12} /> New folder</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="openclaw-choice-row"
+                          onClick={() => {
+                            setShowNewTagModal(true);
+                            setCreateMenuOpen(false);
+                          }}
+                          style={{ padding: '9px 10px' }}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Tag size={12} /> New tag</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <div style={{ display: 'grid', gap: '12px' }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                      <span className="openclaw-section-label">Folders</span>
-                      <button
-                        type="button"
-                        className="openclaw-inline-button"
-                        onClick={() => setShowNewFolderModal(true)}
-                      >
-                        <Plus size={12} /> New
-                      </button>
+                  <div style={{ display: 'grid', gap: '10px', padding: '10px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.02)' }}>
+                    <div>
+                      <div className="openclaw-section-label" style={{ marginBottom: '6px' }}>Browse</div>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                        Filter task threads by folder or tag without leaving the rail.
+                      </div>
                     </div>
                     <div style={{ display: 'grid', gap: '6px' }}>
-                      <button
-                        type="button"
-                        className={`openclaw-choice-row${selectedFolderId === null ? ' active' : ''}`}
-                        onClick={() => setSelectedFolderId(null)}
-                      >
-                        <span>All folders</span>
-                        <span style={{ color: 'var(--text-secondary)' }}>{sessions.length}</span>
-                      </button>
-                      {folders.map(folder => (
-                        <button
-                          key={folder.id}
-                          type="button"
-                          className={`openclaw-choice-row${selectedFolderId === folder.id ? ' active' : ''}`}
-                          onClick={() => setSelectedFolderId(selectedFolderId === folder.id ? null : folder.id)}
-                        >
-                          <span style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                            <Folder size={12} color={folder.color} />
-                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{folder.name}</span>
-                          </span>
-                          <span style={{ color: 'var(--text-secondary)' }}>{folderSessionCounts[folder.id] || 0}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                      <span className="openclaw-section-label">Tags</span>
-                      <button
-                        type="button"
-                        className="openclaw-inline-button"
-                        onClick={() => setShowNewTagModal(true)}
-                      >
-                        <Plus size={12} /> New
-                      </button>
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                      {tags.length > 0 ? tags.map(tagItem => (
-                        <button
-                          key={tagItem.id}
-                          type="button"
-                          onClick={() => setSelectedTagId(selectedTagId === tagItem.id ? null : tagItem.id)}
-                          style={{
-                            padding: '4px 10px',
-                            borderRadius: '999px',
-                            border: selectedTagId === tagItem.id ? `1px solid ${tagItem.color}` : '1px solid var(--border-color)',
-                            background: `${tagItem.color}20`,
-                            color: tagItem.color,
-                            fontSize: '0.74rem',
-                            cursor: 'pointer',
-                            opacity: selectedTagId === tagItem.id ? 1 : 0.78,
-                          }}
-                        >
-                          {tagItem.name} {tagSessionCounts[tagItem.id] || 0}
-                        </button>
-                      )) : (
-                        <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>No tags yet</span>
-                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                        <Folder size={12} color="var(--text-secondary)" />
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedFolderId(null)}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: '999px',
+                              border: selectedFolderId === null ? '1px solid var(--accent-primary)' : '1px solid var(--border-color)',
+                              background: selectedFolderId === null ? 'var(--accent-soft)' : 'transparent',
+                              color: selectedFolderId === null ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                              fontSize: '0.74rem',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            All folders {sessions.length}
+                          </button>
+                          {folders.map(folder => (
+                            <button
+                              key={folder.id}
+                              type="button"
+                              onClick={() => setSelectedFolderId(selectedFolderId === folder.id ? null : folder.id)}
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '4px 10px',
+                                borderRadius: '999px',
+                                border: selectedFolderId === folder.id ? `1px solid ${folder.color}` : '1px solid var(--border-color)',
+                                background: selectedFolderId === folder.id ? `${folder.color}20` : 'transparent',
+                                color: selectedFolderId === folder.id ? folder.color : 'var(--text-secondary)',
+                                fontSize: '0.74rem',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <span>{folder.name}</span>
+                              <span>{folderSessionCounts[folder.id] || 0}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                        <Tag size={12} color="var(--text-secondary)" />
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                          {tags.length > 0 ? tags.map(tagItem => (
+                            <button
+                              key={tagItem.id}
+                              type="button"
+                              onClick={() => setSelectedTagId(selectedTagId === tagItem.id ? null : tagItem.id)}
+                              style={{
+                                padding: '4px 10px',
+                                borderRadius: '999px',
+                                border: selectedTagId === tagItem.id ? `1px solid ${tagItem.color}` : '1px solid var(--border-color)',
+                                background: selectedTagId === tagItem.id ? `${tagItem.color}20` : 'transparent',
+                                color: selectedTagId === tagItem.id ? tagItem.color : 'var(--text-secondary)',
+                                fontSize: '0.74rem',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              {tagItem.name} {tagSessionCounts[tagItem.id] || 0}
+                            </button>
+                          )) : (
+                            <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>No tags yet</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
 

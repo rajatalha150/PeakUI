@@ -38,6 +38,12 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 | `src/app/components/UwafBrowserPreview.tsx` | Static screenshot fallback |
 | `src/app/components/OpenClawWorkspace.tsx` | Integration: LiveBrowserView shows when internet toggle is on |
 
+## ✅ Recent UI Update — Open Claw Header Cleanup
+
+- Desktop Open Claw mode controls were consolidated into one featured `Workspace modes` dropdown in the shared top bar.
+- That single menu now contains Internet, UWAF Direct/Stealth, RAG, Unrestricted, and Uncensored instead of rendering five separate top-bar buttons.
+- Mobile keeps the existing overflow-menu pattern, and the desktop dropdown closes on outside click, `Esc`, and viewport collapse.
+
 ## 🚀 Recent Fixes & Changes (Stable)
 
 ### Chat Mode System

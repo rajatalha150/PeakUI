@@ -72,7 +72,7 @@ Chat settings are saved per user in `UserSettings` and normalized on both read a
 
 ## Internet Mode
 
-- Enabled per browser session from the Internet toggle in the main chat header and the Open Claw top bar.
+- Enabled per browser session from the Internet toggle in the main chat header and from the **Workspace modes** dropdown in the Open Claw desktop header.
 - Internet mode now runs as a backend-managed cited web-context lookup inside the shared chat pipeline.
 - The backend performs the public search and page fetch work directly before the model starts, so Internet mode no longer depends on a local model deciding to call tools first.
 - Chat, Open Claw, local Ollama, and OpenAI-compatible providers all use the same research path now.

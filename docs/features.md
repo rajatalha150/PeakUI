@@ -123,6 +123,7 @@ Open Claw includes a collapsible Canvas panel that:
   - **Bulk management**: select multiple task threads, delete the selected set, or clear all Open Claw task threads at once
 - On desktop, the rail shows session controls, current task mode and response style, objective and status, next step, checklist, quick-start prompts, workspace notes, and success criteria.
 - Model selection lives in the shared top bar instead of the rail.
+- On desktop, Open Claw-specific runtime controls now live in one featured **Workspace modes** dropdown in the top bar. That single menu contains Internet, UWAF Direct/Stealth, RAG, Unrestricted, and Uncensored, which keeps the header compact without dropping any functionality.
 - On mobile, the same chat-style top bar carries the model picker and overflow menu, while the rail collapses into a drawer so the active session stays in context while still fitting a narrow screen.
 
 ## Knowledge Base (RAG)

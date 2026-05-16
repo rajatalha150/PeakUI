@@ -17,6 +17,11 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 ## 🚀 Completed Features
 
+### Open Claw Header Cleanup ✅
+- The crowded desktop Open Claw mode cluster was replaced with one featured `Workspace modes` dropdown in the shared top bar.
+- The single menu now contains Internet, UWAF Direct/Stealth, RAG, Unrestricted, and Uncensored so the navbar stays clean without removing any runtime controls.
+- Desktop dropdown state now closes on outside click, `Esc`, and viewport collapse; mobile keeps the existing overflow-menu pattern.
+
 ### Open Claw Host Shell Executor & Shell Audit ✅
 - Open Claw shell execution now has an explicit target setting: `container` for the built-in app runtime or `host` for an optional host-side executor daemon.
 - The optional host executor lives at `scripts/openclaw-host-executor.mjs`, listens on `127.0.0.1:4318` by default, requires `OPENCLAW_HOST_EXECUTOR_TOKEN`, and executes commands on the host with host `PATH`/CLI availability.
