@@ -35,7 +35,7 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 | `src/app/components/useLiveBrowserConnection.ts` | Shared control/noVNC connection hook for sidebar and modal |
 | `src/app/components/LiveBrowserView.tsx` | Sidebar live interactive browser surface |
 | `src/app/components/BrowserModal.tsx` | Full-screen expandable interactive browser surface |
-| `src/app/components/UwafBrowserPreview.tsx` | Static screenshot fallback |
+| `src/app/components/UwafBrowserPreview.tsx` | Legacy static preview component; live noVNC browser is the active visual browsing surface |
 | `src/app/components/OpenClawWorkspace.tsx` | Integration: LiveBrowserView shows when internet toggle is on |
 
 ## ✅ Recent UI Update — Open Claw Header Cleanup

@@ -77,7 +77,7 @@ model UserSettings {
   openClawBrowserMode    String @default("deny") // "deny" | "read-only" | "ask-first"
   // UWAF Browser Settings
   openClawUwafBrowserMode String @default("deny") // "deny" | "direct" | "stealth"
-  openClawUwafScreenshots Boolean @default(true)
+  openClawUwafScreenshots Boolean @default(false) // deprecated: static page screenshots are disabled in favor of the live browser
   openClawUwafDefaultMode String @default("direct") // "direct" | "stealth"
   openClawUwafLiveBrowser Boolean @default(true)
   // Knowledge Base RAG Settings

@@ -103,6 +103,8 @@ interface Props {
   onLogout?: () => void;
 }
 
+const SHOW_LEGACY_CHAT_SETTINGS = false;
+
 const INITIAL_SETTINGS: UserSettings = {
   chatPlatform: 'ollama',
   chatModel: '',
@@ -126,7 +128,7 @@ const INITIAL_SETTINGS: UserSettings = {
   openClawCodeExecutionMode: 'deny',
   openClawBrowserMode: 'deny',
   openClawUwafBrowserMode: 'deny',
-  openClawUwafScreenshots: true,
+  openClawUwafScreenshots: false,
   openClawUwafDefaultMode: 'direct',
   openClawUwafLiveBrowser: true,
   ragModel: 'nomic-embed-text',
@@ -354,7 +356,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
       const nextSettings = loadedSettings || INITIAL_SETTINGS;
       await Promise.all([
         fetchModels(nextSettings.ollamaHost),
-        fetchChatModels(nextSettings, huggingFaceApiKey),
+        SHOW_LEGACY_CHAT_SETTINGS ? fetchChatModels(nextSettings, huggingFaceApiKey) : Promise.resolve(),
       ]);
       if (authUser?.permissions.includes('users.manage')) {
         await fetchManagedUsers();
@@ -366,6 +368,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
 
   useEffect(() => {
     if (loading) return;
+    if (!SHOW_LEGACY_CHAT_SETTINGS) return;
     const timer = window.setTimeout(() => {
       void fetchChatModels(settings);
     }, 0);
@@ -388,7 +391,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
         applyTheme(data.theme);
         onSettingsChange?.(data);
         void fetchModels(data.ollamaHost);
-        void fetchChatModels(data, huggingFaceApiKey);
+        if (SHOW_LEGACY_CHAT_SETTINGS) void fetchChatModels(data, huggingFaceApiKey);
         setTimeout(() => setSaved(false), 3000);
       }
     } catch (e) {
@@ -600,7 +603,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
     acc[permission.category].push(permission);
     return acc;
   }, {});
-  const showLegacyChatSettings = false;
+  const showLegacyChatSettings = SHOW_LEGACY_CHAT_SETTINGS;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', padding: '24px', gap: '4px', maxWidth: '680px', margin: '0 auto' }}>
@@ -1559,7 +1562,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           </div>
         </Field>
 
-        <Field label="UWAF Browser" help="Unified Web Agent Framework: dual-mode browser that supports both Clear Web (direct) and Dark Web (Tor) research with sanitization and screenshots.">
+        <Field label="UWAF Browser" help="Unified Web Agent Framework: dual-mode browser that supports both Clear Web (direct) and Dark Web (Tor) research with sanitization.">
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {[
               { value: 'deny', label: 'Deny', desc: 'Block all UWAF browser actions' },
@@ -1620,24 +1623,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                   })}
                 </div>
               </Field>
-              <Field label="Screenshots" help="Automatically capture viewport screenshots when browsing pages.">
-                <div
-                  onClick={() => update('openClawUwafScreenshots', !settings.openClawUwafScreenshots)}
-                  style={{
-                    position: 'relative', width: '48px', height: '26px', borderRadius: '13px',
-                    background: settings.openClawUwafScreenshots ? 'var(--accent-primary)' : 'rgba(255,255,255,0.1)',
-                    cursor: 'pointer', transition: 'all 0.2s',
-                  }}
-                >
-                  <div style={{
-                    position: 'absolute', top: '3px',
-                    left: settings.openClawUwafScreenshots ? '25px' : '3px',
-                    width: '20px', height: '20px', borderRadius: '50%',
-                    background: '#fff', transition: 'left 0.2s',
-                  }} />
-                </div>
-              </Field>
-              <Field label="Live Browser" help="Launch a real interactive browser surface in the sidebar. When enabled, you can watch the actual browser session live and take over control using the Take Over button. Static screenshots remain available separately when live browser is disabled or unavailable.">
+              <Field label="Live Browser" help="Launch a real interactive browser surface in the sidebar. When enabled, you can watch the actual browser session live and take over control using the Take Over button. When disabled, Open Claw can still use browser text extraction, but no live visual browser panel is shown.">
                 <div
                   onClick={() => update('openClawUwafLiveBrowser', !settings.openClawUwafLiveBrowser)}
                   style={{
@@ -1657,7 +1643,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             </div>
           )}
           <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: 1.5 }}>
-            UWAF browser renders pages with a real browser engine, sanitizes content to Markdown, and blocks executable downloads. Stealth mode requires a running Tor proxy (tor-proxy service in Docker Compose).
+            UWAF browser renders pages with a real browser engine, sanitizes content to Markdown, and blocks executable downloads. Stealth mode requires a running Tor proxy (tor-proxy service in Docker Compose). Page screenshots are disabled because the live browser is the visual browsing surface.
           </div>
         </Field>
       </Section>

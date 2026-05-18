@@ -93,14 +93,14 @@ Open Claw includes a collapsible Canvas panel that:
 - **Code execution sandbox**: Run short Python or Node scripts in a managed workspace-scoped sandbox with timeouts, output limits, and generated-file reporting
 - **Browser control**: Open public pages, inspect links/forms, stage fills, submit with approval, and extract content
 - **UWAF browser (Unified Web Agent Framework)**: Dual-mode browser engine supporting Direct (Clear Web) and Stealth (Tor-routed Dark Web) research modes
-  - **Direct mode**: Standard Playwright Chromium browsing for public web research, screenshots, table extraction, and form interaction
+  - **Direct mode**: Standard Playwright Chromium browsing for public web research, table extraction, and form interaction
   - **Stealth mode**: Tor-routed browsing via SOCKS5 proxy for anonymous research and `.onion` access, with randomized User-Agent, WebRTC disabled, and strict content sanitization
   - **Validated search semantics**: `search` now verifies that the resulting page actually reflects the requested query and contains usable result blocks; homepage bounces, zero-result pages, and anti-bot/login gates are surfaced as explicit failures instead of being treated as evidence
   - **Richer browser primitives**: Added `type`, `press`, `wait_for_selector`, `scroll`, `back`, `forward`, `new_tab`, `list_tabs`, `switch_tab`, `close_tab`, `select`, and `hover` so the model can operate on real browser state instead of relying on only open/click/fill
   - **Action diagnostics**: Browser results now include redirect state, HTTP status when available, query-match checks, result counts, tab state, selector match/wait timeout flags, anti-bot/login detection, and recent JS/network failures
   - **Research batch**: Crawl a starting URL and follow links up to depth 3 (max 10 pages), returning aggregated Markdown content
   - **Table extraction**: Pull all `<table>` elements as structured Markdown or CSV
-  - **Screenshots**: JPEG base64 thumbnails captured automatically, displayed in the Browser Preview panel
+  - **Live browser instead of screenshots**: Static screenshot capture is disabled; the live noVNC browser is the visual browsing surface
   - **Network Hub Panel**: Shows Direct IP, Tor connection status, Tor exit node country, and mode selector
   - **Truthfulness guardrails**: The Open Claw prompt now instructs the model to treat browser evidence fields as authoritative and to report browser failure explicitly instead of converting prior knowledge into claimed live observations
   - **Source labeling**: Clear Web sources shown as blue chips, Dark Web sources as purple chips
@@ -227,7 +227,7 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 - **Browser mode**: `deny`, `read-only`, or `ask-first`
 - **UWAF browser mode**: `deny`, `direct` (Clear Web), or `stealth` (Dark Web/Tor)
 - **UWAF default mode**: `direct` or `stealth` — sets the default browsing mode for the Unified Web Agent Framework
-- **UWAF screenshots**: Toggle automatic screenshot capture during UWAF browser actions
+- **UWAF live browser**: Toggle whether the live interactive browser panel is shown during UWAF browser actions
 
 ### RAG Settings
 

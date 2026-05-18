@@ -937,7 +937,7 @@ export async function runUwafBrowserAction(
   }
 
   const session = getOrCreateSession(userId, request.sessionId, mode)
-  const takeScreenshot = settings.openClawUwafScreenshots !== false
+  const takeScreenshot = false
   const contextKey = getSessionKey(userId, request.sessionId, mode)
   const page = await getPage(contextKey, mode)
   ensurePageInstrumentation(page)

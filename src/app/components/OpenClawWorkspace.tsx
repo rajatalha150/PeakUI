@@ -49,7 +49,6 @@ import {
   type OpenClawUwafBrowserToolRequest,
 } from '@/lib/openclaw-tools';
 import UwafNetworkPanel from './UwafNetworkPanel';
-import UwafBrowserPreview from './UwafBrowserPreview';
 import LiveBrowserView from './LiveBrowserView';
 import BrowserModal from './BrowserModal';
 
@@ -149,7 +148,6 @@ interface OpenClawSettings {
   openClawBrowserMode: 'deny' | 'read-only' | 'ask-first';
   openClawUwafBrowserMode: 'deny' | 'direct' | 'stealth';
   openClawUwafDefaultMode: 'direct' | 'stealth';
-  openClawUwafScreenshots: boolean;
   openClawUwafLiveBrowser: boolean;
   openClawPersonaTemplate: string;
   openClawPersonaName: string;
@@ -1019,6 +1017,7 @@ export interface OpenClawWorkspaceProps {
   view?: 'workspace' | 'knowledge-base' | 'settings';
   knowledgeBaseContent?: React.ReactNode;
   settingsContent?: React.ReactNode;
+  settingsRevision?: number;
 }
 
 export default function OpenClawWorkspace({
@@ -1028,6 +1027,7 @@ export default function OpenClawWorkspace({
   view = 'workspace',
   knowledgeBaseContent,
   settingsContent,
+  settingsRevision = 0,
 }: OpenClawWorkspaceProps) {
   const getStoredInternetEnabled = () => {
     if (typeof window === 'undefined') return false;
@@ -1199,10 +1199,8 @@ export default function OpenClawWorkspace({
   const [uncensoredEnabled, setUncensoredEnabled] = useState(() => {
     try { return window.sessionStorage.getItem(OPENCLAW_UNCENSORED_STORAGE) === 'true'; } catch { return false; }
   });
-  const [uwafScreenshot, setUwafScreenshot] = useState<string | null>(null);
   const [uwafCurrentUrl, setUwafCurrentUrl] = useState<string>('');
   const [uwafCurrentTitle, setUwafCurrentTitle] = useState<string>('');
-  const [uwafShowPreview, setUwafShowPreview] = useState(false);
   const [browserModalOpen, setBrowserModalOpen] = useState(false);
   const [browserInterrupted, setBrowserInterrupted] = useState(false);
   const [browserLiveStatus, setBrowserLiveStatus] = useState<'connecting' | 'live' | 'disconnected' | 'failed'>('connecting');
@@ -1468,7 +1466,6 @@ export default function OpenClawWorkspace({
         ? data.openClawUwafBrowserMode
         : 'deny',
       openClawUwafDefaultMode: data.openClawUwafDefaultMode === 'stealth' ? 'stealth' : 'direct',
-      openClawUwafScreenshots: data.openClawUwafScreenshots !== false,
       openClawUwafLiveBrowser: data.openClawUwafLiveBrowser !== false,
       openClawPersonaTemplate: typeof data.openClawPersonaTemplate === 'string' ? data.openClawPersonaTemplate : 'custom',
       openClawPersonaName: typeof data.openClawPersonaName === 'string' ? data.openClawPersonaName : '',
@@ -1773,7 +1770,6 @@ export default function OpenClawWorkspace({
           ? data.openClawUwafBrowserMode
           : 'deny',
         openClawUwafDefaultMode: data.openClawUwafDefaultMode === 'stealth' ? 'stealth' : 'direct',
-        openClawUwafScreenshots: data.openClawUwafScreenshots !== false,
       openClawUwafLiveBrowser: data.openClawUwafLiveBrowser !== false,
         openClawPersonaTemplate: typeof data.openClawPersonaTemplate === 'string' ? data.openClawPersonaTemplate : 'custom',
         openClawPersonaName: typeof data.openClawPersonaName === 'string' ? data.openClawPersonaName : '',
@@ -1812,6 +1808,23 @@ export default function OpenClawWorkspace({
     })();
     // load only once on mount
   }, []);
+
+  useEffect(() => {
+    if (settingsRevision <= 0) return;
+    void loadSettings();
+  }, [settingsRevision]);
+
+  useEffect(() => {
+    if (settings?.openClawUwafLiveBrowser !== false) return;
+    setBrowserModalOpen(false);
+    setBrowserInterrupted(false);
+    browserInterruptedRef.current = false;
+  }, [settings?.openClawUwafLiveBrowser]);
+
+  useEffect(() => {
+    if (settings?.openClawUwafLiveBrowser !== true) return;
+    setBrowserLiveStatus('connecting');
+  }, [settings?.openClawUwafLiveBrowser, currentSessionId, uwafBrowserMode]);
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
@@ -2854,6 +2867,21 @@ export default function OpenClawWorkspace({
   const waitForHumanBrowserAssistance = async (
     request: OpenClawUwafBrowserToolRequest & { sessionId: string; browserMode: 'direct' | 'stealth' }
   ): Promise<UwafBrowserToolResultEntry> => {
+    if (settings?.openClawUwafLiveBrowser === false) {
+      return {
+        action: request.action,
+        currentUrl: '',
+        title: '',
+        text: '',
+        links: [],
+        forms: [],
+        mode: request.browserMode,
+        source: request.browserMode === 'stealth' ? 'dark_web' : 'clear_web',
+        success: false,
+        error: 'Live Browser is disabled in Settings, so human browser assistance is unavailable.',
+      };
+    }
+
     setBrowserModalOpen(true);
     setBrowserTakeoverRequestId(previous => previous + 1);
 
@@ -2953,7 +2981,6 @@ export default function OpenClawWorkspace({
         forms: data.forms || [],
         tables: data.tables || [],
         markdown: data.markdown || '',
-        screenshot: data.screenshot,
         mode: data.mode || 'direct',
         source: data.source || 'clear_web',
         success: data.success !== false,
@@ -4255,11 +4282,9 @@ export default function OpenClawWorkspace({
               sessionId: chatId,
             });
             setStreamPhase(null);
-            if (uwafResult.screenshot) {
-              setUwafScreenshot(uwafResult.screenshot);
+            if (uwafResult.currentUrl || uwafResult.title) {
               setUwafCurrentUrl(uwafResult.currentUrl);
               setUwafCurrentTitle(uwafResult.title);
-              setUwafShowPreview(true);
             }
             const toolResultMessage: OpenClawMessage = {
               id: randomUUID(),
@@ -6748,20 +6773,11 @@ export default function OpenClawWorkspace({
               <LiveBrowserView
                 sessionId={currentSessionId}
                 mode={uwafBrowserMode}
-                fallbackScreenshot={uwafScreenshot}
                 currentUrl={uwafCurrentUrl}
                 title={uwafCurrentTitle}
                 onInterruptChange={setBrowserInterrupted}
                 onStatusChange={setBrowserLiveStatus}
                 enabled={true}
-              />
-            ) : uwafShowPreview && uwafScreenshot ? (
-              <UwafBrowserPreview
-                screenshot={uwafScreenshot}
-                currentUrl={uwafCurrentUrl}
-                title={uwafCurrentTitle}
-                mode={uwafBrowserMode}
-                onClose={() => setUwafShowPreview(false)}
               />
             ) : null}
 
@@ -6796,7 +6812,6 @@ export default function OpenClawWorkspace({
               <BrowserModal
                 sessionId={currentSessionId}
                 mode={uwafBrowserMode}
-                fallbackScreenshot={uwafScreenshot}
                 currentUrl={uwafCurrentUrl}
                 title={uwafCurrentTitle}
                 enabled={settings?.openClawUwafLiveBrowser ?? true}

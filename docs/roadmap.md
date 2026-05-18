@@ -49,13 +49,13 @@
 - [x] Tor proxy sidecar (peterdavehello/tor-socks-proxy) for stealth mode
 - [x] Three-stage sanitize-first pipeline (HTML pruning → readability → Markdown)
 - [x] unified_browser tool with open, click, extract, extract_table, research_batch, fill, submit actions
-- [x] Automatic screenshot capture with Browser Preview panel
+- [x] Live noVNC browser as the visual browsing surface; static screenshot capture is now disabled
 - [x] Network Hub Panel showing Direct IP, Tor status, and mode selector
 - [x] Source chip labeling (Clear Web blue, Dark Web purple)
 - [x] Approval-gated submit and research_batch actions
 - [x] Binary download blocking and .onion URL restrictions
 - [x] Stealth mode fail-closed design (no Tor fallback to direct)
-- [x] UWAF settings in Settings Panel (mode, default mode, screenshots toggle)
+- [x] UWAF settings in Settings Panel (mode, default mode, live-browser toggle)
 - [x] Connection status API endpoint
 
 ## In Progress

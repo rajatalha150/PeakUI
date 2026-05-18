@@ -336,14 +336,14 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 | `docs/openclaw-host-executor.md` | Operator docs for configuring and running the optional Open Claw host executor |
 | `src/lib/openclaw-code-execution.ts` | Managed Open Claw Python/Node sandbox with workspace guardrails, runtime shims, and artifact capture |
 | `src/lib/openclaw-browser.ts` | Controlled public-web browser session logic with SSRF protections, link/form extraction, and approval-gated submits |
-| `src/lib/uwaf-browser.ts` | Unified Web Agent Framework browser engine — dual-mode (direct/stealth) Playwright-based browser with screenshots, form interaction, research batch crawling, and binary download blocking |
+| `src/lib/uwaf-browser.ts` | Unified Web Agent Framework browser engine — dual-mode (direct/stealth) Playwright-based browser with form interaction, research batch crawling, and binary download blocking |
 | `src/lib/uwaf-sanitizer.ts` | Three-stage sanitize-first pipeline (HTML pruning → readability filtering → Markdown conversion via Turndown), table extraction, and binary URL blocking |
 | `src/lib/uwaf-pool.ts` | Playwright browser pool manager — lazy Chromium init, context reuse with 30-min TTL, stealth mode config (randomized UA, SOCKS5 proxy, WebRTC disabled), Tor health checks, IP detection |
 | `src/app/api/openclaw/uwaf-browser/route.ts` | Main UWAF browser execution route with auth, settings, approval validation |
 | `src/app/api/openclaw/uwaf-browser/request/route.ts` | Approval token creation for submit/research_batch actions |
 | `src/app/api/openclaw/uwaf-browser/status/route.ts` | Connection status endpoint (Direct IP, Tor reachability, Tor exit info) |
 | `src/app/components/UwafNetworkPanel.tsx` | Network Hub Panel — Direct/Stealth mode toggle, IP display, Tor status indicator |
-| `src/app/components/UwafBrowserPreview.tsx` | Browser preview panel — screenshot rendering, URL/title display, mode badge |
+| `src/app/components/UwafBrowserPreview.tsx` | Legacy static browser preview component retained for compatibility; live noVNC browser is the active visual browsing surface |
 | `src/lib/openclaw-tool-approvals.ts` | Shared approval-token helpers for filesystem writes, code execution, and browser submits |
 | `src/middleware.ts` | Route protection |
 | `src/lib/memory.ts` | Multi-layer memory system: daily logs, session summaries, long-term memory loading, and memory context building |
@@ -390,8 +390,14 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `refactor: make open claw the primary shell`
-- **Previous committed baseline:** `refactor: consolidate openclaw header modes`
+- **Current committed baseline:** `fix: honor live browser setting`
+- **Previous committed baseline:** `refactor: make open claw the primary shell`
+
+### Latest Changes (Live Browser Settings Fix)
+- **Live Browser toggle now applies immediately after Settings save:** Settings changes bump an Open Claw settings revision, and the workspace reloads its internal settings without requiring a page refresh.
+- **Disabling Live Browser closes visual browser surfaces:** the embedded live browser and modal close when `openClawUwafLiveBrowser` is false, and `wait_for_user` returns a clear unavailable-tool result instead of opening takeover mode.
+- **Static UWAF page screenshots removed:** the Settings screenshot toggle was removed, screenshot capture is forced off in settings normalization/API/runtime, and the prompt no longer tells the model to expect browser screenshots.
+- **Settings route cleanup:** hidden legacy chat-model discovery is no longer called from the Open Claw Settings flow.
 
 ### Latest Changes (Open Claw-Only Shell)
 - **Open Claw is now the default and only primary UI shell:** page load, stored tab normalization, new-thread actions, and settings navigation all route to Open Claw instead of the old normal chat surface.
@@ -410,17 +416,17 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 ### Latest Changes (v0.10.0) 🕸️
 - **UWAF (Unified Web Agent Framework):** Dual-mode browser engine supporting Direct (Clear Web) and Stealth (Tor-routed) research modes, fully integrated into Open Claw as the `unified_browser` tool
-- **Playwright browser engine:** `uwaf-browser.ts` uses Playwright-core with system Chromium for full page rendering, JavaScript execution, screenshots, and form interaction — runs headless inside the Docker container with `--no-sandbox --disable-setuid-sandbox` flags
+- **Playwright browser engine:** `uwaf-browser.ts` uses Playwright-core with system Chromium for full page rendering, JavaScript execution, and form interaction — runs headless inside the Docker container with `--no-sandbox --disable-setuid-sandbox` flags
 - **Tor proxy sidecar:** `peterdavehello/tor-socks-proxy` Docker service providing SOCKS5 on host port 9050 (container port 9150). App connects via `TOR_PROXY_URL=socks5://localhost:9050`. Tor reachability is checked before every stealth request, and stealth mode fails closed (no fallback to direct).
 - **Sanitize-first pipeline:** `uwaf-sanitizer.ts` implements three stages: (1) HTML pruning strips script/style/iframe/nav/footer/aside/ad elements and tracking pixels; (2) readability filter scores paragraphs by word count, comma count, and link density using sliding-window best-block detection; (3) Markdown conversion via Turndown with GFM table support. Stealth mode applies stricter stripping of inline styles, data attributes, and tracking URL parameters.
 - **Browser pool:** `uwaf-pool.ts` manages Playwright browser instances with lazy initialization, context reuse (30-minute TTL with auto-cleanup), and stealth configuration (randomized User-Agent from a pool of 5 realistic UAs, SOCKS5 proxy via Tor, WebRTC disabled, webdriver hidden). Direct mode uses standard Chromium with no proxy.
 - **Tool actions:** `unified_browser` supports open, click, extract, extract_table, research_batch, fill, and submit. `research_batch` crawls a starting URL and follows links up to depth 3 (max 10 pages), returning aggregated Markdown content. `extract_table` pulls all `<table>` elements as structured Markdown or CSV. `fill` and `submit` allow form interaction with approval-gated submission.
-- **Screenshots:** JPEG base64 thumbnails (quality 60, max 800px width) captured automatically during browsing, rendered in the Browser Preview panel in the Open Claw workspace
+- **Live visual browsing:** Static screenshot capture is disabled; the live noVNC browser is the visual page surface for watching and taking over UWAF sessions
 - **Network Hub Panel:** `UwafNetworkPanel.tsx` shows the current Direct IP, Tor connection status (online/offline), Tor exit node country, and a mode selector to switch between Direct and Stealth modes
 - **Source chips:** Clear Web sources render as blue chips with `[Source: Clear Web]`, Dark Web sources as purple chips with `[Source: Dark Web]`. `.onion` URLs are automatically labeled as Dark Web.
 - **Approval flow:** `submit` and `research_batch` actions always require approval tokens (not mode-dependent). The approval request endpoint at `/api/openclaw/uwaf-browser/request` creates signed tokens that are validated by `/api/openclaw/uwaf-browser` before executing.
 - **Session management:** In-memory browser sessions (Map-based, 60-minute TTL) track current page state (URL, title, links, forms), filled form values, and screenshot history. Context reuse means the same Playwright BrowserContext is shared across actions within a session.
-- **New settings:** `openClawUwafBrowserMode` (deny/direct/stealth), `openClawUwafScreenshots` (boolean), `openClawUwafDefaultMode` (direct/stealth) — all stored in `UserSettings` and configurable from the Settings panel
+- **New settings:** `openClawUwafBrowserMode` (deny/direct/stealth), `openClawUwafDefaultMode` (direct/stealth), and `openClawUwafLiveBrowser` — all stored in `UserSettings` and configurable from the Settings panel. The legacy `openClawUwafScreenshots` field remains in the schema but is forced off.
 - **New API routes:** `/api/openclaw/uwaf-browser` (main execution), `/api/openclaw/uwaf-browser/request` (approval tokens), `/api/openclaw/uwaf-browser/status` (connection status including Direct IP, Tor reachability, and Tor exit info)
 - **Security:** SSRF protections reuse `assertPublicHttpUrl()` from `openclaw-browser.ts`. `.onion` URLs are only accessible in stealth mode (blocked in direct mode). Binary download blocking checks Content-Type, Content-Disposition, and URL path for executable extensions (.exe, .sh, .bin, etc.). Stealth mode verifies Tor proxy reachability before every request and fails closed if the proxy is down.
 - **Docker:** Added `chromium` and `chromium-chromedriver` Alpine packages, `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser` env var, `shm_size: 256m` for Chromium shared memory, and `TOR_PROXY_URL` env var. App uses `network_mode: host` so it can reach Tor at `localhost:9050`.
@@ -443,16 +449,16 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
   - `src/app/api/settings/route.ts` — Added UWAF settings fields to body whitelist and save logic
   - `src/app/components/OpenClawWorkspace.tsx` — Added UWAF mode toggle (Shield icon), unified_browser tool dispatch, Network Panel, Browser Preview, UwafBrowserToolResultEntry, describeUwafBrowserRequest, approval/reject handling for unified_browser kind, and OpenClawSettings UWAF fields
   - `src/app/components/SourceChips.tsx` — Added isOnionUrl(), getNetworkModeLabel(), getNetworkModeStyle() for Clear Web/Dark Web chip rendering
-  - `src/app/components/SettingsPanel.tsx` — Added UWAF Browser settings section (mode radio cards, default mode selector, screenshots toggle, Tor proxy info)
+  - `src/app/components/SettingsPanel.tsx` — Added UWAF Browser settings section (mode radio cards, default mode selector, live-browser toggle, Tor proxy info)
   - `src/app/components/ShellCommandModal.tsx` — Added 'unified_browser' toolKind with Shield icon
-  - New: `src/lib/uwaf-browser.ts` — Unified browser engine with Playwright, dual-mode, screenshots, session management, binary blocking, .onion validation
+  - New: `src/lib/uwaf-browser.ts` — Unified browser engine with Playwright, dual-mode browsing, session management, binary blocking, .onion validation
   - New: `src/lib/uwaf-sanitizer.ts` — Three-stage sanitize pipeline (prune → readability → Markdown), table extraction, metadata extraction, binary URL blocking
   - New: `src/lib/uwaf-pool.ts` — Playwright browser pool manager with lazy init, context reuse, stealth configuration, Tor health checks, IP detection
   - New: `src/app/api/openclaw/uwaf-browser/route.ts` — Main UWAF browser execution route with auth, settings, approval validation
   - New: `src/app/api/openclaw/uwaf-browser/request/route.ts` — Approval token creation for submit/research_batch
   - New: `src/app/api/openclaw/uwaf-browser/status/route.ts` — Connection status (Direct IP, Tor reachability, Tor exit info)
   - New: `src/app/components/UwafNetworkPanel.tsx` — Network Hub Panel with mode toggle, IP display, Tor status
-  - New: `src/app/components/UwafBrowserPreview.tsx` — Browser preview with screenshot rendering, URL/title/mode badge
+  - New: `src/app/components/UwafBrowserPreview.tsx` — Legacy browser preview component; live browser is now the visual surface
 
 ### Latest Changes (v0.9.0) 🛠️
 - **Optional host shell executor:** Added `scripts/openclaw-host-executor.mjs` plus `npm run openclaw:host-executor` so Open Claw can run approved shell commands on the host when configured with `OPENCLAW_HOST_EXECUTOR_TOKEN`.

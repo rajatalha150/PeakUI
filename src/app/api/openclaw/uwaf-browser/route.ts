@@ -3,7 +3,7 @@ import { getCurrentUserIdWithPermissions } from '@/lib/request-auth'
 import { runUwafBrowserAction, getUwafBrowserSession, type UwafBrowserRequest } from '@/lib/uwaf-browser'
 import { isBrowserInterrupted, restartScreencastForSession } from '@/lib/live-browser-server'
 import { prisma } from '@/lib/prisma'
-import { normalizeOpenClawUwafBrowserMode, normalizeOpenClawUwafDefaultMode, normalizeBoolean, DEFAULT_SETTINGS } from '@/lib/settings'
+import { normalizeOpenClawUwafBrowserMode, normalizeOpenClawUwafDefaultMode, DEFAULT_SETTINGS } from '@/lib/settings'
 
 const VALID_ACTIONS: UwafBrowserRequest['action'][] = [
   'search',
@@ -54,11 +54,11 @@ export async function POST(request: NextRequest) {
   const settingsRow = await prisma.userSettings.findUnique({ where: { userId } })
   const settings = settingsRow ? {
     openClawUwafBrowserMode: normalizeOpenClawUwafBrowserMode(settingsRow.openClawUwafBrowserMode),
-    openClawUwafScreenshots: settingsRow.openClawUwafScreenshots ?? DEFAULT_SETTINGS.openClawUwafScreenshots,
+    openClawUwafScreenshots: false,
     openClawUwafDefaultMode: normalizeOpenClawUwafDefaultMode(settingsRow.openClawUwafDefaultMode),
   } : {
     openClawUwafBrowserMode: DEFAULT_SETTINGS.openClawUwafBrowserMode as 'deny' | 'direct' | 'stealth',
-    openClawUwafScreenshots: DEFAULT_SETTINGS.openClawUwafScreenshots,
+    openClawUwafScreenshots: false,
     openClawUwafDefaultMode: DEFAULT_SETTINGS.openClawUwafDefaultMode as 'direct' | 'stealth',
   }
 
@@ -180,7 +180,7 @@ export async function POST(request: NextRequest) {
 
     const result = await runUwafBrowserAction(userId, uwafRequest, {
       openClawUwafBrowserMode: settings.openClawUwafBrowserMode,
-      openClawUwafScreenshots: normalizeBoolean(settings.openClawUwafScreenshots),
+      openClawUwafScreenshots: false,
       openClawUwafDefaultMode: settings.openClawUwafDefaultMode,
     })
 

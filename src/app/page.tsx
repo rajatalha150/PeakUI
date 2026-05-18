@@ -53,6 +53,7 @@ const CHAT_CURRENT_SESSION_STORAGE = 'peakui-chat-current-session';
 const OPENCLAW_VIEW_STORAGE = 'peakui-openclaw-view';
 const CHAT_DRAFT_SESSION_SENTINEL = '__draft__';
 const MOBILE_BREAKPOINT = 960;
+const ENABLE_LEGACY_CHAT_SURFACE = false;
 
 type AppTab = 'chat' | 'docs' | 'openclaw' | 'code' | 'vm' | 'docker' | 'settings';
 type OpenClawView = 'workspace' | 'knowledge-base' | 'settings';
@@ -633,6 +634,7 @@ export default function Home() {
 
   const [activeTab, setActiveTab] = useState<AppTab>(getStoredActiveTab);
   const [openClawView, setOpenClawView] = useState<OpenClawView>(getStoredOpenClawView);
+  const [openClawSettingsRevision, setOpenClawSettingsRevision] = useState(0);
   const [message, setMessage] = useState('');
   const [models, setModels] = useState<Model[]>([]);
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -953,6 +955,12 @@ export default function Home() {
   };
 
   const fetchChatModels = async (settingsOverride?: UserSettings | null) => {
+    if (!ENABLE_LEGACY_CHAT_SURFACE) {
+      setModels([]);
+      setModelsLoading(false);
+      return [] as Model[];
+    }
+
     const effectiveSettings = settingsOverride ?? userSettings;
     if (!effectiveSettings) return [] as Model[];
 
@@ -3346,6 +3354,7 @@ export default function Home() {
         ) : activeTab === 'openclaw' ? (
           <OpenClawWorkspace 
             view={openClawView}
+            settingsRevision={openClawSettingsRevision}
             knowledgeBaseContent={(
               <KnowledgeBase />
             )}
@@ -3354,11 +3363,7 @@ export default function Home() {
                 onLogout={handleLogout}
                 onSettingsChange={(s) => {
                   setUserSettings(s);
-                  void fetchChatModels(s);
-                  if (s.chatModel) {
-                    const nextModelId = buildChatModelOptionId(s.chatModelProvider || 'ollama', s.chatModel);
-                    setSelectedModel(nextModelId);
-                  }
+                  setOpenClawSettingsRevision(value => value + 1);
                 }}
               />
             )}
@@ -3371,11 +3376,7 @@ export default function Home() {
             onLogout={handleLogout}
             onSettingsChange={(s) => {
               setUserSettings(s);
-              void fetchChatModels(s);
-              if (s.chatModel) {
-                const nextModelId = buildChatModelOptionId(s.chatModelProvider || 'ollama', s.chatModel);
-                setSelectedModel(nextModelId);
-              }
+              setOpenClawSettingsRevision(value => value + 1);
             }}
           />
         ) : (
