@@ -5,7 +5,7 @@
 **CRITICAL:** Whenever you make a new git commit, you MUST update this `memory.md` file to reflect the new state of the project, the latest features added, and the next steps.
 
 ## 📝 Project Overview
-PeakUI is a Next.js (App Router) web application designed to act as a local-first AI Studio command center. It connects to a user-configured Ollama host (default `127.0.0.1:11434`) for local models, and main chat can also target Hugging Face or a hybrid Ollama + Hugging Face catalog. It is fully Dockerized (`docker-compose`) and secured behind a PostgreSQL-backed authentication layer.
+PeakUI is a Next.js (App Router) web application designed to act as a local-first Open Claw AI Studio command center. It connects to a user-configured Ollama host (default `127.0.0.1:11434`) for local models, while Open Claw can also target OpenAI-compatible providers through its provider settings. The legacy chat completion APIs remain as shared backend infrastructure, but the user-facing shell now opens directly into Open Claw. It is fully Dockerized (`docker-compose`) and secured behind a PostgreSQL-backed authentication layer.
 
 ## 🛠️ Tech Stack
 - **Frontend:** Next.js 16 (App Router, React), `lucide-react` icons
@@ -16,6 +16,14 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - **Deployment:** Docker + Docker Compose (`network_mode: host` for Ollama access)
 
 ## 🚀 Completed Features
+
+### Open Claw-Only App Shell ✅
+- The app now boots directly into the Open Claw workspace instead of restoring the normal chat surface.
+- The normal chat sidebar/top-level surface has been removed from the reachable shell; Open Claw is now the single left-rail navigation model.
+- Open Claw rail navigation now owns Workspace, Knowledge Base, and Settings, so Settings and RAG management stay inside the Open Claw shell.
+- The Settings panel can render as an Open Claw main-panel view, and Logout moved into the Settings header.
+- Main-chat-specific Settings controls are hidden from the UI; shared generation controls such as system prompt, temperature, context window, Ollama host, exclusive switching, RAG, and Open Claw tool settings remain available.
+- Legacy `/api/chat/*` and shared completion/session helpers remain in place for backend compatibility and Open Claw streaming.
 
 ### Open Claw Header Cleanup ✅
 - The crowded desktop Open Claw mode cluster was replaced with one featured `Workspace modes` dropdown in the shared top bar.
@@ -39,7 +47,7 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Agent-generated code and docs now persist beyond the chat via a new `CanvasArtifact` DB model
 - Files in markdown code blocks auto-save to Canvas when user clicks download
 - Canvas panel in Open Claw workspace rail shows all persisted artifacts per session
-- Canvas panel also in main chat (right side rail, only shown when artifacts exist)
+- Canvas panel support remains in the shared assistant renderer path, but the primary UI now exposes artifacts through Open Claw
 - Support for artifact versioning (version field increments on edit), download, and delete
 - API endpoints: `GET/POST /api/canvas/artifacts`, `GET/PUT/DELETE /api/canvas/artifacts/[id]`
 - Visual artifact cards with code syntax highlighting (via `react-syntax-highlighter`)
@@ -128,21 +136,20 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - The chat header model selector is now a themed custom glass dropdown with active-model highlighting, hover states, loading state, and long-list scrolling
 - Selecting a chat model from the header persists `chatModel` immediately, while local model lifecycle now stays fully native to Ollama instead of using app-side warmup requests
 - Chat now exposes a `Stop model` action next to the model selector so a wedged local runner can be unloaded and restarted cleanly on the next request
-- Settings → Chat now includes an **Exclusive Ollama Switching** toggle; when enabled, Chat and local-provider Open Claw unload any other running Ollama models before starting the selected model so limited VRAM machines can dedicate resources to the active model
-- Settings → Chat now documents the native-Ollama lifecycle approach instead of exposing a configurable `keep_alive` control, and Chat/Open Claw/RAG embeddings no longer send request-level keep-alive overrides
+- Settings → Generation includes an **Exclusive Ollama Switching** toggle; when enabled, local-provider Open Claw unloads any other running Ollama models before starting the selected model so limited VRAM machines can dedicate resources to the active model
+- Settings → Generation documents the native-Ollama lifecycle approach instead of exposing a configurable `keep_alive` control, and Open Claw/RAG embeddings no longer send request-level keep-alive overrides
 - Chat now includes a per-session **Internet** toggle that performs backend-managed public web research before answering, merges fetched-page excerpts with search-result snippets, and no longer depends on local model tool support to start
 - **Internet mode overhaul (v2):** Web search is now significantly more reliable and intelligent. The backend tries multiple search engines in priority order: Brave Search API (if `BRAVE_API_KEY` is configured), SearXNG (if `SEARXNG_URL` is configured), DuckDuckGo (with both HTML and Lite fallback parsers), and Bing as final fallback. Query intelligence generates multiple search queries from the user prompt for broader coverage. Page extraction now parses schema.org JSON-LD, Open Graph meta tags, and uses readability heuristics (link density scoring, nav/footer filtering) to extract article text while preserving structure. Fetched pages include retry logic (1 retry on timeout/5xx). Context limits were raised: up to 8 search results, 4 pages fetched, 3000 chars per excerpt, 12000 chars total context. The system prompt now strongly instructs the model to cite every factual claim with inline `[^N]` markers. Frontend source chips are now numbered `[1]`, `[2]`, etc., and inline citations in assistant text render as clickable superscript links that open the original source URL. This works in both Chat and Open Claw interfaces.
 - Live audit confirmed that Gemma4 on the current 4 GB Quadro K2200 + Quadro M2000 setup can still spend minutes in Ollama backoff/OOM while loading; if the model does not fit, the new manual stop path helps recover, but app-side lifecycle steering is no longer involved
 - Chat now treats `contextLength` as a requested maximum for local Ollama, starts the default local path without forcing `num_ctx` so Ollama can choose its own working context first, caps explicit requests to `PEAKUI_OLLAMA_CONTEXT_CAP` (`16384` by default), backs off further on memory-pressure errors, and fails model-start attempts after 60 seconds so terminal-working local models do not fail just because the UI slider was left too high
 - Chat transport failures now preserve the provider URL, selected model, and low-level Node/Ollama socket details in the streamed error instead of collapsing app-to-Ollama failures into the generic browser-facing `fetch failed`
 - Ollama HTTP errors are now separated from app transport errors, so runner crashes like `llama runner process has terminated` are reported as Ollama model-load/runtime failures instead of getting the generic fetch/restart hint
-- Chat and Open Claw streaming views now allow manual scrollback during generation; they only stay pinned to the bottom while the user is already near the latest message and show a floating down-arrow to jump back to the newest response
-- Chat and Open Claw now expose distinct startup phases (`Searching knowledge base`, `Researching web`, `Unloading other models`, `Starting model`, `Connecting to model`, `Generating`) so pre-stream latency is visible instead of being collapsed into a misleading `Warming model...` state
-- The main app sidebar can now collapse to an icon rail, that state persists in browser storage, and the shared `useStickyScroll` hook now drives chat auto-scroll behavior instead of duplicated per-surface logic
-- Chat now also exposes a live Ollama health strip outside Open Claw, showing online/degraded/offline state, loaded-model visibility, and one-click recovery actions (Retry, Retry without web, Stop + retry) that reuse the last submitted draft instead of making the user rebuild it manually. The strip is now compact and single-line: smaller badge, icon-only buttons with tooltips, and loaded models shown on hover instead of inline.
-- Chat and Open Claw now share the same chat-style top bar with a left drawer button, centered model picker, and right overflow menu. The normal chat sidebar and Open Claw rail both open as slide-out drawers on mobile, while preserving the selected surface/session context.
-- Open Claw now owns the left column while active: the main app sidebar is hidden, the Open Claw workspace rail becomes the only session/navigation rail, and opening Knowledge Base from that rail keeps the selected Open Claw shell visible instead of restoring the normal sidebar.
-- Main chat now supports folders, reusable session tags, and sidebar search. Folder/tag assignment lives in each chat row's overflow menu, while the sidebar can filter sessions by selected folder or tag without leaving the main chat surface.
+- Open Claw streaming views allow manual scrollback during generation; they only stay pinned to the bottom while the user is already near the latest message and show a floating down-arrow to jump back to the newest response
+- Open Claw exposes distinct startup phases (`Searching knowledge base`, `Researching web`, `Unloading other models`, `Starting model`, `Connecting to model`, `Generating`) so pre-stream latency is visible instead of being collapsed into a misleading `Warming model...` state
+- The Open Claw rail can collapse to a compact navigation surface, that state persists in browser storage, and the shared `useStickyScroll` hook drives Open Claw auto-scroll behavior
+- Open Claw exposes a live Ollama health strip showing online/degraded/offline state, loaded-model visibility, and one-click recovery actions (Retry, Retry without web, Stop + retry) that reuse the last submitted draft instead of making the user rebuild it manually. The strip is compact and single-line: smaller badge, icon-only buttons with tooltips, and loaded models shown on hover instead of inline.
+- Open Claw now owns the app chrome with a left drawer button, centered model picker, right overflow menu, and its rail as the single left-side navigation surface on desktop/mobile.
+- Open Claw task threads support folders, reusable session tags, and rail search. Folder/tag assignment lives in each task row's overflow menu, while the rail can filter sessions by selected folder or tag.
 - The active top-level surface (`chat`, `openclaw`, etc.), the current Open Claw panel (`workspace` vs `knowledge-base`), and the currently selected normal-chat session now persist across browser refreshes in session storage, so reloads restore the current workspace instead of always jumping back to the latest default chat thread.
 - Ollama model discovery still uses `/api/tags`, while chat-organization tags now live on a separate `/api/chat-tags` route so model selection, Settings, and Open Claw provider checks do not regress.
 - Abortable streams — Stop button replaces Send during generation
@@ -176,7 +183,7 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - The left workspace rail now keeps the task-oriented cards like `Agent mode`, while model selection stays in the shared top bar, `Settings` is exposed as a normal rail nav item, and the old rail-local provider settings card was removed.
 - The Open Claw sidebar now hides the filesystem, writes, code sandbox, browser control, and workspace-capabilities explanations behind a single dropdown so the rail stays compact while the detailed permission/status text remains available on demand.
 - The Open Claw rail now also collapses `Response style`, `Task state`, and `Workspace brief` into dropdown disclosures, so the rail shows compact summaries until the user expands the section they need.
-- Knowledge Base navigation is now surface-aware: opening it from the main app sidebar keeps the normal sidebar, while opening it from the Open Claw rail swaps only the Open Claw main panel and preserves the selected task thread.
+- Knowledge Base navigation now stays inside Open Claw: opening it from the Open Claw rail swaps only the main panel and preserves the selected task thread.
 - Open Claw now shares the same sticky-scroll behavior as chat, so long streams no longer yank the viewport while the user is reading older messages
 - Open Claw now also shows the same richer Ollama health/recovery UX as chat when using the local-provider path
 - Prisma schema now includes `ChatSession.surface` so Open Claw sessions can be stored separately without disturbing the existing chat history flow
@@ -256,7 +263,7 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Per-user settings stored in `UserSettings` Prisma model
 - **Appearance theme** — persisted per user and applied immediately across the studio
 - **Default chat model** — remembered across sessions, pre-selected on load
-- **Chat platform selection** — main chat can be switched between Ollama, Hugging Face, and Hybrid, with Hugging Face base URL persisted server-side and HF token stored only in browser localStorage
+- **Legacy chat platform fields** — `UserSettings` still carries chat-platform fields for shared backend compatibility, but the visible normal-chat platform controls are hidden from the primary Open Claw shell
 - **System prompt** — prepended to every conversation
 - **System prompt, Temperature, and Context Window** are normalized through `/api/settings` and applied server-side in `/api/chat`
 - **Temperature** slider (0–2) and **Context Window** slider (512–128k)
@@ -264,8 +271,8 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - **Embedding model selector** with **Test** button (`/api/rag/test-embed`) — deduplicates `:latest` aliases, shows installed/pull-required state, returns embedding dimensions, and now recommends more Ollama embedding models for different speed/quality tradeoffs
 - Ollama connection status indicator (live model count) honors configured/typed host
 - **Native Ollama lifecycle** for Chat, Open Claw, and embedding requests — the app no longer overrides `keep_alive` or sends background warmup prompts
-- **Stop model button** in Chat and Open Claw — unloads the selected local model on demand so the next request starts from a fresh load
-- **Exclusive Ollama Switching toggle** that persists per user and unloads other running Ollama models before a new local Chat/Open Claw request starts
+- **Stop model button** in Open Claw — unloads the selected local model on demand so the next request starts from a fresh load
+- **Exclusive Ollama Switching toggle** that persists per user and unloads other running Ollama models before a new local Open Claw request starts
 - **Open Claw filesystem permissions** — persisted per user as `openClawFileAccessMode` plus `openClawAllowedPaths`, with read-only host-path approval controlled from Settings
 - **Open Claw tool execution stack** — shell execution, filesystem read/write, managed Python/Node code sandboxing, and controlled public-web browser actions are now all wired end-to-end through Open Claw with per-tool approval modes and hidden tool-result continuation
 - **Open Claw shell target settings** — `UserSettings` now persists `shellExecutionTarget`, host allowed roots/env vars, host timeout cap, and host output cap. The shell settings API also reports host executor status.
@@ -277,10 +284,10 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 ## 🔑 Key Files
 | File | Purpose |
 |---|---|
-| `src/app/page.tsx` | Main dashboard, chat, session management, and surface-aware Knowledge Base/Open Claw navigation |
+| `src/app/page.tsx` | Open Claw-first app shell, session management, and surface-aware Knowledge Base/Settings navigation |
 | `src/app/components/KnowledgeBase.tsx` | RAG UI — upload, search, health summary, full-document preview, manage docs |
 | `src/app/components/SettingsPanel.tsx` | Settings UI |
-| `src/app/components/OpenClawWorkspace.tsx` | Open Claw agent workspace surface with shared chat-like top bar, left workspace rail, session UI, task-mode preferences, and inline Knowledge Base shell |
+| `src/app/components/OpenClawWorkspace.tsx` | Primary Open Claw agent workspace surface with top bar, left workspace rail, session UI, task-mode preferences, inline Knowledge Base, and Settings shell views |
 | `src/app/api/chat/route.ts` | Alias to the shared chat completion pipeline |
 | `src/app/api/chat/models/route.ts` | Provider-aware main-chat model discovery for Ollama, Hugging Face, and hybrid mode |
 | `src/app/api/chat/completions/route.ts` | Streaming completion endpoint |
@@ -291,9 +298,9 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 | `src/app/api/folders/[id]/route.ts` | Folder update/delete endpoint that preserves sessions while clearing folder membership |
 | `src/app/api/openclaw/models/route.ts` | Provider-aware Open Claw model discovery endpoint |
 | `src/app/api/openclaw/verify/route.ts` | Provider verification endpoint for Open Claw Ollama/OpenAI-compatible connectivity checks |
-| `src/app/api/ollama/health/route.ts` | Authenticated Ollama runtime health endpoint used by Chat and Open Claw for online/degraded/offline state, loaded model visibility, and recovery UX |
-| `src/app/api/ollama/stop/route.ts` | Authenticated local-model stop endpoint used by Chat and Open Claw when a selected Ollama model needs a clean restart |
-| `src/app/api/web/context/route.ts` | Authenticated backend-managed public-web context endpoint shared with Chat/Open Claw Internet mode |
+| `src/app/api/ollama/health/route.ts` | Authenticated Ollama runtime health endpoint used by Open Claw for online/degraded/offline state, loaded model visibility, and recovery UX |
+| `src/app/api/ollama/stop/route.ts` | Authenticated local-model stop endpoint used by Open Claw when a selected Ollama model needs a clean restart |
+| `src/app/api/web/context/route.ts` | Authenticated backend-managed public-web context endpoint used by Open Claw Internet mode |
 | `src/app/components/SourceChips.tsx` | Shared assistant citation/source chip renderer for Knowledge Base and web results |
 | `src/app/api/files/extract/route.ts` | Shared authenticated attachment extraction endpoint |
 | `src/app/api/rag/route.ts` | Document upload queue + background indexing |
@@ -314,8 +321,8 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 | `src/lib/openclaw-workspace.ts` | Managed Open Claw workspace mount/alias helpers shared by shell, filesystem, and code execution |
 | `src/lib/file-shared.ts` | Shared upload limits, file kind detection, and extracted-file payload types |
 | `src/lib/settings.ts` | Shared defaults, settings normalization, Ollama host normalization |
-| `src/lib/stream-status.ts` | Shared stream-phase types and user-facing startup/generation status labels for Chat and Open Claw |
-| `src/lib/use-sticky-scroll.ts` | Shared sticky-scroll hook used by Chat and Open Claw to preserve manual scrollback during streaming |
+| `src/lib/stream-status.ts` | Shared stream-phase types and user-facing startup/generation status labels for Open Claw and shared completion flows |
+| `src/lib/use-sticky-scroll.ts` | Shared sticky-scroll hook used by Open Claw to preserve manual scrollback during streaming |
 | `src/lib/ollama-control.ts` | Shared Ollama runtime controls for listing loaded models, stopping a selected local model, and unloading non-selected ones before local model switches |
 | `src/lib/embedding-models.ts` | Recommended embedding model definitions and Ollama model-name normalization |
 | `src/lib/message-sources.ts` | Shared citation/source metadata types for Knowledge Base and web context |
@@ -376,15 +383,22 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - **Open Claw permissions next:** If broader host roots than `/home` and `/tmp` are needed for filesystem tools, add more Docker bind mounts first, then allow those paths in Settings. For true host-command access, run the host executor with narrow approved cwd roots and keep `ask-first` enabled until the workflow is proven.
 - **Development Plan:** Implement the Development Worker foundation, Docker dashboard, Code Interpreter sandboxes, Docker control actions, and VM orchestration per `docs/development-section-plan.md`
 - **Internet mode next:** Consider an optional Phase 2 browser extension/current-tab context flow, but keep the shipped Phase 1 path read-only and citation-first
-- **Phase 2:** Docker Orchestration — spawn/manage containers from chat via `dockerode`
-- **Chat UX next:** Add richer health checks/status chips around Ollama service state so users can see when the host daemon is wedged before starting a generation
+- **Phase 2:** Docker Orchestration — spawn/manage containers from Open Claw via `dockerode`
+- **Open Claw UX next:** Continue tightening Ollama health/status affordances around local model startup, loaded models, and recovery actions
 - **RAG (v2 complete):** Server-side RAG now fires automatically alongside web search when enabled. Added hybrid search (RRF combining semantic + keyword), per-request topK control with full access mode (-1 = all chunks), and a UI toggle to enable/disable knowledge base per-chat
 - **Phase 4:** Code Interpreter and VM orchestration
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `fix: make live browser follow ai browsing`
-- **Previous committed baseline:** `feat: add UWAF dual-mode browser (Clear Web + Dark Web/Tor) with Playwright, Tor proxy, sanitize pipeline, and UI`
+- **Current committed baseline:** `refactor: make open claw the primary shell`
+- **Previous committed baseline:** `refactor: consolidate openclaw header modes`
+
+### Latest Changes (Open Claw-Only Shell)
+- **Open Claw is now the default and only primary UI shell:** page load, stored tab normalization, new-thread actions, and settings navigation all route to Open Claw instead of the old normal chat surface.
+- **Normal chat sidebar removed from the reachable app flow:** Open Claw's rail is the single left navigation surface for Workspace, Knowledge Base, Settings, task threads, folders, tags, and search.
+- **Settings moved into Open Claw:** Settings now render as an Open Claw panel, and Logout lives in the Settings header.
+- **Generation settings cleaned up:** legacy main-chat platform controls are hidden, while shared system prompt, temperature, context window, Ollama host, exclusive switching, RAG, theme, user management, and Open Claw tool/provider settings remain.
+- **Docs updated:** README, features docs, settings/RAG docs, and project memory now describe Open Claw as the primary shell while noting that legacy chat APIs remain as shared backend infrastructure.
 
 ### Latest Hotfixes (post v0.10.0)
 - **Live browser AI routing fix:** `unified_browser` now supports visible `search`; Open Claw prefers UWAF for visible browsing when available; active page tracking keeps the visible noVNC browser aligned with AI actions; `wait_for_user` lets the model pause for human CAPTCHA/login/MFA help and resume with a fresh page observation

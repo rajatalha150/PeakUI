@@ -1,51 +1,48 @@
 # Settings and RAG Behavior
 
-This document defines the production behavior for the Chat and Knowledge Base settings.
+This document defines the production behavior for Open Claw, generation, and Knowledge Base settings.
 
-## Chat Settings
+## Open Claw and Generation Settings
 
-Chat settings are saved per user in `UserSettings` and normalized on both read and write through `/api/settings`.
+Open Claw is the primary app shell. Generation settings are saved per user in `UserSettings` and normalized on both read and write through `/api/settings`.
 
-### Chat Platform Selection
+### Provider Selection
 
-- Stored as `UserSettings.chatPlatform`, `UserSettings.chatModel`, `UserSettings.chatModelProvider`, and `UserSettings.huggingFaceBaseUrl`.
-- Main chat supports three platform modes:
-  - `ollama`: only discover and use local Ollama chat models
-  - `huggingface`: only discover and use Hugging Face router or HF-compatible endpoint models
-  - `hybrid`: merge discoverable Ollama and Hugging Face models into one picker
-- The saved default chat model is provider-aware, so a duplicate model id on both platforms will still reopen against the correct source.
-- Hugging Face tokens are intentionally not stored in `UserSettings`. The token stays only in browser storage.
+- Open Claw provider settings are stored as `UserSettings.openClawProvider`, `UserSettings.openClawModel`, and `UserSettings.openClawBaseUrl`.
+- The legacy `UserSettings.chatPlatform`, `UserSettings.chatModel`, `UserSettings.chatModelProvider`, and `UserSettings.huggingFaceBaseUrl` fields still exist for shared backend compatibility, but the normal-chat UI and its sidebar are no longer part of the primary app shell.
+- Open Claw supports local Ollama and OpenAI-compatible providers.
+- The saved model is provider-aware, so a duplicate model id on both platforms will still reopen against the correct source.
+- Hugging Face or compatible-provider tokens are intentionally not stored in `UserSettings`. Browser-entered tokens stay only in browser storage.
 - With the default Hugging Face router (`https://router.huggingface.co/v1`):
-  - chat requests use the OpenAI-compatible `/v1/chat/completions` endpoint
+  - Open Claw requests use the OpenAI-compatible `/v1/chat/completions` endpoint
   - model discovery uses the router-native `GET /v1/models` endpoint
   - the router selects the fastest available provider by default unless the model id already carries a suffix such as `:fastest`, `:cheapest`, `:preferred`, or `:provider-name`
 - With custom HF-compatible bases such as TGI, vLLM, or SGLang:
-  - chat requests still use the OpenAI-compatible chat-completions path
+  - Open Claw requests still use the OpenAI-compatible chat-completions path
   - discovery first tries `/models`, then falls back to `/info` when available
-  - if discovery is unavailable, Hugging Face-only mode still allows manual model entry in Settings
+  - if discovery is unavailable, Settings still allows manual model entry
 
 ### Local Model Lifecycle
 
-- PeakUI no longer sends request-level `keep_alive` overrides for Chat, local-provider Open Claw, or Ollama embedding requests.
+- PeakUI no longer sends request-level `keep_alive` overrides for local-provider Open Claw or Ollama embedding requests.
 - The app also no longer issues background model warmup requests.
 - Ollama's own default lifecycle and queueing behavior now control when local models stay resident or unload.
-- Chat and Open Claw both expose a `Stop model` button next to their local-model controls.
+- Open Claw exposes a `Stop model` button next to its local-model controls.
 - That button unloads the currently selected local model through an authenticated app route so the next request starts from a fresh load.
-- The chat views now report startup phases separately so pre-stream delays are not all mislabeled as model warmup. Depending on the request, the user may see `Searching knowledge base...`, `Researching web...`, `Unloading other models...`, `Starting model...`, `Connecting to model...`, or `Generating...`.
-- During streaming, the chat views only auto-stick to the bottom while the user is already near the latest message. If the user scrolls upward, generation continues without forcing the viewport down; a floating arrow returns to the newest message.
-- The main app sidebar and the Open Claw workspace rail are independently collapsible on desktop, and their collapsed state persists in browser storage.
-- On desktop, Open Claw now uses the same chat-style top bar as normal chat, with the model picker and overflow menu moved out of the rail.
-- On mobile, both surfaces keep that shared top bar and use a slide-out drawer instead of the desktop rail chrome.
-- When Open Claw is active, the main app sidebar is hidden on desktop and the Open Claw rail becomes the only left-side navigation surface for that session.
+- Open Claw reports startup phases separately so pre-stream delays are not all mislabeled as model warmup. Depending on the request, the user may see `Searching knowledge base...`, `Researching web...`, `Unloading other models...`, `Starting model...`, `Connecting to model...`, or `Generating...`.
+- During streaming, Open Claw only auto-sticks to the bottom while the user is already near the latest message. If the user scrolls upward, generation continues without forcing the viewport down; a floating arrow returns to the newest message.
+- The Open Claw workspace rail is the only left-side navigation surface. It is collapsible on desktop and opens as a drawer on mobile.
+- Settings and Knowledge Base render inside the Open Claw shell instead of restoring a normal-chat sidebar.
+- Logout is available from the Settings header.
 - The authenticated `GET /api/ollama/health` route now reports whether Ollama is `online`, `degraded`, or `offline`, along with version, installed model count, loaded model count, loaded model names, and whether the currently selected model is already resident.
-- Chat and Open Claw both surface that health data in-app and provide one-click `Retry`, `Retry without web`, and `Stop + retry` recovery actions after a draft has been submitted.
-- The Ollama health strip and `Stop model` control only appear when the currently selected chat model is actually running on Ollama.
+- Open Claw surfaces that health data in-app and provides one-click `Retry`, `Retry without web`, and `Stop + retry` recovery actions after a draft has been submitted.
+- The Ollama health strip and `Stop model` control only appear when the currently selected model is actually running on Ollama.
 
 ### Exclusive Ollama Switching
 
 - Stored as `UserSettings.exclusiveOllamaModels`.
-- Enabled from Settings → Chat.
-- Before a local Chat or local-provider Open Claw request starts, the backend calls Ollama `/api/ps`, identifies other loaded models, and unloads them with `POST /api/generate` plus `keep_alive: 0`.
+- Enabled from Settings → Generation.
+- Before a local-provider Open Claw request starts, the backend calls Ollama `/api/ps`, identifies other loaded models, and unloads them with `POST /api/generate` plus `keep_alive: 0`.
 - The `Stop model` button uses the same unload semantics, but targets only the actively selected local model when the user asks for a manual reset.
 - This behavior is inspired by Open WebUI's explicit Ollama unload flow and is aimed at smaller VRAM systems where multiple resident models can block a new load.
 - External OpenAI-compatible providers are unaffected.
@@ -72,17 +69,17 @@ Chat settings are saved per user in `UserSettings` and normalized on both read a
 
 ## Internet Mode
 
-- Enabled per browser session from the Internet toggle in the main chat header and from the **Workspace modes** dropdown in the Open Claw desktop header.
+- Enabled per browser session from the **Workspace modes** dropdown in the Open Claw desktop header or the Open Claw mobile overflow menu.
 - Internet mode now runs as a backend-managed cited web-context lookup inside the shared chat pipeline.
 - The backend performs the public search and page fetch work directly before the model starts, so Internet mode no longer depends on a local model deciding to call tools first.
-- Chat, Open Claw, local Ollama, and OpenAI-compatible providers all use the same research path now.
+- Open Claw, local Ollama, and OpenAI-compatible providers all use the same research path now.
 - **Multi-engine search priority (v3):** The backend tries search engines in this order -- Google Programmable Search Engine (if GOOGLE_SEARCH_API_KEY + GOOGLE_SEARCH_CX are configured), Brave Search API (if BRAVE_API_KEY is configured), SearXNG (if SEARXNG_URL is configured), DuckDuckGo HTML + Lite fallback parsers, and Bing as final fallback.
 - **Query intelligence:** The user prompt is analyzed to generate 1-3 targeted search queries for broader coverage (e.g., comparisons get per-side queries, questions get stripped keyword variants).
 - **Deep content extraction:** Pages are parsed through schema.org JSON-LD, Open Graph meta tags, and readability heuristics that score paragraphs by link density, length, and keyword filtering (drops nav/footer/ads) to extract article text while preserving structure.
 - **Date extraction:** Publication dates are pulled from meta tags and JSON-LD so the model can reason about recency.
 - **Retry logic:** Failed page fetches retry once with exponential backoff.
 - **Higher context limits:** Up to 8 search results, 4 pages fetched, 3000 chars per excerpt, 12000 chars total context.
-- **Strong citation prompt:** The system context instructs the model to cite every factual claim with inline [^N] markers. Frontend source chips are numbered [1], [2], etc., and inline citations render as clickable superscript links that open the original source URL. This works in both Chat and Open Claw.
+- **Strong citation prompt:** The system context instructs the model to cite every factual claim with inline [^N] markers. Frontend source chips are numbered [1], [2], etc., and inline citations render as clickable superscript links that open the original source URL in Open Claw.
 - Search and page-fetch steps run with tighter per-request timeouts and inherit the active request abort signal, which keeps Researching web... from sitting on an unbounded pre-generation stall.
 - The authenticated /api/web/context route uses that same backend-managed lookup path.
 - Responses display clickable source chips for fetched web pages, reusing the same assistant citation area as Knowledge Base results.
@@ -157,11 +154,10 @@ Production behavior:
   - editable pinned checklist
 - That task state is converted into its own system-level task brief and injected into each Open Claw request alongside the workspace-preference brief.
 - The pinned checklist can be built manually or imported from assistant bullet/numbered checklist output, then edited independently of the chat transcript.
-- Open Claw's provider/session controls now live in a dedicated left-side workspace rail on desktop that replaces the main app sidebar while Open Claw is active, while model selection lives in the shared top bar.
-- That rail can be collapsed without affecting the main app sidebar, and each surface keeps its own navigation context.
+- Open Claw's provider/session controls live in a dedicated left-side workspace rail on desktop, while model selection lives in the shared top bar.
+- That rail can be collapsed on desktop without introducing a second app sidebar.
 - On mobile, the same top bar stays in place and the rail collapses into a drawer while preserving the active Open Claw session.
-- If Knowledge Base is opened from the Open Claw rail, the Knowledge Base dashboard renders inside the Open Claw shell so the selected task thread and Open Claw rail stay visible.
-- If Knowledge Base is opened from the main app sidebar, the standard app sidebar remains visible instead.
+- If Knowledge Base or Settings is opened from the Open Claw rail, that panel renders inside the Open Claw shell so the selected task thread and Open Claw rail stay visible.
 - When Open Claw calls shell or filesystem tools mid-turn, the tool result is fed back into the model as a hidden `user` message so the same task can continue naturally. This avoids the older behavior where some multi-step reviews stopped after the first tool call because the resumed conversation ended on a hidden `system` message instead of a real follow-up turn.
 
 ### Open Claw Tool Permissions
@@ -189,7 +185,7 @@ Production behavior:
 
 ### File Attachments in Open Claw
 
-Open Claw shares the same attachment system as main chat:
+Open Claw uses the shared attachment system:
 
 - Paperclip button in the composer opens file picker
 - Images sent as base64 to vision-capable models
@@ -208,9 +204,9 @@ ollama pull all-minilm
 
 ## Troubleshooting
 
-- If Hugging Face mode shows no models while you are using the default router, add an HF token in Settings first. Router discovery uses the authenticated `GET /v1/models` endpoint and will not populate without credentials.
+- If Hugging Face-compatible mode shows no models while you are using the default router, add an HF token in Settings first. Router discovery uses the authenticated `GET /v1/models` endpoint and will not populate without credentials.
 - If a Hugging Face router model works only when typed manually, the model may not have been returned by the current router listing or may require an explicit suffix like `:fastest`, `:cheapest`, `:preferred`, or a provider name.
-- If a custom HF-compatible endpoint does not list models, keep the platform on `huggingface`, type the model id manually in Settings, and verify that the endpoint still supports OpenAI-style chat completions.
+- If a custom HF-compatible endpoint does not list models, type the model id manually in Settings and verify that the endpoint still supports OpenAI-style chat completions.
 - If Open Claw shows a provider connection problem before sending a task, use its **Verify** button to test the configured Ollama or OpenAI-compatible endpoint directly.
 - If Internet mode is on but no web chips appear, the lookup may have returned no readable public pages or the target may have been blocked by the public-network safety rules.
 - If the health strip says `Ollama offline`, the app could not reach the configured Ollama host at all. Check the host value in Settings and verify the daemon with `ollama ps`.
@@ -224,10 +220,10 @@ ollama pull all-minilm
 - If a model says pull required, run `ollama pull <model-name>`.
 - If testing times out, Ollama may still be loading the model. Check `ollama ps`, then try again.
 - If Semantic search returns no results after changing models, re-upload or re-index documents with the selected embedding model.
-- If memory pressure appears during chat, reduce Context Window before retrying.
-- If chat still fails with a model-memory error, the selected context window is probably larger than the host can fit. The app will auto-fit downward, but lowering the slider manually will make responses start faster.
-- If chat reports a connection or socket failure to `http://127.0.0.1:11434`, verify the host service with `ollama ps` and `ollama run <model> "hello"`. If terminal requests also hang or reset, restart the Ollama service before debugging the app.
-- If chat reports that the Ollama runner crashed or a model stays wedged in load/backoff, use the in-app `Stop model` button or run `ollama stop <model>`, then inspect `journalctl -u ollama` for GPU/runtime details.
+- If memory pressure appears during generation, reduce Context Window before retrying.
+- If Open Claw still fails with a model-memory error, the selected context window is probably larger than the host can fit. The app will auto-fit downward, but lowering the slider manually will make responses start faster.
+- If Open Claw reports a connection or socket failure to `http://127.0.0.1:11434`, verify the host service with `ollama ps` and `ollama run <model> "hello"`. If terminal requests also hang or reset, restart the Ollama service before debugging the app.
+- If Open Claw reports that the Ollama runner crashed or a model stays wedged in load/backoff, use the in-app `Stop model` button or run `ollama stop <model>`, then inspect `journalctl -u ollama` for GPU/runtime details.
 
 ## References
 

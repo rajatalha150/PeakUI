@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Settings, Server, Bot, Database, MessageSquare,
-  CheckCircle, AlertCircle, Loader2, Save, Palette, Users, Shield, Trash2
+  CheckCircle, AlertCircle, Loader2, Save, Palette, Users, Shield, Trash2, LogOut
 } from 'lucide-react';
 import { ollamaModelKey, RECOMMENDED_EMBEDDING_MODELS } from '@/lib/embedding-models';
 import { applyTheme, THEME_OPTIONS } from '@/lib/theme-options';
@@ -100,6 +100,7 @@ interface ManagedUser {
 
 interface Props {
   onSettingsChange?: (settings: UserSettings) => void;
+  onLogout?: () => void;
 }
 
 const INITIAL_SETTINGS: UserSettings = {
@@ -181,7 +182,7 @@ function formatTimestamp(value: string | null) {
   return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleString();
 }
 
-export default function SettingsPanel({ onSettingsChange }: Props) {
+export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
   const [settings, setSettings] = useState<UserSettings>(INITIAL_SETTINGS);
   const [models, setModels] = useState<Model[]>([]);
   const [chatModels, setChatModels] = useState<ChatModelOption[]>([]);
@@ -599,12 +600,13 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
     acc[permission.category].push(permission);
     return acc;
   }, {});
+  const showLegacyChatSettings = false;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', padding: '24px', gap: '4px', maxWidth: '680px', margin: '0 auto' }}>
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginBottom: '24px' }}>
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '6px' }}>
             <div style={{ background: 'var(--accent-gradient)', padding: '8px', borderRadius: '10px' }}>
@@ -616,14 +618,26 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
             Preferences are saved per user and persist across sessions.
           </p>
         </div>
-        <button
-          className="btn btn-primary"
-          onClick={handleSave}
-          disabled={saving}
-          style={{ padding: '10px 22px' }}
-        >
-          {saving ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : saved ? <><CheckCircle size={16} /> Saved!</> : <><Save size={16} /> Save</>}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {onLogout && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={onLogout}
+              style={{ padding: '10px 14px', color: 'var(--danger)', borderColor: 'var(--danger)' }}
+            >
+              <LogOut size={16} /> Logout
+            </button>
+          )}
+          <button
+            className="btn btn-primary"
+            onClick={handleSave}
+            disabled={saving}
+            style={{ padding: '10px 22px' }}
+          >
+            {saving ? <Loader2 size={16} style={{ animation: 'spin 1s linear infinite' }} /> : saved ? <><CheckCircle size={16} /> Saved!</> : <><Save size={16} /> Save</>}
+          </button>
+        </div>
       </div>
 
       {canManageUsers && (
@@ -976,63 +990,67 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
         </Field>
       </Section>
 
-      {/* Chat Settings */}
-      <Section icon={<MessageSquare size={18} />} title="Chat">
-        <Field label="Platform Selection" help="Choose where main chat models come from. Hybrid merges local Ollama models with discoverable Hugging Face models in one picker.">
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            {[
-              { value: 'ollama', label: 'Ollama', sub: 'Local-only models' },
-              { value: 'huggingface', label: 'Hugging Face', sub: 'HF router or HF-compatible endpoint' },
-              { value: 'hybrid', label: 'Hybrid', sub: 'Merge Ollama + Hugging Face' },
-            ].map(opt => {
-              const active = settings.chatPlatform === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => update('chatPlatform', opt.value as ChatPlatform)}
-                  style={{
-                    flex: 1,
-                    minWidth: '150px',
-                    padding: '12px 14px',
-                    borderRadius: '12px',
-                    border: `1px solid ${active ? 'var(--accent-primary)' : 'var(--border-color)'}`,
-                    background: active ? 'var(--accent-soft)' : 'var(--bg-glass)',
-                    color: 'var(--text-primary)',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    fontFamily: 'inherit',
-                  }}
-                >
-                  <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '4px' }}>{opt.label}</div>
-                  <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>{opt.sub}</div>
-                </button>
-              );
-            })}
-          </div>
-        </Field>
-
-        {(settings.chatPlatform === 'huggingface' || settings.chatPlatform === 'hybrid') && (
+      {/* Generation Settings */}
+      <Section icon={<MessageSquare size={18} />} title="Generation">
+        {showLegacyChatSettings && (
           <>
-            <Field label="Hugging Face Base URL" help="Default is the official Hugging Face router. You can also point this at a local HF-compatible serving endpoint such as TGI, vLLM, or SGLang if it exposes OpenAI-style chat completions.">
-              <input
-                className="input-field"
-                value={settings.huggingFaceBaseUrl}
-                onChange={e => update('huggingFaceBaseUrl', e.target.value)}
-                placeholder={DEFAULT_HUGGING_FACE_BASE_URL}
-              />
+            <Field label="Platform Selection" help="Choose where legacy chat models come from. Hybrid merges local Ollama models with discoverable Hugging Face models in one picker.">
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                {[
+                  { value: 'ollama', label: 'Ollama', sub: 'Local-only models' },
+                  { value: 'huggingface', label: 'Hugging Face', sub: 'HF router or HF-compatible endpoint' },
+                  { value: 'hybrid', label: 'Hybrid', sub: 'Merge Ollama + Hugging Face' },
+                ].map(opt => {
+                  const active = settings.chatPlatform === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => update('chatPlatform', opt.value as ChatPlatform)}
+                      style={{
+                        flex: 1,
+                        minWidth: '150px',
+                        padding: '12px 14px',
+                        borderRadius: '12px',
+                        border: `1px solid ${active ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                        background: active ? 'var(--accent-soft)' : 'var(--bg-glass)',
+                        color: 'var(--text-primary)',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '4px' }}>{opt.label}</div>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>{opt.sub}</div>
+                    </button>
+                  );
+                })}
+              </div>
             </Field>
 
-            <Field label="Hugging Face Token" help="Stored only in this browser. Required for the default Hugging Face router; custom local endpoints may not need it.">
-              <input
-                className="input-field"
-                type="password"
-                value={huggingFaceApiKey}
-                onChange={e => persistHuggingFaceApiKey(e.target.value)}
-                placeholder="hf_..."
-                autoComplete="off"
-              />
-            </Field>
+            {(settings.chatPlatform === 'huggingface' || settings.chatPlatform === 'hybrid') && (
+              <>
+                <Field label="Hugging Face Base URL" help="Default is the official Hugging Face router. You can also point this at a local HF-compatible serving endpoint such as TGI, vLLM, or SGLang if it exposes OpenAI-style chat completions.">
+                  <input
+                    className="input-field"
+                    value={settings.huggingFaceBaseUrl}
+                    onChange={e => update('huggingFaceBaseUrl', e.target.value)}
+                    placeholder={DEFAULT_HUGGING_FACE_BASE_URL}
+                  />
+                </Field>
+
+                <Field label="Hugging Face Token" help="Stored only in this browser. Required for the default Hugging Face router; custom local endpoints may not need it.">
+                  <input
+                    className="input-field"
+                    type="password"
+                    value={huggingFaceApiKey}
+                    onChange={e => persistHuggingFaceApiKey(e.target.value)}
+                    placeholder="hf_..."
+                    autoComplete="off"
+                  />
+                </Field>
+              </>
+            )}
           </>
         )}
 
@@ -1040,10 +1058,10 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
           label={
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               Local Model Lifecycle
-              <HelpHint text="PeakUI now leaves model loading and unload timing to Ollama itself. Use the Stop model button in Chat or Open Claw when you want to force a clean reload." />
+              <HelpHint text="PeakUI now leaves model loading and unload timing to Ollama itself. Use the Stop model button in Open Claw when you want to force a clean reload." />
             </span>
           }
-          help="Chat and local-provider Open Claw no longer override Ollama keep-alive or prewarm models in the background."
+          help="Local-provider Open Claw no longer overrides Ollama keep-alive or prewarms models in the background."
         >
           <div style={{
             padding: '12px 14px',
@@ -1055,7 +1073,7 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
               Native Ollama behavior
             </div>
             <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-              PeakUI no longer sends request-level <code>keep_alive</code> values or background warmup prompts for Chat and local-provider Open Claw. If a model gets wedged, use the header-level <strong>Stop model</strong> control to unload it and let the next request start cleanly.
+              PeakUI no longer sends request-level <code>keep_alive</code> values or background warmup prompts for local-provider Open Claw. If a model gets wedged, use the header-level <strong>Stop model</strong> control to unload it and let the next request start cleanly.
             </div>
           </div>
         </Field>
@@ -1064,10 +1082,10 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
           label={
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               Exclusive Ollama Switching
-              <HelpHint text="Before a local Chat or Open Claw request starts, unload any other running Ollama models so the selected model gets the machine to itself." />
+              <HelpHint text="Before a local Open Claw request starts, unload any other running Ollama models so the selected model gets the machine to itself." />
             </span>
           }
-          help="When enabled, the app asks Ollama to unload other running models before it starts the selected local chat model."
+          help="When enabled, the app asks Ollama to unload other running models before it starts the selected local Open Claw model."
         >
           <button
             type="button"
@@ -1095,7 +1113,7 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '3px', lineHeight: 1.45 }}>
                 {settings.exclusiveOllamaModels
-                  ? 'Other running Ollama models are unloaded before the selected Ollama chat model starts.'
+                  ? 'Other running Ollama models are unloaded before the selected Ollama model starts.'
                   : 'Ollama is free to leave other recently-used local models resident until they expire.'}
               </div>
             </div>
@@ -1110,52 +1128,54 @@ export default function SettingsPanel({ onSettingsChange }: Props) {
           </button>
         </Field>
 
-        <Field label="Default Chat Model" help="This model is pre-selected when you open the chat. You can still change it per-session from the header dropdown.">
-          {visibleChatModels.length > 0 ? (
-            <select
-              className="input-field"
-              value={selectedChatModelId}
-              onChange={e => {
-                const nextModel = visibleChatModels.find(model => model.id === e.target.value)
-                if (!nextModel) {
-                  update('chatModel', '')
-                  return
-                }
-                update('chatModel', nextModel.name)
-                if (nextModel) {
-                  update('chatModelProvider', nextModel.provider)
-                }
-              }}
-              style={{ width: '100%' }}
-            >
-              <option value="">— Pick from header each time —</option>
-              {visibleChatModels.map(model => (
-                <option key={model.id} value={model.id}>
-                  {model.provider === 'ollama' ? `[Ollama] ${model.name}` : `[Hugging Face] ${model.name}`}
-                </option>
-              ))}
-            </select>
-          ) : settings.chatPlatform === 'huggingface' ? (
-            <input
-              className="input-field"
-              value={settings.chatModel}
-              onChange={e => {
-                update('chatModel', e.target.value)
-                update('chatModelProvider', 'huggingface')
-              }}
-              placeholder="deepseek-ai/DeepSeek-R1:fastest"
-            />
-          ) : (
-            <div style={{ padding: '12px 14px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-              {chatModelsLoading ? 'Loading chat models…' : 'No chat models were discovered for the selected platform yet.'}
-            </div>
-          )}
-          {needsHuggingFaceTokenForDiscovery && (
-            <div style={{ marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
-              Add a Hugging Face token to list router models automatically. In Hugging Face-only mode, you can still type a model id manually if you already know the exact name.
-            </div>
-          )}
-        </Field>
+        {showLegacyChatSettings && (
+          <Field label="Default Chat Model" help="This model is pre-selected when you open legacy chat. You can still change it per-session from the header dropdown.">
+            {visibleChatModels.length > 0 ? (
+              <select
+                className="input-field"
+                value={selectedChatModelId}
+                onChange={e => {
+                  const nextModel = visibleChatModels.find(model => model.id === e.target.value)
+                  if (!nextModel) {
+                    update('chatModel', '')
+                    return
+                  }
+                  update('chatModel', nextModel.name)
+                  if (nextModel) {
+                    update('chatModelProvider', nextModel.provider)
+                  }
+                }}
+                style={{ width: '100%' }}
+              >
+                <option value="">— Pick from header each time —</option>
+                {visibleChatModels.map(model => (
+                  <option key={model.id} value={model.id}>
+                    {model.provider === 'ollama' ? `[Ollama] ${model.name}` : `[Hugging Face] ${model.name}`}
+                  </option>
+                ))}
+              </select>
+            ) : settings.chatPlatform === 'huggingface' ? (
+              <input
+                className="input-field"
+                value={settings.chatModel}
+                onChange={e => {
+                  update('chatModel', e.target.value)
+                  update('chatModelProvider', 'huggingface')
+                }}
+                placeholder="deepseek-ai/DeepSeek-R1:fastest"
+              />
+            ) : (
+              <div style={{ padding: '12px 14px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                {chatModelsLoading ? 'Loading chat models…' : 'No chat models were discovered for the selected platform yet.'}
+              </div>
+            )}
+            {needsHuggingFaceTokenForDiscovery && (
+              <div style={{ marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                Add a Hugging Face token to list router models automatically. In Hugging Face-only mode, you can still type a model id manually if you already know the exact name.
+              </div>
+            )}
+          </Field>
+        )}
 
         <Field label="System Prompt" help="A persistent instruction prepended to every conversation. Useful for setting a persona or behavioral rules.">
           <textarea

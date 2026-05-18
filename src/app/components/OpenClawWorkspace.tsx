@@ -1013,21 +1013,21 @@ function formatUwafBrowserToolResult(entry: UwafBrowserToolResultEntry): string 
 }
 
 export interface OpenClawWorkspaceProps {
-  onNavigateToChat?: () => void;
   onNavigateToKnowledgeBase?: () => void;
   onNavigateToWorkspace?: () => void;
   onNavigateToSettings?: () => void;
-  view?: 'workspace' | 'knowledge-base';
+  view?: 'workspace' | 'knowledge-base' | 'settings';
   knowledgeBaseContent?: React.ReactNode;
+  settingsContent?: React.ReactNode;
 }
 
 export default function OpenClawWorkspace({
-  onNavigateToChat,
   onNavigateToKnowledgeBase,
   onNavigateToWorkspace,
   onNavigateToSettings,
   view = 'workspace',
   knowledgeBaseContent,
+  settingsContent,
 }: OpenClawWorkspaceProps) {
   const getStoredInternetEnabled = () => {
     if (typeof window === 'undefined') return false;
@@ -4559,6 +4559,7 @@ export default function OpenClawWorkspace({
   [deferredChatHistory, isVisibleMessage]
 );
   const showingKnowledgeBase = view === 'knowledge-base';
+  const showingSettings = view === 'settings';
   const activeModeSummary = [
     internetEnabled ? 'Internet' : null,
     ragEnabled ? 'RAG' : null,
@@ -5130,13 +5131,19 @@ export default function OpenClawWorkspace({
           )}
         </div>
 
-        {showingKnowledgeBase ? (
+        {showingKnowledgeBase || showingSettings ? (
           <div className="chat-scroll-shell">
-            {knowledgeBaseContent || (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-secondary)' }}>
-                Knowledge Base content is unavailable.
-              </div>
-            )}
+            {showingSettings
+              ? settingsContent || (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-secondary)' }}>
+                  Settings content is unavailable.
+                </div>
+              )
+              : knowledgeBaseContent || (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-secondary)' }}>
+                  Knowledge Base content is unavailable.
+                </div>
+              )}
           </div>
         ) : (
           <>
@@ -5420,10 +5427,10 @@ export default function OpenClawWorkspace({
                 type="button"
                 onClick={() => {
                   closeMobileChrome();
-                  onNavigateToChat?.();
+                  onNavigateToWorkspace?.();
                 }}
-                title="Go to Chat"
-                aria-label="Go to Chat"
+                title="Go to Open Claw"
+                aria-label="Go to Open Claw"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -5465,13 +5472,13 @@ export default function OpenClawWorkspace({
               }} title="Go to Knowledge Base">
                 <Database size={18} /> <span className="sidebar-label">Knowledge Base (RAG)</span>
               </div>
-              <div className={`nav-item${!showingKnowledgeBase ? ' active' : ''}`} onClick={() => {
+              <div className={`nav-item${!showingKnowledgeBase && !showingSettings ? ' active' : ''}`} onClick={() => {
                 closeMobileChrome();
                 onNavigateToWorkspace?.();
               }} title="Go to Open Claw">
                 <Wand2 size={18} /> <span className="sidebar-label">Open Claw</span>
               </div>
-              <div className="nav-item" onClick={() => {
+              <div className={`nav-item${showingSettings ? ' active' : ''}`} onClick={() => {
                 closeMobileChrome();
                 onNavigateToSettings?.();
               }} title="Settings">

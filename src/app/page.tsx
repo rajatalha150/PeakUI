@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { randomUUID } from '@/lib/uuid';
 import { 
-  MessageSquare, Terminal, Database, Box, Settings, Cpu,
+  Terminal, Database, Box, Settings, Cpu,
   Send, Bot, User, Paperclip, Code2, ChevronDown, ChevronLeft, ChevronRight, Activity, AlertCircle, Loader2, RefreshCw, Square, Plus, MessageCircle, LogOut, BookOpen, Check, Wand2, Globe, Redo2, Wifi, WifiOff,
   Download, FileText, Copy, Folder, Search, X, MoreHorizontal, Menu
 } from 'lucide-react';
@@ -55,21 +55,14 @@ const CHAT_DRAFT_SESSION_SENTINEL = '__draft__';
 const MOBILE_BREAKPOINT = 960;
 
 type AppTab = 'chat' | 'docs' | 'openclaw' | 'code' | 'vm' | 'docker' | 'settings';
-type OpenClawView = 'workspace' | 'knowledge-base';
+type OpenClawView = 'workspace' | 'knowledge-base' | 'settings';
 
-function normalizeActiveTab(value: unknown): AppTab {
-  return value === 'docs'
-    || value === 'openclaw'
-    || value === 'code'
-    || value === 'vm'
-    || value === 'docker'
-    || value === 'settings'
-    ? value
-    : 'chat';
+function normalizeActiveTab(): AppTab {
+  return 'openclaw';
 }
 
-function normalizeOpenClawView(value: unknown): OpenClawView {
-  return value === 'knowledge-base' ? 'knowledge-base' : 'workspace';
+function normalizeOpenClawView(): OpenClawView {
+  return 'workspace';
 }
 
 function ThinkingBlock({ content, isStreaming }: { content: string; isStreaming: boolean }) {
@@ -605,11 +598,12 @@ export default function Home() {
   };
 
   const getStoredActiveTab = (): AppTab => {
-    if (typeof window === 'undefined') return 'chat';
+    if (typeof window === 'undefined') return 'openclaw';
     try {
-      return normalizeActiveTab(window.sessionStorage.getItem(ACTIVE_TAB_STORAGE));
+      window.sessionStorage.removeItem(ACTIVE_TAB_STORAGE);
+      return normalizeActiveTab();
     } catch {
-      return 'chat';
+      return 'openclaw';
     }
   };
 
@@ -625,7 +619,8 @@ export default function Home() {
   const getStoredOpenClawView = (): OpenClawView => {
     if (typeof window === 'undefined') return 'workspace';
     try {
-      return normalizeOpenClawView(window.sessionStorage.getItem(OPENCLAW_VIEW_STORAGE));
+      window.sessionStorage.removeItem(OPENCLAW_VIEW_STORAGE);
+      return normalizeOpenClawView();
     } catch {
       return 'workspace';
     }
@@ -898,7 +893,8 @@ export default function Home() {
     }
 
     closeMobileChrome();
-    setActiveTab('chat');
+    setOpenClawView('workspace');
+    setActiveTab('openclaw');
     setIsStreaming(false);
     setLiveStats(null);
     setStreamPhase(null);
@@ -2279,13 +2275,13 @@ export default function Home() {
   const openMainChat = () => {
     closeMobileChrome();
     setOpenClawView('workspace');
-    setActiveTab('chat');
+    setActiveTab('openclaw');
   };
 
   const openMainKnowledgeBase = () => {
     closeMobileChrome();
-    setOpenClawView('workspace');
-    setActiveTab('docs');
+    setOpenClawView('knowledge-base');
+    setActiveTab('openclaw');
   };
 
   const openOpenClawWorkspace = () => {
@@ -2302,8 +2298,8 @@ export default function Home() {
 
   const openSettings = () => {
     closeMobileChrome();
-    setOpenClawView('workspace');
-    setActiveTab('settings');
+    setOpenClawView('settings');
+    setActiveTab('openclaw');
   };
 
   return (
@@ -3351,26 +3347,37 @@ export default function Home() {
           <OpenClawWorkspace 
             view={openClawView}
             knowledgeBaseContent={(
-              <KnowledgeBase onUseInChat={(ctx, sources) => {
-                setRagContext(ctx);
-                setRagContextSources(sources || []);
-                openMainChat();
-              }} />
+              <KnowledgeBase />
             )}
-            onNavigateToChat={openMainChat}
+            settingsContent={(
+              <SettingsPanel
+                onLogout={handleLogout}
+                onSettingsChange={(s) => {
+                  setUserSettings(s);
+                  void fetchChatModels(s);
+                  if (s.chatModel) {
+                    const nextModelId = buildChatModelOptionId(s.chatModelProvider || 'ollama', s.chatModel);
+                    setSelectedModel(nextModelId);
+                  }
+                }}
+              />
+            )}
             onNavigateToKnowledgeBase={openOpenClawKnowledgeBase}
             onNavigateToWorkspace={openOpenClawWorkspace}
             onNavigateToSettings={openSettings}
           />
         ) : activeTab === 'settings' ? (
-          <SettingsPanel onSettingsChange={(s) => {
-            setUserSettings(s);
-            void fetchChatModels(s);
-            if (s.chatModel) {
-              const nextModelId = buildChatModelOptionId(s.chatModelProvider || 'ollama', s.chatModel);
-              setSelectedModel(nextModelId);
-            }
-          }} />
+          <SettingsPanel
+            onLogout={handleLogout}
+            onSettingsChange={(s) => {
+              setUserSettings(s);
+              void fetchChatModels(s);
+              if (s.chatModel) {
+                const nextModelId = buildChatModelOptionId(s.chatModelProvider || 'ollama', s.chatModel);
+                setSelectedModel(nextModelId);
+              }
+            }}
+          />
         ) : (
         <>
         <div className="chat-scroll-shell">

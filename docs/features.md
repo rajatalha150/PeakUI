@@ -1,21 +1,22 @@
 # PeakUI Features
 
-## Chat
+## Open Claw-First App Shell
+
+PeakUI now opens directly into Open Claw. The former normal-chat surface and its separate app sidebar are no longer part of the primary UI; Workspace, Knowledge Base, Settings, task sessions, and logout all live inside the Open Claw shell.
 
 ### Model Platforms
 
-- **Platform selection**: Main chat can run on `Ollama`, `Hugging Face`, or `Hybrid`
-- **Hybrid picker**: Hybrid mode merges local Ollama models with discoverable Hugging Face models in one header dropdown
-- **Provider-aware defaults**: Saved default chat model now keeps both the model id and its provider so duplicate names across platforms stay deterministic
-- **Hugging Face router support**: The default HF path uses `https://router.huggingface.co/v1` with OpenAI-compatible chat completions and router-native `/v1/models` discovery
-- **HF-compatible endpoints**: Custom TGI, vLLM, or SGLang-style OpenAI-compatible bases can be used when they expose model discovery or info routes
+- **Primary provider selection**: Open Claw can run on local `Ollama` or an OpenAI-compatible provider.
+- **Provider-aware defaults**: Saved Open Claw model settings keep both the model id and provider so duplicate names across platforms stay deterministic.
+- **Hugging Face router support**: The default HF-compatible path can use `https://router.huggingface.co/v1` with OpenAI-compatible chat completions and router-native `/v1/models` discovery.
+- **HF-compatible endpoints**: Custom TGI, vLLM, or SGLang-style OpenAI-compatible bases can be used when they expose model discovery or info routes.
 
 ### Organization
 
-- **Folders**: Group sessions into named color-coded folders from the main sidebar
-- **Tags**: Apply reusable tags to sessions for cross-folder filtering
-- **Search**: Search chat titles and saved message content from the sidebar
-- **Session actions**: Rename, pin, copy, delete, move to folder, and toggle tags from each chat's menu
+- **Folders**: Group Open Claw task threads into named color-coded folders from the workspace rail.
+- **Tags**: Apply reusable tags to task threads for cross-folder filtering.
+- **Search**: Search task-thread titles and saved message content from the rail.
+- **Session actions**: Rename, pin, copy, delete, move to folder, and toggle tags from each Open Claw task thread menu.
 
 ### File & Media Attachments
 
@@ -40,11 +41,11 @@
 
 ## Open Claw
 
-Open Claw is a workspace for agentic tasks with persistent task modes and workspace controls. On desktop, it uses the same chat-style top bar as the main chat surface, with the model picker moved into that shared top bar and the left rail keeping session/workspace controls below the brand/nav block. On mobile, the surface keeps that shared top bar and collapses the rail into a drawer instead of the old desktop rail chrome.
+Open Claw is the primary workspace for agentic tasks with persistent task modes and workspace controls. On desktop, it uses a chat-style top bar with the model picker and Workspace modes menu, while the left rail keeps session/workspace navigation below the brand/nav block. On mobile, the same shell collapses the rail into a drawer instead of showing a separate app sidebar.
 
 ### File Attachments
 
-Open Claw supports the same file and image attachment system as main chat:
+Open Claw uses the shared file and image attachment system:
 - Paperclip button in the composer for file selection
 - Images sent as base64 to vision models
 - Documents extracted to text and prepended to the message
@@ -113,10 +114,11 @@ Open Claw includes a collapsible Canvas panel that:
 
 ### Workspace Rail
 
-- The left-side workspace rail includes a surface switcher:
-  - `Go to Chat` returns to the normal chat surface and restores the main app sidebar.
+- The left-side workspace rail is the app's primary navigation surface:
+  - `Workspace` returns to the active Open Claw task view.
   - `Knowledge Base (RAG)` opens the Knowledge Base dashboard inside the Open Claw shell while keeping the selected Open Claw task thread visible.
-- Open Claw task threads now support the same core organization controls as normal chat:
+  - `Settings` opens Settings inside the Open Claw shell; logout is available from the Settings header.
+- Open Claw task threads support the core organization controls:
   - **Folders**: assign task threads to folders and filter the rail by folder
   - **Tags**: assign reusable tags and filter the rail by tag
   - **Session actions**: pin, rename, copy to clipboard, delete, move to folder, and toggle tags from each task thread menu
@@ -138,10 +140,9 @@ Open Claw includes a collapsible Canvas panel that:
 - Knowledge Base uploads can also ingest folder trees from the browser file picker or drag-and-drop. Relative paths are preserved, the uploaded tree stays intact in the index, and large drops are queued in batches so indexing stays responsive.
 - The Knowledge Base dashboard now includes a RAG health panel that shows what indexed successfully, what is still pending, and which files failed with the associated reason.
 - The indexed document list is server-paginated, lets users choose how many rows to show per page, and supports multi-select, select-all, and bulk delete actions.
-- The Knowledge Base dashboard can be opened from either the main app sidebar or the Open Claw workspace rail
-- Opening it from the main app sidebar keeps the normal chat sidebar visible
-- Opening it from the Open Claw rail keeps the Open Claw session rail visible and swaps only the main content panel
-- On mobile, both entry points use the top-bar/drawer chrome, but the selected surface context still stays intact
+- The Knowledge Base dashboard opens from the Open Claw workspace rail.
+- Opening it keeps the Open Claw session rail visible and swaps only the main content panel.
+- On mobile, Knowledge Base uses the same top-bar/drawer chrome, so the selected Open Claw session context stays intact.
 - Search supports `file:`, `folder:`, `type:`, and `ext:` narrowing, and the KB panel can open a full-document preview for a selected result
 
 ### Search Modes
@@ -152,15 +153,15 @@ Open Claw includes a collapsible Canvas panel that:
 
 ### Server-Side Integration
 
-When **Enable Knowledge Base** is toggled ON in Settings, the chat pipeline automatically queries your indexed documents:
+When **Enable Knowledge Base** is toggled ON in Settings, the shared completion pipeline automatically queries your indexed documents:
 - RAG fires alongside web search in both Ollama and OpenAI-compatible paths
 - Results sent as `knowledge_sources` in stream and displayed as source chips
 - "Searching knowledge base..." phase shown during lookup
 
-### Use in Chat
+### Use in Open Claw
 
 - Toggle RAG mode to automatically inject relevant context
-- Search and "Send to Chat" to attach specific passages
+- Search and inspect specific passages from the Knowledge Base panel
 - Sources are cited inline with clickable chips
 - Retrieved KB context is labeled with file metadata and chunk/full-document markers so the model knows whether it is seeing an excerpt or a safe full-document injection.
 - The model prompt now explicitly tells the assistant that KB context is usually excerpt-based, but small files can be injected as full-document context when safe, and that it can ask for a broader lookup or direct file inspection when the snippet is not enough.
@@ -196,20 +197,20 @@ When **Enable Knowledge Base** is toggled ON in Settings, the chat pipeline auto
 
 ## Settings
 
-### Chat Settings
+### Generation Settings
 
-- **Platform**: Choose Ollama, Hugging Face, or Hybrid for main chat
-- **Model**: Select from provider-aware discovered models, or manually enter a Hugging Face model id when router discovery is unavailable
-- **Hugging Face Base URL**: Default router or custom HF-compatible endpoint
-- **Hugging Face Token**: Stored only in the browser for router access
+- **Open Claw provider/model**: Choose local Ollama or an OpenAI-compatible provider for Open Claw
+- **Compatible provider base URL**: Default router or custom OpenAI-compatible endpoint
+- **Provider token**: Stored only in the browser for compatible remote access
 - **Temperature**: Response randomness (0-2)
 - **Context Window**: Max tokens for context (512-32768)
 - **System Prompt**: Custom instructions for the model
 - **Exclusive Ollama Switching**: Unload other models before starting selected one
+- **Logout**: Available from the Settings header
 
 ### Appearance
 
-- **Theme**: Aurora, Graphite, Midnight, Evergreen, Burgundy
+- **Theme**: Aurora, Graphite, Midnight, Canvas, Ledger
 - Themes apply immediately and persist per user
 
 ### Open Claw Tool Settings

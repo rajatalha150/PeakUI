@@ -5,7 +5,7 @@
 **CRITICAL:** Whenever you make a new git commit, you MUST update this `memory.md` file to reflect the new state of the project, the latest features added, and the next steps.
 
 ## 📝 Project Overview
-PeakUI is a Next.js (App Router) web application designed to act as a local-first AI Studio command center. It connects to a user-configured Ollama host (default `127.0.0.1:11434`) for local models, and main chat can also target Hugging Face or a hybrid Ollama + Hugging Face catalog. It is fully Dockerized (`docker-compose`) and secured behind a PostgreSQL-backed authentication layer.
+PeakUI is a Next.js (App Router) web application designed to act as a local-first Open Claw AI Studio command center. It connects to a user-configured Ollama host (default `127.0.0.1:11434`) for local models, and Open Claw can target OpenAI-compatible providers when configured. The legacy chat completion APIs remain as shared backend infrastructure, but the user-facing app now opens directly into Open Claw. It is fully Dockerized (`docker-compose`) and secured behind a PostgreSQL-backed authentication layer.
 
 ## 🛠️ Tech Stack
 - **Frontend:** Next.js 16 (App Router, React 19), `lucide-react` icons
@@ -44,6 +44,14 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - That single menu now contains Internet, UWAF Direct/Stealth, RAG, Unrestricted, and Uncensored instead of rendering five separate top-bar buttons.
 - Mobile keeps the existing overflow-menu pattern, and the desktop dropdown closes on outside click, `Esc`, and viewport collapse.
 
+## ✅ Recent UI Update — Open Claw-Only Shell
+
+- The app now boots directly into the Open Claw workspace instead of restoring the old normal chat surface.
+- The normal chat sidebar/top-level surface is no longer part of the reachable app shell; Open Claw's rail is the single left navigation model.
+- Workspace, Knowledge Base, Settings, task sessions, folders, tags, and search all stay inside the Open Claw shell.
+- Settings now render as an Open Claw main-panel view, and Logout moved into the Settings header.
+- Legacy `/api/chat/*` routes and shared completion helpers remain available as backend infrastructure for streaming and compatibility.
+
 ## 🚀 Recent Fixes & Changes (Stable)
 
 ### Chat Mode System
@@ -68,7 +76,7 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - Browser results now return redirect state, HTTP status when available, query-match flags, result counts, tab state, selector/wait outcomes, and recent JS/network failures; the Open Claw prompt instructs the model to treat those fields as authoritative evidence
 
 ### Open Claw Session Management
-- Open Claw task threads now have parity with main chat organization controls: folder assignment/filtering, reusable tags, pin/unpin, inline rename, copy-to-clipboard, and per-thread delete
+- Open Claw task threads now have organization controls in the primary rail: folder assignment/filtering, reusable tags, pin/unpin, inline rename, copy-to-clipboard, and per-thread delete
 - Added bulk session management in the Open Claw rail: select multiple task threads, delete the selected set, or clear all Open Claw sessions at once
 - Extended the shared `/api/chats` deletion path to support bulk deletes by explicit `ids` or by `surface`, so clear-all only removes `surface: 'openclaw'` sessions without touching normal chat history
 
@@ -86,7 +94,7 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 
 ## ⏭️ Next Steps
 - Manual UI pass for Settings → User Management: create user, role change, permission override, deactivate, reset password, delete
-- Consider propagating role/permission state into the main navigation so feature tabs hide proactively instead of relying only on backend enforcement
+- Consider propagating role/permission state into the Open Claw rail so feature tabs hide proactively instead of relying only on backend enforcement
 - Consider dedicated account recovery / forced-password-rotation flows if this app will be shared across more operators
 - **Manual UX validation of noVNC interaction** — protocol-level VNC handshake is confirmed, but broader browser-side mouse/keyboard validation across sidebar and modal is still worth doing
 - **End-to-end human-assist validation** — test a real CAPTCHA/auth/MFA-style site manually to confirm `wait_for_user` pauses, takeover, resume, and post-resume extraction all behave correctly with the selected model
