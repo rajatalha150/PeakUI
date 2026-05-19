@@ -536,7 +536,9 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const uncensored = body.uncensored === true;
 
     // RAG / Knowledge Base settings — use per-request flag if provided, else fall back to user settings
-    const ragEnabled = normalizeRagEnabled(body.rag_enabled) || settings.ragEnabled;
+    const ragEnabled = Object.prototype.hasOwnProperty.call(body, 'rag_enabled')
+      ? normalizeRagEnabled(body.rag_enabled)
+      : settings.ragEnabled;
     const ragQuery = normalizeRagQuery(body.rag_query);
     const rawRagTopK = Number(body.rag_topk ?? settings.ragTopK);
     // -1 means full access (retrieve all matching chunks)

@@ -42,6 +42,7 @@ import {
   type ChatModelProvider,
   type ChatPlatform,
 } from '@/lib/chat-platforms';
+import { reportClientError } from '@/lib/client-error-reporting';
 
 const CHAT_INTERNET_STORAGE = 'peakui-chat-internet-enabled';
 const UNRESTRICTED_STORAGE = 'peakui-chat-unrestricted';
@@ -912,12 +913,13 @@ export default function Home() {
 
   const upsertSessionInState = (session: ChatSession) => {
     setSessions(prev => {
-      const existingIndex = prev.findIndex(item => item.id === session.id);
+      const safePrev = prev.filter((item): item is ChatSession => Boolean(item?.id));
+      const existingIndex = safePrev.findIndex(item => item.id === session.id);
       if (existingIndex === -1) {
-        return [session, ...prev];
+        return [session, ...safePrev];
       }
 
-      const next = [...prev];
+      const next = [...safePrev];
       next[existingIndex] = session;
       return next;
     });
@@ -1585,11 +1587,12 @@ export default function Home() {
     });
   };
 
-  const visibleSessions = sessions.filter(session => {
+  const visibleSessions = sessions.filter((session): session is ChatSession => {
+    if (!session?.id) return false;
     if (selectedFolderId && session.folderId !== selectedFolderId) {
       return false;
     }
-    if (selectedTagId && !session.tags?.some(tag => tag.id === selectedTagId)) {
+    if (selectedTagId && !session.tags?.some(tag => tag?.id === selectedTagId)) {
       return false;
     }
     return true;
@@ -1622,6 +1625,9 @@ export default function Home() {
       const hasThinking = thinkingQueue.length > 0;
       const hasSources = sourcesQueue !== null;
       if (!hasContent && !hasThinking && !hasSources) return;
+      const contentSnapshot = contentQueue;
+      const thinkingSnapshot = thinkingQueue;
+      const sourcesSnapshot = sourcesQueue;
 
       setChatHistory(prev => {
         const updated = [...prev];
@@ -1629,9 +1635,9 @@ export default function Home() {
         if (updated[lastIdx]?.role !== 'assistant') return prev;
         updated[lastIdx] = {
           ...updated[lastIdx],
-          ...(hasContent ? { content: updated[lastIdx].content + contentQueue } : {}),
-          ...(hasThinking ? { thinking: (updated[lastIdx].thinking || '') + thinkingQueue } : {}),
-          ...(hasSources ? { sources: sourcesQueue! } : {}),
+          ...(contentSnapshot ? { content: updated[lastIdx].content + contentSnapshot } : {}),
+          ...(thinkingSnapshot ? { thinking: (updated[lastIdx].thinking || '') + thinkingSnapshot } : {}),
+          ...(sourcesSnapshot ? { sources: sourcesSnapshot } : {}),
         };
         return updated;
       });
@@ -1644,36 +1650,51 @@ export default function Home() {
     const startDrip = () => {
       if (dripTimer) return;
       dripTimer = setInterval(() => {
-        const hasContent = contentQueue.length > 0;
-        const hasThinking = thinkingQueue.length > 0;
-        const hasSources = sourcesQueue !== null;
-        if (!hasContent && !hasThinking && !hasSources) {
-          if (streamingDone) {
-            clearInterval(dripTimer!);
+        try {
+          const hasContent = contentQueue.length > 0;
+          const hasThinking = thinkingQueue.length > 0;
+          const hasSources = sourcesQueue !== null;
+          if (!hasContent && !hasThinking && !hasSources) {
+            if (streamingDone) {
+              clearInterval(dripTimer!);
+              dripTimer = null;
+            }
+            return;
+          }
+
+          const contentChunk = hasContent ? contentQueue.slice(0, DRIP_CHUNK_SIZE) : '';
+          const thinkingChunk = hasThinking ? thinkingQueue.slice(0, DRIP_CHUNK_SIZE) : '';
+          const sourcesSnapshot = sourcesQueue;
+          if (hasContent) contentQueue = contentQueue.slice(contentChunk.length);
+          if (hasThinking) thinkingQueue = thinkingQueue.slice(thinkingChunk.length);
+          if (hasSources) sourcesQueue = null;
+
+          setChatHistory(prev => {
+            const updated = [...prev];
+            const lastIdx = updated.length - 1;
+            if (updated[lastIdx]?.role !== 'assistant') return prev;
+            updated[lastIdx] = {
+              ...updated[lastIdx],
+              ...(contentChunk ? { content: updated[lastIdx].content + contentChunk } : {}),
+              ...(thinkingChunk ? { thinking: (updated[lastIdx].thinking || '') + thinkingChunk } : {}),
+              ...(sourcesSnapshot ? { sources: sourcesSnapshot } : {}),
+            };
+            return updated;
+          });
+        } catch (error) {
+          reportClientError(error, {
+            source: 'chat.stream.drip',
+            extra: {
+              hasSourcesQueue: Boolean(sourcesQueue),
+              streamingDone,
+            },
+          });
+          if (dripTimer) {
+            clearInterval(dripTimer);
             dripTimer = null;
           }
-          return;
+          flushAll();
         }
-
-        const contentChunk = hasContent ? contentQueue.slice(0, DRIP_CHUNK_SIZE) : '';
-        const thinkingChunk = hasThinking ? thinkingQueue.slice(0, DRIP_CHUNK_SIZE) : '';
-        if (hasContent) contentQueue = contentQueue.slice(contentChunk.length);
-        if (hasThinking) thinkingQueue = thinkingQueue.slice(thinkingChunk.length);
-
-        setChatHistory(prev => {
-          const updated = [...prev];
-          const lastIdx = updated.length - 1;
-          if (updated[lastIdx]?.role !== 'assistant') return prev;
-          updated[lastIdx] = {
-            ...updated[lastIdx],
-            ...(contentChunk ? { content: updated[lastIdx].content + contentChunk } : {}),
-            ...(thinkingChunk ? { thinking: (updated[lastIdx].thinking || '') + thinkingChunk } : {}),
-            ...(hasSources ? { sources: sourcesQueue! } : {}),
-          };
-          // Clear sources after first delivery so we don't re-set them every tick
-          if (hasSources) sourcesQueue = null;
-          return updated;
-        });
       }, DRIP_INTERVAL_MS);
     };
 

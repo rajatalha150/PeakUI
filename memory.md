@@ -167,7 +167,7 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Per-user Open Claw settings now persist `openClawProvider`, `openClawModel`, and `openClawBaseUrl` in `UserSettings`, with server-side normalization and settings-panel controls; model selection is surfaced in the shared top bar rather than inside the rail
 - Local Ollama is the first-class path; Open Claw model discovery uses `/api/openclaw/models`, while OpenAI-compatible providers can be connected with a stored browser API key and provider-specific base URL
 - The workspace uses a session-first streaming flow, a task-oriented system prompt, structured assistant rendering, `<think>` blocks, and a PC-work explanation card so the user can use Open Claw as a dedicated agent workspace
-- Open Claw now has its own RAG toggle in the workspace top bar; it searches the same Knowledge Base as normal chat, injects source context before generation, and displays source chips on assistant responses
+- Open Claw now has its own RAG toggle in the workspace top bar; it uses the shared server-side RAG pipeline, honors saved `ragEnabled` / `ragTopK` defaults from Settings, injects source context before generation on the backend, and displays streamed source chips from `knowledge_sources`
 - Open Claw now also has a per-session **Internet** toggle; when enabled it uses the same safe backend-managed public-web lookup path as Chat, merges those citations with any active RAG sources, and explains the mode inline in the workspace UI
 - Open Claw Internet mode now also exposes a real reusable `web` tool to the model, so it can run follow-up searches or fetch a specific public page mid-task instead of being limited to the initial preloaded research pass. The prompt now explicitly lists the active toolset and tells the model when to reuse existing context versus request a fresh search.
 - Open Claw now inherits the same metadata-rich Knowledge Base excerpts as chat, so retrieved sources are labeled as snippets rather than full-file content when they are injected into the task prompt. The KB prompt now also carries chunk-aware citations plus the retrieval contract that lets the model ask for broader lookup or direct file inspection when needed.
@@ -390,8 +390,21 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `fix: honor live browser setting`
-- **Previous committed baseline:** `refactor: make open claw the primary shell`
+- **Current committed baseline:** `fix: stabilize openclaw rag streaming`
+- **Previous committed baseline:** `fix: honor live browser setting`
+
+### Latest Changes (Open Claw RAG Streaming Stability)
+- **Fixed the RAG source-chip crash path:** Open Claw now snapshots queued streamed source updates before React state callbacks run, preventing the `Cannot read properties of null (reading 'id')` crash that appeared when `knowledge_sources` arrived during streaming.
+- **Hardened Open Claw message/session state:** loaded sessions, streamed messages, source metadata, task checklist items, canvas artifacts, and session lists now normalize or drop malformed/null entries before render/update paths touch `.id`.
+- **Added client-side error reporting:** a new `/api/client-errors` endpoint records browser-side crashes in Docker logs as `[client-error]`, with rate limiting, secret redaction, URL/user-agent context, global `window.error` / `unhandledrejection` capture, and React render-boundary reporting.
+- **Added local assistant render fallback:** assistant message rendering is wrapped in a `MessageRenderBoundary` so a bad markdown/source payload degrades to a plain-text fallback instead of taking down the whole Open Claw page.
+- **Hardened legacy chat streaming too:** the old chat streamer now snapshots queued content/thinking/source updates and filters malformed sessions in shared state paths so the same null-closure pattern cannot recur there.
+
+### Latest Changes (Open Claw RAG Audit)
+- **Open Claw now uses the shared backend RAG pipeline again:** the stale client-side `/api/rag/search` prefetch and manual system-message injection were removed from the active Open Claw send loop, so Open Claw and the shared completion backend now use the same retrieval contract.
+- **Server-streamed knowledge base sources now reach Open Claw correctly:** the Open Claw stream parser now consumes `knowledge_sources` frames, merges them into the visible source chips, and keeps tool/web sources additive instead of replacing KB evidence.
+- **Saved RAG settings now apply to the Open Claw-first shell:** Open Claw settings loading now reads `ragEnabled` and `ragTopK`, seeds the workspace toggle from saved settings when there is no session override, and sends the configured topK through the shared completion request.
+- **Explicit RAG-off requests now stay off:** the shared chat completion backend no longer re-enables RAG from saved settings when a request sends `rag_enabled: false`, which fixes Open Claw tool rounds and any other callers that intentionally disable retrieval for follow-up turns.
 
 ### Latest Changes (Live Browser Settings Fix)
 - **Live Browser toggle now applies immediately after Settings save:** Settings changes bump an Open Claw settings revision, and the workspace reloads its internal settings without requiring a page refresh.

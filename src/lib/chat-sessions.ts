@@ -1,5 +1,6 @@
 import { prisma } from './prisma';
 import { normalizeResponsePresentation, type ResponsePresentation } from './response-format';
+import { normalizeMessageSources, type MessageSource } from './message-sources';
 
 export type StoredChatRole = 'user' | 'assistant' | 'system';
 export type ChatSessionSurface = 'chat' | 'openclaw';
@@ -11,7 +12,7 @@ export interface StoredChatMessage {
   hidden?: boolean;
   toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser';
   thinking?: string;
-  sources?: unknown[];
+  sources?: MessageSource[];
   images?: unknown[];
   attachments?: unknown[];
   presentation?: ResponsePresentation;
@@ -92,14 +93,14 @@ export function normalizeStoredChatMessage(raw: unknown): StoredChatMessage | nu
   const toolRequest = normalizeToolRequest(raw.toolRequest);
   const thinking = typeof raw.thinking === 'string' ? raw.thinking : undefined;
   const meta = raw.meta ?? undefined;
-  const sources = Array.isArray(raw.sources) ? raw.sources : undefined;
+  const sources = normalizeMessageSources(raw.sources);
   const images = Array.isArray(raw.images) ? raw.images : undefined;
   const attachments = Array.isArray(raw.attachments) ? raw.attachments : undefined;
   const presentation = normalizeResponsePresentation(raw.presentation);
   const hasPayload =
     content.trim().length > 0 ||
     Boolean(thinking?.trim()) ||
-    Boolean(sources?.length) ||
+    Boolean(sources.length) ||
     Boolean(images?.length) ||
     Boolean(attachments?.length) ||
     presentation.mode !== 'general' ||
@@ -112,7 +113,7 @@ export function normalizeStoredChatMessage(raw: unknown): StoredChatMessage | nu
   if (hidden) message.hidden = true;
   if (toolRequest) message.toolRequest = toolRequest;
   if (thinking?.trim()) message.thinking = thinking;
-  if (sources) message.sources = sources;
+  if (sources.length) message.sources = sources;
   if (images) message.images = images;
   if (attachments) message.attachments = attachments;
   if (presentation.mode !== 'general') message.presentation = presentation;
@@ -212,7 +213,7 @@ function mergeAssistantMessage(messages: StoredChatMessage[], assistantMessage: 
   const nextMessages = [...messages];
 
   if (assistantMessage.id) {
-    const indexed = nextMessages.findIndex(message => message.id === assistantMessage.id);
+    const indexed = nextMessages.findIndex(message => message?.id === assistantMessage.id);
     if (indexed !== -1) {
       nextMessages[indexed] = { ...nextMessages[indexed], ...assistantMessage, role: 'assistant' };
       return nextMessages;

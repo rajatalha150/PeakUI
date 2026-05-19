@@ -6,7 +6,8 @@ import { Activity, AlertCircle, BookOpen, Bot, Check, ChevronDown, ChevronLeft, 
 import { ChatMessageContent, AssistantDownloads, ThinkingBlock } from './ChatMessageContent';
 import HelpHint from './HelpHint';
 import SourceChips from './SourceChips';
-import { mergeMessageSources, type MessageSource } from '@/lib/message-sources';
+import MessageRenderBoundary from './MessageRenderBoundary';
+import { mergeMessageSources, normalizeMessageSources, type MessageSource } from '@/lib/message-sources';
 import { type ResponsePresentation } from '@/lib/response-format';
 import {
   buildOpenClawTaskStateBrief,
@@ -51,6 +52,7 @@ import {
 import UwafNetworkPanel from './UwafNetworkPanel';
 import LiveBrowserView from './LiveBrowserView';
 import BrowserModal from './BrowserModal';
+import { reportClientError } from '@/lib/client-error-reporting';
 
 type OpenClawProvider = 'ollama' | 'openai-compatible';
 const MOBILE_BREAKPOINT = 960;
@@ -149,6 +151,8 @@ interface OpenClawSettings {
   openClawUwafBrowserMode: 'deny' | 'direct' | 'stealth';
   openClawUwafDefaultMode: 'direct' | 'stealth';
   openClawUwafLiveBrowser: boolean;
+  ragEnabled: boolean;
+  ragTopK: number;
   openClawPersonaTemplate: string;
   openClawPersonaName: string;
   openClawPersonaTone: string;
@@ -381,6 +385,7 @@ type OpenClawStreamFrame = {
   error?: unknown;
   status?: unknown;
   sources?: unknown;
+  knowledge_sources?: unknown;
   message?: {
     thinking?: unknown;
     content?: unknown;
@@ -392,6 +397,7 @@ type OpenClawStreamFrame = {
 
 const OPENCLAW_API_KEY_STORAGE = 'peakui-openclaw-api-key';
 const OPENCLAW_INTERNET_STORAGE = 'peakui-openclaw-internet-enabled';
+const OPENCLAW_RAG_STORAGE = 'peakui-openclaw-rag-enabled';
 const OPENCLAW_UNRESTRICTED_STORAGE = 'peakui-openclaw-unrestricted';
 const OPENCLAW_UNCENSORED_STORAGE = 'peakui-openclaw-uncensored';
 const OPENCLAW_AGENT_STORAGE = 'peakui-openclaw-agent-preferences';
@@ -403,7 +409,7 @@ const OPENCLAW_USER_PROFILE_STORAGE = 'peakui-openclaw-user-profile';
 const OPENCLAW_CURRENT_SESSION_STORAGE = 'peakui-openclaw-current-session';
 
 function getChatTitle(messages: OpenClawMessage[]) {
-  const firstMessage = messages.find(message => message.role === 'user' && message.content.trim());
+  const firstMessage = messages.find(message => message?.role === 'user' && message.content.trim());
   const base = firstMessage?.content.trim() || 'Open Claw';
   return base.substring(0, 36) + (base.length > 36 ? '...' : '');
 }
@@ -413,7 +419,7 @@ function formatTimestamp(value: number) {
 }
 
 function isVisibleMessage(message: OpenClawMessage) {
-  return !message.hidden;
+  return Boolean(message) && !message.hidden;
 }
 
 function describeShellRequest(command: string, description?: string) {
@@ -546,17 +552,99 @@ function describeUwafBrowserRequest(request: OpenClawUwafBrowserToolRequest) {
 }
 
 function normalizeToolSources(value: unknown): MessageSource[] {
-  if (!Array.isArray(value)) return [];
+  return normalizeMessageSources(value);
+}
 
-  return value.flatMap(item => {
-    if (!item || typeof item !== 'object') return [];
-    const source = item as Partial<MessageSource>;
-    if (typeof source.filename !== 'string' || typeof source.content !== 'string' || typeof source.score !== 'number') {
-      return [];
-    }
+function normalizeOpenClawMessage(value: unknown): OpenClawMessage | null {
+  if (!value || typeof value !== 'object') return null;
 
-    return [source as MessageSource];
-  });
+  const raw = value as Partial<OpenClawMessage>;
+  if (raw.role !== 'user' && raw.role !== 'assistant' && raw.role !== 'system') {
+    return null;
+  }
+
+  const content = typeof raw.content === 'string' ? raw.content : '';
+  const thinking = typeof raw.thinking === 'string' ? raw.thinking : undefined;
+  const sources = normalizeToolSources(raw.sources);
+  const images = Array.isArray(raw.images) ? raw.images : undefined;
+  const attachments = Array.isArray(raw.attachments) ? raw.attachments : undefined;
+  const hasPayload = Boolean(
+    content.trim()
+    || thinking?.trim()
+    || sources.length
+    || images?.length
+    || attachments?.length
+  );
+
+  if (!hasPayload && !(typeof raw.id === 'string' && raw.id.trim())) {
+    return null;
+  }
+
+  return {
+    id: typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : undefined,
+    role: raw.role,
+    content,
+    hidden: raw.hidden === true,
+    toolRequest: raw.toolRequest,
+    thinking,
+    presentation: raw.presentation,
+    sources: sources.length ? sources : undefined,
+    images,
+    attachments,
+    meta: raw.meta,
+  };
+}
+
+function normalizeOpenClawSession(value: unknown): OpenClawSession | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const raw = value as Partial<OpenClawSession>;
+  const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : '';
+  if (!id) return null;
+
+  const messages = Array.isArray(raw.messages)
+    ? raw.messages
+        .map(normalizeOpenClawMessage)
+        .filter((message): message is OpenClawMessage => Boolean(message))
+    : [];
+
+  return {
+    id,
+    title: typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : 'Open Claw',
+    updatedAt: typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt) ? raw.updatedAt : Date.now(),
+    pinned: raw.pinned === true,
+    surface: 'openclaw',
+    messages,
+    folderId: typeof raw.folderId === 'string' ? raw.folderId : raw.folderId === null ? null : undefined,
+    tags: Array.isArray(raw.tags)
+      ? raw.tags.flatMap(tag => {
+          if (!tag || typeof tag !== 'object') return [];
+          const normalizedTag = tag as { id?: unknown; name?: unknown; color?: unknown };
+          if (typeof normalizedTag.id !== 'string' || typeof normalizedTag.name !== 'string' || typeof normalizedTag.color !== 'string') {
+            return [];
+          }
+          return [{
+            id: normalizedTag.id,
+            name: normalizedTag.name,
+            color: normalizedTag.color,
+          }];
+        })
+      : undefined,
+  };
+}
+
+function sanitizeOpenClawMessages(messages: unknown): OpenClawMessage[] {
+  if (!Array.isArray(messages)) return [];
+  return messages
+    .map(normalizeOpenClawMessage)
+    .filter((message): message is OpenClawMessage => Boolean(message));
+}
+
+function sanitizeOpenClawSessions(sessions: unknown): OpenClawSession[] {
+  if (!Array.isArray(sessions)) return [];
+  return sessions
+    .map(normalizeOpenClawSession)
+    .filter((session): session is OpenClawSession => Boolean(session));
 }
 
 function isAbsoluteUnixPath(value: string) {
@@ -1038,6 +1126,18 @@ export default function OpenClawWorkspace({
     }
   };
 
+  const getStoredRagEnabled = (): boolean | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const stored = window.sessionStorage.getItem(OPENCLAW_RAG_STORAGE);
+      if (stored === 'true') return true;
+      if (stored === 'false') return false;
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
   const getStoredAgentPreferences = () => {
     if (typeof window === 'undefined') return DEFAULT_OPENCLAW_AGENT_PREFERENCES;
     try {
@@ -1190,7 +1290,7 @@ export default function OpenClawWorkspace({
   const [sessionSelectionMode, setSessionSelectionMode] = useState(false);
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
   const [selectedSessionInfo, setSelectedSessionInfo] = useState<string>('');
-  const [ragEnabled, setRagEnabled] = useState(false);
+  const [ragEnabled, setRagEnabled] = useState(() => getStoredRagEnabled() ?? false);
   const [internetEnabled, setInternetEnabled] = useState(getStoredInternetEnabled);
   const [uwafBrowserMode, setUwafBrowserMode] = useState<'direct' | 'stealth'>('direct');
   const [unrestrictedEnabled, setUnrestrictedEnabled] = useState(() => {
@@ -1432,6 +1532,15 @@ export default function OpenClawWorkspace({
     }
   };
 
+  const setRagAccess = (nextValue: boolean) => {
+    try {
+      window.sessionStorage.setItem(OPENCLAW_RAG_STORAGE, String(nextValue));
+    } catch {
+      // Ignore browser storage failures.
+    }
+    setRagEnabled(nextValue);
+  };
+
   const loadSettings = async () => {
     const res = await fetch('/api/settings');
     const data = await res.json();
@@ -1467,6 +1576,8 @@ export default function OpenClawWorkspace({
         : 'deny',
       openClawUwafDefaultMode: data.openClawUwafDefaultMode === 'stealth' ? 'stealth' : 'direct',
       openClawUwafLiveBrowser: data.openClawUwafLiveBrowser !== false,
+      ragEnabled: data.ragEnabled === true,
+      ragTopK: typeof data.ragTopK === 'number' ? data.ragTopK : 8,
       openClawPersonaTemplate: typeof data.openClawPersonaTemplate === 'string' ? data.openClawPersonaTemplate : 'custom',
       openClawPersonaName: typeof data.openClawPersonaName === 'string' ? data.openClawPersonaName : '',
       openClawPersonaTone: typeof data.openClawPersonaTone === 'string' ? data.openClawPersonaTone : '',
@@ -1485,6 +1596,9 @@ export default function OpenClawWorkspace({
     setSelectedModel(nextSettings.openClawModel);
     setShellEnabled(nextSettings.shellExecutionMode !== 'deny');
     applyTheme(nextSettings.theme);
+    if (getStoredRagEnabled() === null) {
+      setRagEnabled(nextSettings.ragEnabled);
+    }
 
     const templateId = (nextSettings.openClawPersonaTemplate as OpenClawPersonaTemplateId) || 'custom';
     const serverPersona = applyPersonaTemplate(templateId, {
@@ -1509,9 +1623,9 @@ export default function OpenClawWorkspace({
     const data = await res.json();
     if (!Array.isArray(data)) throw new Error('Failed to load Open Claw sessions');
 
-    const nextSessions = data as OpenClawSession[];
+    const nextSessions = sanitizeOpenClawSessions(data);
     setSessions(nextSessions);
-    setSelectedSessionIds(current => current.filter(id => nextSessions.some(session => session.id === id)));
+    setSelectedSessionIds(current => current.filter(id => nextSessions.some(session => session?.id === id)));
     const storedSelection = getStoredCurrentSessionSelection();
 
     if (storedSelection === OPENCLAW_DRAFT_TASK_ID) {
@@ -1522,13 +1636,13 @@ export default function OpenClawWorkspace({
     }
 
     const preferredSession = storedSelection
-      ? nextSessions.find(session => session.id === storedSelection)
+      ? nextSessions.find(session => session?.id === storedSelection)
       : null;
     const nextSession = preferredSession || nextSessions[0];
 
     if (nextSession) {
       setCurrentSessionId(nextSession.id);
-      setChatHistory(nextSession.messages || []);
+      setChatHistory(sanitizeOpenClawMessages(nextSession.messages || []));
       setSelectedSessionInfo(`${nextSession.title} · updated ${formatTimestamp(nextSession.updatedAt)}`);
     } else {
       setCurrentSessionId(null);
@@ -1598,7 +1712,7 @@ export default function OpenClawWorkspace({
     try {
       const res = await fetch(`/api/canvas/artifacts/${id}`, { method: "DELETE" });
       if (res.ok) {
-        setCanvasArtifacts(prev => prev.filter(a => a.id !== id));
+        setCanvasArtifacts(prev => prev.filter(a => a?.id !== id));
       }
     } catch (error) {
       console.error("Failed to delete artifact:", error);
@@ -1770,7 +1884,9 @@ export default function OpenClawWorkspace({
           ? data.openClawUwafBrowserMode
           : 'deny',
         openClawUwafDefaultMode: data.openClawUwafDefaultMode === 'stealth' ? 'stealth' : 'direct',
-      openClawUwafLiveBrowser: data.openClawUwafLiveBrowser !== false,
+        openClawUwafLiveBrowser: data.openClawUwafLiveBrowser !== false,
+        ragEnabled: data.ragEnabled === true,
+        ragTopK: typeof data.ragTopK === 'number' ? data.ragTopK : 8,
         openClawPersonaTemplate: typeof data.openClawPersonaTemplate === 'string' ? data.openClawPersonaTemplate : 'custom',
         openClawPersonaName: typeof data.openClawPersonaName === 'string' ? data.openClawPersonaName : '',
         openClawPersonaTone: typeof data.openClawPersonaTone === 'string' ? data.openClawPersonaTone : '',
@@ -1789,6 +1905,9 @@ export default function OpenClawWorkspace({
       setSelectedModel(nextSettings.openClawModel);
       setShellEnabled(nextSettings.shellExecutionMode !== 'deny');
       applyTheme(nextSettings.theme);
+      if (getStoredRagEnabled() === null) {
+        setRagEnabled(nextSettings.ragEnabled);
+      }
       return nextSettings;
     } catch (error) {
       setConfigError(error instanceof Error ? error.message : 'Failed to save Open Claw settings');
@@ -1936,21 +2055,27 @@ export default function OpenClawWorkspace({
   const updateChecklistItem = (id: string, text: string) => {
     updateTaskState(current => ({
       ...current,
-      checklist: current.checklist.map(item => item.id === id ? { ...item, text } : item),
+      checklist: current.checklist.flatMap(item => {
+        if (!item) return [];
+        return [item.id === id ? { ...item, text } : item];
+      }),
     }));
   };
 
   const toggleChecklistItem = (id: string) => {
     updateTaskState(current => ({
       ...current,
-      checklist: current.checklist.map(item => item.id === id ? { ...item, completed: !item.completed } : item),
+      checklist: current.checklist.flatMap(item => {
+        if (!item) return [];
+        return [item.id === id ? { ...item, completed: !item.completed } : item];
+      }),
     }));
   };
 
   const removeChecklistItem = (id: string) => {
     updateTaskState(current => ({
       ...current,
-      checklist: current.checklist.filter(item => item.id !== id),
+      checklist: current.checklist.filter(item => item?.id !== id),
     }));
   };
 
@@ -1991,7 +2116,7 @@ export default function OpenClawWorkspace({
     closeMobileChrome();
     requestScrollReset();
     setCurrentSessionId(session.id);
-    setChatHistory(session.messages || []);
+    setChatHistory(sanitizeOpenClawMessages(session.messages || []));
     loadCanvasArtifacts(session.id);
     resetComposerDraftState();
     setLastSubmission(null);
@@ -2021,11 +2146,15 @@ export default function OpenClawWorkspace({
       throw new Error(data.error || 'Failed to create Open Claw session');
     }
 
-    const session = data.session as OpenClawSession;
+    const session = normalizeOpenClawSession(data.session);
+    if (!session) {
+      throw new Error('Failed to normalize created Open Claw session');
+    }
     setSessions(prev => {
-      const existingIndex = prev.findIndex(item => item.id === session.id);
-      if (existingIndex === -1) return [session, ...prev];
-      const next = [...prev];
+      const safePrev = sanitizeOpenClawSessions(prev);
+      const existingIndex = safePrev.findIndex(item => item?.id === session.id);
+      if (existingIndex === -1) return [session, ...safePrev];
+      const next = [...safePrev];
       next[existingIndex] = session;
       return next;
     });
@@ -3278,7 +3407,7 @@ export default function OpenClawWorkspace({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: sessionId }),
     });
-    setSessions(prev => prev.filter(session => session.id !== sessionId));
+    setSessions(prev => sanitizeOpenClawSessions(prev).filter(session => session?.id !== sessionId));
     setSelectedSessionIds(prev => prev.filter(id => id !== sessionId));
     setTaskStates(current => {
       const next = { ...current };
@@ -3296,8 +3425,8 @@ export default function OpenClawWorkspace({
       body: JSON.stringify({ id: sessionId, pinned: !pinned, surface: 'openclaw' }),
     });
     setSessions(prev => {
-      const updated = prev.map(session => session.id === sessionId ? { ...session, pinned: !pinned } : session);
-      return [...updated.filter(session => session.pinned), ...updated.filter(session => !session.pinned)];
+      const updated = sanitizeOpenClawSessions(prev).map(session => session?.id === sessionId ? { ...session, pinned: !pinned } : session);
+      return [...updated.filter(session => session?.pinned), ...updated.filter(session => !session?.pinned)];
     });
     setSessionMenuOpen(null);
   };
@@ -3310,7 +3439,7 @@ export default function OpenClawWorkspace({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: sessionId, title: trimmed, surface: 'openclaw' }),
     });
-    setSessions(prev => prev.map(session => session.id === sessionId ? { ...session, title: trimmed } : session));
+    setSessions(prev => sanitizeOpenClawSessions(prev).map(session => session?.id === sessionId ? { ...session, title: trimmed } : session));
     if (currentSessionId === sessionId) {
       setSelectedSessionInfo(`${trimmed} · updated ${formatTimestamp(Date.now())}`);
     }
@@ -3320,8 +3449,8 @@ export default function OpenClawWorkspace({
   };
 
   const handleCopySession = async (session: OpenClawSession) => {
-    const text = session.messages
-      .filter(messageItem => messageItem.role !== 'system')
+    const text = sanitizeOpenClawMessages(session.messages)
+      .filter(messageItem => messageItem?.role !== 'system')
       .map(messageItem => {
         const attachments = messageItem.attachments?.length
           ? `\nFiles: ${messageItem.attachments.map(attachment => attachment.name).join(', ')}`
@@ -3423,7 +3552,8 @@ export default function OpenClawWorkspace({
   };
 
   const handleClearSelectedSessions = async () => {
-    const ids = selectedSessionIds.filter(id => sessions.some(session => session.id === id));
+    const safeSessions = sanitizeOpenClawSessions(sessions);
+    const ids = selectedSessionIds.filter(id => safeSessions.some(session => session?.id === id));
     if (ids.length === 0) return;
     if (isStreaming && currentSessionId && ids.includes(currentSessionId)) {
       setSelectedSessionInfo('Stop the current Open Claw run before deleting the active task thread.');
@@ -3435,7 +3565,7 @@ export default function OpenClawWorkspace({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids }),
     });
-    setSessions(prev => prev.filter(session => !ids.includes(session.id)));
+    setSessions(prev => sanitizeOpenClawSessions(prev).filter(session => !ids.includes(session.id)));
     setTaskStates(current => {
       const next = { ...current };
       for (const id of ids) {
@@ -3591,8 +3721,8 @@ export default function OpenClawWorkspace({
   };
 
   const updateChatMessage = (messageId: string, updater: (message: OpenClawMessage) => OpenClawMessage) => {
-    setChatHistory(prev => prev.map(message => (
-      message.id === messageId ? updater(message) : message
+    setChatHistory(prev => sanitizeOpenClawMessages(prev).map(message => (
+      message?.id === messageId ? updater(message) : message
     )));
   };
 
@@ -3608,76 +3738,96 @@ export default function OpenClawWorkspace({
   const flushAll = () => {
     for (const [id, queue] of contentQueues) {
       if (queue.content || queue.thinking) {
+        const contentSnapshot = queue.content;
+        const thinkingSnapshot = queue.thinking;
+        queue.content = '';
+        queue.thinking = '';
         setChatHistory(prev => {
-          const next = [...prev];
-          const idx = next.findIndex(m => m.id === id);
+          const next = sanitizeOpenClawMessages(prev);
+          const idx = next.findIndex(m => m?.id === id);
           if (idx !== -1) {
             next[idx] = {
               ...next[idx],
-              ...(queue.content ? { content: next[idx].content + queue.content } : {}),
-              ...(queue.thinking ? { thinking: (next[idx].thinking || '') + queue.thinking } : {}),
+              ...(contentSnapshot ? { content: next[idx].content + contentSnapshot } : {}),
+              ...(thinkingSnapshot ? { thinking: (next[idx].thinking || '') + thinkingSnapshot } : {}),
             };
           }
           return next;
         });
-        queue.content = '';
-        queue.thinking = '';
       }
     }
     if (sourcesQueue) {
+      const queuedSources = sourcesQueue;
+      sourcesQueue = null;
       setChatHistory(prev => {
-        const next = [...prev];
-        const idx = next.findIndex(m => m.id === sourcesQueue!.id);
+        const next = sanitizeOpenClawMessages(prev);
+        const idx = next.findIndex(m => m?.id === queuedSources.id);
         if (idx !== -1) {
-          next[idx] = { ...next[idx], sources: sourcesQueue!.sources };
+          next[idx] = { ...next[idx], sources: queuedSources.sources };
         }
         return next;
       });
-      sourcesQueue = null;
     }
   };
 
   const startDrip = () => {
     if (dripTimer) return;
     dripTimer = setInterval(() => {
-      let hasWork = false;
-      for (const [, queue] of contentQueues) {
-        if (queue.content || queue.thinking) { hasWork = true; break; }
-      }
-      if (!hasWork && !sourcesQueue) {
-        if (ocStreamingDone) { clearInterval(dripTimer!); dripTimer = null; }
-        return;
-      }
-      for (const [id, queue] of contentQueues) {
-        const contentChunk = queue.content.slice(0, DRIP_CHUNK_SIZE);
-        const thinkingChunk = queue.thinking.slice(0, DRIP_CHUNK_SIZE);
-        if (contentChunk) queue.content = queue.content.slice(contentChunk.length);
-        if (thinkingChunk) queue.thinking = queue.thinking.slice(thinkingChunk.length);
-        if (contentChunk || thinkingChunk) {
+      try {
+        let hasWork = false;
+        for (const [, queue] of contentQueues) {
+          if (queue.content || queue.thinking) { hasWork = true; break; }
+        }
+        if (!hasWork && !sourcesQueue) {
+          if (ocStreamingDone) { clearInterval(dripTimer!); dripTimer = null; }
+          return;
+        }
+        for (const [id, queue] of contentQueues) {
+          const contentChunk = queue.content.slice(0, DRIP_CHUNK_SIZE);
+          const thinkingChunk = queue.thinking.slice(0, DRIP_CHUNK_SIZE);
+          if (contentChunk) queue.content = queue.content.slice(contentChunk.length);
+          if (thinkingChunk) queue.thinking = queue.thinking.slice(thinkingChunk.length);
+          if (contentChunk || thinkingChunk) {
+            setChatHistory(prev => {
+              const next = sanitizeOpenClawMessages(prev);
+              const idx = next.findIndex(m => m?.id === id);
+              if (idx !== -1) {
+                next[idx] = {
+                  ...next[idx],
+                  ...(contentChunk ? { content: next[idx].content + contentChunk } : {}),
+                  ...(thinkingChunk ? { thinking: (next[idx].thinking || '') + thinkingChunk } : {}),
+                };
+              }
+              return next;
+            });
+          }
+        }
+        if (sourcesQueue) {
+          const queuedSources = sourcesQueue;
+          sourcesQueue = null;
           setChatHistory(prev => {
-            const next = [...prev];
-            const idx = next.findIndex(m => m.id === id);
+            const next = sanitizeOpenClawMessages(prev);
+            const idx = next.findIndex(m => m?.id === queuedSources.id);
             if (idx !== -1) {
-              next[idx] = {
-                ...next[idx],
-                ...(contentChunk ? { content: next[idx].content + contentChunk } : {}),
-                ...(thinkingChunk ? { thinking: (next[idx].thinking || '') + thinkingChunk } : {}),
-              };
+              next[idx] = { ...next[idx], sources: queuedSources.sources };
             }
             return next;
           });
         }
-      }
-      if (sourcesQueue) {
-        setChatHistory(prev => {
-          const next = [...prev];
-          const idx = next.findIndex(m => m.id === sourcesQueue!.id);
-          if (idx !== -1) {
-            next[idx] = { ...next[idx], sources: sourcesQueue!.sources };
-          }
-          return next;
+      } catch (error) {
+        reportClientError(error, {
+          source: 'openclaw.stream.drip',
+          extra: {
+            pendingQueues: contentQueues.size,
+            hasSourcesQueue: Boolean(sourcesQueue),
+            streamingDone: ocStreamingDone,
+          },
         });
-        sourcesQueue = null;
+        if (dripTimer) {
+          clearInterval(dripTimer);
+          dripTimer = null;
+        }
+        flushAll();
       }
     }, DRIP_INTERVAL_MS);
   };
@@ -3696,6 +3846,9 @@ export default function OpenClawWorkspace({
     conversationMessages: OpenClawMessage[];
     chatId: string;
     prompt: string;
+    ragEnabledForTurn: boolean;
+    ragQuery: string;
+    ragTopK: number;
     responsePresentation: ResponsePresentation;
     internetEnabledForTurn: boolean;
     internetToolEnabledForTurn: boolean;
@@ -3735,6 +3888,9 @@ export default function OpenClawWorkspace({
         response_presentation: options.responsePresentation,
         internet_enabled: options.internetEnabledForTurn,
         internet_tool_enabled: options.internetToolEnabledForTurn,
+        rag_enabled: options.ragEnabledForTurn,
+        rag_query: options.ragEnabledForTurn ? options.ragQuery : undefined,
+        rag_topk: options.ragTopK,
         unrestricted: unrestrictedEnabled,
         uncensored: uncensoredEnabled,
         messages: options.conversationMessages.map(message => ({
@@ -3783,6 +3939,11 @@ export default function OpenClawWorkspace({
 
       if (Array.isArray(data.sources)) {
         activeSources = mergeMessageSources(activeSources, normalizeToolSources(data.sources));
+        scheduleUpdate(options.assistantMessageId, { sources: activeSources });
+      }
+
+      if (Array.isArray(data.knowledge_sources)) {
+        activeSources = mergeMessageSources(activeSources, normalizeToolSources(data.knowledge_sources));
         scheduleUpdate(options.assistantMessageId, { sources: activeSources });
       }
 
@@ -3878,6 +4039,7 @@ export default function OpenClawWorkspace({
     const messageImages = [...pendingImages];
     const messageAttachments = [...pendingAttachments];
     const attachmentContext = buildAttachmentContext(messageAttachments, messageImages, prompt);
+    const ragQueryText = (attachmentContext || prompt).slice(0, 2000);
     const userMessage: OpenClawMessage = {
       id: randomUUID(),
       role: 'user',
@@ -3914,7 +4076,7 @@ export default function OpenClawWorkspace({
     ]);
     setCurrentSessionId(chatId);
     setIsStreaming(true);
-    setStreamPhase(ragEnabled && Boolean(prompt.trim()) ? 'preparing-context' : 'connecting');
+    setStreamPhase(ragEnabled && Boolean(ragQueryText.trim()) ? 'preparing-context' : 'connecting');
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -3970,50 +4132,6 @@ export default function OpenClawWorkspace({
           hidden: true,
         });
       }
-      if (ragEnabled && prompt.trim()) {
-        try {
-          const ragRes = await fetch('/api/rag/search', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
-            body: JSON.stringify({ query: prompt, topK: 4 }),
-          });
-
-          if (ragRes.ok) {
-            const ragData = await ragRes.json() as MessageSource[];
-            if (Array.isArray(ragData) && ragData.length > 0) {
-              activeSources = [...activeSources, ...ragData];
-              const context = ragData
-                .map((source, index) => {
-                  const label = source.sourcePath && source.sourcePath !== source.filename
-                    ? `${source.filename} (${source.sourcePath})`
-                    : source.filename;
-                  const meta = [
-                    source.fileKind || null,
-                    source.extension ? `.${source.extension}` : null,
-                    typeof source.chunkIndex === 'number' ? `chunk ${source.chunkIndex + 1}` : null,
-                    typeof source.documentSize === 'number' ? formatBytes(source.documentSize) : null,
-                    `${Math.round(source.score * 100)}% match`,
-                    source.mode || 'semantic',
-                  ].filter(Boolean).join(' · ');
-                  return `[Source ${index + 1}: ${label} | ${meta}]\n${source.content}`;
-                })
-                .join('\n\n---\n\n');
-              contextMessages.push({
-                id: randomUUID(),
-                role: 'system',
-                content: `Use the following knowledge base context when it is relevant to the Open Claw task. Most entries are retrieved excerpts from indexed files, but small files may be included as full-document context when safe. If the context is not enough, ask for a broader lookup or direct file inspection by naming the file, folder, or chunk you need. Cite the source and chunk when you can.\n\n${context}`,
-                hidden: true,
-              });
-            }
-          }
-        } catch (error) {
-          if (error instanceof Error && error.name === 'AbortError') {
-            throw error;
-          }
-          console.error('Open Claw RAG search failed:', error);
-        }
-      }
 
       if (activeSources.length > 0) {
         updateChatMessage(assistantMessageId, current => ({
@@ -4047,6 +4165,9 @@ export default function OpenClawWorkspace({
           conversationMessages: [...contextMessages, ...sessionHistory],
           chatId,
           prompt,
+          ragEnabledForTurn: toolRound === 0 ? ragEnabled : false,
+          ragQuery: ragQueryText,
+          ragTopK: settings.ragTopK,
           responsePresentation,
           internetEnabledForTurn: false,
           internetToolEnabledForTurn: draftInternetEnabled,
@@ -4415,8 +4536,8 @@ export default function OpenClawWorkspace({
       );
 
       setSessions(prev => {
-        const next = [...prev];
-        const index = next.findIndex(session => session.id === sessionRecord.id);
+        const next = sanitizeOpenClawSessions(prev);
+        const index = next.findIndex(session => session?.id === sessionRecord.id);
         const updatedSession: OpenClawSession = {
           ...sessionRecord,
           title: getChatTitle(baseHistory),
@@ -4488,28 +4609,30 @@ export default function OpenClawWorkspace({
     || OPENCLAW_AGENT_MODE_OPTIONS[0];
   const activeStyleOption = OPENCLAW_RESPONSE_STYLE_OPTIONS.find(option => option.id === agentPreferences.responseStyle)
     || OPENCLAW_RESPONSE_STYLE_OPTIONS[1];
-  const visibleSessions = sessions.filter(session => {
+  const safeSessions = sanitizeOpenClawSessions(sessions);
+  const visibleSessions = safeSessions.filter(session => {
     if (selectedFolderId && session.folderId !== selectedFolderId) {
       return false;
     }
-    if (selectedTagId && !session.tags?.some(tagItem => tagItem.id === selectedTagId)) {
+    if (selectedTagId && !session.tags?.some(tagItem => tagItem?.id === selectedTagId)) {
       return false;
     }
     return true;
   });
-  const folderSessionCounts = sessions.reduce<Record<string, number>>((accumulator, session) => {
+  const folderSessionCounts = safeSessions.reduce<Record<string, number>>((accumulator, session) => {
     if (session.folderId) {
       accumulator[session.folderId] = (accumulator[session.folderId] || 0) + 1;
     }
     return accumulator;
   }, {});
-  const tagSessionCounts = sessions.reduce<Record<string, number>>((accumulator, session) => {
+  const tagSessionCounts = safeSessions.reduce<Record<string, number>>((accumulator, session) => {
     for (const tagItem of session.tags || []) {
+      if (!tagItem?.id) continue;
       accumulator[tagItem.id] = (accumulator[tagItem.id] || 0) + 1;
     }
     return accumulator;
   }, {});
-  const selectedVisibleSessionCount = selectedSessionIds.filter(id => visibleSessions.some(session => session.id === id)).length;
+  const selectedVisibleSessionCount = selectedSessionIds.filter(id => visibleSessions.some(session => session?.id === id)).length;
   const compactModeLabel = activeModeOption.label.slice(0, 3).toUpperCase();
   const selectedModelButtonLabel = selectedModel || (modelsLoading
     ? 'Loading models...'
@@ -4580,7 +4703,7 @@ export default function OpenClawWorkspace({
     : 'No task state captured yet';
   const workspaceBriefSummary = `${hasWorkspaceNotes ? 'Notes set' : 'Notes empty'} · ${hasSuccessCriteria ? 'Criteria set' : 'Criteria empty'}`;
   const visibleChatHistory = useMemo(
-  () => deferredChatHistory.filter(isVisibleMessage),
+  () => sanitizeOpenClawMessages(deferredChatHistory).filter(isVisibleMessage),
   [deferredChatHistory, isVisibleMessage]
 );
   const showingKnowledgeBase = view === 'knowledge-base';
@@ -4698,7 +4821,7 @@ export default function OpenClawWorkspace({
               type="button"
               className={`mobile-topbar-menu-item${ragEnabled ? ' is-active' : ''}`}
               onClick={() => {
-                setRagEnabled(value => !value);
+                setRagAccess(!ragEnabled);
                 setMobileHeaderMenuOpen(false);
               }}
             >
@@ -5026,7 +5149,7 @@ export default function OpenClawWorkspace({
                 <button
                   type="button"
                   className={`openclaw-mode-action${ragEnabled ? ' is-active' : ''}`}
-                  onClick={() => setRagEnabled(value => !value)}
+                  onClick={() => setRagAccess(!ragEnabled)}
                 >
                   <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <BookOpen size={15} color={ragEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
@@ -5196,6 +5319,9 @@ export default function OpenClawWorkspace({
               </div>
             ) : (
               visibleChatHistory.map((msg, index) => {
+                const messageContent = typeof msg.content === 'string' ? msg.content : '';
+                const messageThinking = typeof msg.thinking === 'string' ? msg.thinking : '';
+                const messageSources = normalizeToolSources(msg.sources);
                 const outputsForMessage = msg.id
                   ? shellOutput.filter(output => output.messageId === msg.id)
                   : [];
@@ -5222,22 +5348,34 @@ export default function OpenClawWorkspace({
                       <div className="avatar">
                         {msg.role === 'user' ? <MessageSquare size={18} color="var(--text-secondary)" /> : <Bot size={22} color="white" />}
                       </div>
-                      <div suppressHydrationWarning className={`message-content${isStreaming && msg.role === 'assistant' && index === visibleChatHistory.length - 1 && msg.content ? ' streaming-cursor' : ''}`} style={{ maxWidth: '100%' }}>
-                        {msg.thinking && (
-                          <ThinkingBlock content={msg.thinking} isStreaming={isStreaming && index === visibleChatHistory.length - 1 && !msg.content} />
+                      <div suppressHydrationWarning className={`message-content${isStreaming && msg.role === 'assistant' && index === visibleChatHistory.length - 1 && messageContent ? ' streaming-cursor' : ''}`} style={{ maxWidth: '100%' }}>
+                        {messageThinking && (
+                          <ThinkingBlock content={messageThinking} isStreaming={isStreaming && index === visibleChatHistory.length - 1 && !messageContent} />
                         )}
-                        <ChatMessageContent
-                          content={msg.content}
-                          isStreaming={isStreaming}
-                          isLast={index === visibleChatHistory.length - 1}
-                          presentation={msg.presentation}
-                          sources={msg.sources}
-                        />
-                        {msg.role === 'assistant' && !isToolBridgeMessage && msg.sources && msg.sources.length > 0 && (
-                          <SourceChips sources={msg.sources} />
-                        )}
-                        {msg.role === 'assistant' && !isToolBridgeMessage && msg.content.trim() && (
-                          <AssistantDownloads content={msg.content} index={index} presentation={msg.presentation} sessionId={currentSessionId ?? undefined} messageId={msg.id} />
+                        {msg.role === 'assistant' ? (
+                          <MessageRenderBoundary fallbackText={messageContent}>
+                            <ChatMessageContent
+                              content={messageContent}
+                              isStreaming={isStreaming}
+                              isLast={index === visibleChatHistory.length - 1}
+                              presentation={msg.presentation}
+                              sources={messageSources}
+                            />
+                            {!isToolBridgeMessage && messageSources.length > 0 && (
+                              <SourceChips sources={messageSources} />
+                            )}
+                            {!isToolBridgeMessage && messageContent.trim() && (
+                              <AssistantDownloads content={messageContent} index={index} presentation={msg.presentation} sessionId={currentSessionId ?? undefined} messageId={msg.id} />
+                            )}
+                          </MessageRenderBoundary>
+                        ) : (
+                          <ChatMessageContent
+                            content={messageContent}
+                            isStreaming={isStreaming}
+                            isLast={index === visibleChatHistory.length - 1}
+                            presentation={msg.presentation}
+                            sources={messageSources}
+                          />
                         )}
                       </div>
                     </div>
@@ -5759,7 +5897,7 @@ export default function OpenClawWorkspace({
                         <button
                           type="button"
                           className="openclaw-inline-button"
-                          onClick={() => setSelectedSessionIds(visibleSessions.map(session => session.id))}
+                          onClick={() => setSelectedSessionIds(visibleSessions.map(session => session.id).filter(Boolean))}
                           disabled={visibleSessions.length === 0}
                         >
                           Select all
@@ -5980,7 +6118,7 @@ export default function OpenClawWorkspace({
                               )}
                               <div className="openclaw-section-label" style={{ padding: '8px 10px 4px', fontSize: '0.68rem' }}>Tags</div>
                               {tags.length > 0 ? tags.map(tagItem => {
-                                const hasTag = Boolean(session.tags?.some(sessionTag => sessionTag.id === tagItem.id));
+                                const hasTag = Boolean(session.tags?.some(sessionTag => sessionTag?.id === tagItem.id));
                                 return (
                                   <div
                                     key={tagItem.id}
@@ -6726,7 +6864,10 @@ export default function OpenClawWorkspace({
                       });
                       if (res.ok) {
                         const data = await res.json();
-                        setCanvasArtifacts(prev => prev.map(a => a.id === id ? { ...a, content, name, version: data.artifact.version } : a));
+                        setCanvasArtifacts(prev => prev.flatMap(a => {
+                          if (!a) return [];
+                          return [a.id === id ? { ...a, content, name, version: data.artifact.version } : a];
+                        }));
                       }
                     } catch (error) {
                       console.error("Failed to update artifact:", error);

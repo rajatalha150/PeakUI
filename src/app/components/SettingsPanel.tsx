@@ -1650,7 +1650,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
 
       {/* Knowledge Base / RAG Settings */}
       <Section icon={<Database size={18} />} title="Knowledge Base (RAG)">
-        <Field label="Enable Knowledge Base" help="When enabled, relevant content from your indexed documents will be automatically included in chat responses.">
+        <Field label="Enable Knowledge Base" help="When enabled, relevant content from your indexed documents will be automatically included in Open Claw responses and the shared chat-completion pipeline.">
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div
               onClick={() => update('ragEnabled', !settings.ragEnabled)}
@@ -1669,7 +1669,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               }} />
             </div>
             <span style={{ fontSize: '0.82rem', color: settings.ragEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>
-              {settings.ragEnabled ? 'Enabled — knowledge base will be queried during chat' : 'Disabled — knowledge base will not be used in chat'}
+              {settings.ragEnabled ? 'Enabled — knowledge base will be queried for Open Claw responses' : 'Disabled — knowledge base will not be used for Open Claw responses'}
             </span>
           </div>
         </Field>
