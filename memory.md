@@ -378,6 +378,7 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 | `docs/development-section-plan.md` | Research-backed plan for Development section: Code Interpreter, Virtual Machines, Docker Containers, and an alternative gateway architecture |
 | `docs/settings-and-rag.md` | Production behavior for system prompt, temperature, context window, RAG mode, and embedding models |
 | `OPENCLAW-TODO.md` | Comprehensive gap analysis of missing agent infrastructure (10 categories, ~50 items) vs the full Open Claw agent platform |
+| `UWAF-NETWORK-TODO.md` | Focused improvement backlog for UWAF, Tor/stealth browsing, live-browser transport, and network/browser reliability |
 | `docker-compose.yml` | Orchestrates `app` (Next.js) + `db` (Postgres) + `tor-proxy` (Tor SOCKS5) with host networking plus Open Claw host mounts, including the managed writable workspace root mounted at `/mnt/openclaw/workspace`. Tor proxy maps host 9050→container 9150. |
 | `Dockerfile` | Multi-stage Node 22 Alpine build, `ENV HOSTNAME 0.0.0.0` for LAN access, plus runtime tooling (`git`, `curl`, `wget`, `bash`, `tar`, `unzip`, `chromium`, `chromium-chromedriver`, `poppler-utils`, `tesseract-ocr`) and workspace-alias bootstrapping |
 
@@ -393,6 +394,7 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 ## ⏭️ Next Steps / Roadmap
 - **Open Claw Agent Infrastructure:** Phases 1-2 (multi-layer memory, tool execution, canvas artifacts) complete. Next priorities are heartbeats/autonomous scheduling, then sub-agent delegation and multi-agent teams.
 - **Canvas/rendering next:** Continue the fresh `OPENCLAW-TODO.md` follow-up work: cached parsed assistant content, a real sanitized markdown renderer for Canvas, persisted preview metadata, artifact presentation types/bundles/lineage, richer table/chart rendering, presentation-mode exports, lazy-loaded heavy renderers, content-size thresholds, and render metrics.
+- **UWAF/network next:** Use `UWAF-NETWORK-TODO.md` as the focused backlog for stealth/Tor hardening, browser/session recovery, live-browser transport resilience, structured telemetry, and network/browser infra testing.
 - **Open Claw permissions next:** If broader host roots than `/home` and `/tmp` are needed for filesystem tools, add more Docker bind mounts first, then allow those paths in Settings. For true host-command access, run the host executor with narrow approved cwd roots and keep `ask-first` enabled until the workflow is proven.
 - **Development Plan:** Implement the Development Worker foundation, Docker dashboard, Code Interpreter sandboxes, Docker control actions, and VM orchestration per `docs/development-section-plan.md`
 - **Internet mode next:** Consider an optional Phase 2 browser extension/current-tab context flow, but keep the shipped Phase 1 path read-only and citation-first
@@ -403,8 +405,14 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `feat: improve openclaw image handling and canvas rendering`
-- **Previous committed baseline:** `fix: polish openclaw workspace rail`
+- **Current committed baseline:** `docs: add uwaf network hardening backlog`
+- **Previous committed baseline:** `feat: improve openclaw image handling and canvas rendering`
+
+### Latest Changes (UWAF / Network Hardening Backlog)
+- **Dedicated UWAF/network TODO added:** introduced `UWAF-NETWORK-TODO.md` to track browser/network infrastructure work separately from the broader Open Claw product backlog.
+- **Stealth/Tor hardening priorities clarified:** the new backlog breaks out Tor circuit rotation, leak checks, fingerprint hardening, multi-provider stealth search, and strict fail-closed validation as first-class tasks.
+- **Browser/live transport reliability work scoped:** session cleanup, crash recovery, reconnect handling, stale-session detection, control/VNC telemetry, and takeover/resume robustness now have an explicit roadmap.
+- **Infra/observability/test follow-ups captured:** the backlog also covers structured browser telemetry, trace bundles, admin diagnostics, chaos testing, and deployment/runtime hardening for the live browser stack.
 
 ### Latest Changes (Open Claw Image Handling & Canvas Rendering)
 - **Vision-first image attachments:** shared file extraction now keeps uploaded images as native image input by default and exposes OCR text as optional supplemental metadata instead of downgrading the image into extracted text.
