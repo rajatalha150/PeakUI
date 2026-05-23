@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import ObjectUrlImage from './ObjectUrlImage';
 
 interface CanvasArtifact {
   id: string;
@@ -127,6 +128,15 @@ function renderMarkdown(content: string): string {
   return `<p>${html}</p>`;
 }
 
+function buildCollapsedPreview(content: string, maxChars = 1600, maxLines = 28): string {
+  const normalized = content.trim();
+  if (!normalized) return 'No preview available.';
+
+  const previewLines = normalized.split('\n').slice(0, maxLines);
+  const preview = previewLines.join('\n').slice(0, maxChars);
+  return preview.length < normalized.length ? `${preview}\n…` : preview;
+}
+
 export default function CanvasPreview({ artifact, onUpdate, onDelete, onDownload }: CanvasPreviewProps) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -192,8 +202,9 @@ export default function CanvasPreview({ artifact, onUpdate, onDelete, onDownload
     if (isImage) {
       return (
         <div className="canvas-preview-image">
-          <img 
-            src={`data:${artifact.mimeType};base64,${artifact.content}`} 
+          <ObjectUrlImage
+            base64Data={artifact.content}
+            mimeType={artifact.mimeType}
             alt={artifact.name}
             style={{ maxWidth: '100%', maxHeight: '400px', borderRadius: '8px' }}
           />
@@ -220,6 +231,23 @@ export default function CanvasPreview({ artifact, onUpdate, onDelete, onDownload
               resize: 'vertical'
             }}
           />
+        );
+      }
+      if (!expanded) {
+        return (
+          <pre
+            style={{
+              padding: '12px',
+              lineHeight: 1.6,
+              fontSize: '0.85rem',
+              background: 'var(--bg-secondary)',
+              borderRadius: '8px',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}
+          >
+            {buildCollapsedPreview(artifact.content)}
+          </pre>
         );
       }
       return (
@@ -254,6 +282,27 @@ export default function CanvasPreview({ artifact, onUpdate, onDelete, onDownload
               resize: 'vertical'
             }}
           />
+        );
+      }
+      if (!expanded) {
+        return (
+          <pre
+            style={{
+              width: '100%',
+              minHeight: '200px',
+              background: '#161922',
+              color: '#abb2bf',
+              border: '1px solid var(--border-color)',
+              borderRadius: '8px',
+              padding: '12px',
+              fontFamily: 'monospace',
+              fontSize: '0.85rem',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+            }}
+          >
+            {buildCollapsedPreview(artifact.content, 2200, 36)}
+          </pre>
         );
       }
       return (

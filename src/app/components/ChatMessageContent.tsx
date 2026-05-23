@@ -9,7 +9,9 @@ import {
 } from '@/lib/response-format';
 import { normalizeAssistantResponseContent } from '@/lib/response-normalizer';
 import type { MessageSource } from '@/lib/message-sources';
+import { base64ToBlob } from '@/lib/browser-file-utils';
 import AssistantContent from './AssistantContent';
+import ObjectUrlImage from './ObjectUrlImage';
 
 type GeneratedFile = {
   name: string;
@@ -20,11 +22,11 @@ type GeneratedFile = {
 
 type ImageDisplayFile = {
   name: string;
-  dataUrl: string;
   mimeType: string;
   width?: number;
   height?: number;
   url?: string; // For external URLs
+  base64Data?: string;
 };
 
 const MIME_BY_EXTENSION: Record<string, string> = {
@@ -133,7 +135,6 @@ function extractInlineImages(content: string): ImageDisplayFile[] {
     const mimeType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
     images.push({
       name: alt.includes('.') ? alt : `${alt}.${ext}`,
-      dataUrl: `https://${url}`,
       mimeType,
       url: `https://${url}`,
     });
@@ -149,8 +150,8 @@ function extractInlineImages(content: string): ImageDisplayFile[] {
     const name = alt.includes('.') ? alt : `${alt}.${extension}`;
     images.push({
       name,
-      dataUrl: `data:${mimeType};base64,${base64}`,
       mimeType,
+      base64Data: base64,
     });
   }
   
@@ -164,8 +165,8 @@ function extractInlineImages(content: string): ImageDisplayFile[] {
         const base64 = parts[1];
         images.push({
           name: `generated-image-${images.length + 1}.${mimeType.split('/')[1] || 'png'}`,
-          dataUrl: `data:${mimeType};base64,${base64}`,
           mimeType,
+          base64Data: base64,
         });
       }
     } catch {}
@@ -330,8 +331,10 @@ function ImageGallery({ images, sessionId, messageId, persistedImageIds, saveIma
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', margin: '8px 0' }}>
       {images.map((img, i) => (
         <div key={i} style={{ position: 'relative' }}>
-          <img
-            src={img.url || img.dataUrl}
+          <ObjectUrlImage
+            src={img.url}
+            base64Data={img.base64Data}
+            mimeType={img.mimeType}
             alt={img.name}
             style={{
               maxWidth: '200px',
@@ -341,7 +344,17 @@ function ImageGallery({ images, sessionId, messageId, persistedImageIds, saveIma
               cursor: 'pointer',
               objectFit: 'cover',
             }}
-            onClick={() => window.open(img.url || img.dataUrl, '_blank')}
+            onClick={() => {
+              if (img.url) {
+                window.open(img.url, '_blank');
+                return;
+              }
+
+              if (!img.base64Data) return;
+              const objectUrl = URL.createObjectURL(base64ToBlob(img.base64Data, img.mimeType));
+              window.open(objectUrl, '_blank', 'noopener,noreferrer');
+              window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+            }}
             title="Click to view full size"
           />
           {img.url ? (
@@ -367,7 +380,7 @@ function ImageGallery({ images, sessionId, messageId, persistedImageIds, saveIma
                 type="button"
                 onClick={() => {
                   const link = document.createElement('a');
-                  link.href = img.url || img.dataUrl;
+                  link.href = img.url || '';
                   link.download = img.name;
                   link.click();
                 }}
@@ -410,10 +423,8 @@ function ImageGallery({ images, sessionId, messageId, persistedImageIds, saveIma
               <button
                 type="button"
                 onClick={() => {
-                  const link = document.createElement('a');
-                  link.href = img.dataUrl;
-                  link.download = img.name;
-                  link.click();
+                  if (!img.base64Data) return;
+                  downloadBlob(img.name, base64ToBlob(img.base64Data, img.mimeType));
                 }}
                 style={{
                   background: 'rgba(0,0,0,0.7)',
@@ -488,7 +499,8 @@ export function AssistantDownloads({
     if (!sessionId || persistedImageIds[index] || savingIds['img-' + index]) return;
     setSavingIds(prev => ({ ...prev, ['img-' + index]: true }));
     try {
-      const base64Data = image.dataUrl.split(',')[1] || '';
+      const base64Data = image.base64Data || '';
+      if (!base64Data) return;
       const res = await fetch('/api/canvas/artifacts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

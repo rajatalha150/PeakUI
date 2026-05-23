@@ -13,6 +13,8 @@ export interface ExtractedFilePayload {
   extension: string
   kind: FileKind
   text: string
+  ocrText?: string
+  ocrTextCharCount?: number
   textCharCount: number
   truncated: boolean
   extractionStatus: FileExtractionStatus

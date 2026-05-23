@@ -36,6 +36,7 @@ import ShellCommandModal from './ShellCommandModal';
 import ShellOutput from './ShellOutput';
 import CanvasPanel from './CanvasPanel';
 import ShellSettingsPanel from './ShellSettingsPanel';
+import ObjectUrlImage from './ObjectUrlImage';
 import { Settings } from 'lucide-react';
 import { getStreamPhaseLabel, isServerStreamStatus, type UiStreamPhase } from '@/lib/stream-status';
 import { applyTheme } from '@/lib/theme-options';
@@ -56,9 +57,15 @@ import BrowserModal from './BrowserModal';
 import { reportClientError } from '@/lib/client-error-reporting';
 
 type OpenClawProvider = 'ollama' | 'openai-compatible';
+type ImageAttachmentMode = 'vision-only' | 'vision+ocr' | 'ocr-only';
 const MOBILE_BREAKPOINT = 960;
 const HUMAN_BROWSER_ASSIST_TIMEOUT_MS = 10 * 60 * 1000;
 const SESSION_PAGE_SIZE = 15;
+const IMAGE_ATTACHMENT_MODE_OPTIONS: Array<{ value: ImageAttachmentMode; label: string }> = [
+  { value: 'vision-only', label: 'Vision only' },
+  { value: 'vision+ocr', label: 'Vision + OCR' },
+  { value: 'ocr-only', label: 'OCR only' },
+];
 
 interface OpenClawSession {
   id: string;
@@ -113,7 +120,11 @@ interface OpenClawImageAttachment {
   type: string;
   size: number;
   data: string;
-  dataUrl: string;
+  previewUrl: string;
+  attachmentMode: ImageAttachmentMode;
+  ocrText?: string;
+  ocrTextCharCount?: number;
+  statusMessage?: string;
 }
 
 interface OpenClawFileAttachment {
@@ -128,7 +139,19 @@ interface OpenClawFileAttachment {
   truncated?: boolean;
   extractionStatus?: ExtractedFilePayload['extractionStatus'];
   modelInput?: ExtractedFilePayload['modelInput'];
+  ocrText?: string;
+  ocrTextCharCount?: number;
   statusMessage?: string;
+}
+
+function getImageAttachmentSummary(mode: ImageAttachmentMode, hasOcrText: boolean) {
+  if (mode === 'ocr-only') {
+    return hasOcrText ? 'OCR text only' : 'OCR only selected, but no OCR text was extracted';
+  }
+  if (mode === 'vision+ocr') {
+    return hasOcrText ? 'Image bytes + OCR text' : 'Image bytes only (no OCR text found)';
+  }
+  return 'Image bytes only';
 }
 
 interface OpenClawSettings {
@@ -1387,6 +1410,7 @@ export default function OpenClawWorkspace({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const headerModeMenuRef = useRef<HTMLDivElement>(null);
   const railCollapsed = rightRailCollapsed && !isMobileViewport;
+  const pendingPreviewUrlsRef = useRef<string[]>([]);
 
   useEffect(() => {
     browserInterruptedRef.current = browserInterrupted;
@@ -1404,6 +1428,29 @@ export default function OpenClawWorkspace({
     contentKey: chatHistory,
     isStreaming,
   });
+
+  useEffect(() => {
+    const nextPreviewUrls = pendingImages
+      .map(image => image.previewUrl)
+      .filter(Boolean);
+
+    for (const previousUrl of pendingPreviewUrlsRef.current) {
+      if (!nextPreviewUrls.includes(previousUrl)) {
+        URL.revokeObjectURL(previousUrl);
+      }
+    }
+
+    pendingPreviewUrlsRef.current = nextPreviewUrls;
+  }, [pendingImages]);
+
+  useEffect(() => {
+    return () => {
+      for (const previewUrl of pendingPreviewUrlsRef.current) {
+        URL.revokeObjectURL(previewUrl);
+      }
+      pendingPreviewUrlsRef.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -3686,16 +3733,33 @@ export default function OpenClawWorkspace({
       extractionStatus: data.extractionStatus,
       modelInput: data.modelInput,
       statusMessage: data.statusMessage,
+      ...(data.ocrText ? { ocrText: data.ocrText, ocrTextCharCount: data.ocrTextCharCount } : {}),
     };
   };
 
   const buildAttachmentContext = (attachments: OpenClawFileAttachment[] = [], images: OpenClawImageAttachment[] = [], userText = '') => {
-    const imageContext = images.map((image, idx) => [
-      `[Attached image ${idx + 1}: ${image.name}]`,
-      `MIME: ${image.type || 'image/*'}`,
-      `Size: ${formatBytes(image.size)}`,
-      'Model input: original image bytes via Ollama images array',
-    ].join('\n'));
+    const imageContext = images.map((image, idx) => {
+      const lines = [
+        `[Attached image ${idx + 1}: ${image.name}]`,
+        `MIME: ${image.type || 'image/*'}`,
+        `Size: ${formatBytes(image.size)}`,
+        `Attachment mode: ${getImageAttachmentSummary(image.attachmentMode, Boolean(image.ocrText?.trim()))}`,
+      ];
+
+      if (image.attachmentMode !== 'ocr-only') {
+        lines.push('Model input: original image bytes');
+      }
+
+      if (image.attachmentMode !== 'vision-only') {
+        if (image.ocrText?.trim()) {
+          lines.push('', 'OCR extract:', image.ocrText.trim());
+        } else {
+          lines.push('', 'OCR extract: No OCR text was found for this image.');
+        }
+      }
+
+      return lines.join('\n');
+    });
 
     const fileContext = attachments.map((attachment, idx) => {
       const lines = [
@@ -3718,35 +3782,44 @@ export default function OpenClawWorkspace({
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
-    const newImages: OpenClawImageAttachment[] = [];
-    const newAttachments: OpenClawFileAttachment[] = [];
     setAttachmentError(null);
     setProcessingAttachments(true);
     try {
+      const nextImages: OpenClawImageAttachment[] = [];
+      const nextAttachments: OpenClawFileAttachment[] = [];
+
       for (const file of files) {
         if (file.size > MAX_UPLOAD_BYTES) {
           setAttachmentError(`"${file.name}" is too large. Files are limited to ${MAX_UPLOAD_LABEL}.`);
           break;
         }
         if (file.type.startsWith('image/')) {
-          const b64 = await readAsBase64Fn(file);
-          newImages.push({
+          const [b64, imageExtraction] = await Promise.all([
+            readAsBase64Fn(file),
+            extractAttachment(file),
+          ]);
+          nextImages.push({
             name: file.name,
             type: file.type || 'image/*',
             size: file.size,
             data: b64,
-            dataUrl: `data:${file.type || 'image/jpeg'};base64,${b64}`,
+            previewUrl: URL.createObjectURL(file),
+            attachmentMode: imageExtraction.ocrText?.trim() ? 'vision+ocr' : 'vision-only',
+            ocrText: imageExtraction.ocrText,
+            ocrTextCharCount: imageExtraction.ocrTextCharCount,
+            statusMessage: imageExtraction.statusMessage,
           });
         } else {
           const attachment = await extractAttachment(file);
-          newAttachments.push(attachment);
+          nextAttachments.push(attachment);
         }
       }
+
+      setPendingImages(current => [...current, ...nextImages]);
+      setPendingAttachments(current => [...current, ...nextAttachments]);
     } catch (error) {
       setAttachmentError(error instanceof Error ? error.message : 'Could not process attachment');
     } finally {
-      setPendingImages(p => [...p, ...newImages]);
-      setPendingAttachments(p => [...p, ...newAttachments]);
       setProcessingAttachments(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -3754,6 +3827,12 @@ export default function OpenClawWorkspace({
 
   const removePendingImage = (index: number) => {
     setPendingImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const updatePendingImageMode = (index: number, attachmentMode: ImageAttachmentMode) => {
+    setPendingImages(prev => prev.map((image, currentIndex) => (
+      currentIndex === index ? { ...image, attachmentMode } : image
+    )));
   };
 
   const removePendingAttachment = (index: number) => {
@@ -4076,9 +4155,10 @@ export default function OpenClawWorkspace({
       currentStatus: taskState.currentStatus.trim() || 'Task captured. Waiting for the next workspace update.',
       nextStep: taskState.nextStep.trim() || 'Review the assistant output and update the pinned checklist.',
     };
-    const messageImages = [...pendingImages];
+    const messageImages = pendingImages.filter(image => image.attachmentMode !== 'ocr-only');
+    const contextImages = [...pendingImages];
     const messageAttachments = [...pendingAttachments];
-    const attachmentContext = buildAttachmentContext(messageAttachments, messageImages, prompt);
+    const attachmentContext = buildAttachmentContext(messageAttachments, contextImages, prompt);
     const ragQueryText = (attachmentContext || prompt).slice(0, 2000);
     const userMessage: OpenClawMessage = {
       id: randomUUID(),
@@ -4773,6 +4853,122 @@ export default function OpenClawWorkspace({
   () => sanitizeOpenClawMessages(deferredChatHistory).filter(isVisibleMessage),
   [deferredChatHistory, isVisibleMessage]
 );
+  const renderVisibleChatMessage = (msg: OpenClawMessage, index: number) => {
+    const messageContent = typeof msg.content === 'string' ? msg.content : '';
+    const messageThinking = typeof msg.thinking === 'string' ? msg.thinking : '';
+    const messageSources = normalizeToolSources(msg.sources);
+    const outputsForMessage = msg.id
+      ? shellOutput.filter(output => output.messageId === msg.id)
+      : [];
+    const isToolBridgeMessage = msg.role === 'assistant' && (Boolean(msg.toolRequest) || outputsForMessage.length > 0);
+
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
+          paddingBottom: '18px',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            gap: '14px',
+            flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
+            maxWidth: '100%',
+          }}
+        >
+          <div className="avatar">
+            {msg.role === 'user' ? <MessageSquare size={18} color="var(--text-secondary)" /> : <Bot size={22} color="white" />}
+          </div>
+          <div suppressHydrationWarning className={`message-content${isStreaming && msg.role === 'assistant' && index === visibleChatHistory.length - 1 && messageContent ? ' streaming-cursor' : ''}`} style={{ maxWidth: '100%' }}>
+            {messageThinking && (
+              <ThinkingBlock content={messageThinking} isStreaming={isStreaming && index === visibleChatHistory.length - 1 && !messageContent} />
+            )}
+            {msg.role === 'assistant' ? (
+              <MessageRenderBoundary fallbackText={messageContent}>
+                <ChatMessageContent
+                  content={messageContent}
+                  isStreaming={isStreaming}
+                  isLast={index === visibleChatHistory.length - 1}
+                  presentation={msg.presentation}
+                  sources={messageSources}
+                />
+                {!isToolBridgeMessage && messageSources.length > 0 && (
+                  <SourceChips sources={messageSources} />
+                )}
+                {!isToolBridgeMessage && messageContent.trim() && (
+                  <AssistantDownloads content={messageContent} index={index} presentation={msg.presentation} sessionId={currentSessionId ?? undefined} messageId={msg.id} />
+                )}
+              </MessageRenderBoundary>
+            ) : (
+              <ChatMessageContent
+                content={messageContent}
+                isStreaming={isStreaming}
+                isLast={index === visibleChatHistory.length - 1}
+                presentation={msg.presentation}
+                sources={messageSources}
+              />
+            )}
+          </div>
+        </div>
+        {msg.role === 'assistant' && outputsForMessage.length > 0 && (
+          <div style={{ marginLeft: '52px', marginTop: '8px', width: 'calc(100% - 52px)' }}>
+            {outputsForMessage.map(output => (
+              <ShellOutput
+                key={output.id}
+                command={output.command}
+                target={output.target}
+                stdout={output.stdout}
+                stderr={output.stderr}
+                exitCode={output.exitCode}
+                duration={output.duration}
+                success={output.success}
+              />
+            ))}
+          </div>
+        )}
+        {msg.meta && (
+          <div
+            style={{
+              fontSize: '0.75rem',
+              color: 'var(--text-secondary)',
+              marginLeft: msg.role === 'assistant' ? '52px' : '0',
+              display: 'flex',
+              gap: '12px',
+            }}
+          >
+            <span><Activity size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />{msg.meta.tps.toFixed(1)} tok/s</span>
+            <span>{msg.meta.tokens} tokens</span>
+            <span>{msg.meta.duration.toFixed(2)}s</span>
+          </div>
+        )}
+        {isStreaming && index === visibleChatHistory.length - 1 && liveStats && !msg.meta && (
+          <div
+            style={{
+              fontSize: '0.75rem',
+              color: 'var(--accent-primary)',
+              marginLeft: msg.role === 'assistant' ? '52px' : '0',
+              display: 'flex',
+              gap: '12px',
+            }}
+          >
+            {liveStats.tokens > 0 ? (
+              <>
+                <span><Activity size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />{liveStats.tps.toFixed(1)} tok/s</span>
+                <span>{liveStats.tokens} tokens</span>
+                <span className="animate-pulse">Generating...</span>
+              </>
+            ) : (
+              <span className="animate-pulse">{getStreamPhaseLabel(streamPhase)}</span>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
   const showingKnowledgeBase = view === 'knowledge-base';
   const showingSettings = view === 'settings';
   const activeModeSummary = [
@@ -5385,122 +5581,11 @@ export default function OpenClawWorkspace({
                 </div>
               </div>
             ) : (
-              visibleChatHistory.map((msg, index) => {
-                const messageContent = typeof msg.content === 'string' ? msg.content : '';
-                const messageThinking = typeof msg.thinking === 'string' ? msg.thinking : '';
-                const messageSources = normalizeToolSources(msg.sources);
-                const outputsForMessage = msg.id
-                  ? shellOutput.filter(output => output.messageId === msg.id)
-                  : [];
-                const isToolBridgeMessage = msg.role === 'assistant' && (Boolean(msg.toolRequest) || outputsForMessage.length > 0);
-
-                return (
-                  <div
-                    key={msg.id || index}
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px',
-                      alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        gap: '14px',
-                        flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
-                        maxWidth: '100%',
-                      }}
-                    >
-                      <div className="avatar">
-                        {msg.role === 'user' ? <MessageSquare size={18} color="var(--text-secondary)" /> : <Bot size={22} color="white" />}
-                      </div>
-                      <div suppressHydrationWarning className={`message-content${isStreaming && msg.role === 'assistant' && index === visibleChatHistory.length - 1 && messageContent ? ' streaming-cursor' : ''}`} style={{ maxWidth: '100%' }}>
-                        {messageThinking && (
-                          <ThinkingBlock content={messageThinking} isStreaming={isStreaming && index === visibleChatHistory.length - 1 && !messageContent} />
-                        )}
-                        {msg.role === 'assistant' ? (
-                          <MessageRenderBoundary fallbackText={messageContent}>
-                            <ChatMessageContent
-                              content={messageContent}
-                              isStreaming={isStreaming}
-                              isLast={index === visibleChatHistory.length - 1}
-                              presentation={msg.presentation}
-                              sources={messageSources}
-                            />
-                            {!isToolBridgeMessage && messageSources.length > 0 && (
-                              <SourceChips sources={messageSources} />
-                            )}
-                            {!isToolBridgeMessage && messageContent.trim() && (
-                              <AssistantDownloads content={messageContent} index={index} presentation={msg.presentation} sessionId={currentSessionId ?? undefined} messageId={msg.id} />
-                            )}
-                          </MessageRenderBoundary>
-                        ) : (
-                          <ChatMessageContent
-                            content={messageContent}
-                            isStreaming={isStreaming}
-                            isLast={index === visibleChatHistory.length - 1}
-                            presentation={msg.presentation}
-                            sources={messageSources}
-                          />
-                        )}
-                      </div>
-                    </div>
-                    {msg.role === 'assistant' && outputsForMessage.length > 0 && (
-                      <div style={{ marginLeft: '52px', marginTop: '8px', width: 'calc(100% - 52px)' }}>
-                        {outputsForMessage.map(output => (
-                          <ShellOutput
-                            key={output.id}
-                            command={output.command}
-                            target={output.target}
-                            stdout={output.stdout}
-                            stderr={output.stderr}
-                            exitCode={output.exitCode}
-                            duration={output.duration}
-                            success={output.success}
-                          />
-                        ))}
-                      </div>
-                    )}
-                    {msg.meta && (
-                      <div
-                        style={{
-                          fontSize: '0.75rem',
-                          color: 'var(--text-secondary)',
-                          marginLeft: msg.role === 'assistant' ? '52px' : '0',
-                          display: 'flex',
-                          gap: '12px',
-                        }}
-                      >
-                        <span><Activity size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />{msg.meta.tps.toFixed(1)} tok/s</span>
-                        <span>{msg.meta.tokens} tokens</span>
-                        <span>{msg.meta.duration.toFixed(2)}s</span>
-                      </div>
-                    )}
-                    {isStreaming && index === visibleChatHistory.length - 1 && liveStats && !msg.meta && (
-                      <div
-                        style={{
-                          fontSize: '0.75rem',
-                          color: 'var(--accent-primary)',
-                          marginLeft: msg.role === 'assistant' ? '52px' : '0',
-                          display: 'flex',
-                          gap: '12px',
-                        }}
-                      >
-                        {liveStats.tokens > 0 ? (
-                          <>
-                            <span><Activity size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />{liveStats.tps.toFixed(1)} tok/s</span>
-                            <span>{liveStats.tokens} tokens</span>
-                            <span className="animate-pulse">Generating...</span>
-                          </>
-                        ) : (
-                          <span className="animate-pulse">{getStreamPhaseLabel(streamPhase)}</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
+              visibleChatHistory.map((msg, index) => (
+                <div key={msg.id || index}>
+                  {renderVisibleChatMessage(msg, index)}
+                </div>
+              ))
             )}
             <div ref={messagesEndRef} />
           </div>
@@ -5566,10 +5651,30 @@ export default function OpenClawWorkspace({
               {(pendingImages.length > 0 || pendingAttachments.length > 0 || attachmentError) && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px 12px', background: 'rgba(0,0,0,0.2)', borderRadius: '10px 10px 0 0', borderBottom: '1px solid var(--border-color)' }}>
                   {pendingImages.map((img, i) => (
-                    <div key={`img-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '20px', background: 'var(--accent-soft)', fontSize: '0.78rem' }}>
-                      <img src={img.dataUrl} alt={img.name} style={{ width: '24px', height: '24px', objectFit: 'cover', borderRadius: '4px' }} />
-                      <span style={{ maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{img.name}</span>
-                      <button onClick={() => removePendingImage(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 0 }}><X size={12} /></button>
+                    <div key={`img-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', borderRadius: '16px', background: 'var(--accent-soft)', fontSize: '0.78rem', maxWidth: '100%' }}>
+                      <ObjectUrlImage src={img.previewUrl} alt={img.name} style={{ width: '24px', height: '24px', objectFit: 'cover', borderRadius: '4px', flexShrink: 0 }} />
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: 0 }}>
+                        <span style={{ maxWidth: '140px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{img.name}</span>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.68rem' }}>{getImageAttachmentSummary(img.attachmentMode, Boolean(img.ocrText?.trim()))}</span>
+                      </div>
+                      <select
+                        value={img.attachmentMode}
+                        onChange={(event) => updatePendingImageMode(i, event.target.value as ImageAttachmentMode)}
+                        style={{
+                          borderRadius: '8px',
+                          border: '1px solid var(--border-color)',
+                          background: 'rgba(0,0,0,0.18)',
+                          color: 'var(--text-primary)',
+                          padding: '3px 6px',
+                          fontSize: '0.72rem'
+                        }}
+                        title={img.statusMessage || 'Choose how this image should be sent to the model'}
+                      >
+                        {IMAGE_ATTACHMENT_MODE_OPTIONS.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                      <button onClick={() => removePendingImage(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 0, flexShrink: 0 }}><X size={12} /></button>
                     </div>
                   ))}
                   {pendingAttachments.map((att, i) => (

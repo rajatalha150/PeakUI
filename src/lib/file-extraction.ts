@@ -197,6 +197,7 @@ function makePayload(
   options: ExtractFileOptions,
   values: {
     text?: string
+    ocrText?: string
     kind?: FileKind
     extractionStatus: FileExtractionStatus
     modelInput: FileModelInput
@@ -214,6 +215,12 @@ function makePayload(
     extension,
     kind: values.kind ?? detectFileKind(options.name, options.type || guessMimeType(options.name)),
     text,
+    ...(values.ocrText
+      ? {
+          ocrText: values.ocrText,
+          ocrTextCharCount: values.ocrText.length,
+        }
+      : {}),
     textCharCount: text.length,
     truncated,
     extractionStatus: values.extractionStatus,
@@ -553,21 +560,18 @@ async function extractFilePayloadInternal(options: ExtractFileOptions, context: 
 
   if (isImageMimeType(mimeType) && extension !== 'svg') {
     const ocrText = await extractImageText(options.buffer, extension || 'png')
-    if (ocrText.trim()) {
-      return makePayload(options, {
-        kind: 'image',
-        text: ocrText,
-        extractionStatus: 'extracted',
-        modelInput: 'extracted-text',
-        statusMessage: 'Extracted text from the image using OCR.',
-      })
-    }
-
     return makePayload(options, {
       kind: 'image',
       extractionStatus: 'native',
       modelInput: 'native-image',
-      statusMessage: 'Image bytes are sent to Ollama as native image input when the selected model supports vision.',
+      ...(ocrText.trim()
+        ? {
+            ocrText: normalizeExtractedText(ocrText),
+            statusMessage: 'Image bytes stay attached for vision models. OCR text is available as optional supplemental context.',
+          }
+        : {
+            statusMessage: 'Image bytes are sent as native image input when the selected model supports vision.',
+          }),
     })
   }
 

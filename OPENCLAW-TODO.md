@@ -80,6 +80,28 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 - [x] **Artifact versioning** — Tracked via version field in CanvasArtifact model
 - [x] **Export artifacts** — Download individually from Canvas panel or batch download
 - [x] **Edit-in-place** — Edit agent-generated code/docs directly in the UI
+- [x] **Vision-first image attachments** — Uploaded images stay as native image input, with OCR kept as optional supplemental context
+- [x] **Per-image attachment mode** — Vision only / Vision + OCR / OCR only controls in the Open Claw composer
+- [x] **Canvas lazy previews** — Large code and markdown artifacts avoid full eager rendering until expanded
+- [x] **Canvas virtualization** — Artifact lists are now windowed to keep large sessions responsive
+- [x] **Long chat virtualization** — Open Claw chat history now window-renders long threads
+- [x] **Blob/object URL previews** — UI previews no longer rely on base64-heavy `data:` URLs by default
+
+### 7A. Fresh TODO — Canvas, Rendering, and Presentation
+- [ ] **Parsed-content cache** — Cache normalized assistant content, generated files, and inline-image extraction by message id/content hash
+- [ ] **Real markdown renderer for Canvas** — Replace regex HTML conversion with a sanitized AST-based markdown pipeline
+- [ ] **Image preview dimension caps** — Generate bounded thumbnails and only decode full-resolution images on demand
+- [ ] **Persist preview metadata** — Store preview kind, dimensions, and summary metadata when artifacts are created
+- [ ] **Artifact presentation types** — Distinguish reports, code, tables, diagrams, and slide-like deliverables at render time
+- [ ] **Structured artifact bundles** — Let the agent emit grouped deliverables such as summary + report + appendix + assets
+- [ ] **Artifact lineage** — Track “derived from” relationships between messages and artifacts
+- [ ] **Table and chart rendering** — Render CSV/JSON artifacts as first-class tables/charts instead of raw text only
+- [ ] **Presentation-mode exports** — Add explicit client-ready memo/report/dev-handoff export targets
+- [ ] **Lazy-load heavy renderers** — Code-split syntax highlighting and other expensive preview dependencies
+- [ ] **Streaming render isolation** — Keep active streaming rows isolated so older messages do not rerender unnecessarily
+- [ ] **Content-size thresholds** — Add “preview first, load full on demand” thresholds for very large artifacts/messages
+- [ ] **Render metrics** — Track message render time, artifact preview cost, and image decode latency in dev/admin mode
+- [ ] **Precomputed render data** — Move expensive preview derivation off the hot render path where practical
 
 ### 8. Teams (Multi-Agent)
 - [ ] **Multi-agent ensembles** — Multiple agents with different roles collaborate

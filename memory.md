@@ -56,6 +56,8 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Edit-in-place: click Edit on any artifact to modify content/name directly
 - External image gallery with open-in-new-tab (globe icon) and download buttons
 - Canvas only shows when session has artifacts (no empty state banner)
+- Canvas artifact cards now avoid eager heavy rendering when collapsed: markdown/code fall back to cheap text previews and only mount full markdown/syntax-highlighting on expand
+- Canvas artifact lists are now virtualized so large sessions stay responsive
 
 ### Knowledge Base / RAG (v2) ✅
 - **Server-side RAG integration:** When enabled, `buildKnowledgeBaseContext()` queries indexed documents during chat alongside web search
@@ -252,8 +254,11 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 ### File Attachments & Downloads
 - Chat attachments use `/api/files/extract` and shared file metadata; text-like files are sent as extracted text plus original filename/MIME/size metadata
 - Images are preserved as original base64 bytes and passed to Ollama through the native `images` array for vision-capable models
+- Uploaded images are now vision-first with OCR as optional supplemental context instead of OCR replacing the image payload
+- Open Claw composer now supports per-image attachment modes: `Vision only`, `Vision + OCR`, and `OCR only`
 - Unsupported binary/audio/video/archive files can be attached as metadata-only, with a clear model-input status instead of pretending the bytes are text
 - Assistant responses render a format-aware response download button plus fenced code block downloads for content that declares `filename="..."`; `base64 filename="..."` blocks download as decoded binary blobs
+- Browser-side image previews now prefer blob/object URLs over base64-heavy `data:` URLs where possible, reducing DOM churn for pending uploads, Canvas previews, and inline assistant images
 
 ### Appearance & Themes
 - Settings → Appearance now includes five professional palettes: Aurora, Graphite, Midnight, Canvas, and Ledger
@@ -292,6 +297,8 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 | `src/app/components/KnowledgeBase.tsx` | RAG UI — upload, search, health summary, full-document preview, manage docs |
 | `src/app/components/SettingsPanel.tsx` | Settings UI |
 | `src/app/components/OpenClawWorkspace.tsx` | Primary Open Claw agent workspace surface with top bar, left workspace rail, session UI, task-mode preferences, inline Knowledge Base, and Settings shell views |
+| `src/app/components/VirtualizedList.tsx` | Shared client-side windowed list renderer used for large Canvas artifact lists |
+| `src/app/components/ObjectUrlImage.tsx` | Shared image preview helper that turns base64 payloads into object URLs for lighter browser rendering |
 | `src/app/api/chat/route.ts` | Alias to the shared chat completion pipeline |
 | `src/app/api/chat/models/route.ts` | Provider-aware main-chat model discovery for Ollama, Hugging Face, and hybrid mode |
 | `src/app/api/chat/completions/route.ts` | Streaming completion endpoint |
@@ -324,6 +331,7 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 | `src/lib/openclaw-prompt.ts` | Open Claw task/workspace system prompt builder |
 | `src/lib/openclaw-workspace.ts` | Managed Open Claw workspace mount/alias helpers shared by shell, filesystem, and code execution |
 | `src/lib/file-shared.ts` | Shared upload limits, file kind detection, and extracted-file payload types |
+| `src/lib/browser-file-utils.ts` | Browser-side file helpers such as base64→Blob conversion used by image previews/downloads |
 | `src/lib/settings.ts` | Shared defaults, settings normalization, Ollama host normalization |
 | `src/lib/stream-status.ts` | Shared stream-phase types and user-facing startup/generation status labels for Open Claw and shared completion flows |
 | `src/lib/use-sticky-scroll.ts` | Shared sticky-scroll hook used by Open Claw to preserve manual scrollback during streaming |
@@ -384,6 +392,7 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 ## ⏭️ Next Steps / Roadmap
 - **Open Claw Agent Infrastructure:** Phases 1-2 (multi-layer memory, tool execution, canvas artifacts) complete. Next priorities are heartbeats/autonomous scheduling, then sub-agent delegation and multi-agent teams.
+- **Canvas/rendering next:** Continue the fresh `OPENCLAW-TODO.md` follow-up work: cached parsed assistant content, a real sanitized markdown renderer for Canvas, persisted preview metadata, artifact presentation types/bundles/lineage, richer table/chart rendering, presentation-mode exports, lazy-loaded heavy renderers, content-size thresholds, and render metrics.
 - **Open Claw permissions next:** If broader host roots than `/home` and `/tmp` are needed for filesystem tools, add more Docker bind mounts first, then allow those paths in Settings. For true host-command access, run the host executor with narrow approved cwd roots and keep `ask-first` enabled until the workflow is proven.
 - **Development Plan:** Implement the Development Worker foundation, Docker dashboard, Code Interpreter sandboxes, Docker control actions, and VM orchestration per `docs/development-section-plan.md`
 - **Internet mode next:** Consider an optional Phase 2 browser extension/current-tab context flow, but keep the shipped Phase 1 path read-only and citation-first
@@ -394,8 +403,16 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `fix: polish openclaw workspace rail`
-- **Previous committed baseline:** `fix: stabilize openclaw rag streaming`
+- **Current committed baseline:** `feat: improve openclaw image handling and canvas rendering`
+- **Previous committed baseline:** `fix: polish openclaw workspace rail`
+
+### Latest Changes (Open Claw Image Handling & Canvas Rendering)
+- **Vision-first image attachments:** shared file extraction now keeps uploaded images as native image input by default and exposes OCR text as optional supplemental metadata instead of downgrading the image into extracted text.
+- **Per-image attachment modes in Open Claw:** pending image chips now let the user choose `Vision only`, `Vision + OCR`, or `OCR only`, and the composer respects those modes when building prompt context versus sending actual image bytes.
+- **Cheaper browser image previews:** pending uploads, inline assistant images, and Canvas image previews now prefer object URLs/blob downloads instead of pushing large `data:` URLs through the DOM.
+- **Canvas rendering is lazier:** collapsed markdown/code artifacts render lightweight text previews and only mount full markdown/syntax-highlighting when expanded.
+- **Canvas virtualization added:** large artifact lists now use a shared virtualized list helper to reduce mount/render cost in long sessions.
+- **Open Claw chat virtualization rolled back:** chat-thread virtualization was removed from the live streaming message list after it caused assistant responses to appear/disappear during streaming. Canvas virtualization remains in place because it is safe there.
 
 ### Latest Changes (Open Claw Workspace Rail Polish)
 - **Workspace controls moved behind one launcher:** the left rail now opens agent mode, response style, task state, workspace brief, persona, user profile, shell execution, and workspace-capability details inside a modal instead of stacking those cards under the session list.

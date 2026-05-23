@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import ObjectUrlImage from './ObjectUrlImage';
+import VirtualizedList from './VirtualizedList';
 
 export interface CanvasArtifactData {
   id: string;
@@ -66,6 +68,15 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function buildCollapsedPreview(content: string, maxChars = 1600, maxLines = 28): string {
+  const normalized = content.trim();
+  if (!normalized) return 'No preview available.';
+
+  const previewLines = normalized.split('\n').slice(0, maxLines);
+  const preview = previewLines.join('\n').slice(0, maxChars);
+  return preview.length < normalized.length ? `${preview}\n…` : preview;
 }
 
 // Simple markdown to HTML converter
@@ -136,8 +147,9 @@ function ArtifactCard({
     if (isImage) {
       return (
         <div style={{ display: 'flex', justifyContent: 'center', background: '#1a1a2e', borderRadius: '8px', padding: '12px' }}>
-          <img 
-            src={`data:${artifact.mimeType};base64,${artifact.content || ''}`} 
+          <ObjectUrlImage
+            base64Data={artifact.content || ''}
+            mimeType={artifact.mimeType}
             alt={artifact.name}
             style={{ maxWidth: '100%', maxHeight: expanded ? 'none' : '200px', borderRadius: '6px' }}
           />
@@ -158,6 +170,22 @@ function ArtifactCard({
               padding: '12px', fontFamily: 'monospace', fontSize: '0.8rem', resize: 'vertical'
             }}
           />
+        );
+      }
+      if (!expanded) {
+        return (
+          <pre style={{
+            padding: '12px',
+            background: 'var(--bg-secondary)',
+            borderRadius: '8px',
+            fontSize: '0.78rem',
+            lineHeight: 1.55,
+            overflow: 'hidden',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+          }}>
+            {buildCollapsedPreview(artifact.content || '')}
+          </pre>
         );
       }
       return (
@@ -181,6 +209,23 @@ function ArtifactCard({
               padding: '12px', fontFamily: 'monospace', fontSize: '0.8rem', resize: 'vertical'
             }}
           />
+        );
+      }
+      if (!expanded) {
+        return (
+          <pre style={{
+            padding: '12px',
+            background: '#161922',
+            color: '#abb2bf',
+            borderRadius: '8px',
+            fontSize: '0.75rem',
+            lineHeight: 1.55,
+            overflow: 'hidden',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word'
+          }}>
+            {buildCollapsedPreview(artifact.content || '', 2200, 36)}
+          </pre>
         );
       }
       return (
@@ -423,32 +468,42 @@ export default function CanvasPanel({ artifacts, onUpdate, onDelete, onDownload,
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      {artifacts.map(artifact => {
+    <VirtualizedList
+      items={artifacts}
+      getItemKey={(artifact) => artifact.id}
+      estimateItemHeight={(artifact) => {
+        if (isImageMime(artifact.mimeType)) return 360;
+        if (isMarkdownFile(artifact.mimeType, artifact.extension)) return 300;
+        return 340;
+      }}
+      overscanPx={1200}
+      renderItem={(artifact) => {
         const content = fullContentMap[artifact.id]?.content ?? artifact.content;
         return (
-          <ArtifactCard
-            key={artifact.id}
-            artifact={{ ...artifact, content }}
-            expanded={expandedIds.has(artifact.id)}
-            editing={editingIds.has(artifact.id)}
-            editContent={editContentMap[artifact.id] ?? artifact.content}
-            editName={editNameMap[artifact.id] ?? artifact.name}
-            onToggleExpand={() => toggleExpand(artifact)}
-            onStartEdit={() => startEdit(artifact)}
-            onCancelEdit={() => cancelEdit(artifact.id)}
-            onSaveEdit={() => saveEdit(artifact.id)}
-            onContentChange={(c) => setEditContentMap(prev => ({ ...prev, [artifact.id]: c }))}
-            onNameChange={(n) => setEditNameMap(prev => ({ ...prev, [artifact.id]: n }))}
-            onCopy={() => handleCopy(artifact)}
-            onDownload={() => handleDownload(artifact)}
-            onDelete={() => handleDelete(artifact.id)}
-            copied={copiedIds.has(artifact.id)}
-            saving={savingIds.has(artifact.id)}
-            error={errors[artifact.id] ?? null}
-          />
+          <div style={{ paddingBottom: '8px' }}>
+            <ArtifactCard
+              artifact={{ ...artifact, content }}
+              expanded={expandedIds.has(artifact.id)}
+              editing={editingIds.has(artifact.id)}
+              editContent={editContentMap[artifact.id] ?? artifact.content}
+              editName={editNameMap[artifact.id] ?? artifact.name}
+              onToggleExpand={() => toggleExpand(artifact)}
+              onStartEdit={() => startEdit(artifact)}
+              onCancelEdit={() => cancelEdit(artifact.id)}
+              onSaveEdit={() => saveEdit(artifact.id)}
+              onContentChange={(c) => setEditContentMap(prev => ({ ...prev, [artifact.id]: c }))}
+              onNameChange={(n) => setEditNameMap(prev => ({ ...prev, [artifact.id]: n }))}
+              onCopy={() => handleCopy(artifact)}
+              onDownload={() => handleDownload(artifact)}
+              onDelete={() => handleDelete(artifact.id)}
+              copied={copiedIds.has(artifact.id)}
+              saving={savingIds.has(artifact.id)}
+              error={errors[artifact.id] ?? null}
+            />
+          </div>
         );
-      })}
-    </div>
+      }}
+      style={{ display: 'block' }}
+    />
   );
 }
