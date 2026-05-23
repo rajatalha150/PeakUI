@@ -405,8 +405,13 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `feat: improve canvas rendering and uwaf telemetry`
-- **Previous committed baseline:** `feat: harden uwaf stealth preflight and telemetry`
+- **Current committed baseline:** `fix: repair uwaf network panel build`
+- **Previous committed baseline:** `feat: improve canvas rendering and uwaf telemetry`
+
+### Latest Changes (UWAF Network Panel Fix)
+- **Build-breaking JSX was corrected:** the incoming UWAF network panel update had a malformed fragment/closing-tag structure that prevented the Next build from completing.
+- **Panel behavior preserved:** the rewritten `UwafNetworkPanel` keeps the compact network hub UI, refresh control, mode toggle, status display, and collapse behavior intact while restoring valid JSX.
+- **Redeploy verified:** the app rebuild now completes successfully on the updated `UwafNetworkPanel` implementation, so the latest remote commit can be deployed cleanly.
 
 ### Latest Changes (Canvas Rendering Pass)
 - **Shared assistant parsing is cached:** normalized assistant content, generated files, and inline-image extraction now go through a shared cache instead of being recomputed in every render path.
