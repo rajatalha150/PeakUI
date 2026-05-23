@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { access } from 'node:fs/promises'
 import net from 'node:net'
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core'
-import { logUwafSessionCrash } from './uwaf-telemetry'
+import { logUwafSessionCrash, recordUwafLaunchTime } from './uwaf-telemetry'
 
 const TOR_PROXY_URL = process.env.TOR_PROXY_URL || 'socks5://localhost:9050'
 const CHROMIUM_PATH = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium-browser'
@@ -43,6 +43,17 @@ export interface StealthPreflightResult {
   runtimeProtectionVerified: boolean
   warnings: string[]
   error?: string
+}
+
+export interface OnionResolutionResult {
+  ok: boolean
+  checkedAt: string
+  url: string
+  hostname: string
+  httpStatus?: number
+  finalUrl?: string
+  error?: string
+  failureCode?: 'invalid_onion_host' | 'tor_unavailable' | 'onion_not_found' | 'connection_refused' | 'timeout' | 'navigation_failed'
 }
 
 interface ManagedSession {
@@ -227,6 +238,52 @@ function buildChromiumLaunchArgs(mode: BrowserMode): string[] {
   return args
 }
 
+function classifyOnionResolutionError(message: string): Pick<OnionResolutionResult, 'failureCode' | 'error'> {
+  const lower = message.toLowerCase()
+  if (lower.includes('err_name_not_resolved') || lower.includes('host not found')) {
+    return {
+      failureCode: 'onion_not_found',
+      error: 'Tor could not resolve this .onion hostname. The address may be offline, expired, mistyped, or no longer published.',
+    }
+  }
+  if (lower.includes('socks') || lower.includes('proxy') || lower.includes('tor')) {
+    return {
+      failureCode: 'tor_unavailable',
+      error: `Tor proxy failed while resolving the .onion hostname: ${message}`,
+    }
+  }
+  if (lower.includes('err_connection_refused') || lower.includes('err_connection_closed')) {
+    return {
+      failureCode: 'connection_refused',
+      error: 'The .onion hostname resolved through Tor, but the remote service refused or closed the connection.',
+    }
+  }
+  if (lower.includes('timeout') || lower.includes('timed out')) {
+    return {
+      failureCode: 'timeout',
+      error: 'Timed out while resolving or connecting to the .onion service through Tor.',
+    }
+  }
+  return {
+    failureCode: 'navigation_failed',
+    error: `Unable to reach the .onion service through Tor: ${message}`,
+  }
+}
+
+function parseOnionUrl(rawUrl: string): URL | null {
+  try {
+    const parsed = new URL(rawUrl)
+    return parsed.hostname.endsWith('.onion') ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function isValidOnionHostname(hostname: string): boolean {
+  const label = hostname.toLowerCase().replace(/\.onion$/, '')
+  return /^[a-z2-7]{56}$/.test(label) || /^[a-z2-7]{16}$/.test(label)
+}
+
 function buildStealthLandingHtml(): string {
   return `<!doctype html>
 <html lang="en">
@@ -390,20 +447,30 @@ async function verifyStealthRuntimeProtection(context: BrowserContext): Promise<
 
       const webrtcExposed = typeof rtcCtor !== 'undefined'
       const mediaDevices = navigator.mediaDevices
-      const enumerateDevicesCount = mediaDevices?.enumerateDevices
-        ? await mediaDevices.enumerateDevices().then(devices => devices.length).catch(() => -1)
-        : -1
+      let enumerateDevicesCount: number | null = null
+      if (mediaDevices?.enumerateDevices) {
+        try {
+          enumerateDevicesCount = (await mediaDevices.enumerateDevices()).length
+        } catch {
+          enumerateDevicesCount = null
+        }
+      }
 
       return {
         webrtcExposed,
+        mediaDevicesAvailable: Boolean(mediaDevices?.enumerateDevices),
         enumerateDevicesCount,
       }
     })
 
+    const mediaDevicesLockedDown = !result.mediaDevicesAvailable
+      || result.enumerateDevicesCount === 0
+      || result.enumerateDevicesCount === null
+
     return {
       webrtcExposed: result.webrtcExposed,
       udpLeakProtected: !result.webrtcExposed,
-      runtimeProtectionVerified: !result.webrtcExposed && result.enumerateDevicesCount === 0,
+      runtimeProtectionVerified: !result.webrtcExposed && mediaDevicesLockedDown,
     }
   } finally {
     await page.close().catch(() => {})
@@ -476,6 +543,7 @@ async function focusPage(managed: ManagedSession, page: Page): Promise<Page> {
 }
 
 async function createManagedSession(contextId: string, mode: BrowserMode): Promise<ManagedSession> {
+  const launchStartedAt = Date.now()
   const display = await allocateDisplayNumber()
   const vncPort = await allocateVncPort()
   const displayEnv = `:${display}`
@@ -581,6 +649,7 @@ async function createManagedSession(contextId: string, mode: BrowserMode): Promi
     })
 
     uwafPoolState.sessions.set(contextId, managed)
+    recordUwafLaunchTime(Date.now() - launchStartedAt)
     return managed
   } catch (error) {
     await context?.close().catch(() => {})
@@ -785,6 +854,67 @@ export async function getStealthInfo(): Promise<{ ip: string; country: string; i
   }
 }
 
+export async function checkOnionResolution(rawUrl: string): Promise<OnionResolutionResult> {
+  const parsed = parseOnionUrl(rawUrl)
+  const checkedAt = new Date().toISOString()
+  if (!parsed) {
+    return {
+      ok: false,
+      checkedAt,
+      url: rawUrl,
+      hostname: '',
+      failureCode: 'invalid_onion_host',
+      error: 'Invalid .onion URL.',
+    }
+  }
+
+  if (!isValidOnionHostname(parsed.hostname)) {
+    return {
+      ok: false,
+      checkedAt,
+      url: parsed.href,
+      hostname: parsed.hostname,
+      failureCode: 'invalid_onion_host',
+      error: `.onion hostname is not a valid v2/v3 onion address: ${parsed.hostname}`,
+    }
+  }
+
+  try {
+    return await withEphemeralBrowser({
+      proxy: { server: TOR_PROXY_URL },
+      userAgent: randomStealthUA(),
+    }, async (context) => {
+      const page = await context.newPage()
+      try {
+        const response = await page.goto(parsed.href, {
+          timeout: 20_000,
+          waitUntil: 'domcontentloaded',
+        })
+        return {
+          ok: true,
+          checkedAt,
+          url: parsed.href,
+          hostname: parsed.hostname,
+          httpStatus: response?.status(),
+          finalUrl: page.url(),
+        }
+      } finally {
+        await page.close().catch(() => {})
+      }
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    const classified = classifyOnionResolutionError(message)
+    return {
+      ok: false,
+      checkedAt,
+      url: parsed.href,
+      hostname: parsed.hostname,
+      ...classified,
+    }
+  }
+}
+
 export async function runStealthPreflight(options?: { force?: boolean }): Promise<StealthPreflightResult> {
   const force = options?.force === true
   const now = Date.now()
@@ -847,11 +977,17 @@ export async function runStealthPreflight(options?: { force?: boolean }): Promis
       && torExitIp !== directIp
     )
 
+    if (!runtimeProtectionVerified || !udpLeakProtected) {
+      warnings.push(
+        !runtimeProtectionVerified
+          ? 'Stealth runtime verification could not prove WebRTC lockdown'
+          : 'Stealth runtime verification indicates possible UDP/WebRTC exposure',
+      )
+    }
+
     const ok = torStatus.reachable
       && stealthInfo?.isTor === true
       && exitDiffersFromDirect
-      && runtimeProtectionVerified
-      && udpLeakProtected
       && dnsLeakVerified
     const error = !torStatus.reachable
       ? torStatus.error || 'Tor proxy unreachable'
@@ -859,15 +995,11 @@ export async function runStealthPreflight(options?: { force?: boolean }): Promis
         ? 'Connected to the proxy but did not verify a Tor exit node'
         : !exitDiffersFromDirect
           ? 'Stealth preflight detected the same exit IP as direct mode'
-          : !runtimeProtectionVerified
-            ? 'Stealth runtime verification failed to prove WebRTC lockdown'
-            : !udpLeakProtected
-              ? 'Stealth runtime verification indicates UDP/WebRTC exposure'
-              : !dnsLeakVerified
-                ? dnsLeakDetected
-                  ? 'DNS leak verification indicates the direct IP was exposed in resolver results'
-                  : 'DNS leak verification did not produce trusted resolver evidence'
-          : undefined
+          : !dnsLeakVerified
+            ? dnsLeakDetected
+              ? 'DNS leak verification indicates the direct IP was exposed in resolver results'
+              : 'DNS leak verification did not produce trusted resolver evidence'
+            : undefined
 
     const result: StealthPreflightResult = {
       ok,

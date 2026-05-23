@@ -408,6 +408,16 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - **Current committed baseline:** `feat: harden uwaf stealth preflight and telemetry`
 - **Previous committed baseline:** `docs: add uwaf network hardening backlog`
 
+### Latest Changes (Canvas Rendering Pass)
+- **Shared assistant parsing is cached:** normalized assistant content, generated files, and inline-image extraction now go through a shared cache instead of being recomputed in every render path.
+- **Canvas rendering is AST-based and lazy:** Canvas markdown now uses `react-markdown` with GFM and sanitization, and heavy syntax/markdown renderers are code-split so collapsed cards stay cheap.
+- **Artifact metadata is persisted server-side:** Canvas artifacts now store preview kind, summary, dimensions, content hash, presentation type, bundle metadata, export targets, and lineage fields.
+- **Large artifact rendering is demand-driven:** collapsed previews stay lightweight, large content requires an explicit full-preview action, and image previews use bounded thumbnail decoding when possible.
+- **Presentation/export support expanded:** Canvas artifacts now distinguish reports, code, tables, charts, diagrams, slides, memo/dev-handoff exports, with table/chart rendering for CSV/TSV/JSON artifacts.
+- **Message rendering is more isolated:** Open Claw message rows are memoized and the shared assistant renderer uses the cached parsing path to reduce rerenders during streaming.
+- **Render telemetry added:** the client now records optional assistant/artifact/image decode timings for dev/admin troubleshooting.
+- **Docs updated:** `OPENCLAW-TODO.md` now marks the canvas/rendering/presentation backlog items complete.
+
 ### Latest Changes (UWAF Network Hardening Pass)
 - **Stealth preflight is now stricter:** stealth browsing now verifies Tor reachability, Tor exit alignment, browser-based DNS leak behavior, and runtime WebRTC/UDP exposure before allowing a session to proceed.
 - **Diagnostics are explicit:** UWAF status output now surfaces DNS leak verification, resolver IPs, WebRTC exposure, UDP leak protection, runtime protection verification, and Tor-preflight warnings instead of collapsing everything into a generic reachability check.

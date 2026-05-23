@@ -25,8 +25,8 @@ This file tracks targeted improvements for the Unified Web Agent Framework, stea
 - [x] Add explicit DNS leak verification for stealth sessions
 - [x] Verify WebRTC, UDP, and proxy bypass paths are disabled at runtime, not just by config intent
 - [x] Add a preflight that confirms outbound IP, DNS resolver behavior, and Tor exit alignment before first stealth navigation
-- [ ] Add `.onion` resolution checks that fail early with precise diagnostics
-- [ ] Add guardrails that block direct-mode fallback anywhere inside stealth execution paths
+- [x] Add `.onion` resolution checks that fail early with precise diagnostics
+- [x] Add guardrails that block direct-mode fallback anywhere inside stealth execution paths
 
 ### Fingerprint hardening
 - [ ] Replace the tiny static stealth UA pool with broader, versioned desktop fingerprints
@@ -89,7 +89,8 @@ This file tracks targeted improvements for the Unified Web Agent Framework, stea
 - [x] Add structured logs for each browser action with session id, mode, target, timing, and semantic result
 - [x] Track Tor-specific diagnostics separately from generic browser failures
 - [x] Add counters for anti-bot hits, login walls, search failures, proxy failures, and session crashes
-- [ ] Track median launch time, page-open time, search success rate, and takeover frequency
+- [x] Track median launch time, page-open time, and search success rate
+- [ ] Track takeover frequency
 
 ### Debuggability
 - [ ] Add a server-side “browser trace bundle” option for failed sessions: logs, recent URLs, page title timeline, JS errors, network errors

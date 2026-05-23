@@ -1,5 +1,5 @@
 import type { BrowserContext, Page } from 'playwright-core'
-import { closeContext, getPage, type BrowserMode } from './uwaf-pool'
+import { checkOnionResolution, closeContext, getPage, type BrowserMode } from './uwaf-pool'
 import {
   extractTables,
   isBlockedBinaryUrl,
@@ -9,6 +9,7 @@ import {
 } from './uwaf-sanitizer'
 import type { OpenClawUwafBrowserMode } from './settings'
 import { assertPublicHttpUrl } from './openclaw-browser'
+import { recordUwafPageOpenTime } from './uwaf-telemetry'
 
 const MAX_TEXT_CHARS = 30_000
 const MAX_LINKS = 50
@@ -837,22 +838,33 @@ async function navigateToUrl(
   takeScreenshot: boolean,
   options: { since?: number; observations?: string[] } = {},
 ): Promise<PageObservation> {
-  await assertUwafUrlAllowed(url, mode)
+  const targetUrl = await assertUwafUrlAllowed(url, mode)
+  const observations = [...(options.observations || [])]
 
-  if (isBlockedBinaryUrl(url)) {
+  if (isOnionUrl(targetUrl.href)) {
+    const onionCheck = await checkOnionResolution(targetUrl.href)
+    if (!onionCheck.ok) {
+      throw new Error(`.onion resolution failed for ${onionCheck.hostname}: ${onionCheck.error || 'unknown Tor resolution failure'}`)
+    }
+    observations.push(`Verified .onion resolution through Tor for ${onionCheck.hostname}.`)
+  }
+
+  if (isBlockedBinaryUrl(targetUrl.href)) {
     throw new Error('Blocked: URLs pointing to executable files are not allowed for security reasons. If you need this file, request manual unpacking approval.')
   }
 
   await page.bringToFront().catch(() => {})
-  const response = await page.goto(url, { timeout: 30_000, waitUntil: 'domcontentloaded' })
+  const navigationStartedAt = Date.now()
+  const response = await page.goto(targetUrl.href, { timeout: 30_000, waitUntil: 'domcontentloaded' })
+  recordUwafPageOpenTime(Date.now() - navigationStartedAt)
   await page.bringToFront().catch(() => {})
 
   return await observePage(page, mode, takeScreenshot, {
-    requestUrl: url,
+    requestUrl: targetUrl.href,
     httpStatus: response?.status(),
-    redirected: page.url() !== url,
+    redirected: page.url() !== targetUrl.href,
     since: options.since,
-    observations: options.observations,
+    observations,
   })
 }
 
@@ -900,15 +912,26 @@ async function executeSearch(
 }
 
 async function openNewTabFromUrl(page: Page, url: string, mode: BrowserMode, takeScreenshot: boolean, since: number): Promise<PageObservation> {
-  await assertUwafUrlAllowed(url, mode)
+  const targetUrl = await assertUwafUrlAllowed(url, mode)
+  const observations: string[] = []
+  if (isOnionUrl(targetUrl.href)) {
+    const onionCheck = await checkOnionResolution(targetUrl.href)
+    if (!onionCheck.ok) {
+      throw new Error(`.onion resolution failed for ${onionCheck.hostname}: ${onionCheck.error || 'unknown Tor resolution failure'}`)
+    }
+    observations.push(`Verified .onion resolution through Tor for ${onionCheck.hostname}.`)
+  }
   const nextPage = await page.context().newPage()
   await nextPage.bringToFront().catch(() => {})
-  const response = await nextPage.goto(url, { timeout: 30_000, waitUntil: 'domcontentloaded' })
+  const navigationStartedAt = Date.now()
+  const response = await nextPage.goto(targetUrl.href, { timeout: 30_000, waitUntil: 'domcontentloaded' })
+  recordUwafPageOpenTime(Date.now() - navigationStartedAt)
   return await observePage(nextPage, mode, takeScreenshot, {
-    requestUrl: url,
+    requestUrl: targetUrl.href,
     httpStatus: response?.status(),
-    redirected: nextPage.url() !== url,
+    redirected: nextPage.url() !== targetUrl.href,
     since,
+    observations,
   })
 }
 
@@ -927,6 +950,9 @@ export async function runUwafBrowserAction(
   }
 
   const mode: BrowserMode = request.browserMode || settings.openClawUwafDefaultMode || 'direct'
+  if (openClawUwafBrowserMode !== mode) {
+    throw new Error(`UWAF browser is configured for ${openClawUwafBrowserMode} mode, but this request asked for ${mode}. Switch the UWAF mode in Settings before changing network mode.`)
+  }
 
   if (mode === 'stealth') {
     const { runStealthPreflight } = await import('./uwaf-pool')

@@ -178,6 +178,19 @@ model CanvasArtifact {
   content     String   // Code, markdown, or JSON payload
   mimeType    String   @default("text/plain")
   kind        String   @default("file") // "file" | "markdown" | "diagram" | "data"
+  previewKind String   @default("file")
+  previewSummary String?
+  previewWidth Int?
+  previewHeight Int?
+  contentHash  String?
+  presentationType String @default("auto")
+  bundleId     String?
+  bundleName   String?
+  bundleRole   String?
+  exportTargets String @default("[]")
+  sourceArtifactId String?
+  sourceArtifact CanvasArtifact? @relation("ArtifactLineage", fields: [sourceArtifactId], references: [id], onDelete: SetNull)
+  derivedArtifacts CanvasArtifact[] @relation("ArtifactLineage")
   extension   String?
   size        Int      @default(0)
   sessionId   String
@@ -191,6 +204,9 @@ model CanvasArtifact {
 
   @@index([userId, createdAt])
   @@index([sessionId])
+  @@index([bundleId])
+  @@index([sourceArtifactId])
+  @@index([presentationType])
 }
 
 model ShellCommandAudit {

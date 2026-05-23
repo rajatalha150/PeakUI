@@ -55,6 +55,7 @@ import UwafNetworkPanel from './UwafNetworkPanel';
 import LiveBrowserView from './LiveBrowserView';
 import BrowserModal from './BrowserModal';
 import { reportClientError } from '@/lib/client-error-reporting';
+import type { CanvasArtifactRecord } from '@/lib/canvas-artifacts';
 
 type OpenClawProvider = 'ollama' | 'openai-compatible';
 type ImageAttachmentMode = 'vision-only' | 'vision+ocr' | 'ocr-only';
@@ -579,6 +580,149 @@ function describeUwafBrowserRequest(request: OpenClawUwafBrowserToolRequest) {
 function normalizeToolSources(value: unknown): MessageSource[] {
   return normalizeMessageSources(value);
 }
+
+const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
+  msg,
+  index,
+  isStreaming,
+  isLast,
+  currentSessionId,
+  liveStats,
+  streamPhase,
+  outputsForMessage,
+  messageSources,
+}: {
+  msg: OpenClawMessage;
+  index: number;
+  isStreaming: boolean;
+  isLast: boolean;
+  currentSessionId?: string | null;
+  liveStats: { tokens: number; tps: number } | null;
+  streamPhase: UiStreamPhase | null;
+  outputsForMessage: ShellOutputEntry[];
+  messageSources: MessageSource[];
+}) {
+  const messageContent = typeof msg.content === 'string' ? msg.content : '';
+  const messageThinking = typeof msg.thinking === 'string' ? msg.thinking : '';
+  const isToolBridgeMessage = msg.role === 'assistant' && (Boolean(msg.toolRequest) || outputsForMessage.length > 0);
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '8px',
+        alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
+        paddingBottom: '18px',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          gap: '14px',
+          flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
+          maxWidth: '100%',
+        }}
+      >
+        <div className="avatar">
+          {msg.role === 'user' ? <MessageSquare size={18} color="var(--text-secondary)" /> : <Bot size={22} color="white" />}
+        </div>
+        <div suppressHydrationWarning className={`message-content${isStreaming && msg.role === 'assistant' && isLast && messageContent ? ' streaming-cursor' : ''}`} style={{ maxWidth: '100%' }}>
+          {messageThinking && (
+            <ThinkingBlock content={messageThinking} isStreaming={isStreaming && isLast && !messageContent} />
+          )}
+          {msg.role === 'assistant' ? (
+            <MessageRenderBoundary fallbackText={messageContent}>
+              <ChatMessageContent
+                content={messageContent}
+                isStreaming={isStreaming}
+                isLast={isLast}
+                presentation={msg.presentation}
+                sources={messageSources}
+              />
+              {!isToolBridgeMessage && messageSources.length > 0 && (
+                <SourceChips sources={messageSources} />
+              )}
+              {!isToolBridgeMessage && messageContent.trim() && (
+                <AssistantDownloads content={messageContent} index={index} presentation={msg.presentation} sessionId={currentSessionId ?? undefined} messageId={msg.id} />
+              )}
+            </MessageRenderBoundary>
+          ) : (
+            <ChatMessageContent
+              content={messageContent}
+              isStreaming={isStreaming}
+              isLast={isLast}
+              presentation={msg.presentation}
+              sources={messageSources}
+            />
+          )}
+        </div>
+      </div>
+      {msg.role === 'assistant' && outputsForMessage.length > 0 && (
+        <div style={{ marginLeft: '52px', marginTop: '8px', width: 'calc(100% - 52px)' }}>
+          {outputsForMessage.map(output => (
+            <ShellOutput
+              key={output.id}
+              command={output.command}
+              target={output.target}
+              stdout={output.stdout}
+              stderr={output.stderr}
+              exitCode={output.exitCode}
+              duration={output.duration}
+              success={output.success}
+            />
+          ))}
+        </div>
+      )}
+      {msg.meta && (
+        <div
+          style={{
+            fontSize: '0.75rem',
+            color: 'var(--text-secondary)',
+            marginLeft: msg.role === 'assistant' ? '52px' : '0',
+            display: 'flex',
+            gap: '12px',
+          }}
+        >
+          <span><Activity size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />{msg.meta.tps.toFixed(1)} tok/s</span>
+          <span>{msg.meta.tokens} tokens</span>
+          <span>{msg.meta.duration.toFixed(2)}s</span>
+        </div>
+      )}
+      {isStreaming && isLast && liveStats && !msg.meta && (
+        <div
+          style={{
+            fontSize: '0.75rem',
+            color: 'var(--accent-primary)',
+            marginLeft: msg.role === 'assistant' ? '52px' : '0',
+            display: 'flex',
+            gap: '12px',
+          }}
+        >
+          {liveStats.tokens > 0 ? (
+            <>
+              <span><Activity size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />{liveStats.tps.toFixed(1)} tok/s</span>
+              <span>{liveStats.tokens} tokens</span>
+              <span className="animate-pulse">Generating...</span>
+            </>
+          ) : (
+            <span className="animate-pulse">{getStreamPhaseLabel(streamPhase)}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}, (prev, next) => (
+  prev.msg === next.msg
+  && prev.index === next.index
+  && prev.isStreaming === next.isStreaming
+  && prev.isLast === next.isLast
+  && prev.currentSessionId === next.currentSessionId
+  && prev.liveStats === next.liveStats
+  && prev.streamPhase === next.streamPhase
+  && prev.outputsForMessage === next.outputsForMessage
+  && prev.messageSources === next.messageSources
+));
 
 function normalizeExtractedToolRequestName(value: unknown): OpenClawMessage['toolRequest'] {
   return value === 'shell' || value === 'filesystem' || value === 'web' || value === 'code' || value === 'browser' || value === 'unified_browser'
@@ -1383,20 +1527,7 @@ export default function OpenClawWorkspace({
   const [, setExecutingCommand] = useState(false);
   const [shellOutput, setShellOutput] = useState<ShellOutputEntry[]>([]);
   // Canvas artifacts state
-  const [canvasArtifacts, setCanvasArtifacts] = useState<Array<{
-    id: string;
-    name: string;
-    content?: string;
-    kind: string;
-    mimeType: string;
-    extension: string | null;
-    size: number;
-    sessionId: string;
-    messageId: string | null;
-    version: number;
-    createdAt: string;
-    updatedAt?: string;
-  }>>([]);
+  const [canvasArtifacts, setCanvasArtifacts] = useState<CanvasArtifactRecord[]>([]);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingApprovalResolverRef = useRef<((result: ToolApprovalResolution) => void) | null>(null);
@@ -4853,120 +4984,32 @@ export default function OpenClawWorkspace({
   () => sanitizeOpenClawMessages(deferredChatHistory).filter(isVisibleMessage),
   [deferredChatHistory, isVisibleMessage]
 );
+  const shellOutputByMessage = useMemo(() => {
+    const next = new Map<string, ShellOutputEntry[]>();
+    for (const output of shellOutput) {
+      if (!output.messageId) continue;
+      const bucket = next.get(output.messageId) ?? [];
+      bucket.push(output);
+      next.set(output.messageId, bucket);
+    }
+    return next;
+  }, [shellOutput]);
   const renderVisibleChatMessage = (msg: OpenClawMessage, index: number) => {
-    const messageContent = typeof msg.content === 'string' ? msg.content : '';
-    const messageThinking = typeof msg.thinking === 'string' ? msg.thinking : '';
     const messageSources = normalizeToolSources(msg.sources);
-    const outputsForMessage = msg.id
-      ? shellOutput.filter(output => output.messageId === msg.id)
-      : [];
-    const isToolBridgeMessage = msg.role === 'assistant' && (Boolean(msg.toolRequest) || outputsForMessage.length > 0);
+    const outputsForMessage = msg.id ? (shellOutputByMessage.get(msg.id) ?? []) : [];
 
     return (
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '8px',
-          alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
-          paddingBottom: '18px',
-        }}
-      >
-        <div
-          style={{
-            display: 'flex',
-            gap: '14px',
-            flexDirection: msg.role === 'user' ? 'row-reverse' : 'row',
-            maxWidth: '100%',
-          }}
-        >
-          <div className="avatar">
-            {msg.role === 'user' ? <MessageSquare size={18} color="var(--text-secondary)" /> : <Bot size={22} color="white" />}
-          </div>
-          <div suppressHydrationWarning className={`message-content${isStreaming && msg.role === 'assistant' && index === visibleChatHistory.length - 1 && messageContent ? ' streaming-cursor' : ''}`} style={{ maxWidth: '100%' }}>
-            {messageThinking && (
-              <ThinkingBlock content={messageThinking} isStreaming={isStreaming && index === visibleChatHistory.length - 1 && !messageContent} />
-            )}
-            {msg.role === 'assistant' ? (
-              <MessageRenderBoundary fallbackText={messageContent}>
-                <ChatMessageContent
-                  content={messageContent}
-                  isStreaming={isStreaming}
-                  isLast={index === visibleChatHistory.length - 1}
-                  presentation={msg.presentation}
-                  sources={messageSources}
-                />
-                {!isToolBridgeMessage && messageSources.length > 0 && (
-                  <SourceChips sources={messageSources} />
-                )}
-                {!isToolBridgeMessage && messageContent.trim() && (
-                  <AssistantDownloads content={messageContent} index={index} presentation={msg.presentation} sessionId={currentSessionId ?? undefined} messageId={msg.id} />
-                )}
-              </MessageRenderBoundary>
-            ) : (
-              <ChatMessageContent
-                content={messageContent}
-                isStreaming={isStreaming}
-                isLast={index === visibleChatHistory.length - 1}
-                presentation={msg.presentation}
-                sources={messageSources}
-              />
-            )}
-          </div>
-        </div>
-        {msg.role === 'assistant' && outputsForMessage.length > 0 && (
-          <div style={{ marginLeft: '52px', marginTop: '8px', width: 'calc(100% - 52px)' }}>
-            {outputsForMessage.map(output => (
-              <ShellOutput
-                key={output.id}
-                command={output.command}
-                target={output.target}
-                stdout={output.stdout}
-                stderr={output.stderr}
-                exitCode={output.exitCode}
-                duration={output.duration}
-                success={output.success}
-              />
-            ))}
-          </div>
-        )}
-        {msg.meta && (
-          <div
-            style={{
-              fontSize: '0.75rem',
-              color: 'var(--text-secondary)',
-              marginLeft: msg.role === 'assistant' ? '52px' : '0',
-              display: 'flex',
-              gap: '12px',
-            }}
-          >
-            <span><Activity size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />{msg.meta.tps.toFixed(1)} tok/s</span>
-            <span>{msg.meta.tokens} tokens</span>
-            <span>{msg.meta.duration.toFixed(2)}s</span>
-          </div>
-        )}
-        {isStreaming && index === visibleChatHistory.length - 1 && liveStats && !msg.meta && (
-          <div
-            style={{
-              fontSize: '0.75rem',
-              color: 'var(--accent-primary)',
-              marginLeft: msg.role === 'assistant' ? '52px' : '0',
-              display: 'flex',
-              gap: '12px',
-            }}
-          >
-            {liveStats.tokens > 0 ? (
-              <>
-                <span><Activity size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />{liveStats.tps.toFixed(1)} tok/s</span>
-                <span>{liveStats.tokens} tokens</span>
-                <span className="animate-pulse">Generating...</span>
-              </>
-            ) : (
-              <span className="animate-pulse">{getStreamPhaseLabel(streamPhase)}</span>
-            )}
-          </div>
-        )}
-      </div>
+      <VisibleChatMessageRow
+        msg={msg}
+        index={index}
+        isStreaming={isStreaming}
+        isLast={index === visibleChatHistory.length - 1}
+        currentSessionId={currentSessionId}
+        liveStats={liveStats}
+        streamPhase={streamPhase}
+        outputsForMessage={outputsForMessage}
+        messageSources={messageSources}
+      />
     );
   };
   const showingKnowledgeBase = view === 'knowledge-base';
@@ -7160,7 +7203,7 @@ export default function OpenClawWorkspace({
                         const data = await res.json();
                         setCanvasArtifacts(prev => prev.flatMap(a => {
                           if (!a) return [];
-                          return [a.id === id ? { ...a, content, name, version: data.artifact.version } : a];
+                          return [a.id === id ? data.artifact : a];
                         }));
                       }
                     } catch (error) {

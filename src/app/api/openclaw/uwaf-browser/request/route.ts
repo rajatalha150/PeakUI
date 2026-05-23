@@ -37,9 +37,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ allowed: false, reason: 'UWAF browser is disabled.' })
   }
 
-  const browserMode = typeof body.browserMode === 'string' && ['direct', 'stealth'].includes(body.browserMode)
+  const explicitBrowserMode = typeof body.browserMode === 'string' && ['direct', 'stealth'].includes(body.browserMode)
     ? body.browserMode as 'direct' | 'stealth'
-    : 'direct'
+    : null
+  if (explicitBrowserMode && explicitBrowserMode !== mode) {
+    return NextResponse.json({
+      allowed: false,
+      reason: `UWAF browser is configured for ${mode} mode, but this approval request asked for ${explicitBrowserMode}.`,
+    }, { status: 403 })
+  }
+  const browserMode = mode
 
   if (action === 'submit') {
     const session = getUwafBrowserSession(userId, sessionId, browserMode)

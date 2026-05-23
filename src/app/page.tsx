@@ -43,6 +43,7 @@ import {
   type ChatPlatform,
 } from '@/lib/chat-platforms';
 import { reportClientError } from '@/lib/client-error-reporting';
+import type { CanvasArtifactRecord } from '@/lib/canvas-artifacts';
 
 const CHAT_INTERNET_STORAGE = 'peakui-chat-internet-enabled';
 const UNRESTRICTED_STORAGE = 'peakui-chat-unrestricted';
@@ -696,20 +697,7 @@ export default function Home() {
   const isVm = activeTab === 'vm';
   const isDocker = activeTab === 'docker';
   const isSettings = activeTab === 'settings';
-  const [canvasArtifacts, setCanvasArtifacts] = useState<Array<{
-    id: string;
-    name: string;
-    content?: string;
-    kind: string;
-    mimeType: string;
-    extension: string | null;
-    size: number;
-    sessionId: string;
-    messageId: string | null;
-    version: number;
-    createdAt: string;
-    updatedAt?: string;
-  }>>([]);
+  const [canvasArtifacts, setCanvasArtifacts] = useState<CanvasArtifactRecord[]>([]);
   const [canvasRailCollapsed, setCanvasRailCollapsed] = useState(false);
   const [ollamaHealth, setOllamaHealth] = useState<OllamaHealthSummary | null>(null);
   const [ollamaHealthLoading, setOllamaHealthLoading] = useState(false);
@@ -3693,7 +3681,7 @@ export default function Home() {
                     });
                     if (res.ok) {
                       const data = await res.json();
-                      setCanvasArtifacts(prev => prev.map(a => a.id === id ? { ...a, content, name, version: data.artifact.version } : a));
+                      setCanvasArtifacts(prev => prev.map(a => a.id === id ? data.artifact : a));
                     }
                   }}
                   onDelete={async (id) => { await deleteArtifactById(id); }}

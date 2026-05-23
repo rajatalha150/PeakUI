@@ -89,20 +89,20 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 - [x] **Blob/object URL previews** — UI previews no longer rely on base64-heavy `data:` URLs by default
 
 ### 7A. Fresh TODO — Canvas, Rendering, and Presentation
-- [ ] **Parsed-content cache** — Cache normalized assistant content, generated files, and inline-image extraction by message id/content hash
-- [ ] **Real markdown renderer for Canvas** — Replace regex HTML conversion with a sanitized AST-based markdown pipeline
-- [ ] **Image preview dimension caps** — Generate bounded thumbnails and only decode full-resolution images on demand
-- [ ] **Persist preview metadata** — Store preview kind, dimensions, and summary metadata when artifacts are created
-- [ ] **Artifact presentation types** — Distinguish reports, code, tables, diagrams, and slide-like deliverables at render time
-- [ ] **Structured artifact bundles** — Let the agent emit grouped deliverables such as summary + report + appendix + assets
-- [ ] **Artifact lineage** — Track “derived from” relationships between messages and artifacts
-- [ ] **Table and chart rendering** — Render CSV/JSON artifacts as first-class tables/charts instead of raw text only
-- [ ] **Presentation-mode exports** — Add explicit client-ready memo/report/dev-handoff export targets
-- [ ] **Lazy-load heavy renderers** — Code-split syntax highlighting and other expensive preview dependencies
-- [ ] **Streaming render isolation** — Keep active streaming rows isolated so older messages do not rerender unnecessarily
-- [ ] **Content-size thresholds** — Add “preview first, load full on demand” thresholds for very large artifacts/messages
-- [ ] **Render metrics** — Track message render time, artifact preview cost, and image decode latency in dev/admin mode
-- [ ] **Precomputed render data** — Move expensive preview derivation off the hot render path where practical
+- [x] **Parsed-content cache** — Cached normalized assistant content, generated files, and inline-image extraction through the shared assistant-content cache
+- [x] **Real markdown renderer for Canvas** — Replaced regex HTML conversion with `react-markdown` + `remark-gfm` + `rehype-sanitize`
+- [x] **Image preview dimension caps** — Added bounded thumbnail generation for previews and full-resolution decode only when expanded
+- [x] **Persist preview metadata** — Artifacts now store preview kind, dimensions, summary, presentation type, bundle metadata, and content hash
+- [x] **Artifact presentation types** — Canvas now distinguishes reports, code, tables, charts, diagrams, slides, and generic files at render time
+- [x] **Structured artifact bundles** — Assistant-created files/images now save into grouped bundles keyed by message/bundle metadata, and Canvas renders bundle headers
+- [x] **Artifact lineage** — Canvas artifacts now persist `sourceArtifactId`, derived artifact IDs, and message linkage in the API/UI metadata path
+- [x] **Table and chart rendering** — CSV/TSV/JSON artifacts now render as first-class tables or lightweight charts
+- [x] **Presentation-mode exports** — Added memo, report, and dev-handoff export buttons per artifact
+- [x] **Lazy-load heavy renderers** — Syntax highlighting and markdown rendering are code-split with `next/dynamic`
+- [x] **Streaming render isolation** — Memoized Open Claw message rows and shared assistant content to reduce rerenders during streaming
+- [x] **Content-size thresholds** — Large artifacts now stay in preview mode until the user explicitly loads the full render
+- [x] **Render metrics** — Added optional render/decode metrics collection for assistant rows, artifact previews, and image decode paths
+- [x] **Precomputed render data** — Server-side artifact metadata and client-side parsed-content caching moved expensive derivation off the hot render path
 
 ### 8. Teams (Multi-Agent)
 - [ ] **Multi-agent ensembles** — Multiple agents with different roles collaborate

@@ -58,14 +58,48 @@ interface UwafMetricsSnapshot {
   actionFailures: number
   successfulActions: number
   totalActions: number
+  medianLaunchTimeMs: number | null
+  medianPageOpenTimeMs: number | null
+  searchSuccessRate: number | null
+  recentLaunchTimes: UwafMetricSample[]
+  recentPageOpenTimes: UwafMetricSample[]
+  recentSearchOutcomes: UwafSearchOutcomeSample[]
   lastUpdatedAt: string
+}
+
+type UwafCounterMetric =
+  | 'antiBotHits'
+  | 'loginWalls'
+  | 'searchFailures'
+  | 'proxyFailures'
+  | 'sessionCrashes'
+  | 'actionFailures'
+  | 'successfulActions'
+  | 'totalActions'
+
+interface UwafMetricSample {
+  timestamp: string
+  value: number
+}
+
+interface UwafSearchOutcomeSample {
+  timestamp: string
+  success: boolean
+  mode: BrowserMode
 }
 
 const globalForUwafTelemetry = globalThis as typeof globalThis & {
   __peakuiUwafTelemetry?: {
     metrics: UwafMetricsSnapshot
+    samples: {
+      launchTimes: UwafMetricSample[]
+      pageOpenTimes: UwafMetricSample[]
+      searchOutcomes: UwafSearchOutcomeSample[]
+    }
   }
 }
+
+const MAX_SAMPLE_COUNT = 200
 
 const uwafTelemetryState = globalForUwafTelemetry.__peakuiUwafTelemetry ??= {
   metrics: {
@@ -77,7 +111,18 @@ const uwafTelemetryState = globalForUwafTelemetry.__peakuiUwafTelemetry ??= {
     actionFailures: 0,
     successfulActions: 0,
     totalActions: 0,
+    medianLaunchTimeMs: null,
+    medianPageOpenTimeMs: null,
+    searchSuccessRate: null,
+    recentLaunchTimes: [],
+    recentPageOpenTimes: [],
+    recentSearchOutcomes: [],
     lastUpdatedAt: new Date(0).toISOString(),
+  },
+  samples: {
+    launchTimes: [],
+    pageOpenTimes: [],
+    searchOutcomes: [],
   },
 }
 
@@ -85,8 +130,36 @@ function touchMetrics() {
   uwafTelemetryState.metrics.lastUpdatedAt = new Date().toISOString()
 }
 
-function incrementMetric(metric: keyof Omit<UwafMetricsSnapshot, 'lastUpdatedAt'>, by = 1) {
+function incrementMetric(metric: UwafCounterMetric, by = 1) {
   uwafTelemetryState.metrics[metric] += by
+  touchMetrics()
+}
+
+function pushSample<T>(samples: T[], sample: T): void {
+  samples.push(sample)
+  if (samples.length > MAX_SAMPLE_COUNT) {
+    samples.splice(0, samples.length - MAX_SAMPLE_COUNT)
+  }
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  if (sorted.length % 2 === 1) return sorted[mid]
+  return Math.round((sorted[mid - 1] + sorted[mid]) / 2)
+}
+
+function recomputeAggregateMetrics(): void {
+  uwafTelemetryState.metrics.medianLaunchTimeMs = median(uwafTelemetryState.samples.launchTimes.map(sample => sample.value))
+  uwafTelemetryState.metrics.medianPageOpenTimeMs = median(uwafTelemetryState.samples.pageOpenTimes.map(sample => sample.value))
+  const searchOutcomes = uwafTelemetryState.samples.searchOutcomes
+  uwafTelemetryState.metrics.searchSuccessRate = searchOutcomes.length > 0
+    ? Number((searchOutcomes.filter(sample => sample.success).length / searchOutcomes.length).toFixed(3))
+    : null
+  uwafTelemetryState.metrics.recentLaunchTimes = uwafTelemetryState.samples.launchTimes.slice(-50)
+  uwafTelemetryState.metrics.recentPageOpenTimes = uwafTelemetryState.samples.pageOpenTimes.slice(-50)
+  uwafTelemetryState.metrics.recentSearchOutcomes = uwafTelemetryState.samples.searchOutcomes.slice(-50)
   touchMetrics()
 }
 
@@ -123,6 +196,14 @@ export function logUwafActionTelemetry(input: UwafActionTelemetryInput) {
   if (input.mode === 'stealth' && (input.error?.toLowerCase().includes('tor') || input.error?.toLowerCase().includes('proxy') || failureCode === 'tor_unavailable')) {
     incrementMetric('proxyFailures')
   }
+  if (input.action === 'search') {
+    pushSample(uwafTelemetryState.samples.searchOutcomes, {
+      timestamp: new Date().toISOString(),
+      success: input.result?.success === true && !input.error,
+      mode: input.mode,
+    })
+    recomputeAggregateMetrics()
+  }
 
   logStructured('[uwaf-action]', {
     userId: redactUserId(input.userId),
@@ -150,6 +231,22 @@ export function logUwafActionTelemetry(input: UwafActionTelemetryInput) {
       source: input.result.source,
     } : undefined,
   })
+}
+
+export function recordUwafLaunchTime(durationMs: number) {
+  pushSample(uwafTelemetryState.samples.launchTimes, {
+    timestamp: new Date().toISOString(),
+    value: Math.max(0, Math.round(durationMs)),
+  })
+  recomputeAggregateMetrics()
+}
+
+export function recordUwafPageOpenTime(durationMs: number) {
+  pushSample(uwafTelemetryState.samples.pageOpenTimes, {
+    timestamp: new Date().toISOString(),
+    value: Math.max(0, Math.round(durationMs)),
+  })
+  recomputeAggregateMetrics()
 }
 
 export function logUwafTorDiagnostic(input: UwafTorDiagnosticInput) {
@@ -182,5 +279,11 @@ export function logUwafSessionCrash(input: UwafCrashTelemetryInput) {
 }
 
 export function getUwafMetricsSnapshot(): UwafMetricsSnapshot {
-  return { ...uwafTelemetryState.metrics }
+  recomputeAggregateMetrics()
+  return {
+    ...uwafTelemetryState.metrics,
+    recentLaunchTimes: [...uwafTelemetryState.metrics.recentLaunchTimes],
+    recentPageOpenTimes: [...uwafTelemetryState.metrics.recentPageOpenTimes],
+    recentSearchOutcomes: [...uwafTelemetryState.metrics.recentSearchOutcomes],
+  }
 }

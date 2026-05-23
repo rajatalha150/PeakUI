@@ -35,7 +35,7 @@ export async function GET() {
     stealthRuntimeProtectionVerified: stealthPreflight?.runtimeProtectionVerified,
     stealthWarnings: stealthPreflight?.warnings || [],
     stealthSearchEngine: 'Ahmia',
-    onionReady: torStatus.reachable,
+    onionReady: stealthPreflight?.ok === true,
     metrics: getUwafMetricsSnapshot(),
   })
 }

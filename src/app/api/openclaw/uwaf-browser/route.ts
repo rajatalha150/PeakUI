@@ -77,9 +77,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'UWAF browser is disabled. Enable it in Settings.' }, { status: 403 })
   }
 
-  const requestBrowserMode = typeof body.browserMode === 'string' && ['direct', 'stealth'].includes(body.browserMode)
+  const explicitBrowserMode = typeof body.browserMode === 'string' && ['direct', 'stealth'].includes(body.browserMode)
     ? body.browserMode as 'direct' | 'stealth'
-    : settings.openClawUwafDefaultMode
+    : null
+  if (explicitBrowserMode && explicitBrowserMode !== settings.openClawUwafBrowserMode) {
+    return NextResponse.json({
+      error: `UWAF browser is configured for ${settings.openClawUwafBrowserMode} mode, but this request asked for ${explicitBrowserMode}. Switch the UWAF mode in Settings before changing network mode.`,
+    }, { status: 403 })
+  }
+  const requestBrowserMode = settings.openClawUwafBrowserMode
 
   if (action === 'submit') {
     const approvalToken = typeof body.approvalToken === 'string' ? body.approvalToken : ''
