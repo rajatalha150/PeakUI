@@ -4,6 +4,8 @@ import { runUwafBrowserAction, getUwafBrowserSession, type UwafBrowserRequest } 
 import { isBrowserInterrupted, restartScreencastForSession } from '@/lib/live-browser-server'
 import { prisma } from '@/lib/prisma'
 import { normalizeOpenClawUwafBrowserMode, normalizeOpenClawUwafDefaultMode, DEFAULT_SETTINGS } from '@/lib/settings'
+import { runStealthPreflight } from '@/lib/uwaf-pool'
+import { logUwafActionTelemetry, logUwafTorDiagnostic } from '@/lib/uwaf-telemetry'
 
 const VALID_ACTIONS: UwafBrowserRequest['action'][] = [
   'search',
@@ -27,6 +29,15 @@ const VALID_ACTIONS: UwafBrowserRequest['action'][] = [
   'fill',
   'submit',
 ]
+
+function describeRequestTarget(body: Record<string, unknown>): string | undefined {
+  if (typeof body.url === 'string' && body.url.trim()) return body.url.trim()
+  if (typeof body.query === 'string' && body.query.trim()) return body.query.trim()
+  if (typeof body.selector === 'string' && body.selector.trim()) return body.selector.trim()
+  if (typeof body.linkText === 'string' && body.linkText.trim()) return body.linkText.trim()
+  if (typeof body.key === 'string' && body.key.trim()) return body.key.trim()
+  return undefined
+}
 
 export async function POST(request: NextRequest) {
   const userId = await getCurrentUserIdWithPermissions(['openclaw.use', 'openclaw.uwaf'])
@@ -168,6 +179,8 @@ export async function POST(request: NextRequest) {
   if (typeof body.optionValue === 'string' && body.optionValue.trim()) uwafRequest.optionValue = body.optionValue.trim()
   if (typeof body.optionLabel === 'string' && body.optionLabel.trim()) uwafRequest.optionLabel = body.optionLabel.trim()
 
+  const actionStartedAt = Date.now()
+
   try {
     // If user has interrupted the browser, wait for them to resume (up to 2 minutes)
     const maxWaitMs = 120_000
@@ -176,6 +189,29 @@ export async function POST(request: NextRequest) {
     while (isBrowserInterrupted(userId, sessionId, requestBrowserMode) && waited < maxWaitMs) {
       await new Promise(r => setTimeout(r, checkIntervalMs))
       waited += checkIntervalMs
+    }
+
+    if (requestBrowserMode === 'stealth') {
+      const preflightStartedAt = Date.now()
+      const preflight = await runStealthPreflight()
+      logUwafTorDiagnostic({
+        userId,
+        sessionId,
+        mode: requestBrowserMode,
+        outcome: preflight.ok ? 'pass' : 'fail',
+        durationMs: Date.now() - preflightStartedAt,
+        checkedAt: preflight.checkedAt,
+        directIp: preflight.directIp,
+        torExitIp: preflight.torExitIp,
+        torExitCountry: preflight.torExitCountry,
+        exitDiffersFromDirect: preflight.exitDiffersFromDirect,
+        error: preflight.error,
+      })
+      if (!preflight.ok) {
+        return NextResponse.json({
+          error: `Stealth preflight failed: ${preflight.error || 'Tor routing could not be verified'}. Direct IP: ${preflight.directIp}. Tor exit IP: ${preflight.torExitIp}.`,
+        }, { status: 503 })
+      }
     }
 
     const result = await runUwafBrowserAction(userId, uwafRequest, {
@@ -199,15 +235,36 @@ export async function POST(request: NextRequest) {
       await restartScreencastForSession(userId, sessionId, requestBrowserMode)
     }
 
+    logUwafActionTelemetry({
+      userId,
+      sessionId,
+      action: uwafRequest.action,
+      mode: requestBrowserMode,
+      requestTarget: describeRequestTarget(body),
+      durationMs: Date.now() - actionStartedAt,
+      httpStatus: 200,
+      result,
+    })
+
     return NextResponse.json(result)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    let status = 400
     if (message.includes('disabled') || message.includes('blocked') || message.includes('not allowed')) {
-      return NextResponse.json({ error: message }, { status: 403 })
+      status = 403
+    } else if (message.includes('unavailable') || message.includes('Tor proxy')) {
+      status = 503
     }
-    if (message.includes('unavailable') || message.includes('Tor proxy')) {
-      return NextResponse.json({ error: message }, { status: 503 })
-    }
-    return NextResponse.json({ error: message }, { status: 400 })
+    logUwafActionTelemetry({
+      userId,
+      sessionId,
+      action: uwafRequest.action,
+      mode: requestBrowserMode,
+      requestTarget: describeRequestTarget(body),
+      durationMs: Date.now() - actionStartedAt,
+      httpStatus: status,
+      error: message,
+    })
+    return NextResponse.json({ error: message }, { status })
   }
 }

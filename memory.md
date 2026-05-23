@@ -405,8 +405,14 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `docs: add uwaf network hardening backlog`
-- **Previous committed baseline:** `feat: improve openclaw image handling and canvas rendering`
+- **Current committed baseline:** `feat: harden uwaf stealth preflight and telemetry`
+- **Previous committed baseline:** `docs: add uwaf network hardening backlog`
+
+### Latest Changes (UWAF Network Hardening Pass)
+- **Stealth preflight is now stricter:** stealth browsing now verifies Tor reachability, Tor exit alignment, browser-based DNS leak behavior, and runtime WebRTC/UDP exposure before allowing a session to proceed.
+- **Diagnostics are explicit:** UWAF status output now surfaces DNS leak verification, resolver IPs, WebRTC exposure, UDP leak protection, runtime protection verification, and Tor-preflight warnings instead of collapsing everything into a generic reachability check.
+- **Structured action telemetry added:** browser actions now log session id, mode, target, timing, semantic result fields, and failure details, and the runtime keeps counters for anti-bot hits, login walls, search failures, proxy failures, and session crashes.
+- **Network backlog advanced:** `UWAF-NETWORK-TODO.md` now reflects the completed preflight, leak-check, and telemetry work, leaving the remaining onion/fallback/isolation/failure-injection follow-ups visible for the next pass.
 
 ### Latest Changes (UWAF / Network Hardening Backlog)
 - **Dedicated UWAF/network TODO added:** introduced `UWAF-NETWORK-TODO.md` to track browser/network infrastructure work separately from the broader Open Claw product backlog.
@@ -495,6 +501,7 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
   - `src/lib/chat-completion.ts` — Added uwafBrowserMode to buildOpenClawSystemPrompt context
   - `src/lib/openclaw-browser.ts` — Exported assertPublicHttpUrl for UWAF SSRF reuse
   - `src/lib/chat-sessions.ts` — Added 'unified_browser' to toolRequest type and normalizeToolRequest
+  - `src/lib/uwaf-telemetry.ts` — Structured UWAF action/session telemetry helpers and in-memory metrics counters
   - `src/app/api/settings/route.ts` — Added UWAF settings fields to body whitelist and save logic
   - `src/app/components/OpenClawWorkspace.tsx` — Added UWAF mode toggle (Shield icon), unified_browser tool dispatch, Network Panel, Browser Preview, UwafBrowserToolResultEntry, describeUwafBrowserRequest, approval/reject handling for unified_browser kind, and OpenClawSettings UWAF fields
   - `src/app/components/SourceChips.tsx` — Added isOnionUrl(), getNetworkModeLabel(), getNetworkModeStyle() for Clear Web/Dark Web chip rendering

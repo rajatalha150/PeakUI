@@ -929,10 +929,10 @@ export async function runUwafBrowserAction(
   const mode: BrowserMode = request.browserMode || settings.openClawUwafDefaultMode || 'direct'
 
   if (mode === 'stealth') {
-    const { checkTorProxyStatus } = await import('./uwaf-pool')
-    const torStatus = await checkTorProxyStatus()
-    if (!torStatus.reachable) {
-      throw new Error(`Stealth mode requires a Tor proxy but it is currently unavailable: ${torStatus.error || 'Connection failed'}. Ensure the tor-proxy service is running.`)
+    const { runStealthPreflight } = await import('./uwaf-pool')
+    const preflight = await runStealthPreflight()
+    if (!preflight.ok) {
+      throw new Error(`Stealth preflight failed: ${preflight.error || 'Tor routing could not be verified'}. Direct IP: ${preflight.directIp}. Tor exit IP: ${preflight.torExitIp}.`)
     }
   }
 

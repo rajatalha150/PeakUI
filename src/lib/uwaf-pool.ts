@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { access } from 'node:fs/promises'
 import net from 'node:net'
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core'
+import { logUwafSessionCrash } from './uwaf-telemetry'
 
 const TOR_PROXY_URL = process.env.TOR_PROXY_URL || 'socks5://localhost:9050'
 const CHROMIUM_PATH = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium-browser'
@@ -24,6 +25,25 @@ const STEALTH_USER_AGENTS = [
 const DIRECT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 
 export type BrowserMode = 'direct' | 'stealth'
+
+export interface StealthPreflightResult {
+  ok: boolean
+  checkedAt: string
+  directIp: string
+  torExitIp: string
+  torExitCountry: string
+  torReachable: boolean
+  torIsReady: boolean
+  exitDiffersFromDirect: boolean
+  dnsLeakVerified: boolean
+  dnsLeakDetected: boolean
+  dnsResolverIps: string[]
+  webrtcExposed: boolean
+  udpLeakProtected: boolean
+  runtimeProtectionVerified: boolean
+  warnings: string[]
+  error?: string
+}
 
 interface ManagedSession {
   browser: Browser
@@ -49,6 +69,10 @@ const uwafPoolState = globalForUwafPool.__peakuiUwafPool ??= {
   sessions: new Map<string, ManagedSession>(),
   launchPromises: new Map<string, Promise<ManagedSession>>(),
 }
+
+const STEALTH_PREFLIGHT_TTL_MS = 2 * 60 * 1000
+let stealthPreflightCache: { value: StealthPreflightResult; expiresAt: number } | null = null
+let stealthPreflightPromise: Promise<StealthPreflightResult> | null = null
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -180,6 +204,29 @@ function buildContextOptions(mode: BrowserMode): Parameters<Browser['newContext'
   return options
 }
 
+function buildChromiumLaunchArgs(mode: BrowserMode): string[] {
+  const args = [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--disable-software-rasterizer',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--disable-session-crashed-bubble',
+  ]
+
+  if (mode === 'stealth') {
+    args.push(
+      '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+      '--webrtc-ip-handling-policy=disable_non_proxied_udp',
+      '--disable-features=WebRtcHideLocalIpsWithMdns',
+    )
+  }
+
+  return args
+}
+
 function buildStealthLandingHtml(): string {
   return `<!doctype html>
 <html lang="en">
@@ -291,6 +338,9 @@ function buildStealthLandingHtml(): string {
 async function applyStealthInitScript(context: BrowserContext): Promise<void> {
   await context.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
+    Object.defineProperty(window, 'RTCPeerConnection', { get: () => undefined })
+    Object.defineProperty(window, 'webkitRTCPeerConnection', { get: () => undefined })
+    Object.defineProperty(window, 'mozRTCPeerConnection', { get: () => undefined })
     const originalQuery = window.navigator.permissions?.query
     if (originalQuery) {
       Object.defineProperty(navigator.permissions, 'query', {
@@ -300,7 +350,95 @@ async function applyStealthInitScript(context: BrowserContext): Promise<void> {
             : originalQuery(params),
       })
     }
+    if (navigator.mediaDevices) {
+      Object.defineProperty(navigator.mediaDevices, 'enumerateDevices', {
+        value: async () => [],
+      })
+      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
+        value: async () => {
+          throw new DOMException('Media capture disabled in stealth mode', 'NotAllowedError')
+        },
+      })
+    }
   })
+}
+
+function extractIpv4s(text: string): string[] {
+  const matches = text.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g) || []
+  return Array.from(new Set(matches.filter(ip => ip !== '0.0.0.0')))
+}
+
+async function verifyStealthRuntimeProtection(context: BrowserContext): Promise<{
+  webrtcExposed: boolean
+  udpLeakProtected: boolean
+  runtimeProtectionVerified: boolean
+}> {
+  const page = await context.newPage()
+  try {
+    await page.goto('data:text/html,<html><body>stealth-runtime-check</body></html>', {
+      waitUntil: 'domcontentloaded',
+      timeout: 10_000,
+    })
+
+    const result = await page.evaluate(async () => {
+      const rtcCtor = (window as typeof window & {
+        webkitRTCPeerConnection?: unknown
+        mozRTCPeerConnection?: unknown
+      }).RTCPeerConnection
+        || (window as typeof window & { webkitRTCPeerConnection?: unknown }).webkitRTCPeerConnection
+        || (window as typeof window & { mozRTCPeerConnection?: unknown }).mozRTCPeerConnection
+
+      const webrtcExposed = typeof rtcCtor !== 'undefined'
+      const mediaDevices = navigator.mediaDevices
+      const enumerateDevicesCount = mediaDevices?.enumerateDevices
+        ? await mediaDevices.enumerateDevices().then(devices => devices.length).catch(() => -1)
+        : -1
+
+      return {
+        webrtcExposed,
+        enumerateDevicesCount,
+      }
+    })
+
+    return {
+      webrtcExposed: result.webrtcExposed,
+      udpLeakProtected: !result.webrtcExposed,
+      runtimeProtectionVerified: !result.webrtcExposed && result.enumerateDevicesCount === 0,
+    }
+  } finally {
+    await page.close().catch(() => {})
+  }
+}
+
+async function runDnsLeakVerification(context: BrowserContext, directIp: string): Promise<{
+  dnsLeakVerified: boolean
+  dnsLeakDetected: boolean
+  dnsResolverIps: string[]
+}> {
+  const page = await context.newPage()
+  try {
+    await page.goto('https://browserleaks.com/dns', {
+      timeout: 20_000,
+      waitUntil: 'domcontentloaded',
+    })
+    await page.waitForFunction(() => {
+      const container = document.querySelector('#dns-container')
+      return Boolean(container?.textContent && container.textContent.trim().length > 0)
+    }, { timeout: 12_000 }).catch(() => null)
+    await page.waitForTimeout(1_500)
+    const resolverText = await page.textContent('#dns-container').catch(() => '')
+    const dnsResolverIps = extractIpv4s(resolverText || '')
+    const dnsLeakDetected = directIp !== 'unknown'
+      && directIp !== 'unavailable'
+      && dnsResolverIps.includes(directIp)
+    return {
+      dnsLeakVerified: dnsResolverIps.length > 0 && !dnsLeakDetected,
+      dnsLeakDetected,
+      dnsResolverIps,
+    }
+  } finally {
+    await page.close().catch(() => {})
+  }
 }
 
 async function terminateChildProcess(child: ChildProcess | null | undefined): Promise<void> {
@@ -365,14 +503,7 @@ async function createManagedSession(contextId: string, mode: BrowserMode): Promi
         DISPLAY: displayEnv,
       },
       args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--disable-software-rasterizer',
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--disable-session-crashed-bubble',
+        ...buildChromiumLaunchArgs(mode),
         '--window-position=0,0',
         `--window-size=${BROWSER_WIDTH},${BROWSER_HEIGHT}`,
       ],
@@ -441,6 +572,11 @@ async function createManagedSession(contextId: string, mode: BrowserMode): Promi
 
     browser.on('disconnected', () => {
       console.warn(`[uwaf-pool] Browser disconnected for ${contextId}`)
+      logUwafSessionCrash({
+        contextId,
+        mode,
+        reason: 'browser_disconnected',
+      })
       void closeManagedSession(contextId)
     })
 
@@ -533,19 +669,18 @@ async function withEphemeralBrowser<T>(
   contextOptions: Parameters<Browser['newContext']>[0],
   fn: (context: BrowserContext) => Promise<T>,
 ): Promise<T> {
+  const resolvedContextOptions = contextOptions ?? {}
+  const mode: BrowserMode = resolvedContextOptions.proxy?.server ? 'stealth' : 'direct'
   const browser = await chromium.launch({
     executablePath: CHROMIUM_PATH,
     headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--disable-software-rasterizer',
-    ],
+    args: buildChromiumLaunchArgs(mode),
   })
 
-  const context = await browser.newContext(contextOptions)
+  const context = await browser.newContext(resolvedContextOptions)
+  if (mode === 'stealth') {
+    await applyStealthInitScript(context)
+  }
 
   try {
     return await fn(context)
@@ -648,6 +783,122 @@ export async function getStealthInfo(): Promise<{ ip: string; country: string; i
   } catch {
     return null
   }
+}
+
+export async function runStealthPreflight(options?: { force?: boolean }): Promise<StealthPreflightResult> {
+  const force = options?.force === true
+  const now = Date.now()
+
+  if (!force && stealthPreflightCache && stealthPreflightCache.expiresAt > now) {
+    return stealthPreflightCache.value
+  }
+
+  if (!force && stealthPreflightPromise) {
+    return stealthPreflightPromise
+  }
+
+  stealthPreflightPromise = (async () => {
+    const checkedAt = new Date().toISOString()
+    const [torStatus, directIp, stealthInfo] = await Promise.all([
+      checkTorProxyStatus(),
+      getDirectIp().catch(() => 'unavailable'),
+      getStealthInfo().catch(() => null),
+    ])
+
+    let dnsLeakVerified = false
+    let dnsLeakDetected = false
+    let dnsResolverIps: string[] = []
+    let webrtcExposed = true
+    let udpLeakProtected = false
+    let runtimeProtectionVerified = false
+    const warnings: string[] = []
+
+    try {
+      const runtimeChecks = await withEphemeralBrowser({
+        proxy: { server: TOR_PROXY_URL },
+        userAgent: randomStealthUA(),
+      }, async (context) => {
+        const runtimeProtection = await verifyStealthRuntimeProtection(context)
+        const dnsVerification = await runDnsLeakVerification(context, directIp)
+        return {
+          runtimeProtection,
+          dnsVerification,
+        }
+      })
+
+      webrtcExposed = runtimeChecks.runtimeProtection.webrtcExposed
+      udpLeakProtected = runtimeChecks.runtimeProtection.udpLeakProtected
+      runtimeProtectionVerified = runtimeChecks.runtimeProtection.runtimeProtectionVerified
+      dnsLeakVerified = runtimeChecks.dnsVerification.dnsLeakVerified
+      dnsLeakDetected = runtimeChecks.dnsVerification.dnsLeakDetected
+      dnsResolverIps = runtimeChecks.dnsVerification.dnsResolverIps
+    } catch (error) {
+      warnings.push(`Stealth runtime verification failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+
+    const torExitIp = stealthInfo?.ip || 'unavailable'
+    const exitDiffersFromDirect = Boolean(
+      torExitIp
+      && directIp
+      && torExitIp !== 'unknown'
+      && torExitIp !== 'unavailable'
+      && directIp !== 'unknown'
+      && directIp !== 'unavailable'
+      && torExitIp !== directIp
+    )
+
+    const ok = torStatus.reachable
+      && stealthInfo?.isTor === true
+      && exitDiffersFromDirect
+      && runtimeProtectionVerified
+      && udpLeakProtected
+      && dnsLeakVerified
+    const error = !torStatus.reachable
+      ? torStatus.error || 'Tor proxy unreachable'
+      : stealthInfo?.isTor !== true
+        ? 'Connected to the proxy but did not verify a Tor exit node'
+        : !exitDiffersFromDirect
+          ? 'Stealth preflight detected the same exit IP as direct mode'
+          : !runtimeProtectionVerified
+            ? 'Stealth runtime verification failed to prove WebRTC lockdown'
+            : !udpLeakProtected
+              ? 'Stealth runtime verification indicates UDP/WebRTC exposure'
+              : !dnsLeakVerified
+                ? dnsLeakDetected
+                  ? 'DNS leak verification indicates the direct IP was exposed in resolver results'
+                  : 'DNS leak verification did not produce trusted resolver evidence'
+          : undefined
+
+    const result: StealthPreflightResult = {
+      ok,
+      checkedAt,
+      directIp,
+      torExitIp,
+      torExitCountry: stealthInfo?.country || 'unknown',
+      torReachable: torStatus.reachable,
+      torIsReady: stealthInfo?.isTor === true,
+      exitDiffersFromDirect,
+      dnsLeakVerified,
+      dnsLeakDetected,
+      dnsResolverIps,
+      webrtcExposed,
+      udpLeakProtected,
+      runtimeProtectionVerified,
+      warnings,
+      ...(error ? { error } : {}),
+    }
+
+    stealthPreflightCache = {
+      value: result,
+      expiresAt: Date.now() + STEALTH_PREFLIGHT_TTL_MS,
+    }
+
+    return result
+  })().finally(() => {
+    stealthPreflightPromise = null
+  })
+
+  return stealthPreflightPromise
 }
 
 export async function shutdownPlaywright(): Promise<void> {
