@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Globe, Shield, Wifi, WifiOff, RefreshCw } from 'lucide-react'
+import { Globe, Shield, Wifi, WifiOff, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react'
 
 interface UwafStatus {
   directIp: string
@@ -24,6 +24,7 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
   const [status, setStatus] = useState<UwafStatus | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [collapsed, setCollapsed] = useState(false)
 
   const fetchStatus = useCallback(async () => {
     setLoading(true)
@@ -56,11 +57,27 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginBottom: 8,
+        marginBottom: collapsed ? 0 : 8,
       }}>
         <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           Network Hub
         </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button
+            onClick={() => setCollapsed(c => !c)}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--text-secondary)',
+              padding: 2,
+              display: 'flex',
+              alignItems: 'center',
+            }}
+            title={collapsed ? 'Expand network hub' : 'Collapse network hub'}
+          >
+            {collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+          </button>
         <button
           onClick={fetchStatus}
           disabled={loading}
@@ -188,6 +205,8 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
           ? 'All traffic routed through Tor network. .onion sites accessible.'
           : 'Standard internet connection. Clear web sites only.'}
       </div>
+      </>
+      )}
     </div>
   )
 }
