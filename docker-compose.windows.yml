@@ -1,0 +1,91 @@
+# PeakUI Docker Compose for Windows
+# Usage: docker compose -f docker-compose.windows.yml up --build
+#
+# Prerequisites:
+#   - Docker Desktop installed and running (WSL2 backend)
+#   - Ollama running on 0.0.0.0:11434 (run restart-ollama-for-docker.bat)
+#   - PowerShell execution policy allows scripts: Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: peakui
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: peakui
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U peakui -d peakui"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  tor-proxy:
+    image: peterdavehello/tor-socks-proxy:latest
+    restart: always
+    ports:
+      - "9050:9150"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -x socks5h://localhost:9150 https://check.torproject.org/api/ip || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    shm_size: "256m"
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://peakui:password@db:5432/peakui
+      JWT_SECRET: ${JWT_SECRET:-peakui-local-dev-jwt-secret-do-not-use-in-production}
+      OPENCLAW_HOST_HOME_DIR: "C:\\Users\\raza"
+      OPENCLAW_HOST_TMP_DIR: "C:\\Users\\raza\\AppData\\Local\\Temp"
+      OPENCLAW_HOST_WORKSPACE_DIR: "C:\\Users\\raza\\peakui-workspace"
+      OPENCLAW_HOST_EXECUTOR_URL: ${OPENCLAW_HOST_EXECUTOR_URL:-http://host.docker.internal:4318}
+      OPENCLAW_HOST_EXECUTOR_TOKEN: ${OPENCLAW_HOST_EXECUTOR_TOKEN:-}
+      TOR_PROXY_URL: socks5://tor-proxy:9150
+      PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium-browser
+      SCREENCAST_PORT: 3001
+      BRAVE_API_KEY: ${BRAVE_API_KEY:-}
+      SEARXNG_URL: ${SEARXNG_URL:-}
+      GOOGLE_SEARCH_API_KEY: ${GOOGLE_SEARCH_API_KEY:-}
+      GOOGLE_SEARCH_CX: ${GOOGLE_SEARCH_CX:-}
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+    depends_on:
+      db:
+        condition: service_healthy
+      tor-proxy:
+        condition: service_started
+    restart: always
+    volumes:
+      - type: bind
+        source: "C:\\Users\\raza"
+        target: /mnt/openclaw/home
+        read_only: true
+      - type: bind
+        source: "C:\\Users\\raza\\AppData\\Local\\Temp"
+        target: /mnt/openclaw/tmp
+        read_only: true
+      - type: bind
+        source: "C:\\Users\\raza\\peakui-workspace"
+        target: /mnt/openclaw/workspace
+      - app_runtime:/var/lib/peakui
+    networks:
+      - peakui
+
+volumes:
+  db_data:
+  app_runtime:
+
+networks:
+  peakui:
+    driver: bridge

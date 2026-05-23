@@ -8,7 +8,7 @@ The Development section will turn PeakUI from a local chat studio into a local d
 - Virtual Machines
 - Docker Containers
 
-Open Claw already provides an initial tool-execution layer inside the main app: approval-aware shell commands, approved filesystem access, a managed Python/Node sandbox, and controlled browser actions. The Development section should build on those primitives, but move them into a dedicated worker architecture with stronger isolation, richer environment controls, and section-specific agents.
+WorkSpaces already provides an initial tool-execution layer inside the main app: approval-aware shell commands, approved filesystem access, a managed Python/Node sandbox, and controlled browser actions. The Development section should build on those primitives, but move them into a dedicated worker architecture with stronger isolation, richer environment controls, and section-specific agents.
 
 Each area should have its own environment, its own UI surface, and its own designated AI agent. The agents can share the same underlying Ollama chat infrastructure at first, but each must have a separate system prompt, tool allowlist, memory scope, audit log, and approval policy.
 

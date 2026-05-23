@@ -1061,10 +1061,10 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           label={
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               Local Model Lifecycle
-              <HelpHint text="PeakUI now leaves model loading and unload timing to Ollama itself. Use the Stop model button in Open Claw when you want to force a clean reload." />
+              <HelpHint text="PeakUI now leaves model loading and unload timing to Ollama itself. Use the Stop model button in WorkSpaces when you want to force a clean reload." />
             </span>
           }
-          help="Local-provider Open Claw no longer overrides Ollama keep-alive or prewarms models in the background."
+          help="Local-provider WorkSpaces no longer overrides Ollama keep-alive or prewarms models in the background."
         >
           <div style={{
             padding: '12px 14px',
@@ -1076,7 +1076,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               Native Ollama behavior
             </div>
             <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-              PeakUI no longer sends request-level <code>keep_alive</code> values or background warmup prompts for local-provider Open Claw. If a model gets wedged, use the header-level <strong>Stop model</strong> control to unload it and let the next request start cleanly.
+              PeakUI no longer sends request-level <code>keep_alive</code> values or background warmup prompts for local-provider WorkSpaces. If a model gets wedged, use the header-level <strong>Stop model</strong> control to unload it and let the next request start cleanly.
             </div>
           </div>
         </Field>
@@ -1085,10 +1085,10 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           label={
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               Exclusive Ollama Switching
-              <HelpHint text="Before a local Open Claw request starts, unload any other running Ollama models so the selected model gets the machine to itself." />
+              <HelpHint text="Before a local WorkSpaces request starts, unload any other running Ollama models so the selected model gets the machine to itself." />
             </span>
           }
-          help="When enabled, the app asks Ollama to unload other running models before it starts the selected local Open Claw model."
+          help="When enabled, the app asks Ollama to unload other running models before it starts the selected local WorkSpaces model."
         >
           <button
             type="button"
@@ -1218,7 +1218,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
         </Field>
       </Section>
 
-      <Section icon={<Bot size={18} />} title="Open Claw">
+      <Section icon={<Bot size={18} />} title="WorkSpaces">
         <Field label="Provider" help="Start with local Ollama models. OpenAI-compatible providers can be wired in without changing the workspace later.">
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             {[
@@ -1259,7 +1259,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           </Field>
         )}
 
-        <Field label="Open Claw Model" help="This model is remembered for the Open Claw workspace and reused automatically on return.">
+        <Field label="WorkSpaces Model" help="This model is remembered for the WorkSpaces workspace and reused automatically on return.">
           {settings.openClawProvider === 'ollama' ? (
             <select
               className="input-field"
@@ -1282,7 +1282,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           )}
         </Field>
 
-        <Field label="Shell Target" help="Choose whether Open Claw shell commands run inside the app container or on the host machine through the optional host executor.">
+        <Field label="Shell Target" help="Choose whether WorkSpaces shell commands run inside the app container or on the host machine through the optional host executor.">
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {([
               { value: 'container', label: 'Container', desc: 'Use the built-in runtime container shell' },
@@ -1404,10 +1404,10 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           </>
         )}
 
-        <Field label="Filesystem Access" help="Grant Open Claw read-only access to approved host paths. This is separate from shell execution and never permits writes.">
+        <Field label="Filesystem Access" help="Grant WorkSpaces read-only access to approved host paths. This is separate from shell execution and never permits writes.">
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {[
-              { value: 'read-only', label: 'Read-only', desc: 'Allow Open Claw to inspect approved host files and directories' },
+              { value: 'read-only', label: 'Read-only', desc: 'Allow WorkSpaces to inspect approved host files and directories' },
               { value: 'deny', label: 'Deny', desc: 'Block host filesystem access entirely' },
             ].map(opt => {
               const active = settings.openClawFileAccessMode === opt.value;
@@ -1435,7 +1435,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           </div>
         </Field>
 
-        <Field label="Approved Host Paths" help="One absolute host path per line. Open Claw can only read inside these approved roots.">
+        <Field label="Approved Host Paths" help="One absolute host path per line. WorkSpaces can only read inside these approved roots.">
           <textarea
             className="input-field"
             rows={5}
@@ -1445,11 +1445,11 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             style={{ width: '100%', resize: 'vertical', fontFamily: 'monospace' }}
           />
           <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: 1.5 }}>
-            This deployment currently mounts the host <code>/home</code> tree and <code>/tmp</code> into the app container in read-only mode. Approve a broad root like <code>/home</code> if you want Open Claw to inspect user directories, or approve a narrower subfolder if you want tighter scope.
+            This deployment currently mounts the host <code>/home</code> tree and <code>/tmp</code> into the app container in read-only mode. Approve a broad root like <code>/home</code> if you want WorkSpaces to inspect user directories, or approve a narrower subfolder if you want tighter scope.
           </div>
         </Field>
 
-        <Field label="Filesystem Writes" help="Control whether Open Claw can create folders or write text files inside approved writable roots.">
+        <Field label="Filesystem Writes" help="Control whether WorkSpaces can create folders or write text files inside approved writable roots.">
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {[
               { value: 'deny', label: 'Deny', desc: 'Block file creation and edits entirely' },
@@ -1481,7 +1481,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           </div>
         </Field>
 
-        <Field label="Approved Writable Roots" help="One absolute host path per line. Open Claw can only create files, edit files, or make folders inside these roots.">
+        <Field label="Approved Writable Roots" help="One absolute host path per line. WorkSpaces can only create files, edit files, or make folders inside these roots.">
           <textarea
             className="input-field"
             rows={4}
@@ -1491,11 +1491,11 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             style={{ width: '100%', resize: 'vertical', fontFamily: 'monospace' }}
           />
           <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: 1.5 }}>
-            The default managed workspace root is mounted read-write for Open Claw. If you want broader writable scope later, add an explicit Docker bind mount first, then approve only the narrowest host root you actually want the agent to edit.
+            The default managed workspace root is mounted read-write for WorkSpaces. If you want broader writable scope later, add an explicit Docker bind mount first, then approve only the narrowest host root you actually want the agent to edit.
           </div>
         </Field>
 
-        <Field label="Code Execution Sandbox" help="Run short Python or Node scripts in a managed Open Claw workspace with timeouts, output caps, and approval gates.">
+        <Field label="Code Execution Sandbox" help="Run short Python or Node scripts in a managed WorkSpaces workspace with timeouts, output caps, and approval gates.">
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {[
               { value: 'deny', label: 'Deny', desc: 'Block all code execution' },
@@ -1527,7 +1527,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           </div>
         </Field>
 
-        <Field label="Browser Control" help="Allow Open Claw to browse public websites, inspect links/forms, and optionally submit forms with approval.">
+        <Field label="Browser Control" help="Allow WorkSpaces to browse public websites, inspect links/forms, and optionally submit forms with approval.">
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {[
               { value: 'deny', label: 'Deny', desc: 'Block all browser actions' },
@@ -1623,7 +1623,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                   })}
                 </div>
               </Field>
-              <Field label="Live Browser" help="Launch a real interactive browser surface in the sidebar. When enabled, you can watch the actual browser session live and take over control using the Take Over button. When disabled, Open Claw can still use browser text extraction, but no live visual browser panel is shown.">
+              <Field label="Live Browser" help="Launch a real interactive browser surface in the sidebar. When enabled, you can watch the actual browser session live and take over control using the Take Over button. When disabled, WorkSpaces can still use browser text extraction, but no live visual browser panel is shown.">
                 <div
                   onClick={() => update('openClawUwafLiveBrowser', !settings.openClawUwafLiveBrowser)}
                   style={{
@@ -1650,7 +1650,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
 
       {/* Knowledge Base / RAG Settings */}
       <Section icon={<Database size={18} />} title="Knowledge Base (RAG)">
-        <Field label="Enable Knowledge Base" help="When enabled, relevant content from your indexed documents will be automatically included in Open Claw responses and the shared chat-completion pipeline.">
+        <Field label="Enable Knowledge Base" help="When enabled, relevant content from your indexed documents will be automatically included in WorkSpaces responses and the shared chat-completion pipeline.">
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div
               onClick={() => update('ragEnabled', !settings.ragEnabled)}
@@ -1669,7 +1669,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               }} />
             </div>
             <span style={{ fontSize: '0.82rem', color: settings.ragEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>
-              {settings.ragEnabled ? 'Enabled — knowledge base will be queried for Open Claw responses' : 'Disabled — knowledge base will not be used for Open Claw responses'}
+              {settings.ragEnabled ? 'Enabled — knowledge base will be queried for WorkSpaces responses' : 'Disabled — knowledge base will not be used for WorkSpaces responses'}
             </span>
           </div>
         </Field>

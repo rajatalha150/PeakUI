@@ -436,7 +436,7 @@ const OPENCLAW_CURRENT_SESSION_STORAGE = 'peakui-openclaw-current-session';
 
 function getChatTitle(messages: OpenClawMessage[]) {
   const firstMessage = messages.find(message => message?.role === 'user' && message.content.trim());
-  const base = firstMessage?.content.trim() || 'Open Claw';
+  const base = firstMessage?.content.trim() || 'WorkSpaces';
   return base.substring(0, 36) + (base.length > 36 ? '...' : '');
 }
 
@@ -795,7 +795,7 @@ function normalizeOpenClawSession(value: unknown): OpenClawSession | null {
 
   return {
     id,
-    title: typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : 'Open Claw',
+    title: typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : 'WorkSpaces',
     updatedAt: typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt) ? raw.updatedAt : Date.now(),
     pinned: raw.pinned === true,
     surface: 'openclaw',
@@ -1819,7 +1819,7 @@ export default function OpenClawWorkspace({
   const loadSessions = async () => {
     const res = await fetch('/api/chats?surface=openclaw');
     const data = await res.json();
-    if (!Array.isArray(data)) throw new Error('Failed to load Open Claw sessions');
+    if (!Array.isArray(data)) throw new Error('Failed to load WorkSpaces sessions');
 
     const nextSessions = sanitizeOpenClawSessions(data);
     setSessions(nextSessions);
@@ -1829,7 +1829,7 @@ export default function OpenClawWorkspace({
     if (storedSelection === OPENCLAW_DRAFT_TASK_ID) {
       setCurrentSessionId(null);
       setChatHistory([]);
-      setSelectedSessionInfo('New Open Claw task thread');
+      setSelectedSessionInfo('New WorkSpaces task thread');
       return;
     }
 
@@ -1951,7 +1951,7 @@ export default function OpenClawWorkspace({
         void saveSettingsPatch({ openClawModel: savedModel });
       }
     } catch (error) {
-      console.error('Open Claw model lookup failed:', error);
+      console.error('WorkSpaces model lookup failed:', error);
       setModels([]);
       setConnectionStatus('error');
       setConnectionSummary(error instanceof Error ? error.message : 'Connection failed');
@@ -2050,7 +2050,7 @@ export default function OpenClawWorkspace({
       });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to save Open Claw settings');
+        throw new Error(data.error || 'Failed to save WorkSpaces settings');
       }
 
       const nextSettings: OpenClawSettings = {
@@ -2108,7 +2108,7 @@ export default function OpenClawWorkspace({
       }
       return nextSettings;
     } catch (error) {
-      setConfigError(error instanceof Error ? error.message : 'Failed to save Open Claw settings');
+      setConfigError(error instanceof Error ? error.message : 'Failed to save WorkSpaces settings');
       throw error;
     } finally {
       setConfigSaving(false);
@@ -2120,7 +2120,7 @@ export default function OpenClawWorkspace({
       try {
         await Promise.all([loadSettings(), loadSessions(), loadFolders(), loadChatTags(), loadMemory(), loadShellSettings()]);
       } catch (error) {
-        console.error('Failed to initialize Open Claw workspace:', error);
+        console.error('Failed to initialize WorkSpaces workspace:', error);
       }
     })();
     // load only once on mount
@@ -2326,7 +2326,7 @@ export default function OpenClawWorkspace({
 
   const switchSession = (session: OpenClawSession) => {
     if (isStreaming) {
-      setSelectedSessionInfo('Stop the current Open Claw run before switching task threads.');
+      setSelectedSessionInfo('Stop the current WorkSpaces run before switching task threads.');
       return;
     }
     closeMobileChrome();
@@ -2359,12 +2359,12 @@ export default function OpenClawWorkspace({
 
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.error || 'Failed to create Open Claw session');
+      throw new Error(data.error || 'Failed to create WorkSpaces session');
     }
 
     const session = normalizeOpenClawSession(data.session);
     if (!session) {
-      throw new Error('Failed to normalize created Open Claw session');
+      throw new Error('Failed to normalize created WorkSpaces session');
     }
     setSessions(prev => {
       const safePrev = sanitizeOpenClawSessions(prev);
@@ -2379,7 +2379,7 @@ export default function OpenClawWorkspace({
 
   const handleNewSession = () => {
     if (isStreaming) {
-      setSelectedSessionInfo('Stop the current Open Claw run before starting a new task thread.');
+      setSelectedSessionInfo('Stop the current WorkSpaces run before starting a new task thread.');
       return;
     }
     closeMobileChrome();
@@ -2395,7 +2395,7 @@ export default function OpenClawWorkspace({
     setSessionSelectionMode(false);
     setSelectedSessionIds([]);
     setModelControlNote('');
-    setSelectedSessionInfo('New Open Claw task thread');
+    setSelectedSessionInfo('New WorkSpaces task thread');
     setLastSubmission(null);
     setTaskStates(current => ({
       ...current,
@@ -3615,11 +3615,11 @@ export default function OpenClawWorkspace({
 
   const handleDeleteSession = async (sessionId: string) => {
     if (isStreaming && currentSessionId === sessionId) {
-      setSelectedSessionInfo('Stop the current Open Claw run before deleting this task thread.');
+      setSelectedSessionInfo('Stop the current WorkSpaces run before deleting this task thread.');
       setSessionMenuOpen(null);
       return;
     }
-    if (!confirm('Delete this Open Claw session?')) return;
+    if (!confirm('Delete this WorkSpaces session?')) return;
     await fetch('/api/chats', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
@@ -3733,7 +3733,7 @@ export default function OpenClawWorkspace({
         await Promise.all([loadSessions(), loadFolders()]);
       }
     } catch (error) {
-      console.error('Failed to update Open Claw folder:', error);
+      console.error('Failed to update WorkSpaces folder:', error);
     }
   };
 
@@ -3746,7 +3746,7 @@ export default function OpenClawWorkspace({
       });
       await Promise.all([loadSessions(), loadChatTags()]);
     } catch (error) {
-      console.error('Failed to add Open Claw tag:', error);
+      console.error('Failed to add WorkSpaces tag:', error);
     }
   };
 
@@ -3757,7 +3757,7 @@ export default function OpenClawWorkspace({
       });
       await Promise.all([loadSessions(), loadChatTags()]);
     } catch (error) {
-      console.error('Failed to remove Open Claw tag:', error);
+      console.error('Failed to remove WorkSpaces tag:', error);
     }
   };
 
@@ -3774,10 +3774,10 @@ export default function OpenClawWorkspace({
     const ids = selectedSessionIds.filter(id => safeSessions.some(session => session?.id === id));
     if (ids.length === 0) return;
     if (isStreaming && currentSessionId && ids.includes(currentSessionId)) {
-      setSelectedSessionInfo('Stop the current Open Claw run before deleting the active task thread.');
+      setSelectedSessionInfo('Stop the current WorkSpaces run before deleting the active task thread.');
       return;
     }
-    if (!confirm(`Delete ${ids.length} selected Open Claw ${ids.length === 1 ? 'session' : 'sessions'}?`)) return;
+    if (!confirm(`Delete ${ids.length} selected WorkSpaces ${ids.length === 1 ? 'session' : 'sessions'}?`)) return;
     await fetch('/api/chats', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
@@ -3800,11 +3800,11 @@ export default function OpenClawWorkspace({
 
   const handleClearAllSessions = async () => {
     if (isStreaming) {
-      setSelectedSessionInfo('Stop the current Open Claw run before clearing all task threads.');
+      setSelectedSessionInfo('Stop the current WorkSpaces run before clearing all task threads.');
       return;
     }
     if (!sessions.length) return;
-    if (!confirm(`Delete all ${sessions.length} Open Claw task threads? This cannot be undone.`)) return;
+    if (!confirm(`Delete all ${sessions.length} WorkSpaces task threads? This cannot be undone.`)) return;
     await fetch('/api/chats', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
@@ -4300,7 +4300,7 @@ export default function OpenClawWorkspace({
     };
     const assistantMessageId = randomUUID();
     const baseHistory = [...chatHistory, userMessage];
-    // Open Claw is an agentic workspace — responses naturally mix text, code, tables,
+    // WorkSpaces is an agentic workspace — responses naturally mix text, code, tables,
     // and tool outputs. Forcing a specific presentation mode (like 'code') based on
     // keywords in the prompt breaks mixed-content rendering and tells the model to
     // "return only code" when it should explain results. Always use 'general' mode.
@@ -4350,7 +4350,7 @@ export default function OpenClawWorkspace({
 
     try {
       const sessionSavePromise = createSession(baseHistory, chatId).catch(error => {
-        console.error('Failed to persist Open Claw session before streaming:', error);
+        console.error('Failed to persist WorkSpaces session before streaming:', error);
         return null;
       });
       if (controller.signal.aborted) return;
@@ -4432,7 +4432,7 @@ export default function OpenClawWorkspace({
         ? inferFilesystemRequestFromShellCommand(request.request.command, allowedFilesystemPaths)
         : null;
       if (rawToolTagPresent && !request) {
-        reportClientError(new Error('Open Claw emitted an invalid tool block'), {
+        reportClientError(new Error('WorkSpaces emitted an invalid tool block'), {
           source: 'openclaw.tool-request.parse',
           extra: {
             assistantMessageId: nextAssistantId,
@@ -4819,7 +4819,7 @@ export default function OpenClawWorkspace({
         setChatHistory(prev => pruneInterruptedMessages(prev));
         return;
       }
-      console.error('Open Claw chat error:', error);
+      console.error('WorkSpaces chat error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown chat error';
       setChatHistory(prev => {
         const updated = [...prev];
@@ -4948,14 +4948,14 @@ export default function OpenClawWorkspace({
       : internetEnabled
     ? 'Internet mode - the model will search the web when needed...'
     : ragEnabled
-      ? 'RAG mode - ask Open Claw with Knowledge Base context...'
+      ? 'RAG mode - ask WorkSpaces with Knowledge Base context...'
       : agentPreferences.mode === 'research'
-        ? 'Ask Open Claw to compare options, gather evidence, or recommend a direction...'
+        ? 'Ask WorkSpaces to compare options, gather evidence, or recommend a direction...'
         : agentPreferences.mode === 'execute'
           ? 'Describe the task you want executed with concrete steps or deliverables...'
           : agentPreferences.mode === 'review'
-            ? 'Paste the plan, draft, or setup you want Open Claw to audit...'
-          : 'Describe the task, workflow, or action you want Open Claw to handle...';
+            ? 'Paste the plan, draft, or setup you want WorkSpaces to audit...'
+          : 'Describe the task, workflow, or action you want WorkSpaces to handle...';
   const hasWorkspaceNotes = agentPreferences.workspaceNotes.trim().length > 0;
   const hasSuccessCriteria = agentPreferences.successCriteria.trim().length > 0;
   const taskStateFieldCount = [
@@ -5039,8 +5039,8 @@ export default function OpenClawWorkspace({
           setMobileHeaderMenuOpen(false);
           setMobileModelMenuOpen(false);
         }}
-        aria-label={mobileRailOpen ? 'Close Open Claw drawer' : 'Open Open Claw navigation'}
-        title={mobileRailOpen ? 'Close Open Claw drawer' : 'Open Open Claw navigation'}
+        aria-label={mobileRailOpen ? 'Close WorkSpaces drawer' : 'Open WorkSpaces navigation'}
+        title={mobileRailOpen ? 'Close WorkSpaces drawer' : 'Open WorkSpaces navigation'}
       >
         <Menu size={18} />
       </button>
@@ -5104,8 +5104,8 @@ export default function OpenClawWorkspace({
             setMobileHeaderMenuOpen(open => !open);
             setMobileModelMenuOpen(false);
           }}
-          aria-label="Open Open Claw tools"
-          title="Open Claw tools"
+          aria-label="Open WorkSpaces tools"
+          title="WorkSpaces tools"
         >
           <MoreHorizontal size={18} />
         </button>
@@ -5184,7 +5184,7 @@ export default function OpenClawWorkspace({
             type="button"
             className="btn-icon"
             onClick={toggleRightRail}
-            aria-label="Expand Open Claw rail"
+            aria-label="Expand WorkSpaces rail"
             title="Expand rail"
           >
             <ChevronRight size={18} />
@@ -5509,7 +5509,7 @@ export default function OpenClawWorkspace({
         <button
           type="button"
           className="mobile-surface-overlay"
-          aria-label="Close Open Claw drawer"
+          aria-label="Close WorkSpaces drawer"
           onClick={() => setMobileRailOpen(false)}
         />
       )}
@@ -5638,7 +5638,7 @@ export default function OpenClawWorkspace({
               type="button"
               className="scroll-to-bottom-button"
               onClick={() => scrollToBottom('smooth')}
-              aria-label="Scroll to latest Open Claw message"
+              aria-label="Scroll to latest WorkSpaces message"
               title="Jump to latest message"
               style={{ right: '18px', bottom: '16px' }}
             >
@@ -5669,7 +5669,7 @@ export default function OpenClawWorkspace({
               className="btn btn-secondary"
               onClick={handleNewSession}
               style={{ padding: '11px 12px', borderRadius: '12px', flexShrink: 0 }}
-              title="New Open Claw task thread"
+              title="New WorkSpaces task thread"
             >
               <Plus size={16} />
             </button>
@@ -5807,8 +5807,8 @@ export default function OpenClawWorkspace({
                   closeMobileChrome();
                   onNavigateToWorkspace?.();
                 }}
-                title="Go to Open Claw"
-                aria-label="Go to Open Claw"
+                title="Go to WorkSpaces"
+                aria-label="Go to WorkSpaces"
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -5836,7 +5836,7 @@ export default function OpenClawWorkspace({
                 type="button"
                 className="btn-icon"
                 onClick={toggleRightRail}
-                aria-label="Collapse Open Claw workspace rail"
+                aria-label="Collapse WorkSpaces workspace rail"
                 title="Collapse workspace rail"
               >
                 <ChevronLeft size={18} />
@@ -5853,8 +5853,8 @@ export default function OpenClawWorkspace({
               <div className={`nav-item${!showingKnowledgeBase && !showingSettings ? ' active' : ''}`} onClick={() => {
                 closeMobileChrome();
                 onNavigateToWorkspace?.();
-              }} title="Go to Open Claw">
-                <Wand2 size={18} /> <span className="sidebar-label">Open Claw</span>
+              }} title="Go to WorkSpaces">
+                <Wand2 size={18} /> <span className="sidebar-label">WorkSpaces</span>
               </div>
               <div className={`nav-item${showingSettings ? ' active' : ''}`} onClick={() => {
                 closeMobileChrome();
@@ -5871,7 +5871,7 @@ export default function OpenClawWorkspace({
               type="button"
               className="btn-icon"
               onClick={toggleRightRail}
-              aria-label="Expand Open Claw workspace rail"
+              aria-label="Expand WorkSpaces workspace rail"
               title="Expand workspace rail"
             >
               <ChevronRight size={18} />
@@ -5895,7 +5895,7 @@ export default function OpenClawWorkspace({
               className="btn btn-secondary"
               onClick={handleNewSession}
               style={{ width: '100%', padding: '10px', borderRadius: '12px' }}
-              title="New Open Claw task thread"
+              title="New WorkSpaces task thread"
             >
               <Plus size={16} />
             </button>
@@ -6154,7 +6154,7 @@ export default function OpenClawWorkspace({
                   <div className="openclaw-list-scroll">
                     {filteredSessions.length === 0 ? (
                       <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', padding: '8px 4px' }}>
-                        {sessions.length === 0 ? 'No saved Open Claw sessions yet.' : 'No sessions match the current folder/tag filters.'}
+                        {sessions.length === 0 ? 'No saved WorkSpaces sessions yet.' : 'No sessions match the current folder/tag filters.'}
                       </div>
                     ) : visibleSessions.map(session => {
                       const active = session.id === currentSessionId;
@@ -6460,7 +6460,7 @@ export default function OpenClawWorkspace({
                         <div>
                           <div className="openclaw-section-label">Workspace controls</div>
                           <div style={{ marginTop: '6px', fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                            Configure how Open Claw works in this browser
+                            Configure how WorkSpaces works in this browser
                           </div>
                           <div style={{ marginTop: '6px', fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
                             {responseStyleSummary}
@@ -6767,7 +6767,7 @@ export default function OpenClawWorkspace({
                 {workspaceBriefPanelOpen && (
                   <div className="openclaw-disclosure-body">
                     <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                      Injected into every Open Claw request
+                      Injected into every WorkSpaces request
                     </div>
                     <div style={{ display: 'grid', gap: '10px' }}>
                       <div>
@@ -7057,7 +7057,7 @@ export default function OpenClawWorkspace({
                     <div>
                       <div className="openclaw-section-label">Workspace capabilities</div>
                       <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                        Modeled after Open Claw’s task-first workspace flow
+                        Modeled after WorkSpaces’s task-first workspace flow
                       </div>
                     </div>
                     <div className="openclaw-disclosure-pill-row">
@@ -7107,7 +7107,7 @@ export default function OpenClawWorkspace({
                           ? allowedWritablePaths.length > 0
                             ? `Agent can create folders and write text files inside approved writable roots: ${allowedWritablePaths.join(', ')}`
                             : 'Write mode is enabled, but no writable roots are configured yet in Settings.'
-                          : 'Filesystem writes are disabled. Enable them in Settings if you want Open Claw to create or edit files.'}
+                          : 'Filesystem writes are disabled. Enable them in Settings if you want WorkSpaces to create or edit files.'}
                       </div>
                     </div>
 
@@ -7122,8 +7122,8 @@ export default function OpenClawWorkspace({
                       </div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                         {codeExecutionEnabled
-                          ? 'Agent can run short Python or Node scripts in the managed Open Claw workspace with sandbox guardrails.'
-                          : 'Code execution sandbox is disabled. Enable it in Settings to let Open Claw run short scripts.'}
+                          ? 'Agent can run short Python or Node scripts in the managed WorkSpaces workspace with sandbox guardrails.'
+                          : 'Code execution sandbox is disabled. Enable it in Settings to let WorkSpaces run short scripts.'}
                       </div>
                     </div>
 
@@ -7148,7 +7148,7 @@ export default function OpenClawWorkspace({
                     <div className="openclaw-card">
                       <div className="openclaw-card-header">
                         <div className="openclaw-section-label">Workspace capabilities</div>
-                        <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>Modeled after Open Claw’s task-first workspace flow</span>
+                        <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>Modeled after WorkSpaces’s task-first workspace flow</span>
                       </div>
                       <div style={{ display: 'grid', gap: '8px' }}>
                         <div className="openclaw-capability-row">

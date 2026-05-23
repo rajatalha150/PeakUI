@@ -1,52 +1,52 @@
 # Settings and RAG Behavior
 
-This document defines the production behavior for Open Claw, generation, and Knowledge Base settings.
+This document defines the production behavior for WorkSpaces, generation, and Knowledge Base settings.
 
-## Open Claw and Generation Settings
+## WorkSpaces and Generation Settings
 
-Open Claw is the primary app shell. Generation settings are saved per user in `UserSettings` and normalized on both read and write through `/api/settings`.
+WorkSpaces is the primary app shell. Generation settings are saved per user in `UserSettings` and normalized on both read and write through `/api/settings`.
 
 ### Provider Selection
 
-- Open Claw provider settings are stored as `UserSettings.openClawProvider`, `UserSettings.openClawModel`, and `UserSettings.openClawBaseUrl`.
+- WorkSpaces provider settings are stored as `UserSettings.openClawProvider`, `UserSettings.openClawModel`, and `UserSettings.openClawBaseUrl`.
 - The legacy `UserSettings.chatPlatform`, `UserSettings.chatModel`, `UserSettings.chatModelProvider`, and `UserSettings.huggingFaceBaseUrl` fields still exist for shared backend compatibility, but the normal-chat UI and its sidebar are no longer part of the primary app shell.
-- Open Claw supports local Ollama and OpenAI-compatible providers.
+- WorkSpaces supports local Ollama and OpenAI-compatible providers.
 - The saved model is provider-aware, so a duplicate model id on both platforms will still reopen against the correct source.
 - Hugging Face or compatible-provider tokens are intentionally not stored in `UserSettings`. Browser-entered tokens stay only in browser storage.
 - With the default Hugging Face router (`https://router.huggingface.co/v1`):
-  - Open Claw requests use the OpenAI-compatible `/v1/chat/completions` endpoint
+  - WorkSpaces requests use the OpenAI-compatible `/v1/chat/completions` endpoint
   - model discovery uses the router-native `GET /v1/models` endpoint
   - the router selects the fastest available provider by default unless the model id already carries a suffix such as `:fastest`, `:cheapest`, `:preferred`, or `:provider-name`
 - With custom HF-compatible bases such as TGI, vLLM, or SGLang:
-  - Open Claw requests still use the OpenAI-compatible chat-completions path
+  - WorkSpaces requests still use the OpenAI-compatible chat-completions path
   - discovery first tries `/models`, then falls back to `/info` when available
   - if discovery is unavailable, Settings still allows manual model entry
 
 ### Local Model Lifecycle
 
-- PeakUI no longer sends request-level `keep_alive` overrides for local-provider Open Claw or Ollama embedding requests.
+- PeakUI no longer sends request-level `keep_alive` overrides for local-provider WorkSpaces or Ollama embedding requests.
 - The app also no longer issues background model warmup requests.
 - Ollama's own default lifecycle and queueing behavior now control when local models stay resident or unload.
-- Open Claw exposes a `Stop model` button next to its local-model controls.
+- WorkSpaces exposes a `Stop model` button next to its local-model controls.
 - That button unloads the currently selected local model through an authenticated app route so the next request starts from a fresh load.
-- Open Claw reports startup phases separately so pre-stream delays are not all mislabeled as model warmup. Depending on the request, the user may see `Searching knowledge base...`, `Researching web...`, `Unloading other models...`, `Starting model...`, `Connecting to model...`, or `Generating...`.
-- During streaming, Open Claw only auto-sticks to the bottom while the user is already near the latest message. If the user scrolls upward, generation continues without forcing the viewport down; a floating arrow returns to the newest message.
+- WorkSpaces reports startup phases separately so pre-stream delays are not all mislabeled as model warmup. Depending on the request, the user may see `Searching knowledge base...`, `Researching web...`, `Unloading other models...`, `Starting model...`, `Connecting to model...`, or `Generating...`.
+- During streaming, WorkSpaces only auto-sticks to the bottom while the user is already near the latest message. If the user scrolls upward, generation continues without forcing the viewport down; a floating arrow returns to the newest message.
 - The chat scroll observer is throttled through `requestAnimationFrame`, which reduces jumpy updates while streaming and keeps manual reading steadier on large answers.
-- The Open Claw workspace rail is the only left-side navigation surface. It is collapsible on desktop and opens as a drawer on mobile.
+- The WorkSpaces workspace rail is the only left-side navigation surface. It is collapsible on desktop and opens as a drawer on mobile.
 - The rail now keeps deep workspace state controls behind one `Workspace controls` modal launcher so the session list stays taller.
-- Open Claw task threads are paged in the rail at 15 sessions per page, with range labels plus Previous/Next controls for longer histories.
-- Settings and Knowledge Base render inside the Open Claw shell instead of restoring a normal-chat sidebar.
+- WorkSpaces task threads are paged in the rail at 15 sessions per page, with range labels plus Previous/Next controls for longer histories.
+- Settings and Knowledge Base render inside the WorkSpaces shell instead of restoring a normal-chat sidebar.
 - Logout is available from the Settings header.
 - The authenticated `GET /api/ollama/health` route now reports whether Ollama is `online`, `degraded`, or `offline`, along with version, installed model count, loaded model count, loaded model names, and whether the currently selected model is already resident.
-- Open Claw surfaces that health data in-app and provides one-click `Retry`, `Retry without web`, and `Stop + retry` recovery actions after a draft has been submitted.
+- WorkSpaces surfaces that health data in-app and provides one-click `Retry`, `Retry without web`, and `Stop + retry` recovery actions after a draft has been submitted.
 - The Ollama health strip and `Stop model` control only appear when the currently selected model is actually running on Ollama.
-- When the provider is local Ollama, Open Claw no longer performs the extra OpenAI-compatible-style verify round trip during routine model refresh/switch flows; it relies on model discovery and Ollama health for the local path.
+- When the provider is local Ollama, WorkSpaces no longer performs the extra OpenAI-compatible-style verify round trip during routine model refresh/switch flows; it relies on model discovery and Ollama health for the local path.
 
 ### Exclusive Ollama Switching
 
 - Stored as `UserSettings.exclusiveOllamaModels`.
 - Enabled from Settings → Generation.
-- Before a local-provider Open Claw request starts, the backend calls Ollama `/api/ps`, identifies other loaded models, and unloads them with `POST /api/generate` plus `keep_alive: 0`.
+- Before a local-provider WorkSpaces request starts, the backend calls Ollama `/api/ps`, identifies other loaded models, and unloads them with `POST /api/generate` plus `keep_alive: 0`.
 - The `Stop model` button uses the same unload semantics, but targets only the actively selected local model when the user asks for a manual reset.
 - This behavior is inspired by Open WebUI's explicit Ollama unload flow and is aimed at smaller VRAM systems where multiple resident models can block a new load.
 - External OpenAI-compatible providers are unaffected.
@@ -73,17 +73,17 @@ Open Claw is the primary app shell. Generation settings are saved per user in `U
 
 ## Internet Mode
 
-- Enabled per browser session from the **Workspace modes** dropdown in the Open Claw desktop header or the Open Claw mobile overflow menu.
+- Enabled per browser session from the **Workspace modes** dropdown in the WorkSpaces desktop header or the WorkSpaces mobile overflow menu.
 - Internet mode now runs as a backend-managed cited web-context lookup inside the shared chat pipeline.
 - The backend performs the public search and page fetch work directly before the model starts, so Internet mode no longer depends on a local model deciding to call tools first.
-- Open Claw, local Ollama, and OpenAI-compatible providers all use the same research path now.
+- WorkSpaces, local Ollama, and OpenAI-compatible providers all use the same research path now.
 - **Multi-engine search priority (v3):** The backend tries search engines in this order -- Google Programmable Search Engine (if GOOGLE_SEARCH_API_KEY + GOOGLE_SEARCH_CX are configured), Brave Search API (if BRAVE_API_KEY is configured), SearXNG (if SEARXNG_URL is configured), DuckDuckGo HTML + Lite fallback parsers, and Bing as final fallback.
 - **Query intelligence:** The user prompt is analyzed to generate 1-3 targeted search queries for broader coverage (e.g., comparisons get per-side queries, questions get stripped keyword variants).
 - **Deep content extraction:** Pages are parsed through schema.org JSON-LD, Open Graph meta tags, and readability heuristics that score paragraphs by link density, length, and keyword filtering (drops nav/footer/ads) to extract article text while preserving structure.
 - **Date extraction:** Publication dates are pulled from meta tags and JSON-LD so the model can reason about recency.
 - **Retry logic:** Failed page fetches retry once with exponential backoff.
 - **Higher context limits:** Up to 8 search results, 4 pages fetched, 3000 chars per excerpt, 12000 chars total context.
-- **Strong citation prompt:** The system context instructs the model to cite every factual claim with inline [^N] markers. Frontend source chips are numbered [1], [2], etc., and inline citations render as clickable superscript links that open the original source URL in Open Claw.
+- **Strong citation prompt:** The system context instructs the model to cite every factual claim with inline [^N] markers. Frontend source chips are numbered [1], [2], etc., and inline citations render as clickable superscript links that open the original source URL in WorkSpaces.
 - Search and page-fetch steps run with tighter per-request timeouts and inherit the active request abort signal, which keeps Researching web... from sitting on an unbounded pre-generation stall.
 - The authenticated /api/web/context route uses that same backend-managed lookup path.
 - Responses display clickable source chips for fetched web pages, reusing the same assistant citation area as Knowledge Base results.
@@ -140,33 +140,33 @@ Production behavior:
 - Archives are unpacked with `7z` and each member is indexed recursively up to a safe depth and size limit.
 - Structured data and code files are normalized with line-aware formatting so search results cite more useful chunks.
 
-## Open Claw Workspace Behavior
+## WorkSpaces Workspace Behavior
 
-- Open Claw now persists its agent-workspace preferences in browser storage, separate from server-side user settings.
+- WorkSpaces now persists its agent-workspace preferences in browser storage, separate from server-side user settings.
 - The persisted workspace preferences are:
   - task mode: `Plan`, `Research`, `Execute`, or `Review`
   - response style: `Concise`, `Structured`, or `Deep`
   - clarify-first toggle
   - workspace notes
   - success criteria
-- Those preferences are converted into a workspace brief and injected into every Open Claw request as an additional system message.
-- Open Claw also persists per-thread task state in browser storage:
+- Those preferences are converted into a workspace brief and injected into every WorkSpaces request as an additional system message.
+- WorkSpaces also persists per-thread task state in browser storage:
   - objective
   - current status
   - next step
   - done criteria
   - editable pinned checklist
-- That task state is converted into its own system-level task brief and injected into each Open Claw request alongside the workspace-preference brief.
+- That task state is converted into its own system-level task brief and injected into each WorkSpaces request alongside the workspace-preference brief.
 - The pinned checklist can be built manually or imported from assistant bullet/numbered checklist output, then edited independently of the chat transcript.
-- Open Claw's provider/session controls live in a dedicated left-side workspace rail on desktop, while model selection lives in the shared top bar.
+- WorkSpaces's provider/session controls live in a dedicated left-side workspace rail on desktop, while model selection lives in the shared top bar.
 - That rail can be collapsed on desktop without introducing a second app sidebar.
 - The rail uses one main scroll container rather than a nested session-list scroller, which makes wheel/trackpad behavior more predictable.
-- On mobile, the same top bar stays in place and the rail collapses into a drawer while preserving the active Open Claw session.
-- If Knowledge Base or Settings is opened from the Open Claw rail, that panel renders inside the Open Claw shell so the selected task thread and Open Claw rail stay visible.
-- When Open Claw calls shell or filesystem tools mid-turn, the tool result is fed back into the model as a hidden `user` message so the same task can continue naturally. This avoids the older behavior where some multi-step reviews stopped after the first tool call because the resumed conversation ended on a hidden `system` message instead of a real follow-up turn.
+- On mobile, the same top bar stays in place and the rail collapses into a drawer while preserving the active WorkSpaces session.
+- If Knowledge Base or Settings is opened from the WorkSpaces rail, that panel renders inside the WorkSpaces shell so the selected task thread and WorkSpaces rail stay visible.
+- When WorkSpaces calls shell or filesystem tools mid-turn, the tool result is fed back into the model as a hidden `user` message so the same task can continue naturally. This avoids the older behavior where some multi-step reviews stopped after the first tool call because the resumed conversation ended on a hidden `system` message instead of a real follow-up turn.
 - Raw internal `<openclaw_tool>` bridge messages are stripped and hidden before session persistence/reload, which prevents malformed tool turns from rendering as visible assistant content or crashing the workspace on reopen.
 
-### Open Claw Tool Permissions
+### WorkSpaces Tool Permissions
 
 - Shell execution defaults to `auto-approve` mode — safe commands execute immediately without a confirmation prompt. Network-capable commands (`curl`, `wget`, `npm install`, `git clone`, `docker compose up`) still require explicit approval. Dangerous commands (`sudo`, `rm -rf /`, `ssh`) are blocked outright.
 - When Auto-continue is enabled, tool approval dialogs show a 4-second countdown and auto-approve unless the user clicks Reject. This lets the agent run multi-step tasks hands-free while still giving visibility into each command.
@@ -175,23 +175,23 @@ Production behavior:
 - Filesystem write access defaults to `ask-first` and is stored in `UserSettings.openClawFileWriteMode` plus `UserSettings.openClawWritablePaths`.
 - Code sandbox access defaults to `ask-first` and is stored in `UserSettings.openClawCodeExecutionMode`.
 - Browser control access is stored in `UserSettings.openClawBrowserMode`.
-- Open Claw's default writable workspace root is `/tmp/peakui-openclaw-workspace`, which is mounted inside the app container at `/mnt/openclaw/workspace`.
+- WorkSpaces's default writable workspace root is `/tmp/peakui-openclaw-workspace`, which is mounted inside the app container at `/mnt/openclaw/workspace`.
 - Shell commands run inside the app container by default with a 120-second timeout (host executor timeout is configurable up to 5 minutes).
 - Code sandbox execution has a 60-second timeout and 256MB memory limit.
 - If `UserSettings.shellExecutionTarget` is set to `host`, shell requests are forwarded to the optional host executor daemon at `OPENCLAW_HOST_EXECUTOR_URL` with `OPENCLAW_HOST_EXECUTOR_TOKEN`.
 - Host execution is constrained by allowed working roots, environment-variable names, timeout, output caps, and approval mode.
-- If Host target is selected but the host executor is not configured or reachable, Open Claw falls back to the container executor and shows the fallback reason in the approval or blocked-command UI.
+- If Host target is selected but the host executor is not configured or reachable, WorkSpaces falls back to the container executor and shows the fallback reason in the approval or blocked-command UI.
 - Every shell command request/result is audited in `ShellCommandAudit`, including requested target, effective target, approval decision, fallback reason, exit code, duration, and output preview.
 - Commands that fetch from the network, install packages, or start services such as `git clone`, `curl`, `wget`, `npm install`, `npx`, `docker run`, or `docker compose up` are intentionally not auto-approved and require explicit approval when shell access is enabled.
 - Truly dangerous shell operations like `rm -rf /`, `sudo`, `ssh`, `mkfs`, and sensitive `/etc/passwd` or `/etc/shadow` access are blocked outright.
 - Filesystem writes are constrained to approved writable roots and use full-content write/append semantics rather than shell patching.
-- Code execution runs only in the managed Open Claw workspace, with runtime guards, timeouts, and output caps.
-- Browser control is limited to public `http` and `https` pages. Local/private targets, credentialed URLs, and non-standard ports are blocked. In `read-only`, Open Claw can inspect pages but cannot fill or submit forms.
+- Code execution runs only in the managed WorkSpaces workspace, with runtime guards, timeouts, and output caps.
+- Browser control is limited to public `http` and `https` pages. Local/private targets, credentialed URLs, and non-standard ports are blocked. In `read-only`, WorkSpaces can inspect pages but cannot fill or submit forms.
 - Every tool execution (shell, code, filesystem, browser, web) shows a live phase label during execution: `Running command...`, `Running code...`, `Reading filesystem...`, `Browsing page...`, or `Searching web...`. If a tool fails, the error becomes a model-visible message and the tool loop continues instead of crashing the session.
 
-### File Attachments in Open Claw
+### File Attachments in WorkSpaces
 
-Open Claw uses the shared attachment system:
+WorkSpaces uses the shared attachment system:
 
 - Paperclip button in the composer opens file picker
 - Images sent as base64 to vision-capable models
@@ -213,23 +213,23 @@ ollama pull all-minilm
 - If Hugging Face-compatible mode shows no models while you are using the default router, add an HF token in Settings first. Router discovery uses the authenticated `GET /v1/models` endpoint and will not populate without credentials.
 - If a Hugging Face router model works only when typed manually, the model may not have been returned by the current router listing or may require an explicit suffix like `:fastest`, `:cheapest`, `:preferred`, or a provider name.
 - If a custom HF-compatible endpoint does not list models, type the model id manually in Settings and verify that the endpoint still supports OpenAI-style chat completions.
-- If Open Claw shows a provider connection problem before sending a task, use its **Verify** button to test the configured Ollama or OpenAI-compatible endpoint directly.
+- If WorkSpaces shows a provider connection problem before sending a task, use its **Verify** button to test the configured Ollama or OpenAI-compatible endpoint directly.
 - If Internet mode is on but no web chips appear, the lookup may have returned no readable public pages or the target may have been blocked by the public-network safety rules.
 - If the health strip says `Ollama offline`, the app could not reach the configured Ollama host at all. Check the host value in Settings and verify the daemon with `ollama ps`.
 - If the health strip says `Runner status limited`, Ollama itself is reachable but the loaded-model inspection call failed. Chat requests may still work, but resident-model visibility or stop/retry behavior may be incomplete until Ollama is healthy again.
 - If a request takes a long time before tokens appear, check the phase label first. `Searching knowledge base...` means client-side RAG lookup is still running, `Researching web...` means Internet mode is still gathering sources, and `Starting model...` means the request has reached Ollama and is waiting for the model runner to begin streaming.
 - If a weather/news/current-events prompt still feels thin, the search engine may have returned JS-heavy pages or low-signal snippets. The app now keeps search snippets even when some page fetches succeed, which makes short current-info prompts more reliable than the older all-or-nothing fetch path.
 - If you want current-tab or browser-control behavior, that is not part of Phase 1. The shipped Internet mode is intentionally limited to read-only public web context.
-- If an Open Claw shell task fails because a tool is missing, verify it inside the container rather than assuming host availability. The runtime image now includes `git`, `curl`, `wget`, `bash`, `tar`, and `unzip`, but commands still execute in the container context.
-- If an Open Claw shell task expects `/tmp/peakui-openclaw-workspace`, that path should resolve inside the container as an alias to `/mnt/openclaw/workspace`.
+- If an WorkSpaces shell task fails because a tool is missing, verify it inside the container rather than assuming host availability. The runtime image now includes `git`, `curl`, `wget`, `bash`, `tar`, and `unzip`, but commands still execute in the container context.
+- If an WorkSpaces shell task expects `/tmp/peakui-openclaw-workspace`, that path should resolve inside the container as an alias to `/mnt/openclaw/workspace`.
 - If switching local models still fails under GPU pressure, enable **Exclusive Ollama Switching** so Ollama unloads other loaded models before starting the new one.
 - If a model says pull required, run `ollama pull <model-name>`.
 - If testing times out, Ollama may still be loading the model. Check `ollama ps`, then try again.
 - If Semantic search returns no results after changing models, re-upload or re-index documents with the selected embedding model.
 - If memory pressure appears during generation, reduce Context Window before retrying.
-- If Open Claw still fails with a model-memory error, the selected context window is probably larger than the host can fit. The app will auto-fit downward, but lowering the slider manually will make responses start faster.
-- If Open Claw reports a connection or socket failure to `http://127.0.0.1:11434`, verify the host service with `ollama ps` and `ollama run <model> "hello"`. If terminal requests also hang or reset, restart the Ollama service before debugging the app.
-- If Open Claw reports that the Ollama runner crashed or a model stays wedged in load/backoff, use the in-app `Stop model` button or run `ollama stop <model>`, then inspect `journalctl -u ollama` for GPU/runtime details.
+- If WorkSpaces still fails with a model-memory error, the selected context window is probably larger than the host can fit. The app will auto-fit downward, but lowering the slider manually will make responses start faster.
+- If WorkSpaces reports a connection or socket failure to `http://127.0.0.1:11434`, verify the host service with `ollama ps` and `ollama run <model> "hello"`. If terminal requests also hang or reset, restart the Ollama service before debugging the app.
+- If WorkSpaces reports that the Ollama runner crashed or a model stays wedged in load/backoff, use the in-app `Stop model` button or run `ollama stop <model>`, then inspect `journalctl -u ollama` for GPU/runtime details.
 
 ## References
 

@@ -1,0 +1,59 @@
+services:
+  db:
+    image: postgres:15-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: peakui
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: peakui
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  tor-proxy:
+    image: peterdavehello/tor-socks-proxy:latest
+    restart: always
+    ports:
+      - "9050:9150"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -x socks5h://localhost:9150 https://check.torproject.org/api/ip || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  app:
+    build: .
+    shm_size: "256m"
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://peakui:password@localhost:5432/peakui
+      - JWT_SECRET=${JWT_SECRET:-}
+      - OPENCLAW_HOST_HOME_DIR=${OPENCLAW_HOST_HOME_DIR:-/home}
+      - OPENCLAW_HOST_TMP_DIR=${OPENCLAW_HOST_TMP_DIR:-/tmp}
+      - OPENCLAW_HOST_WORKSPACE_DIR=${OPENCLAW_HOST_WORKSPACE_DIR:-/tmp/peakui-openclaw-workspace}
+      - OPENCLAW_HOST_EXECUTOR_URL=${OPENCLAW_HOST_EXECUTOR_URL:-http://127.0.0.1:4318}
+      - OPENCLAW_HOST_EXECUTOR_TOKEN=${OPENCLAW_HOST_EXECUTOR_TOKEN:-}
+      - TOR_PROXY_URL=${TOR_PROXY_URL:-socks5://localhost:9050}
+      - PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+      - SCREENCAST_PORT=3001
+      - BRAVE_API_KEY=${BRAVE_API_KEY:-}
+      - SEARXNG_URL=${SEARXNG_URL:-}
+      - GOOGLE_SEARCH_API_KEY=${GOOGLE_SEARCH_API_KEY:-}
+      - GOOGLE_SEARCH_CX=${GOOGLE_SEARCH_CX:-}
+    depends_on:
+      - db
+      - tor-proxy
+    restart: always
+    network_mode: host
+    volumes:
+      - ${OPENCLAW_HOST_HOME_DIR:-/home}:/mnt/openclaw/home:ro
+      - ${OPENCLAW_HOST_TMP_DIR:-/tmp}:/mnt/openclaw/tmp:ro
+      - ${OPENCLAW_HOST_WORKSPACE_DIR:-/tmp/peakui-openclaw-workspace}:/mnt/openclaw/workspace
+      - app_runtime:/var/lib/peakui
+
+volumes:
+  db_data:
+  app_runtime:

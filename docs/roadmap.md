@@ -9,7 +9,7 @@
 - PostgreSQL storage
 
 ### v0.2.0 - Core Features
-- Open Claw workspace for agentic tasks
+- WorkSpaces workspace for agentic tasks
 - Task modes: Plan, Research, Execute, Review
 - Response styles: Concise, Structured, Deep
 - Workspace notes and success criteria
@@ -26,7 +26,7 @@
 - Document extraction (PDF, Office, RTF, text)
 - 100 MB upload limit
 - Attachment preview and removal
-- Open Claw file attachments
+- WorkSpaces file attachments
 
 ### v0.5.0 - Response Improvements
 - Inline image gallery for AI-generated images
@@ -39,7 +39,7 @@
 - Visual artifact cards with code syntax highlighting
 - Markdown and image file preview
 - Artifact versioning and edit-in-place
-- Canvas panels in both Open Claw and main chat
+- Canvas panels in both WorkSpaces and main chat
 - Inline image rendering for AI picture requests
 - AI system prompt instructions for image awareness
 
@@ -60,7 +60,7 @@
 
 ## In Progress
 
-### v0.7.0 - Open Claw Tooling (continued)
+### v0.7.0 - WorkSpaces Tooling (continued)
 - [x] Shell command execution with approvals
 - [x] Optional host shell executor for host-installed CLI access
 - [x] Shell target selection with container fallback when host executor is unavailable
@@ -69,9 +69,9 @@
 - [x] Filesystem write support for approved writable roots
 - [x] Managed Python/Node code sandbox
 - [x] Public-web browser control with staged form submission
-- [x] Shared managed Open Claw workspace mount
+- [x] Shared managed WorkSpaces workspace mount
 
-### v0.7.1 - Open Claw Shell Polish
+### v0.7.1 - WorkSpaces Shell Polish
 - [x] Client-side error capture path for browser/render crashes
 - [x] Hidden-tool-message normalization to prevent raw tool bridges from crashing session reloads
 - [x] Local-Ollama switch path trimmed to avoid redundant verification calls
@@ -99,7 +99,7 @@
 - [ ] Chat sharing between users
 
 ### v1.0.0 - Advanced Features
-- [ ] Development-section code interpreter beyond Open Claw's current managed sandbox
+- [ ] Development-section code interpreter beyond WorkSpaces's current managed sandbox
 - [ ] Docker orchestration from the Development section
 - [ ] VM orchestration from the Development section
 - [ ] Image generation
@@ -116,7 +116,7 @@
 ### Development Section
 - Docker container management
 - Virtual machine control
-- Code interpreter workspace beyond the current Open Claw sandbox
+- Code interpreter workspace beyond the current WorkSpaces sandbox
 - Terminal integration
 
 ### Enterprise Features

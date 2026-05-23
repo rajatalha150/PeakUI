@@ -1,8 +1,8 @@
-# Open Claw Host Executor
+# WorkSpaces Host Executor
 
-Open Claw shell commands normally run inside the PeakUI app container. If you want shell commands to use the host machine's own `PATH`, installed tools, and local CLI setup, run the optional host executor outside Docker and switch Open Claw shell target to `Host`.
+WorkSpaces shell commands normally run inside the PeakUI app container. If you want shell commands to use the host machine's own `PATH`, installed tools, and local CLI setup, run the optional host executor outside Docker and switch WorkSpaces shell target to `Host`.
 
-If `Host` is selected but the executor is not configured or reachable, Open Claw falls back to the normal container shell and labels the actual execution target in the approval dialog and shell output. This keeps ordinary commands working while making it clear that host-only paths and tools still require the daemon.
+If `Host` is selected but the executor is not configured or reachable, WorkSpaces falls back to the normal container shell and labels the actual execution target in the approval dialog and shell output. This keeps ordinary commands working while making it clear that host-only paths and tools still require the daemon.
 
 ## What it does
 
@@ -50,7 +50,7 @@ export OPENCLAW_HOST_EXECUTOR_TOKEN='replace-this-with-a-long-random-token'
 docker compose up -d --build
 ```
 
-## Configure Open Claw
+## Configure WorkSpaces
 
 In Settings:
 

@@ -1,9 +1,9 @@
-# Open Claw Workspace — Missing Features & TODO
+# WorkSpaces Workspace — Missing Features & TODO
 
 ## ⚠️ Database Reset Notice
 The database was wiped during the Phase 7 Canvas implementation. All prior data is lost.
 
-# Open Claw Workspace — Missing Features & TODO
+# WorkSpaces Workspace — Missing Features & TODO
 
 ## What We Have (The UX Shell)
 - Agent mode selector: Plan, Research, Execute, Review
@@ -45,7 +45,7 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 ### 3. Tool Execution
 - [x] **Shell command execution** — Agent runs commands on host, displays output in chat
 - [x] **Tool approval modes** — Auto-approve, ask-first, or deny for shell commands
-- [x] **Shell target selection** — Open Claw can run shell commands in the app container or through an optional host executor
+- [x] **Shell target selection** — WorkSpaces can run shell commands in the app container or through an optional host executor
 - [x] **Shell command audit log** — Shell requests/results persist in DB via `ShellCommandAudit`
 - [x] **File system read** — Agent reads files from designated directories
 - [x] **File system write** — Agent creates/edits files with user approval
@@ -82,10 +82,10 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 - [x] **Export artifacts** — Download individually from Canvas panel or batch download
 - [x] **Edit-in-place** — Edit agent-generated code/docs directly in the UI
 - [x] **Vision-first image attachments** — Uploaded images stay as native image input, with OCR kept as optional supplemental context
-- [x] **Per-image attachment mode** — Vision only / Vision + OCR / OCR only controls in the Open Claw composer
+- [x] **Per-image attachment mode** — Vision only / Vision + OCR / OCR only controls in the WorkSpaces composer
 - [x] **Canvas lazy previews** — Large code and markdown artifacts avoid full eager rendering until expanded
 - [x] **Canvas virtualization** — Artifact lists are now windowed to keep large sessions responsive
-- [x] **Long chat virtualization** — Open Claw chat history now window-renders long threads
+- [x] **Long chat virtualization** — WorkSpaces chat history now window-renders long threads
 - [x] **Blob/object URL previews** — UI previews no longer rely on base64-heavy `data:` URLs by default
 
 ### 7A. Fresh TODO — Canvas, Rendering, and Presentation
@@ -99,7 +99,7 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 - [x] **Table and chart rendering** — CSV/TSV/JSON artifacts now render as first-class tables or lightweight charts
 - [x] **Presentation-mode exports** — Added memo, report, and dev-handoff export buttons per artifact
 - [x] **Lazy-load heavy renderers** — Syntax highlighting and markdown rendering are code-split with `next/dynamic`
-- [x] **Streaming render isolation** — Memoized Open Claw message rows and shared assistant content to reduce rerenders during streaming
+- [x] **Streaming render isolation** — Memoized WorkSpaces message rows and shared assistant content to reduce rerenders during streaming
 - [x] **Content-size thresholds** — Large artifacts now stay in preview mode until the user explicitly loads the full render
 - [x] **Render metrics** — Added optional render/decode metrics collection for assistant rows, artifact previews, and image decode paths
 - [x] **Precomputed render data** — Server-side artifact metadata and client-side parsed-content caching moved expensive derivation off the hot render path

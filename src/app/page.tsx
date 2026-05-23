@@ -2375,8 +2375,8 @@ export default function Home() {
           <div className={`nav-item ${isDocs ? 'active' : ''}${sidebarIsCompact ? ' compact' : ''}`} onClick={openMainKnowledgeBase} title="Knowledge Base">
             <Database size={18} /> {!sidebarIsCompact && <span className="sidebar-label">Knowledge Base (RAG)</span>}
           </div>
-          <div className={`nav-item ${isOpenClaw ? 'active' : ''}${sidebarIsCompact ? ' compact' : ''}`} onClick={openOpenClawWorkspace} title="Open Claw">
-            <Wand2 size={18} /> {!sidebarIsCompact && <span className="sidebar-label">Open Claw</span>}
+          <div className={`nav-item ${isOpenClaw ? 'active' : ''}${sidebarIsCompact ? ' compact' : ''}`} onClick={openOpenClawWorkspace} title="WorkSpaces">
+            <Wand2 size={18} /> {!sidebarIsCompact && <span className="sidebar-label">WorkSpaces</span>}
           </div>
         </div>
 
