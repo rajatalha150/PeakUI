@@ -79,6 +79,7 @@ Open Claw includes a collapsible Canvas panel that:
 - **Workspace notes**: Persistent notes attached to all requests
 - **Success criteria**: Define what "done" looks like for each task
 - **Pinned checklist**: Editable checklist that persists across messages
+- **Workspace controls launcher**: The rail now exposes one `Workspace controls` button that opens a modal for agent mode, response style, task state, workspace brief, persona, user profile, shell configuration, and workspace-capability details, freeing more vertical space for sessions.
 
 ### Tool Execution
 
@@ -124,9 +125,11 @@ Open Claw includes a collapsible Canvas panel that:
   - **Session actions**: pin, rename, copy to clipboard, delete, move to folder, and toggle tags from each task thread menu
   - **Bulk management**: select multiple task threads, delete the selected set, or clear all Open Claw task threads at once
 - On desktop, the rail shows session controls, current task mode and response style, objective and status, next step, checklist, quick-start prompts, workspace notes, and success criteria.
+- The rail now prioritizes session browsing first: task threads are shown in pages of 15 with Previous/Next paging and range labels, while the deeper workspace controls live behind the dedicated modal launcher instead of stacking under the session list.
 - Model selection lives in the shared top bar instead of the rail.
 - On desktop, Open Claw-specific runtime controls now live in one featured **Workspace modes** dropdown in the top bar. That single menu contains Internet, UWAF Direct/Stealth, RAG, Unrestricted, and Uncensored, which keeps the header compact without dropping any functionality.
 - On mobile, the same chat-style top bar carries the model picker and overflow menu, while the rail collapses into a drawer so the active session stays in context while still fitting a narrow screen.
+- The rail now uses one primary scroll container instead of a nested session-list scroller, which makes wheel/trackpad behavior smoother and more predictable.
 
 ## Knowledge Base (RAG)
 

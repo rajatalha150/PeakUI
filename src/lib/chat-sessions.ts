@@ -1,6 +1,7 @@
 import { prisma } from './prisma';
 import { normalizeResponsePresentation, type ResponsePresentation } from './response-format';
 import { normalizeMessageSources, type MessageSource } from './message-sources';
+import { extractOpenClawToolRequest } from './openclaw-tools';
 
 export type StoredChatRole = 'user' | 'assistant' | 'system';
 export type ChatSessionSurface = 'chat' | 'openclaw';
@@ -71,6 +72,23 @@ function normalizeToolRequest(value: unknown): StoredChatMessage['toolRequest'] 
     : undefined;
 }
 
+function normalizeAssistantToolBridge(content: string) {
+  if (!content.includes('<openclaw_tool')) {
+    return {
+      content,
+      hidden: false,
+      toolRequest: undefined as StoredChatMessage['toolRequest'],
+    };
+  }
+
+  const extracted = extractOpenClawToolRequest(content);
+  return {
+    content: extracted.cleanedContent,
+    hidden: true,
+    toolRequest: extracted.request ? normalizeToolRequest(extracted.request.name) : undefined,
+  };
+}
+
 function looksLikeHiddenToolResult(role: StoredChatRole, content: string) {
   if (role === 'assistant') return false;
   const trimmed = content.trim();
@@ -88,9 +106,13 @@ export function normalizeStoredChatMessage(raw: unknown): StoredChatMessage | nu
   const role = normalizeRole(raw.role);
   if (!role) return null;
 
-  const content = typeof raw.content === 'string' ? raw.content : '';
-  const hidden = raw.hidden === true || looksLikeHiddenToolResult(role, content);
-  const toolRequest = normalizeToolRequest(raw.toolRequest);
+  const rawContent = typeof raw.content === 'string' ? raw.content : '';
+  const toolBridge = role === 'assistant'
+    ? normalizeAssistantToolBridge(rawContent)
+    : null;
+  const content = toolBridge ? toolBridge.content : rawContent;
+  const hidden = raw.hidden === true || looksLikeHiddenToolResult(role, content) || Boolean(toolBridge?.hidden);
+  const toolRequest = toolBridge?.toolRequest ?? normalizeToolRequest(raw.toolRequest);
   const thinking = typeof raw.thinking === 'string' ? raw.thinking : undefined;
   const meta = raw.meta ?? undefined;
   const sources = normalizeMessageSources(raw.sources);

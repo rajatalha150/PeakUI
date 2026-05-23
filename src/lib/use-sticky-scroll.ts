@@ -16,6 +16,7 @@ export function useStickyScroll(options: UseStickyScrollOptions) {
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [resetToken, setResetToken] = useState(0);
   const rafIdRef = useRef<number>(0);
+  const scrollFrameRef = useRef<number>(0);
   const prevContentKeyRef = useRef<unknown>(null);
   const prevStreamingRef = useRef(isStreaming);
 
@@ -45,7 +46,7 @@ export function useStickyScroll(options: UseStickyScrollOptions) {
     setResetToken(token => token + 1);
   }, []);
 
-  const handleScroll = useCallback(() => {
+  const syncScrollState = useCallback(() => {
     const area = scrollAreaRef.current;
     if (!area) return;
 
@@ -54,6 +55,14 @@ export function useStickyScroll(options: UseStickyScrollOptions) {
     shouldStickToBottomRef.current = nearBottom;
     setShowScrollToBottom(!nearBottom && area.scrollHeight > area.clientHeight);
   }, [threshold]);
+
+  const handleScroll = useCallback(() => {
+    if (scrollFrameRef.current) return;
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = 0;
+      syncScrollState();
+    });
+  }, [syncScrollState]);
 
   // Auto-scroll when content changes while pinned to bottom.
   // Uses a single RAF to batch multiple state updates into one scroll per frame.
@@ -112,6 +121,11 @@ export function useStickyScroll(options: UseStickyScrollOptions) {
 
     observer.observe(area, { box: 'border-box' });
     return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => () => {
+    cancelAnimationFrame(rafIdRef.current);
+    cancelAnimationFrame(scrollFrameRef.current);
   }, []);
 
   return {

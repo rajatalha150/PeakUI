@@ -183,8 +183,11 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - The left workspace rail now keeps the task-oriented cards like `Agent mode`, while model selection stays in the shared top bar, `Settings` is exposed as a normal rail nav item, and the old rail-local provider settings card was removed.
 - The Open Claw sidebar now hides the filesystem, writes, code sandbox, browser control, and workspace-capabilities explanations behind a single dropdown so the rail stays compact while the detailed permission/status text remains available on demand.
 - The Open Claw rail now also collapses `Response style`, `Task state`, and `Workspace brief` into dropdown disclosures, so the rail shows compact summaries until the user expands the section they need.
+- The Open Claw rail now collapses the full agent/task/persona/profile/shell/capability stack behind one `Workspace controls` launcher that opens a modal, so sessions get more vertical room without losing any controls.
+- The Open Claw session rail now pages task threads 15 at a time with range labels plus Previous/Next controls instead of trying to show the whole history in one nested scroller.
 - Knowledge Base navigation now stays inside Open Claw: opening it from the Open Claw rail swaps only the main panel and preserves the selected task thread.
 - Open Claw now shares the same sticky-scroll behavior as chat, so long streams no longer yank the viewport while the user is reading older messages
+- Open Claw chat scrolling is now steadier during generation because the sticky-scroll observer is throttled through `requestAnimationFrame`, and the rail now uses one primary scroll container for smoother wheel/trackpad behavior.
 - Open Claw now also shows the same richer Ollama health/recovery UX as chat when using the local-provider path
 - Prisma schema now includes `ChatSession.surface` so Open Claw sessions can be stored separately without disturbing the existing chat history flow
 - Open Claw generation now starts without waiting for session persistence, and initial workspace loading/provider switching run more in parallel so the local agent UI stays responsive
@@ -198,6 +201,7 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - **Host shell execution added** — Shell commands can now target the app container or an optional host executor. Host execution uses `OPENCLAW_HOST_EXECUTOR_TOKEN`, approved cwd roots, env allowlists, timeout/output caps, and `ShellCommandAudit` DB records. If Host is selected but the executor is unavailable, Open Claw falls back to the container shell and labels the actual execution target so ordinary commands do not fail with a missing-token blocker.
 - **Filesystem Access (Phase 2 added, follow-up repaired)** — Open Claw now has a dedicated read-only filesystem tool with the `<openclaw_tool name="filesystem">...</openclaw_tool>` protocol for `list`, `read`, and `stat` actions. Users can control filesystem mode (`deny` or `read-only`) plus newline-separated approved host paths from Settings, the workspace shows whether any paths are currently granted, and the tool loop now feeds actual file/listing results back into the model just like shell output. The default host mount now covers the host `/home` tree plus `/tmp` in read-only mode, not just one specific user directory. Open Claw’s prompt now explicitly tells the model to prefer the filesystem tool for host paths like `/home` and `/tmp`, the workspace auto-translates simple shell inspection commands such as `ls /home` into filesystem requests when that is clearly the host-safe interpretation, and the tool loop now blocks repeated identical tool requests so the model cannot spin on the same shell/filesystem action after already receiving a result. Tool-result handoff messages for shell/filesystem continuation now re-enter the model as hidden `user` turns instead of hidden `system` turns, which prevents multi-step Open Claw reviews from stopping after the first tool call.
 - **Shell UI polish** — The Shell Execution Configure panel and approval modal now use the real theme tokens and an opaque blurred backdrop, so opening shell configuration no longer shows the Open Claw workspace rail bleeding through transparent surfaces.
+- **Session recovery + local-model polish** — Raw internal `<openclaw_tool>` bridge messages are now stripped/hidden before session persistence and reload, which prevents malformed tool turns from crashing reopened Open Claw sessions. The local Ollama path also skips redundant compatible-provider verification calls during routine model refresh/switch flows, relying on model discovery plus Ollama health instead.
 
 ### Thinking Models
 - Full `<think>...</think>` tag parser
@@ -390,8 +394,15 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `fix: stabilize openclaw rag streaming`
-- **Previous committed baseline:** `fix: honor live browser setting`
+- **Current committed baseline:** `fix: polish openclaw workspace rail`
+- **Previous committed baseline:** `fix: stabilize openclaw rag streaming`
+
+### Latest Changes (Open Claw Workspace Rail Polish)
+- **Workspace controls moved behind one launcher:** the left rail now opens agent mode, response style, task state, workspace brief, persona, user profile, shell execution, and workspace-capability details inside a modal instead of stacking those cards under the session list.
+- **Session list capped to 15 per page:** the rail now pages task threads with range labels and Previous/Next controls so long histories stay manageable without shrinking the visible list area.
+- **Scroll behavior cleaned up:** the session list no longer owns a second nested scroll container, the rail uses one main scroll region, and the chat sticky-scroll observer is throttled to reduce jumpiness while streaming.
+- **Session reload crash path closed:** malformed raw `<openclaw_tool>` bridge messages are stripped and hidden before persistence/reload so Open Claw session restores no longer render those internal tool turns as normal assistant content.
+- **Local-model switching trimmed:** Open Claw skips redundant compatible-provider verification calls when the active provider is local Ollama, using model discovery plus Ollama health for a lighter refresh path.
 
 ### Latest Changes (Open Claw RAG Streaming Stability)
 - **Fixed the RAG source-chip crash path:** Open Claw now snapshots queued streamed source updates before React state callbacks run, preventing the `Cannot read properties of null (reading 'id')` crash that appeared when `knowledge_sources` arrived during streaming.

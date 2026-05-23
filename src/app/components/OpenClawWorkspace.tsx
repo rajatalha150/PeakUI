@@ -43,6 +43,7 @@ import { useStickyScroll } from '@/lib/use-sticky-scroll';
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL, formatBytes, type ExtractedFilePayload } from '@/lib/file-shared';
 import {
   extractOpenClawToolRequest,
+  stripAllToolTags,
   type OpenClawBrowserToolRequest,
   type OpenClawCodeToolRequest,
   type OpenClawFilesystemToolRequest,
@@ -57,6 +58,7 @@ import { reportClientError } from '@/lib/client-error-reporting';
 type OpenClawProvider = 'ollama' | 'openai-compatible';
 const MOBILE_BREAKPOINT = 960;
 const HUMAN_BROWSER_ASSIST_TIMEOUT_MS = 10 * 60 * 1000;
+const SESSION_PAGE_SIZE = 15;
 
 interface OpenClawSession {
   id: string;
@@ -555,6 +557,12 @@ function normalizeToolSources(value: unknown): MessageSource[] {
   return normalizeMessageSources(value);
 }
 
+function normalizeExtractedToolRequestName(value: unknown): OpenClawMessage['toolRequest'] {
+  return value === 'shell' || value === 'filesystem' || value === 'web' || value === 'code' || value === 'browser' || value === 'unified_browser'
+    ? value
+    : undefined;
+}
+
 function normalizeOpenClawMessage(value: unknown): OpenClawMessage | null {
   if (!value || typeof value !== 'object') return null;
 
@@ -563,11 +571,21 @@ function normalizeOpenClawMessage(value: unknown): OpenClawMessage | null {
     return null;
   }
 
-  const content = typeof raw.content === 'string' ? raw.content : '';
+  const rawContent = typeof raw.content === 'string' ? raw.content : '';
+  const extractedToolRequest = raw.role === 'assistant' && rawContent.includes('<openclaw_tool')
+    ? extractOpenClawToolRequest(rawContent)
+    : undefined;
+  const content = extractedToolRequest
+    ? extractedToolRequest.cleanedContent
+    : rawContent;
   const thinking = typeof raw.thinking === 'string' ? raw.thinking : undefined;
   const sources = normalizeToolSources(raw.sources);
   const images = Array.isArray(raw.images) ? raw.images : undefined;
   const attachments = Array.isArray(raw.attachments) ? raw.attachments : undefined;
+  const toolRequest = extractedToolRequest?.request
+    ? normalizeExtractedToolRequestName(extractedToolRequest.request.name)
+    : raw.toolRequest;
+  const hidden = raw.hidden === true || Boolean(extractedToolRequest?.request) || rawContent.includes('<openclaw_tool');
   const hasPayload = Boolean(
     content.trim()
     || thinking?.trim()
@@ -584,8 +602,8 @@ function normalizeOpenClawMessage(value: unknown): OpenClawMessage | null {
     id: typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : undefined,
     role: raw.role,
     content,
-    hidden: raw.hidden === true,
-    toolRequest: raw.toolRequest,
+    hidden,
+    toolRequest,
     thinking,
     presentation: raw.presentation,
     sources: sources.length ? sources : undefined,
@@ -1289,6 +1307,7 @@ export default function OpenClawWorkspace({
   const [newTagColor, setNewTagColor] = useState('#10b981');
   const [sessionSelectionMode, setSessionSelectionMode] = useState(false);
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
+  const [sessionListPage, setSessionListPage] = useState(0);
   const [selectedSessionInfo, setSelectedSessionInfo] = useState<string>('');
   const [ragEnabled, setRagEnabled] = useState(() => getStoredRagEnabled() ?? false);
   const [internetEnabled, setInternetEnabled] = useState(getStoredInternetEnabled);
@@ -1331,6 +1350,7 @@ export default function OpenClawWorkspace({
   const [workspaceBriefPanelOpen, setWorkspaceBriefPanelOpen] = useState(false);
   const [personaPanelOpen, setPersonaPanelOpen] = useState(false);
   const [userProfilePanelOpen, setUserProfilePanelOpen] = useState(false);
+  const [workspaceControlsModalOpen, setWorkspaceControlsModalOpen] = useState(false);
   const [memoryContext, setMemoryContext] = useState<string>('');
   const [hasMemory, setHasMemory] = useState(false);
   // Shell execution state
@@ -1945,6 +1965,21 @@ export default function OpenClawWorkspace({
     setBrowserLiveStatus('connecting');
   }, [settings?.openClawUwafLiveBrowser, currentSessionId, uwafBrowserMode]);
 
+  useEffect(() => {
+    if (!workspaceControlsModalOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setWorkspaceControlsModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [workspaceControlsModalOpen]);
+
+  useEffect(() => {
+    setSessionListPage(0);
+  }, [selectedFolderId, selectedTagId]);
+
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (!settings || !apiKeyLoaded) return;
@@ -1958,11 +1993,12 @@ export default function OpenClawWorkspace({
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (!settings || !apiKeyLoaded) return;
+    if (provider === 'ollama') return;
     const timer = window.setTimeout(() => {
       void verifyConnection(provider, baseUrl, apiKey, settings.ollamaHost);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [settings?.openClawProvider, settings?.openClawBaseUrl, settings?.ollamaHost, apiKeyLoaded, apiKey]);
+  }, [provider, baseUrl, settings?.openClawProvider, settings?.openClawBaseUrl, settings?.ollamaHost, apiKeyLoaded, apiKey]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
   /* eslint-disable react-hooks/exhaustive-deps */
@@ -2103,7 +2139,9 @@ export default function OpenClawWorkspace({
     if (!settings) return;
     await Promise.all([
       loadModels(provider, baseUrl),
-      verifyConnection(provider, baseUrl, apiKey, settings.ollamaHost),
+      provider === 'ollama'
+        ? Promise.resolve()
+        : verifyConnection(provider, baseUrl, apiKey, settings.ollamaHost),
       provider === 'ollama' ? refreshOllamaHealth(selectedModel, settings.ollamaHost) : Promise.resolve(),
     ]);
   };
@@ -2225,7 +2263,9 @@ export default function OpenClawWorkspace({
         setModelControlNote(`${stoppedModel} stopped. The next request will reload it.`);
       }
 
-      void verifyConnection(provider, baseUrl, apiKey, settings?.ollamaHost || 'http://127.0.0.1:11434');
+      if (provider !== 'ollama') {
+        void verifyConnection(provider, baseUrl, apiKey, settings?.ollamaHost || 'http://127.0.0.1:11434');
+      }
       void refreshOllamaHealth(selectedModel, settings?.ollamaHost || 'http://127.0.0.1:11434');
     } catch (error) {
       setModelControlNote(error instanceof Error ? error.message : 'Failed to stop selected model');
@@ -4175,19 +4215,31 @@ export default function OpenClawWorkspace({
         });
 
         currentSources = roundSources;
-        const { cleanedContent, request } = extractOpenClawToolRequest(assistantMessage.content);
-        const inferredFilesystemRequest = request?.name === 'shell' && filesystemEnabled
-          ? inferFilesystemRequestFromShellCommand(request.request.command, allowedFilesystemPaths)
-          : null;
-        const normalizedAssistant: OpenClawMessage = {
-          ...assistantMessage,
-          sources: request ? undefined : currentSources.length > 0 ? currentSources : undefined,
-          toolRequest: request
-            ? inferredFilesystemRequest
+      const rawToolTagPresent = assistantMessage.content.includes('<openclaw_tool');
+      const { cleanedContent, request } = extractOpenClawToolRequest(assistantMessage.content);
+      const inferredFilesystemRequest = request?.name === 'shell' && filesystemEnabled
+        ? inferFilesystemRequestFromShellCommand(request.request.command, allowedFilesystemPaths)
+        : null;
+      if (rawToolTagPresent && !request) {
+        reportClientError(new Error('Open Claw emitted an invalid tool block'), {
+          source: 'openclaw.tool-request.parse',
+          extra: {
+            assistantMessageId: nextAssistantId,
+            rawContent: assistantMessage.content,
+            cleanedContent,
+          },
+        });
+      }
+      const normalizedAssistant: OpenClawMessage = {
+        ...assistantMessage,
+        hidden: Boolean(request) || rawToolTagPresent,
+        sources: request ? undefined : currentSources.length > 0 ? currentSources : undefined,
+        toolRequest: request
+          ? inferredFilesystemRequest
               ? 'filesystem'
               : request.name
-            : undefined,
-          content: cleanedContent || (
+          : undefined,
+        content: cleanedContent || (
             request
               ? inferredFilesystemRequest
                 ? describeFilesystemRequest(inferredFilesystemRequest.action, inferredFilesystemRequest.path)
@@ -4202,9 +4254,11 @@ export default function OpenClawWorkspace({
                         : request.name === 'unified_browser'
                           ? describeUwafBrowserRequest(request.request)
                           : describeFilesystemRequest(request.request.action, request.request.path)
-              : assistantMessage.content
+              : rawToolTagPresent
+                ? stripAllToolTags(assistantMessage.content)
+                : assistantMessage.content
           ),
-        };
+      };
 
         updateChatMessage(nextAssistantId, current => ({
           ...current,
@@ -4610,7 +4664,7 @@ export default function OpenClawWorkspace({
   const activeStyleOption = OPENCLAW_RESPONSE_STYLE_OPTIONS.find(option => option.id === agentPreferences.responseStyle)
     || OPENCLAW_RESPONSE_STYLE_OPTIONS[1];
   const safeSessions = sanitizeOpenClawSessions(sessions);
-  const visibleSessions = safeSessions.filter(session => {
+  const filteredSessions = safeSessions.filter(session => {
     if (selectedFolderId && session.folderId !== selectedFolderId) {
       return false;
     }
@@ -4619,6 +4673,10 @@ export default function OpenClawWorkspace({
     }
     return true;
   });
+  const sessionPageCount = Math.max(1, Math.ceil(filteredSessions.length / SESSION_PAGE_SIZE));
+  const activeSessionListPage = Math.min(sessionListPage, sessionPageCount - 1);
+  const sessionPageStart = activeSessionListPage * SESSION_PAGE_SIZE;
+  const visibleSessions = filteredSessions.slice(sessionPageStart, sessionPageStart + SESSION_PAGE_SIZE);
   const folderSessionCounts = safeSessions.reduce<Record<string, number>>((accumulator, session) => {
     if (session.folderId) {
       accumulator[session.folderId] = (accumulator[session.folderId] || 0) + 1;
@@ -4633,6 +4691,11 @@ export default function OpenClawWorkspace({
     return accumulator;
   }, {});
   const selectedVisibleSessionCount = selectedSessionIds.filter(id => visibleSessions.some(session => session?.id === id)).length;
+  const showingAllVisibleSessions = filteredSessions.length <= SESSION_PAGE_SIZE;
+  useEffect(() => {
+    if (sessionListPage <= sessionPageCount - 1) return;
+    setSessionListPage(Math.max(0, sessionPageCount - 1));
+  }, [sessionListPage, sessionPageCount]);
   const compactModeLabel = activeModeOption.label.slice(0, 3).toUpperCase();
   const selectedModelButtonLabel = selectedModel || (modelsLoading
     ? 'Loading models...'
@@ -4702,6 +4765,10 @@ export default function OpenClawWorkspace({
     ? `${taskStateFieldCount}/4 fields set${taskState.checklist.length > 0 ? ` · ${taskState.checklist.length} checklist item${taskState.checklist.length === 1 ? '' : 's'}` : ''}`
     : 'No task state captured yet';
   const workspaceBriefSummary = `${hasWorkspaceNotes ? 'Notes set' : 'Notes empty'} · ${hasSuccessCriteria ? 'Criteria set' : 'Criteria empty'}`;
+  const personaSummary = persona.templateId === 'custom'
+    ? (persona.name || 'Default persona')
+    : `${persona.name} · ${persona.templateId}`;
+  const userProfileSummary = `${userProfile.name || 'Not set'} · ${userProfile.role || 'No role'}`;
   const visibleChatHistory = useMemo(
   () => sanitizeOpenClawMessages(deferredChatHistory).filter(isVisibleMessage),
   [deferredChatHistory, isVisibleMessage]
@@ -5724,7 +5791,11 @@ export default function OpenClawWorkspace({
                 <div className="openclaw-card-header">
                   <div>
                     <div className="openclaw-section-label">Sessions</div>
-                    <div style={{ marginTop: '4px', fontSize: '0.9rem', fontWeight: 700 }}>{visibleSessions.length} task threads</div>
+                    <div style={{ marginTop: '4px', fontSize: '0.9rem', fontWeight: 700 }}>
+                      {showingAllVisibleSessions
+                        ? `${filteredSessions.length} task threads`
+                        : `${sessionPageStart + 1}-${Math.min(sessionPageStart + visibleSessions.length, filteredSessions.length)} of ${filteredSessions.length} task threads`}
+                    </div>
                   </div>
                   <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <button
@@ -5891,7 +5962,7 @@ export default function OpenClawWorkspace({
                   {sessionSelectionMode && (
                     <div style={{ display: 'grid', gap: '8px', padding: '10px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.02)' }}>
                       <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                        {selectedVisibleSessionCount} selected in current view
+                        {selectedVisibleSessionCount} selected on this page
                       </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
                         <button
@@ -5933,7 +6004,7 @@ export default function OpenClawWorkspace({
                   )}
 
                   <div className="openclaw-list-scroll">
-                    {visibleSessions.length === 0 ? (
+                    {filteredSessions.length === 0 ? (
                       <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', padding: '8px 4px' }}>
                         {sessions.length === 0 ? 'No saved Open Claw sessions yet.' : 'No sessions match the current folder/tag filters.'}
                       </div>
@@ -6149,8 +6220,121 @@ export default function OpenClawWorkspace({
                       );
                     })}
                   </div>
+                  {filteredSessions.length > SESSION_PAGE_SIZE && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', paddingTop: '4px' }}>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                        Page {activeSessionListPage + 1} of {sessionPageCount}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          className="openclaw-inline-button"
+                          onClick={() => setSessionListPage(page => Math.max(0, page - 1))}
+                          disabled={activeSessionListPage === 0}
+                        >
+                          Previous
+                        </button>
+                        <button
+                          type="button"
+                          className="openclaw-inline-button"
+                          onClick={() => setSessionListPage(page => Math.min(sessionPageCount - 1, page + 1))}
+                          disabled={activeSessionListPage >= sessionPageCount - 1}
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
+              <div className="openclaw-card">
+                <button
+                  type="button"
+                  className="openclaw-disclosure-toggle"
+                  onClick={() => setWorkspaceControlsModalOpen(true)}
+                  aria-haspopup="dialog"
+                  aria-expanded={workspaceControlsModalOpen}
+                >
+                  <div className="openclaw-disclosure-summary">
+                    <div>
+                      <div className="openclaw-section-label">Workspace controls</div>
+                      <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                        Agent mode, response style, task state, brief, persona, profile, shell, and capability details.
+                      </div>
+                    </div>
+                    <div className="openclaw-disclosure-pill-row">
+                      <span className="openclaw-disclosure-pill">{activeAgentMode?.label || 'Plan'}</span>
+                      <span className="openclaw-disclosure-pill">{taskStateFieldCount}/4 task fields</span>
+                      <span className="openclaw-disclosure-pill">Shell: {shellEnabled ? 'On' : 'Off'}</span>
+                    </div>
+                  </div>
+                  <span className="openclaw-inline-button">
+                    <Settings size={14} />
+                    Open
+                  </span>
+                </button>
+              </div>
+              {workspaceControlsModalOpen && (
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Workspace controls"
+                  onClick={() => setWorkspaceControlsModalOpen(false)}
+                  style={{
+                    position: 'fixed',
+                    inset: 0,
+                    zIndex: 1200,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '20px',
+                    background: 'rgba(3, 6, 23, 0.66)',
+                    backdropFilter: 'blur(8px)',
+                  }}
+                >
+                  <div
+                    onClick={event => event.stopPropagation()}
+                    style={{
+                      width: 'min(960px, calc(100vw - 32px))',
+                      maxHeight: 'min(88vh, 960px)',
+                      overflowY: 'auto',
+                      padding: '18px',
+                      borderRadius: '18px',
+                      border: '1px solid var(--border-color)',
+                      background: 'var(--sidebar-bg)',
+                      boxShadow: '0 24px 72px rgba(0, 0, 0, 0.42)',
+                      display: 'grid',
+                      gap: '14px',
+                    }}
+                  >
+                    <div className="openclaw-card" style={{ gap: '12px', position: 'sticky', top: 0, zIndex: 1, background: 'var(--sidebar-bg)' }}>
+                      <div className="openclaw-card-header">
+                        <div>
+                          <div className="openclaw-section-label">Workspace controls</div>
+                          <div style={{ marginTop: '6px', fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                            Configure how Open Claw works in this browser
+                          </div>
+                          <div style={{ marginTop: '6px', fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                            {responseStyleSummary}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="openclaw-inline-button"
+                          onClick={() => setWorkspaceControlsModalOpen(false)}
+                        >
+                          <X size={14} />
+                          Close
+                        </button>
+                      </div>
+                      <div className="openclaw-disclosure-pill-row">
+                        <span className="openclaw-disclosure-pill">Task state: {taskStateSummary}</span>
+                        <span className="openclaw-disclosure-pill">Persona: {personaSummary}</span>
+                        <span className="openclaw-disclosure-pill">Profile: {userProfileSummary}</span>
+                        <span className="openclaw-disclosure-pill">Shell: {shellEnabled ? 'Enabled' : 'Disabled'}</span>
+                      </div>
+                    </div>
+                    <div style={{ display: 'grid', gap: '12px' }}>
               <div className="openclaw-card">
                 <div className="openclaw-card-header">
                   <div>
@@ -6471,9 +6655,7 @@ export default function OpenClawWorkspace({
                   <div>
                     <div className="openclaw-section-label">Agent persona</div>
                     <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                      {persona.templateId === 'custom'
-                        ? (persona.name || 'Default persona')
-                        : `${persona.name} · ${persona.templateId}`}
+                      {personaSummary}
                     </div>
                   </div>
                   <button
@@ -6613,7 +6795,7 @@ export default function OpenClawWorkspace({
                   <div>
                     <div className="openclaw-section-label">User profile</div>
                     <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                      {userProfile.name || 'Not set'} · {userProfile.role || 'No role'}
+                      {userProfileSummary}
                     </div>
                   </div>
                   <button
@@ -6701,7 +6883,10 @@ export default function OpenClawWorkspace({
                   <button
                     type="button"
                     className="openclaw-inline-button"
-                    onClick={() => setShellSettingsOpen(true)}
+                    onClick={() => {
+                      setWorkspaceControlsModalOpen(false);
+                      setShellSettingsOpen(true);
+                    }}
                   >
                     <Settings size={14} /> Configure
                   </button>
@@ -6847,6 +7032,10 @@ export default function OpenClawWorkspace({
                   </div>
                 )}
               </div>
+                    </div>
+                  </div>
+                </div>
+              )}
           </div>
             <div className="openclaw-card">
                 <div className="openclaw-card-header">

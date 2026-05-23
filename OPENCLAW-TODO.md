@@ -18,6 +18,8 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 - Streaming with thinking blocks, source chips
 - Quick-start prompt cards
 - Collapsible right rail
+- Workspace controls modal launcher in the rail
+- Session rail paging (15 per page) with smoother single-container scrolling
 - **Identity & Persona System:** agent persona config, user profile, 6 pre-built templates, operating instructions injected into every request
 
 ---

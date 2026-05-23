@@ -54,6 +54,13 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 
 ## 🚀 Recent Fixes & Changes (Stable)
 
+### Open Claw Workspace Rail
+- Workspace state controls now live behind one `Workspace controls` launcher in the rail instead of stacking every card below the session list.
+- The session list is now paged at 15 task threads per page with range labels plus Previous/Next controls.
+- Rail scrolling now uses one main scroll container, and Open Claw chat sticky-scroll is throttled to reduce jumpiness during streaming.
+- Raw internal `<openclaw_tool>` bridge messages are stripped and hidden before session persistence/reload so reopened Open Claw sessions do not crash on leaked tool turns.
+- Local Ollama refresh/switch flows now skip redundant compatible-provider verification calls and rely on model discovery plus Ollama health instead.
+
 ### Chat Mode System
 - **Uncensored/Unrestricted modes have full tool access.** Dynamic tool-aware clause replaces anti-tool language.
 - **Current date/time injected into ALL system prompts.**

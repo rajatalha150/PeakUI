@@ -31,12 +31,16 @@ Open Claw is the primary app shell. Generation settings are saved per user in `U
 - That button unloads the currently selected local model through an authenticated app route so the next request starts from a fresh load.
 - Open Claw reports startup phases separately so pre-stream delays are not all mislabeled as model warmup. Depending on the request, the user may see `Searching knowledge base...`, `Researching web...`, `Unloading other models...`, `Starting model...`, `Connecting to model...`, or `Generating...`.
 - During streaming, Open Claw only auto-sticks to the bottom while the user is already near the latest message. If the user scrolls upward, generation continues without forcing the viewport down; a floating arrow returns to the newest message.
+- The chat scroll observer is throttled through `requestAnimationFrame`, which reduces jumpy updates while streaming and keeps manual reading steadier on large answers.
 - The Open Claw workspace rail is the only left-side navigation surface. It is collapsible on desktop and opens as a drawer on mobile.
+- The rail now keeps deep workspace state controls behind one `Workspace controls` modal launcher so the session list stays taller.
+- Open Claw task threads are paged in the rail at 15 sessions per page, with range labels plus Previous/Next controls for longer histories.
 - Settings and Knowledge Base render inside the Open Claw shell instead of restoring a normal-chat sidebar.
 - Logout is available from the Settings header.
 - The authenticated `GET /api/ollama/health` route now reports whether Ollama is `online`, `degraded`, or `offline`, along with version, installed model count, loaded model count, loaded model names, and whether the currently selected model is already resident.
 - Open Claw surfaces that health data in-app and provides one-click `Retry`, `Retry without web`, and `Stop + retry` recovery actions after a draft has been submitted.
 - The Ollama health strip and `Stop model` control only appear when the currently selected model is actually running on Ollama.
+- When the provider is local Ollama, Open Claw no longer performs the extra OpenAI-compatible-style verify round trip during routine model refresh/switch flows; it relies on model discovery and Ollama health for the local path.
 
 ### Exclusive Ollama Switching
 
@@ -156,9 +160,11 @@ Production behavior:
 - The pinned checklist can be built manually or imported from assistant bullet/numbered checklist output, then edited independently of the chat transcript.
 - Open Claw's provider/session controls live in a dedicated left-side workspace rail on desktop, while model selection lives in the shared top bar.
 - That rail can be collapsed on desktop without introducing a second app sidebar.
+- The rail uses one main scroll container rather than a nested session-list scroller, which makes wheel/trackpad behavior more predictable.
 - On mobile, the same top bar stays in place and the rail collapses into a drawer while preserving the active Open Claw session.
 - If Knowledge Base or Settings is opened from the Open Claw rail, that panel renders inside the Open Claw shell so the selected task thread and Open Claw rail stay visible.
 - When Open Claw calls shell or filesystem tools mid-turn, the tool result is fed back into the model as a hidden `user` message so the same task can continue naturally. This avoids the older behavior where some multi-step reviews stopped after the first tool call because the resumed conversation ended on a hidden `system` message instead of a real follow-up turn.
+- Raw internal `<openclaw_tool>` bridge messages are stripped and hidden before session persistence/reload, which prevents malformed tool turns from rendering as visible assistant content or crashing the workspace on reopen.
 
 ### Open Claw Tool Permissions
 

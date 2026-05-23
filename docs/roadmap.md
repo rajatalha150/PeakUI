@@ -71,6 +71,13 @@
 - [x] Public-web browser control with staged form submission
 - [x] Shared managed Open Claw workspace mount
 
+### v0.7.1 - Open Claw Shell Polish
+- [x] Client-side error capture path for browser/render crashes
+- [x] Hidden-tool-message normalization to prevent raw tool bridges from crashing session reloads
+- [x] Local-Ollama switch path trimmed to avoid redundant verification calls
+- [x] Workspace-controls modal to free rail space without removing controls
+- [x] Session rail paging (15 per page) and smoother rail/chat scrolling
+
 ### v0.7.0 - Chat Organization
 - [x] Chat folders
 - [x] Chat tags
