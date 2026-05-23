@@ -405,8 +405,8 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `feat: harden uwaf stealth preflight and telemetry`
-- **Previous committed baseline:** `docs: add uwaf network hardening backlog`
+- **Current committed baseline:** `feat: improve canvas rendering and uwaf telemetry`
+- **Previous committed baseline:** `feat: harden uwaf stealth preflight and telemetry`
 
 ### Latest Changes (Canvas Rendering Pass)
 - **Shared assistant parsing is cached:** normalized assistant content, generated files, and inline-image extraction now go through a shared cache instead of being recomputed in every render path.
