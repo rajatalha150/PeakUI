@@ -406,8 +406,13 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `fix: streamline settings and uwaf mode switching`
-- **Previous committed baseline:** `fix: repair uwaf network panel build`
+- **Current committed baseline:** `fix: render markdown images in chat responses`
+- **Previous committed baseline:** `fix: streamline settings and uwaf mode switching`
+
+### Latest Changes (Chat Image Rendering Fix)
+- **Markdown images now render inline in plain responses:** assistant messages that only contain image markdown no longer bypass the structured renderer, so `![alt](url)` is treated as a real image instead of text.
+- **External images have a fallback path:** when a remote image fails to load, the renderer now falls back to a clickable source link rather than showing a broken silent placeholder.
+- **Streaming state is less brittle:** failed image loads reset when the image URL changes, which avoids sticky error state during partial-stream updates.
 
 ### Latest Changes (Settings UX & UWAF Mode Switching)
 - **UWAF mode switching is now runtime-smooth:** the backend no longer blocks explicit `direct` or `stealth` requests just because the saved UWAF mode setting differs, so switching browser modes inside the same Open Claw chat works without the old configuration-mismatch failure.

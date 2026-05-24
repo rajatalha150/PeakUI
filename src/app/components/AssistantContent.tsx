@@ -80,6 +80,59 @@ function CitationLink({ index, sources }: { index: number; sources?: MessageSour
   );
 }
 
+function getMarkdownImageUrl(rawUrl: string): string {
+  const trimmed = rawUrl.trim();
+  if (trimmed.startsWith('<') && trimmed.endsWith('>')) {
+    return trimmed.slice(1, -1).trim();
+  }
+  const quotedTitleMatch = trimmed.match(/^(\S+)\s+["'][^"']*["']$/);
+  return quotedTitleMatch?.[1] || trimmed;
+}
+
+function InlineMarkdownImage({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = React.useState(false);
+  const imageUrl = getMarkdownImageUrl(src);
+
+  React.useEffect(() => {
+    setFailed(false);
+  }, [imageUrl]);
+
+  if (failed) {
+    return (
+      <a
+        href={imageUrl}
+        target="_blank"
+        rel="noreferrer"
+        style={{ color: 'var(--accent-primary)', textDecoration: 'underline', wordBreak: 'break-word' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {alt || imageUrl}
+      </a>
+    );
+  }
+
+  return (
+    <img
+      src={imageUrl}
+      alt={alt || 'Image'}
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+      style={{
+        maxWidth: 'min(100%, 720px)',
+        maxHeight: '420px',
+        width: 'auto',
+        height: 'auto',
+        borderRadius: '8px',
+        border: '1px solid var(--border-color)',
+        display: 'block',
+        margin: '8px 0',
+        objectFit: 'contain',
+      }}
+    />
+  );
+}
+
 function renderInline(text: string, keyPrefix: string, sources?: MessageSource[]): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
   
@@ -103,7 +156,7 @@ function renderInline(text: string, keyPrefix: string, sources?: MessageSource[]
     };
     while ((m = imgRe.exec(text)) !== null) {
       if (m.index > pos) process(text.slice(pos, m.index), keyPrefix);
-      nodes.push(<img key={`${keyPrefix}-i-${i++}`} src={m[2]} alt={m[1]||'img'} style={{maxWidth:'100%',maxHeight:'300px',borderRadius:'8px',display:'block',margin:'8px 0'}} />);
+      nodes.push(<InlineMarkdownImage key={`${keyPrefix}-i-${i++}`} src={m[2]} alt={m[1] || 'Image'} />);
       pos = imgRe.lastIndex;
     }
     if (pos < text.length) process(text.slice(pos), keyPrefix);
@@ -624,6 +677,7 @@ function shouldRenderStructured(content: string, presentation?: ResponsePresenta
 
   return (
     content.includes('```')
+    || /!\[[^\]]*\]\([^)]+\)/.test(content)
     || /^#{1,6}\s+\S/m.test(content)
     || /^\s*(?:[-*+•]|\d+\.)\s+\S/m.test(content)
     || /\n\s*\|.+\|\s*\n\s*\|[\s:-|]+\|/m.test(content)
@@ -643,7 +697,7 @@ export default function AssistantContent({
   const normalizedContent = normalizeAssistantResponseContent(content, presentation);
 
   if (!shouldRenderStructured(normalizedContent, presentation)) {
-    return <span style={{ whiteSpace: 'pre-wrap', lineHeight: '1.7' }}>{normalizedContent}</span>;
+    return <span style={{ whiteSpace: 'pre-wrap', lineHeight: '1.7' }}>{renderInline(normalizedContent, 'plain', sources)}</span>;
   }
 
   const mode = presentation?.mode ?? 'general';
