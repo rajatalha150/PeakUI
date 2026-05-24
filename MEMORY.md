@@ -88,6 +88,12 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - Unified browser results are now evidence-driven instead of optimistic: validated search checks detect homepage bounces, zero-result pages, anti-bot gates, login redirects, and no-op interactions before the model can treat them as success
 - Added richer browser actions: `type`, `press`, `wait_for_selector`, `scroll`, `back`, `forward`, `new_tab`, `list_tabs`, `switch_tab`, `close_tab`, `select`, and `hover`
 - Browser results now return redirect state, HTTP status when available, query-match flags, result counts, tab state, selector/wait outcomes, and recent JS/network failures; the Open Claw prompt instructs the model to treat those fields as authoritative evidence
+- Stealth mode now uses a broader versioned desktop fingerprint catalog with deterministic per-session selection across locale, timezone, platform, hardware concurrency, device memory, viewport, screen size, and WebGL identity.
+- Added `normal` and `high` stealth profiles with different Chromium launch flags and fingerprint bias; high profile is used automatically for `.onion`, hidden-service, or research-batch flows and can also be requested explicitly.
+- Stealth init scripts now normalize more browser surfaces: `navigator.userAgentData`, plugins/mime-types, screen/window sizing, media-device exposure, `navigator.connection`, WebGL vendor/renderer, and `doNotTrack`.
+- Stealth preflight now includes cached fingerprint-regression checks against known detector pages in addition to Tor reachability, DNS leak, WebRTC constructor removal, media-capture denial, and UDP/proxy-bypass verification.
+- Stealth search now rotates across multiple providers such as Ahmia, DuckDuckGo Lite, and Startpage, with provider scoring, degradation cooldowns, and curated entry-point metadata exposed through the status route.
+- Tor audit fixes now keep approval/preflight/execution on the same resolved stealth profile, block non-proxy host resolution for stealth Chromium, and avoid duplicate `.onion` pre-navigation checks on successful opens while preserving precise diagnostics on failures.
 
 ### Open Claw Session Management
 - Open Claw task threads now have organization controls in the primary rail: folder assignment/filtering, reusable tags, pin/unpin, inline rename, copy-to-clipboard, and per-thread delete

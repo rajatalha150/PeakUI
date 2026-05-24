@@ -441,6 +441,7 @@ interface UwafBrowserToolResultEntry {
   }>;
   screenshot?: string;
   mode: 'direct' | 'stealth';
+  stealthProfile?: 'normal' | 'high';
   source: 'clear_web' | 'dark_web';
   success: boolean;
   error?: string;
@@ -581,7 +582,9 @@ function describeBrowserRequest(request: OpenClawBrowserToolRequest) {
 }
 
 function describeUwafBrowserRequest(request: OpenClawUwafBrowserToolRequest) {
-  const modeLabel = request.browserMode === 'stealth' ? 'Stealth' : 'Direct';
+  const modeLabel = request.browserMode === 'stealth'
+    ? `Stealth${request.stealthProfile === 'high' ? ' High' : ''}`
+    : 'Direct';
   if (request.action === 'search') {
     return request.description?.trim()
       ? `UWAF ${modeLabel} Search: ${request.description.trim()}`
@@ -985,7 +988,7 @@ function getOpenClawToolRequestSignature(request: OpenClawToolRequest) {
 
   if (request.name === 'unified_browser') {
     const uwaf = request.request as OpenClawUwafBrowserToolRequest
-    return `unified_browser:${uwaf.action}:${uwaf.query?.trim() || ''}:${uwaf.url?.trim() || ''}:${uwaf.browserMode || ''}:${uwaf.linkIndex ?? ''}:${uwaf.linkText?.trim() || ''}:${uwaf.formIndex ?? ''}:${JSON.stringify(uwaf.values || {})}:${uwaf.mode || ''}:${uwaf.depth ?? ''}:${uwaf.selector?.trim() || ''}:${uwaf.text || ''}:${uwaf.key?.trim() || ''}:${uwaf.tabIndex ?? ''}:${uwaf.timeoutMs ?? ''}:${uwaf.deltaY ?? ''}:${uwaf.optionValue?.trim() || ''}:${uwaf.optionLabel?.trim() || ''}`;
+    return `unified_browser:${uwaf.action}:${uwaf.query?.trim() || ''}:${uwaf.url?.trim() || ''}:${uwaf.browserMode || ''}:${uwaf.stealthProfile || ''}:${uwaf.linkIndex ?? ''}:${uwaf.linkText?.trim() || ''}:${uwaf.formIndex ?? ''}:${JSON.stringify(uwaf.values || {})}:${uwaf.mode || ''}:${uwaf.depth ?? ''}:${uwaf.selector?.trim() || ''}:${uwaf.text || ''}:${uwaf.key?.trim() || ''}:${uwaf.tabIndex ?? ''}:${uwaf.timeoutMs ?? ''}:${uwaf.deltaY ?? ''}:${uwaf.optionValue?.trim() || ''}:${uwaf.optionLabel?.trim() || ''}`;
   }
 
   return `filesystem:${request.request.action}:${request.request.path.trim()}`;
@@ -1225,7 +1228,8 @@ function formatBrowserToolResult(entry: BrowserToolResultEntry): string {
 }
 
 function formatUwafBrowserToolResult(entry: UwafBrowserToolResultEntry): string {
-  const modeLabel = entry.mode === 'stealth' ? 'Stealth (Tor)' : 'Direct (Clear Web)';
+  const profileLabel = entry.mode === 'stealth' && entry.stealthProfile ? ` · ${entry.stealthProfile}` : '';
+  const modeLabel = entry.mode === 'stealth' ? `Stealth (Tor${profileLabel})` : 'Direct (Clear Web)';
   const lines = [
     `Unified browser result [${modeLabel}]:`,
     `Action: ${entry.action}`,
@@ -3426,6 +3430,7 @@ export default function OpenClawWorkspace({
         tables: data.tables || [],
         markdown: data.markdown || '',
         mode: data.mode || 'direct',
+        stealthProfile: data.stealthProfile === 'high' ? 'high' : data.stealthProfile === 'normal' ? 'normal' : undefined,
         source: data.source || 'clear_web',
         success: data.success !== false,
         error: typeof data.error === 'string' ? data.error : undefined,

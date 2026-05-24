@@ -11,6 +11,7 @@ interface UwafStatus {
   torExitIp?: string
   torExitCountry?: string
   stealthSearchEngine?: string
+  stealthProfile?: 'normal' | 'high'
   onionReady?: boolean
 }
 
@@ -189,6 +190,12 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
                   <Globe size={10} />
                   <span>Stealth search: {status.stealthSearchEngine}</span>
+                </div>
+              )}
+              {status.stealthProfile && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
+                  <Shield size={10} />
+                  <span>Stealth profile: {status.stealthProfile}</span>
                 </div>
               )}
               {status.onionReady !== undefined && (

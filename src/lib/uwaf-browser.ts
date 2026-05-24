@@ -1,5 +1,6 @@
 import type { BrowserContext, Page } from 'playwright-core'
 import { checkOnionResolution, closeContext, getPage, type BrowserMode } from './uwaf-pool'
+import { getDefaultStealthProfile, normalizeStealthProfile, type StealthProfile } from './uwaf-fingerprint'
 import {
   extractTables,
   isBlockedBinaryUrl,
@@ -10,6 +11,12 @@ import {
 import type { OpenClawUwafBrowserMode } from './settings'
 import { assertPublicHttpUrl } from './openclaw-browser'
 import { recordUwafPageOpenTime } from './uwaf-telemetry'
+import {
+  getCuratedStealthEntryPoints,
+  listSearchProviders,
+  recordSearchProviderOutcome,
+  type UwafSearchProvider,
+} from './uwaf-search-providers'
 
 const MAX_TEXT_CHARS = 30_000
 const MAX_LINKS = 50
@@ -22,26 +29,6 @@ const MAX_WAIT_TIMEOUT_MS = 30_000
 const MAX_SCROLL_DELTA = 5_000
 const MAX_JS_ERRORS = 8
 const MAX_NETWORK_ERRORS = 10
-const SEARCH_ENGINES = {
-  direct: {
-    label: 'DuckDuckGo',
-    resultsUrl: (query: string) => `https://duckduckgo.com/?q=${encodeURIComponent(query.trim())}&ia=web`,
-    homeUrl: 'https://duckduckgo.com/',
-    inputSelectors: ['input[name="q"]', 'textarea[name="q"]', 'input[type="text"]'],
-    submitSelectors: ['button[type="submit"]', 'input[type="submit"]'],
-    resultSelectors: ['[data-testid="result"]', '.result', '.results_links', '#links .result'],
-  },
-  stealth: {
-    label: 'Ahmia',
-    resultsUrl: (query: string) => `https://ahmia.fi/search/?q=${encodeURIComponent(query.trim())}`,
-    homeUrl: 'https://ahmia.fi/',
-    inputSelectors: ['input[name="q"]', 'input[type="search"]', 'input[type="text"]'],
-    submitSelectors: ['button[type="submit"]', 'input[type="submit"]'],
-    resultSelectors: ['.searchResults li', '.search-results li', '.result', '.search-result', '.results li'],
-  },
-} as const
-
-const SEARCH_HOME_HOSTS = new Set(['duckduckgo.com', 'www.duckduckgo.com', 'ahmia.fi', 'www.ahmia.fi'])
 
 const LOGIN_PATTERNS = [
   /\blog in\b/i,
@@ -114,6 +101,7 @@ export interface UwafBrowserRequest {
   values?: Record<string, string>
   mode?: 'summary' | 'text' | 'links' | 'forms' | 'html'
   browserMode?: BrowserMode
+  stealthProfile?: StealthProfile
   depth?: number
   selector?: string
   text?: string
@@ -163,6 +151,7 @@ export interface UwafBrowserResult {
   tables?: ExtractedTable[]
   screenshot?: string
   mode: BrowserMode
+  stealthProfile?: StealthProfile
   source?: 'clear_web' | 'dark_web'
   success: boolean
   error?: string
@@ -216,6 +205,7 @@ interface UwafBrowserSession {
   userId: string
   sessionId: string
   mode: BrowserMode
+  stealthProfile: StealthProfile
   updatedAt: number
   currentPage?: {
     url: string
@@ -257,21 +247,46 @@ interface PageObservation {
   activeTabIndex: number
   pageSignature: string
   observations: string[]
+  stealthProfile?: StealthProfile
 }
 
 const sessions = new Map<string, UwafBrowserSession>()
 const pageInstrumentation = new WeakMap<Page, PageInstrumentation>()
 
+export function resolveStealthProfileForRequest(
+  request: Pick<UwafBrowserRequest, 'action' | 'url' | 'query' | 'stealthProfile'>,
+  defaultProfile: StealthProfile = getDefaultStealthProfile(),
+): StealthProfile {
+  if (request.stealthProfile) {
+    return normalizeStealthProfile(request.stealthProfile)
+  }
+
+  const raw = `${request.url || ''} ${request.query || ''}`.toLowerCase()
+  const likelySensitive = raw.includes('.onion')
+    || raw.includes('hidden service')
+    || raw.includes('high stealth')
+    || raw.includes('high-stealth')
+    || request.action === 'research_batch'
+
+  return likelySensitive ? 'high' : normalizeStealthProfile(defaultProfile)
+}
+
 function getSessionKey(userId: string, sessionId: string, mode: BrowserMode): string {
   return `${userId}:${sessionId}:${mode}`
 }
 
-function getOrCreateSession(userId: string, sessionId: string, mode: BrowserMode): UwafBrowserSession {
+function getOrCreateSession(
+  userId: string,
+  sessionId: string,
+  mode: BrowserMode,
+  stealthProfile: StealthProfile,
+): UwafBrowserSession {
   cleanupExpiredSessions()
   const key = getSessionKey(userId, sessionId, mode)
   const existing = sessions.get(key)
   if (existing && Date.now() - existing.updatedAt < SESSION_TTL_MS) {
     existing.updatedAt = Date.now()
+    existing.stealthProfile = stealthProfile
     return existing
   }
 
@@ -279,6 +294,7 @@ function getOrCreateSession(userId: string, sessionId: string, mode: BrowserMode
     userId,
     sessionId,
     mode,
+    stealthProfile,
     updatedAt: Date.now(),
     filledForms: {},
     screenshots: [],
@@ -329,6 +345,11 @@ function isOnionUrl(url: string): boolean {
   }
 }
 
+function isValidOnionHostname(hostname: string): boolean {
+  const label = hostname.toLowerCase().replace(/\.onion$/, '')
+  return /^[a-z2-7]{56}$/.test(label) || /^[a-z2-7]{16}$/.test(label)
+}
+
 async function assertUwafUrlAllowed(rawUrl: string, mode: BrowserMode): Promise<URL> {
   if (isOnionUrl(rawUrl)) {
     if (mode !== 'stealth') {
@@ -352,6 +373,10 @@ async function assertUwafUrlAllowed(rawUrl: string, mode: BrowserMode): Promise<
 
     if (onionUrl.port && !['80', '443'].includes(onionUrl.port)) {
       throw new Error(`Blocked non-standard port for URL: ${onionUrl.href}`)
+    }
+
+    if (!isValidOnionHostname(onionUrl.hostname)) {
+      throw new Error(`Invalid .onion hostname. Expected a valid v2/v3 onion address, got: ${onionUrl.hostname}`)
     }
 
     return onionUrl
@@ -536,6 +561,7 @@ async function observePage(
     redirected?: boolean
     since?: number
     observations?: string[]
+    stealthProfile?: StealthProfile
   } = {},
 ): Promise<PageObservation> {
   ensurePageInstrumentation(page)
@@ -602,11 +628,8 @@ async function observePage(
     activeTabIndex: tabsState.activeTabIndex,
     pageSignature: buildPageSignature(title, markdown, links, forms),
     observations,
+    stealthProfile: options.stealthProfile,
   }
-}
-
-function buildSearchUrl(query: string, mode: BrowserMode): string {
-  return SEARCH_ENGINES[mode].resultsUrl(query)
 }
 
 async function countMatchingSelectors(page: Page, selectors: readonly string[]): Promise<number> {
@@ -619,19 +642,18 @@ async function countMatchingSelectors(page: Page, selectors: readonly string[]):
   return 0
 }
 
-async function maybeUseSearchForm(page: Page, mode: BrowserMode, query: string): Promise<boolean> {
-  const engine = SEARCH_ENGINES[mode]
-  await page.goto(engine.homeUrl, { timeout: 30_000, waitUntil: 'domcontentloaded' })
+async function maybeUseSearchForm(page: Page, provider: UwafSearchProvider, query: string): Promise<boolean> {
+  await page.goto(provider.homeUrl, { timeout: 30_000, waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(250)
 
-  for (const selector of engine.inputSelectors) {
+  for (const selector of provider.inputSelectors) {
     const locator = page.locator(selector).first()
     const count = await locator.count().catch(() => 0)
     if (count === 0) continue
 
     await locator.fill(query).catch(() => {})
     await locator.press('Enter').catch(() => {})
-    for (const submitSelector of engine.submitSelectors) {
+    for (const submitSelector of provider.submitSelectors) {
       const button = page.locator(submitSelector).first()
       const buttonCount = await button.count().catch(() => 0)
       if (buttonCount > 0) {
@@ -650,7 +672,7 @@ async function maybeUseSearchForm(page: Page, mode: BrowserMode, query: string):
 function isSearchHomepage(url: string): boolean {
   try {
     const parsed = new URL(url)
-    return SEARCH_HOME_HOSTS.has(parsed.hostname) && (parsed.pathname === '/' || parsed.pathname === '')
+    return parsed.pathname === '/' || parsed.pathname === ''
   } catch {
     return false
   }
@@ -659,7 +681,7 @@ function isSearchHomepage(url: string): boolean {
 function evaluateSearchObservation(
   observation: PageObservation,
   query: string,
-  mode: BrowserMode,
+  provider: UwafSearchProvider,
   resultCount: number,
 ): {
   success: boolean
@@ -713,7 +735,7 @@ function evaluateSearchObservation(
       success: false,
       queryMatched,
       failureCode: 'homepage_bounce',
-      failureDetail: `${SEARCH_ENGINES[mode].label} returned its home page instead of a result set.`,
+      failureDetail: `${provider.label} returned its home page instead of a result set.`,
       observations: notes,
     }
   }
@@ -781,6 +803,7 @@ function toResult(
     tables: observation.tables,
     screenshot: observation.screenshot,
     mode,
+    stealthProfile: mode === 'stealth' ? observation.stealthProfile : undefined,
     source: getSourceMode(mode),
     success: options.success ?? true,
     error: options.error,
@@ -836,17 +859,13 @@ async function navigateToUrl(
   url: string,
   mode: BrowserMode,
   takeScreenshot: boolean,
-  options: { since?: number; observations?: string[] } = {},
+  options: { since?: number; observations?: string[]; stealthProfile?: StealthProfile } = {},
 ): Promise<PageObservation> {
   const targetUrl = await assertUwafUrlAllowed(url, mode)
   const observations = [...(options.observations || [])]
 
   if (isOnionUrl(targetUrl.href)) {
-    const onionCheck = await checkOnionResolution(targetUrl.href)
-    if (!onionCheck.ok) {
-      throw new Error(`.onion resolution failed for ${onionCheck.hostname}: ${onionCheck.error || 'unknown Tor resolution failure'}`)
-    }
-    observations.push(`Verified .onion resolution through Tor for ${onionCheck.hostname}.`)
+    observations.push(`Attempting .onion navigation through Tor for ${targetUrl.hostname}.`)
   }
 
   if (isBlockedBinaryUrl(targetUrl.href)) {
@@ -855,7 +874,16 @@ async function navigateToUrl(
 
   await page.bringToFront().catch(() => {})
   const navigationStartedAt = Date.now()
-  const response = await page.goto(targetUrl.href, { timeout: 30_000, waitUntil: 'domcontentloaded' })
+  let response: Awaited<ReturnType<Page['goto']>>
+  try {
+    response = await page.goto(targetUrl.href, { timeout: 30_000, waitUntil: 'domcontentloaded' })
+  } catch (error) {
+    if (isOnionUrl(targetUrl.href)) {
+      const onionCheck = await checkOnionResolution(targetUrl.href, options.stealthProfile || getDefaultStealthProfile())
+      throw new Error(`.onion navigation failed for ${targetUrl.hostname}: ${onionCheck.error || (error instanceof Error ? error.message : String(error))}`)
+    }
+    throw error
+  }
   recordUwafPageOpenTime(Date.now() - navigationStartedAt)
   await page.bringToFront().catch(() => {})
 
@@ -865,6 +893,7 @@ async function navigateToUrl(
     redirected: page.url() !== targetUrl.href,
     since: options.since,
     observations,
+    stealthProfile: options.stealthProfile,
   })
 }
 
@@ -873,58 +902,128 @@ async function executeSearch(
   query: string,
   mode: BrowserMode,
   takeScreenshot: boolean,
+  stealthProfile: StealthProfile,
 ): Promise<UwafBrowserResult> {
-  const startedAt = Date.now()
-  const initialUrl = buildSearchUrl(query, mode)
-  const searchEngine = SEARCH_ENGINES[mode].label
-  const initialObservation = await navigateToUrl(page, initialUrl, mode, takeScreenshot, {
-    since: startedAt,
-    observations: [`Issued a ${searchEngine} query for: ${query}`],
-  })
-  const initialCount = await countMatchingSelectors(page, SEARCH_ENGINES[mode].resultSelectors)
-  let evaluation = evaluateSearchObservation(initialObservation, query, mode, initialCount)
-  let finalObservation = initialObservation
-  let resultCount = initialCount
+  const providers = listSearchProviders(mode, query, stealthProfile)
+  const curatedEntryPoints = mode === 'stealth' ? getCuratedStealthEntryPoints() : []
+  const attempts: Array<{
+    provider: UwafSearchProvider
+    observation: PageObservation
+    evaluation: ReturnType<typeof evaluateSearchObservation>
+    resultCount: number
+    requestedUrl: string
+  }> = []
 
-  if (!evaluation.success) {
-    const usedForm = await maybeUseSearchForm(page, mode, query).catch(() => false)
-    if (usedForm) {
-      finalObservation = await observePage(page, mode, takeScreenshot, {
-        since: startedAt,
-        observations: [...evaluation.observations, `Retried the query through the ${searchEngine} on-page search form.`],
+  for (const provider of providers) {
+    const startedAt = Date.now()
+    const requestedUrl = provider.resultsUrl(query)
+    let observation = await navigateToUrl(page, requestedUrl, mode, takeScreenshot, {
+      since: startedAt,
+      stealthProfile,
+      observations: [
+        `Issued a ${provider.label} query for: ${query}`,
+        ...(curatedEntryPoints.length > 0 && mode === 'stealth'
+          ? [`Curated stealth entry points available: ${curatedEntryPoints.map(entry => entry.label).join(', ')}`]
+          : []),
+      ],
+    })
+    let resultCount = await countMatchingSelectors(page, provider.resultSelectors)
+    let evaluation = evaluateSearchObservation(observation, query, provider, resultCount)
+
+    if (!evaluation.success) {
+      const usedForm = await maybeUseSearchForm(page, provider, query).catch(() => false)
+      if (usedForm) {
+        observation = await observePage(page, mode, takeScreenshot, {
+          since: startedAt,
+          observations: [...evaluation.observations, `Retried the query through the ${provider.label} on-page search form.`],
+          stealthProfile,
+        })
+        resultCount = await countMatchingSelectors(page, provider.resultSelectors)
+        evaluation = evaluateSearchObservation(observation, query, provider, resultCount)
+      }
+    }
+
+    recordSearchProviderOutcome({
+      providerId: provider.id,
+      mode,
+      durationMs: Date.now() - startedAt,
+      success: evaluation.success,
+      antiBotDetected: observation.antiBotDetected,
+      loginDetected: observation.loginDetected,
+      resultCount,
+      useful: evaluation.success && resultCount > 0 && evaluation.queryMatched,
+      error: evaluation.failureDetail,
+    })
+
+    attempts.push({
+      provider,
+      observation,
+      evaluation,
+      resultCount,
+      requestedUrl,
+    })
+
+    if (evaluation.success) {
+      return toResult('search', mode, observation, {
+        success: true,
+        requestedUrl,
+        requestedQuery: query,
+        queryMatched: evaluation.queryMatched,
+        resultCount,
+        searchEngine: provider.label,
       })
-      resultCount = await countMatchingSelectors(page, SEARCH_ENGINES[mode].resultSelectors)
-      evaluation = evaluateSearchObservation(finalObservation, query, mode, resultCount)
     }
   }
 
-  return toResult('search', mode, finalObservation, {
-    success: evaluation.success,
-    error: evaluation.success ? undefined : evaluation.failureDetail,
-    requestedUrl: initialUrl,
+  const fallback = attempts.sort((left, right) => {
+    if (left.resultCount !== right.resultCount) return right.resultCount - left.resultCount
+    if (left.evaluation.queryMatched !== right.evaluation.queryMatched) return left.evaluation.queryMatched ? -1 : 1
+    return left.observation.observations.length - right.observation.observations.length
+  })[0]
+
+  if (!fallback) {
+    throw new Error('No configured search providers are available for this browser mode.')
+  }
+
+  return toResult('search', mode, fallback.observation, {
+    success: false,
+    error: fallback.evaluation.failureDetail,
+    requestedUrl: fallback.requestedUrl,
     requestedQuery: query,
-    queryMatched: evaluation.queryMatched,
-    resultCount,
-    failureCode: evaluation.failureCode,
-    failureDetail: evaluation.failureDetail,
-    searchEngine,
+    queryMatched: fallback.evaluation.queryMatched,
+    resultCount: fallback.resultCount,
+    failureCode: fallback.evaluation.failureCode,
+    failureDetail: fallback.evaluation.failureDetail,
+    searchEngine: fallback.provider.label,
   })
 }
 
-async function openNewTabFromUrl(page: Page, url: string, mode: BrowserMode, takeScreenshot: boolean, since: number): Promise<PageObservation> {
+async function openNewTabFromUrl(
+  page: Page,
+  url: string,
+  mode: BrowserMode,
+  takeScreenshot: boolean,
+  since: number,
+  stealthProfile: StealthProfile,
+): Promise<PageObservation> {
   const targetUrl = await assertUwafUrlAllowed(url, mode)
   const observations: string[] = []
   if (isOnionUrl(targetUrl.href)) {
-    const onionCheck = await checkOnionResolution(targetUrl.href)
-    if (!onionCheck.ok) {
-      throw new Error(`.onion resolution failed for ${onionCheck.hostname}: ${onionCheck.error || 'unknown Tor resolution failure'}`)
-    }
-    observations.push(`Verified .onion resolution through Tor for ${onionCheck.hostname}.`)
+    observations.push(`Attempting .onion navigation through Tor for ${targetUrl.hostname}.`)
   }
   const nextPage = await page.context().newPage()
   await nextPage.bringToFront().catch(() => {})
   const navigationStartedAt = Date.now()
-  const response = await nextPage.goto(targetUrl.href, { timeout: 30_000, waitUntil: 'domcontentloaded' })
+  let response: Awaited<ReturnType<Page['goto']>>
+  try {
+    response = await nextPage.goto(targetUrl.href, { timeout: 30_000, waitUntil: 'domcontentloaded' })
+  } catch (error) {
+    if (isOnionUrl(targetUrl.href)) {
+      const onionCheck = await checkOnionResolution(targetUrl.href, stealthProfile)
+      throw new Error(`.onion navigation failed for ${targetUrl.hostname}: ${onionCheck.error || (error instanceof Error ? error.message : String(error))}`)
+    }
+    throw error
+  }
   recordUwafPageOpenTime(Date.now() - navigationStartedAt)
   return await observePage(nextPage, mode, takeScreenshot, {
     requestUrl: targetUrl.href,
@@ -932,6 +1031,7 @@ async function openNewTabFromUrl(page: Page, url: string, mode: BrowserMode, tak
     redirected: nextPage.url() !== targetUrl.href,
     since,
     observations,
+    stealthProfile,
   })
 }
 
@@ -950,25 +1050,26 @@ export async function runUwafBrowserAction(
   }
 
   const mode: BrowserMode = request.browserMode || settings.openClawUwafDefaultMode || 'direct'
+  const stealthProfile = resolveStealthProfileForRequest(request, getDefaultStealthProfile())
 
   if (mode === 'stealth') {
     const { runStealthPreflight } = await import('./uwaf-pool')
-    const preflight = await runStealthPreflight()
+    const preflight = await runStealthPreflight({ profile: stealthProfile })
     if (!preflight.ok) {
-      throw new Error(`Stealth preflight failed: ${preflight.error || 'Tor routing could not be verified'}. Direct IP: ${preflight.directIp}. Tor exit IP: ${preflight.torExitIp}.`)
+      throw new Error(`Stealth preflight failed for ${stealthProfile} profile: ${preflight.error || 'Tor routing could not be verified'}. Direct IP: ${preflight.directIp}. Tor exit IP: ${preflight.torExitIp}.`)
     }
   }
 
-  const session = getOrCreateSession(userId, request.sessionId, mode)
+  const session = getOrCreateSession(userId, request.sessionId, mode, stealthProfile)
   const takeScreenshot = false
   const contextKey = getSessionKey(userId, request.sessionId, mode)
-  const page = await getPage(contextKey, mode)
+  const page = await getPage(contextKey, mode, stealthProfile)
   ensurePageInstrumentation(page)
 
   switch (request.action) {
     case 'search': {
       if (!request.query?.trim()) throw new Error('Query is required for the "search" action.')
-      const result = await executeSearch(page, request.query, mode, takeScreenshot)
+      const result = await executeSearch(page, request.query, mode, takeScreenshot, stealthProfile)
       session.currentPage = {
         url: result.currentUrl,
         title: result.title,
@@ -984,7 +1085,7 @@ export async function runUwafBrowserAction(
       const since = Date.now()
       const beforeUrl = page.url()
       const beforeSignature = await page.title().catch(() => '')
-      const observation = await navigateToUrl(page, request.url, mode, takeScreenshot, { since })
+      const observation = await navigateToUrl(page, request.url, mode, takeScreenshot, { since, stealthProfile })
       session.currentPage = {
         url: observation.url,
         title: observation.title,
@@ -1005,7 +1106,7 @@ export async function runUwafBrowserAction(
       const since = Date.now()
       const beforeUrl = page.url()
       const beforeObservation = await observePage(page, mode, false, { since: 0 })
-      const observation = await navigateToUrl(page, targetUrl, mode, takeScreenshot, { since })
+      const observation = await navigateToUrl(page, targetUrl, mode, takeScreenshot, { since, stealthProfile })
       session.currentPage = { url: observation.url, title: observation.title, links: observation.links, forms: observation.forms }
       if (observation.screenshot) pushScreenshot(session, observation.screenshot)
       return toResult('click', mode, observation, {
@@ -1058,7 +1159,7 @@ export async function runUwafBrowserAction(
       if (!request.url) throw new Error('URL is required for "research_batch" action.')
       const depth = Math.min(Math.max(request.depth || 1, 1), RESEARCH_BATCH_MAX_DEPTH)
       const since = Date.now()
-      const startObservation = await navigateToUrl(page, request.url, mode, takeScreenshot, { since })
+      const startObservation = await navigateToUrl(page, request.url, mode, takeScreenshot, { since, stealthProfile })
       const visited = new Set<string>([startObservation.url])
       const results: UwafBatchResult[] = [{
         url: startObservation.url,
@@ -1083,7 +1184,7 @@ export async function runUwafBrowserAction(
           if (results.length >= RESEARCH_BATCH_MAX_PAGES) break
           if (visited.has(link.url)) continue
           try {
-            const pageResult = await navigateToUrl(page, link.url, mode, false, { since })
+            const pageResult = await navigateToUrl(page, link.url, mode, false, { since, stealthProfile })
             visited.add(pageResult.url)
             results.push({
               url: pageResult.url,
@@ -1323,7 +1424,7 @@ export async function runUwafBrowserAction(
       const targetUrl = request.url?.trim()
       const since = Date.now()
       const observation = targetUrl
-        ? await openNewTabFromUrl(page, targetUrl, mode, takeScreenshot, since)
+        ? await openNewTabFromUrl(page, targetUrl, mode, takeScreenshot, since, stealthProfile)
         : await observePage(await page.context().newPage(), mode, takeScreenshot, { since })
       session.currentPage = {
         url: observation.url,
@@ -1386,7 +1487,7 @@ export async function runUwafBrowserAction(
         })
       }
       await targetPage.close()
-      const fallbackPage = await getPage(contextKey, mode)
+      const fallbackPage = await getPage(contextKey, mode, stealthProfile)
       const observation = await observePage(fallbackPage, mode, takeScreenshot)
       session.currentPage = {
         url: observation.url,

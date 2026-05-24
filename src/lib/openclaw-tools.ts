@@ -45,6 +45,7 @@ export interface OpenClawUwafBrowserToolRequest {
   values?: Record<string, string>
   mode?: 'summary' | 'text' | 'links' | 'forms' | 'html'
   browserMode?: 'direct' | 'stealth'
+  stealthProfile?: 'normal' | 'high'
   depth?: number
   selector?: string
   text?: string
@@ -137,6 +138,10 @@ function isUwafAction(value: unknown): value is OpenClawUwafBrowserToolRequest['
 
 function isUwafBrowserMode(value: unknown): value is 'direct' | 'stealth' {
   return value === 'direct' || value === 'stealth'
+}
+
+function isStealthProfile(value: unknown): value is 'normal' | 'high' {
+  return value === 'normal' || value === 'high'
 }
 
 const TOOL_BLOCK_PATTERN = /<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser)["']\s*>([\s\S]*?)<\/openclaw_tool>/i
@@ -381,6 +386,10 @@ export function extractOpenClawToolRequest(content: string): {
 
       if (isUwafBrowserMode(parsed.browserMode)) {
         request.browserMode = parsed.browserMode
+      }
+
+      if (isStealthProfile(parsed.stealthProfile)) {
+        request.stealthProfile = parsed.stealthProfile
       }
 
       if (typeof parsed.depth === 'number' && Number.isInteger(parsed.depth) && parsed.depth >= 1 && parsed.depth <= 3) {

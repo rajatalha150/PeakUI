@@ -3,6 +3,14 @@ import { access } from 'node:fs/promises'
 import net from 'node:net'
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core'
 import { logUwafSessionCrash, recordUwafLaunchTime } from './uwaf-telemetry'
+import {
+  buildStealthFingerprint,
+  getDefaultStealthProfile,
+  getStealthProfileDefinition,
+  normalizeStealthProfile,
+  type StealthFingerprint,
+  type StealthProfile,
+} from './uwaf-fingerprint'
 
 const TOR_PROXY_URL = process.env.TOR_PROXY_URL || 'socks5://localhost:9050'
 const CHROMIUM_PATH = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium-browser'
@@ -13,21 +21,16 @@ const CONTEXT_TTL_MS = 30 * 60 * 1000
 const DISPLAY_START = parseInt(process.env.LIVE_BROWSER_DISPLAY_START || '110', 10)
 const MAX_DISPLAY_CANDIDATES = parseInt(process.env.LIVE_BROWSER_MAX_DISPLAYS || '200', 10)
 const STARTUP_TIMEOUT_MS = parseInt(process.env.LIVE_BROWSER_STARTUP_TIMEOUT_MS || '15000', 10)
+const FINGERPRINT_REGRESSION_TTL_MS = 10 * 60 * 1000
 
-const STEALTH_USER_AGENTS = [
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0',
-  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:128.0) Gecko/20100101 Firefox/128.0',
-]
-
-const DIRECT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+const DIRECT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.7778.167 Safari/537.36'
 
 export type BrowserMode = 'direct' | 'stealth'
 
 export interface StealthPreflightResult {
   ok: boolean
+  profile: StealthProfile
+  fingerprintId: string
   checkedAt: string
   directIp: string
   torExitIp: string
@@ -41,8 +44,19 @@ export interface StealthPreflightResult {
   webrtcExposed: boolean
   udpLeakProtected: boolean
   runtimeProtectionVerified: boolean
+  fingerprintRegressionPassed: boolean
+  fingerprintRegressionWarnings: string[]
+  fingerprintDetectors: StealthFingerprintDetectorResult[]
   warnings: string[]
   error?: string
+}
+
+export interface StealthFingerprintDetectorResult {
+  id: string
+  label: string
+  ok: boolean
+  warning?: string
+  details?: string
 }
 
 export interface OnionResolutionResult {
@@ -61,6 +75,8 @@ interface ManagedSession {
   context: BrowserContext
   activePage: Page | null
   mode: BrowserMode
+  stealthProfile: StealthProfile
+  fingerprint?: StealthFingerprint
   display: number
   vncPort: number
   xvfbProcess: ChildProcess
@@ -82,15 +98,12 @@ const uwafPoolState = globalForUwafPool.__peakuiUwafPool ??= {
 }
 
 const STEALTH_PREFLIGHT_TTL_MS = 2 * 60 * 1000
-let stealthPreflightCache: { value: StealthPreflightResult; expiresAt: number } | null = null
-let stealthPreflightPromise: Promise<StealthPreflightResult> | null = null
+const stealthPreflightCache = new Map<StealthProfile, { value: StealthPreflightResult; expiresAt: number }>()
+const stealthPreflightPromises = new Map<StealthProfile, Promise<StealthPreflightResult>>()
+const fingerprintRegressionCache = new Map<StealthProfile, { value: Pick<StealthPreflightResult, 'fingerprintRegressionPassed' | 'fingerprintRegressionWarnings' | 'fingerprintDetectors'>; expiresAt: number }>()
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-function randomStealthUA(): string {
-  return STEALTH_USER_AGENTS[Math.floor(Math.random() * STEALTH_USER_AGENTS.length)]
 }
 
 function logChildProcess(label: string, child: ChildProcess): void {
@@ -195,27 +208,37 @@ async function allocateDisplayNumber(): Promise<number> {
   throw new Error('No free Xvfb display numbers available')
 }
 
-function buildContextOptions(mode: BrowserMode): Parameters<Browser['newContext']>[0] {
-  const options: Parameters<Browser['newContext']>[0] = {
-    userAgent: mode === 'stealth' ? randomStealthUA() : DIRECT_USER_AGENT,
-    viewport: { width: BROWSER_WIDTH, height: BROWSER_HEIGHT },
-    screen: { width: BROWSER_WIDTH, height: BROWSER_HEIGHT },
-    locale: 'en-US',
-    timezoneId: mode === 'stealth' ? undefined : 'America/New_York',
+function buildContextOptions(
+  mode: BrowserMode,
+  input?: { profile?: StealthProfile; fingerprint?: StealthFingerprint },
+): Parameters<Browser['newContext']>[0] {
+  const profile = normalizeStealthProfile(input?.profile)
+  const fingerprint = mode === 'stealth'
+    ? (input?.fingerprint || buildStealthFingerprint(profile, `ephemeral:${Date.now()}`))
+    : null
+  const contextOptions: Parameters<Browser['newContext']>[0] = {
+    userAgent: fingerprint?.userAgent || DIRECT_USER_AGENT,
+    viewport: fingerprint?.viewport || { width: BROWSER_WIDTH, height: BROWSER_HEIGHT },
+    screen: fingerprint?.screen || { width: BROWSER_WIDTH, height: BROWSER_HEIGHT },
+    deviceScaleFactor: fingerprint?.deviceScaleFactor ?? 1,
+    locale: fingerprint?.locale || 'en-US',
+    timezoneId: fingerprint?.timezoneId || 'America/New_York',
     javaScriptEnabled: true,
     ignoreHTTPSErrors: false,
+    colorScheme: fingerprint?.colorScheme || 'light',
+    reducedMotion: fingerprint?.reducedMotion || 'no-preference',
   }
 
   if (mode === 'stealth') {
-    options.proxy = { server: TOR_PROXY_URL }
-    options.permissions = []
-    options.geolocation = undefined
+    contextOptions.proxy = { server: TOR_PROXY_URL }
+    contextOptions.permissions = []
+    contextOptions.geolocation = undefined
   }
 
-  return options
+  return contextOptions
 }
 
-function buildChromiumLaunchArgs(mode: BrowserMode): string[] {
+function buildChromiumLaunchArgs(mode: BrowserMode, profile: StealthProfile): string[] {
   const args = [
     '--no-sandbox',
     '--disable-setuid-sandbox',
@@ -226,13 +249,27 @@ function buildChromiumLaunchArgs(mode: BrowserMode): string[] {
     '--no-default-browser-check',
     '--disable-session-crashed-bubble',
   ]
+  const disabledFeatures: string[] = []
 
   if (mode === 'stealth') {
     args.push(
+      '--disable-quic',
       '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+      '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost',
       '--webrtc-ip-handling-policy=disable_non_proxied_udp',
-      '--disable-features=WebRtcHideLocalIpsWithMdns',
     )
+    disabledFeatures.push('WebRtcHideLocalIpsWithMdns')
+    for (const arg of getStealthProfileDefinition(profile).launchArgs) {
+      if (arg.startsWith('--disable-features=')) {
+        disabledFeatures.push(...arg.replace('--disable-features=', '').split(',').filter(Boolean))
+      } else {
+        args.push(arg)
+      }
+    }
+  }
+
+  if (disabledFeatures.length > 0) {
+    args.push(`--disable-features=${Array.from(new Set(disabledFeatures)).join(',')}`)
   }
 
   return args
@@ -284,7 +321,17 @@ function isValidOnionHostname(hostname: string): boolean {
   return /^[a-z2-7]{56}$/.test(label) || /^[a-z2-7]{16}$/.test(label)
 }
 
-function buildStealthLandingHtml(): string {
+function buildStealthLandingHtml(profile: StealthProfile): string {
+  const providers = getStealthProfileDefinition(profile).providerIds
+    .map(id => {
+      if (id === 'ahmia') return 'Ahmia'
+      if (id === 'duckduckgo-lite') return 'DuckDuckGo Lite'
+      if (id === 'startpage') return 'Startpage'
+      if (id === 'brave-search') return 'Brave Search'
+      if (id === 'brave-search-stealth') return 'Brave Search'
+      return id
+    })
+    .join(', ')
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -372,7 +419,7 @@ function buildStealthLandingHtml(): string {
     <main class="panel">
       <span class="eyebrow">Stealth Mode</span>
       <h1>Tor-routed browser session is ready.</h1>
-      <p>This live browser is configured for Stealth mode. The AI can browse public sites through Tor, search Ahmia for onion discovery, and open <code>.onion</code> pages in the same visible session.</p>
+      <p>This live browser is configured for Stealth mode. The AI can browse public sites through Tor, rotate across stealth-safe search providers (${providers}), and open <code>.onion</code> pages in the same visible session.</p>
       <section class="grid">
         <div class="card">
           <div class="label">Routing</div>
@@ -380,7 +427,7 @@ function buildStealthLandingHtml(): string {
         </div>
         <div class="card">
           <div class="label">Search</div>
-          <div class="value">Ahmia for Stealth</div>
+          <div class="value">${providers}</div>
         </div>
         <div class="card">
           <div class="label">Onion Support</div>
@@ -392,9 +439,98 @@ function buildStealthLandingHtml(): string {
 </html>`
 }
 
-async function applyStealthInitScript(context: BrowserContext): Promise<void> {
-  await context.addInitScript(() => {
+async function applyStealthInitScript(
+  context: BrowserContext,
+  fingerprint: StealthFingerprint,
+  profile: StealthProfile,
+): Promise<void> {
+  await context.addInitScript(({ config, activeProfile }) => {
+    const makeArrayLike = <T extends object>(items: T[]) => {
+      const copy = items.map(item => ({ ...item }))
+      const arrayLike = Object.create(Array.prototype)
+      for (const [index, item] of copy.entries()) {
+        Object.defineProperty(arrayLike, index, {
+          value: item,
+          enumerable: true,
+        })
+      }
+      Object.defineProperty(arrayLike, 'length', { value: copy.length })
+      Object.defineProperty(arrayLike, 'item', { value: (index: number) => copy[index] || null })
+      Object.defineProperty(arrayLike, 'namedItem', {
+        value: (name: string) => copy.find(item => 'type' in item ? (item as { type?: string }).type === name : (item as { name?: string }).name === name) || null,
+      })
+      return arrayLike
+    }
+
+    const pluginEntries = [
+      { name: 'PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+      { name: 'Chrome PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+      { name: 'Chromium PDF Viewer', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+    ]
+    const mimeTypeEntries = [
+      { type: 'application/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
+      { type: 'text/pdf', suffixes: 'pdf', description: 'Portable Document Format' },
+    ]
+    const plugins = makeArrayLike(pluginEntries)
+    const mimeTypes = makeArrayLike(mimeTypeEntries)
+
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined })
+    Object.defineProperty(navigator, 'userAgent', { get: () => config.userAgent })
+    Object.defineProperty(navigator, 'platform', { get: () => config.platform })
+    Object.defineProperty(navigator, 'vendor', { get: () => config.vendor })
+    Object.defineProperty(navigator, 'language', { get: () => config.languages[0] })
+    Object.defineProperty(navigator, 'languages', { get: () => [...config.languages] })
+    Object.defineProperty(navigator, 'hardwareConcurrency', { get: () => config.hardwareConcurrency })
+    Object.defineProperty(navigator, 'deviceMemory', { get: () => config.deviceMemory })
+    Object.defineProperty(navigator, 'maxTouchPoints', { get: () => config.maxTouchPoints })
+    Object.defineProperty(navigator, 'pdfViewerEnabled', { get: () => true })
+    Object.defineProperty(navigator, 'doNotTrack', { get: () => activeProfile === 'high' ? '1' : null })
+    Object.defineProperty(navigator, 'plugins', { get: () => plugins })
+    Object.defineProperty(navigator, 'mimeTypes', { get: () => mimeTypes })
+    Object.defineProperty(navigator, 'userAgentData', {
+      get: () => ({
+        brands: config.userAgentData.brands,
+        mobile: false,
+        platform: config.userAgentData.platform,
+        getHighEntropyValues: async (hints: string[]) => {
+          const values: Record<string, unknown> = {}
+          for (const hint of hints) {
+            if (hint === 'architecture') values.architecture = config.userAgentData.architecture
+            if (hint === 'bitness') values.bitness = config.userAgentData.bitness
+            if (hint === 'model') values.model = ''
+            if (hint === 'platform') values.platform = config.userAgentData.platform
+            if (hint === 'platformVersion') values.platformVersion = config.userAgentData.platformVersion
+            if (hint === 'uaFullVersion') values.uaFullVersion = config.userAgentData.brands[1]?.version || '148.0.0.0'
+            if (hint === 'wow64') values.wow64 = config.userAgentData.wow64
+          }
+          return values
+        },
+      }),
+    })
+
+    Object.defineProperty(window, 'devicePixelRatio', { get: () => config.deviceScaleFactor })
+    for (const [target, values] of [[screen, config.screen], [window, config.viewport]] as const) {
+      Object.defineProperty(target, 'width', { get: () => values.width })
+      Object.defineProperty(target, 'height', { get: () => values.height })
+    }
+    Object.defineProperty(screen, 'availWidth', { get: () => config.screen.width })
+    Object.defineProperty(screen, 'availHeight', { get: () => config.screen.height - 40 })
+    Object.defineProperty(window, 'outerWidth', { get: () => config.viewport.width })
+    Object.defineProperty(window, 'outerHeight', { get: () => config.viewport.height })
+
+    if (!('chrome' in window)) {
+      Object.defineProperty(window, 'chrome', {
+        value: {
+          runtime: {},
+          app: {
+            isInstalled: false,
+          },
+          loadTimes: () => ({}),
+          csi: () => ({}),
+        },
+      })
+    }
+
     Object.defineProperty(window, 'RTCPeerConnection', { get: () => undefined })
     Object.defineProperty(window, 'webkitRTCPeerConnection', { get: () => undefined })
     Object.defineProperty(window, 'mozRTCPeerConnection', { get: () => undefined })
@@ -409,7 +545,11 @@ async function applyStealthInitScript(context: BrowserContext): Promise<void> {
     }
     if (navigator.mediaDevices) {
       Object.defineProperty(navigator.mediaDevices, 'enumerateDevices', {
-        value: async () => [],
+        value: async () => [
+          { kind: 'audioinput', deviceId: 'default-audio-in', groupId: 'default-audio', label: '' },
+          { kind: 'audiooutput', deviceId: 'default-audio-out', groupId: 'default-audio', label: '' },
+          { kind: 'videoinput', deviceId: 'default-video-in', groupId: 'default-video', label: '' },
+        ],
       })
       Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
         value: async () => {
@@ -417,12 +557,130 @@ async function applyStealthInitScript(context: BrowserContext): Promise<void> {
         },
       })
     }
-  })
+
+    Object.defineProperty(navigator, 'connection', {
+      get: () => ({
+        downlink: config.connection.downlink,
+        effectiveType: config.connection.effectiveType,
+        rtt: config.connection.rtt,
+        saveData: config.connection.saveData,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      }),
+    })
+
+    const patchWebGl = (proto: WebGLRenderingContext | WebGL2RenderingContext | null) => {
+      if (!proto || !('getParameter' in proto)) return
+      const original = proto.getParameter
+      Object.defineProperty(proto, 'getParameter', {
+        value(this: WebGLRenderingContext, parameter: number) {
+          if (parameter === 37445) return config.webglVendor
+          if (parameter === 37446) return config.webglRenderer
+          return original.call(this, parameter)
+        },
+      })
+    }
+
+    patchWebGl(window.WebGLRenderingContext?.prototype || null)
+    patchWebGl(window.WebGL2RenderingContext?.prototype || null)
+  }, { config: fingerprint, activeProfile: profile })
 }
 
 function extractIpv4s(text: string): string[] {
   const matches = text.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g) || []
   return Array.from(new Set(matches.filter(ip => ip !== '0.0.0.0')))
+}
+
+async function runFingerprintRegressionChecks(
+  context: BrowserContext,
+  profile: StealthProfile,
+): Promise<Pick<StealthPreflightResult, 'fingerprintRegressionPassed' | 'fingerprintRegressionWarnings' | 'fingerprintDetectors'>> {
+  const now = Date.now()
+  const cached = fingerprintRegressionCache.get(profile)
+  if (cached && cached.expiresAt > now) {
+    return cached.value
+  }
+
+  const detectors: Array<{ id: string; label: string; url: string; evaluator: (bodyText: string) => Omit<StealthFingerprintDetectorResult, 'id' | 'label'> }> = [
+    {
+      id: 'bot-sannysoft',
+      label: 'bot.sannysoft.com',
+      url: 'https://bot.sannysoft.com/',
+      evaluator: (bodyText) => {
+        const lower = bodyText.toLowerCase()
+        const failed = lower.includes('webdriver') && (lower.includes('fail') || lower.includes('detected'))
+        return {
+          ok: !failed,
+          warning: failed ? 'SannySoft reported webdriver-style automation markers.' : undefined,
+          details: bodyText.slice(0, 240),
+        }
+      },
+    },
+    {
+      id: 'browserleaks-javascript',
+      label: 'browserleaks.com/javascript',
+      url: 'https://browserleaks.com/javascript',
+      evaluator: (bodyText) => {
+        const lower = bodyText.toLowerCase()
+        const failed = lower.includes('webdriver') && (lower.includes('true') || lower.includes('detected'))
+        return {
+          ok: !failed,
+          warning: failed ? 'Browserleaks JavaScript page exposed webdriver-like signals.' : undefined,
+          details: bodyText.slice(0, 240),
+        }
+      },
+    },
+  ]
+
+  const results: StealthFingerprintDetectorResult[] = []
+  const warnings: string[] = []
+
+  for (const detector of detectors) {
+    const page = await context.newPage()
+    try {
+      await page.goto(detector.url, {
+        timeout: 15_000,
+        waitUntil: 'domcontentloaded',
+      })
+      await page.waitForTimeout(1_250)
+      const bodyText = (await page.textContent('body').catch(() => '')) || ''
+      const evaluation = detector.evaluator(bodyText)
+      results.push({
+        id: detector.id,
+        label: detector.label,
+        ...evaluation,
+      })
+      if (!evaluation.ok && evaluation.warning) {
+        warnings.push(`${detector.label}: ${evaluation.warning}`)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      results.push({
+        id: detector.id,
+        label: detector.label,
+        ok: false,
+        warning: `Detector page unavailable: ${message}`,
+      })
+      warnings.push(`${detector.label}: detector page unavailable`)
+    } finally {
+      await page.close().catch(() => {})
+    }
+  }
+
+  const completedChecks = results.filter(result => !result.warning?.includes('unavailable'))
+  const fingerprintRegressionPassed = completedChecks.length > 0 && completedChecks.every(result => result.ok)
+  const value = {
+    fingerprintRegressionPassed,
+    fingerprintRegressionWarnings: warnings,
+    fingerprintDetectors: results,
+  }
+
+  fingerprintRegressionCache.set(profile, {
+    value,
+    expiresAt: now + FINGERPRINT_REGRESSION_TTL_MS,
+  })
+
+  return value
 }
 
 async function verifyStealthRuntimeProtection(context: BrowserContext): Promise<{
@@ -455,17 +713,26 @@ async function verifyStealthRuntimeProtection(context: BrowserContext): Promise<
           enumerateDevicesCount = null
         }
       }
+      let mediaCaptureBlocked = !mediaDevices?.getUserMedia
+      if (mediaDevices?.getUserMedia) {
+        try {
+          const stream = await mediaDevices.getUserMedia({ audio: true, video: true })
+          stream.getTracks().forEach(track => track.stop())
+          mediaCaptureBlocked = false
+        } catch {
+          mediaCaptureBlocked = true
+        }
+      }
 
       return {
         webrtcExposed,
         mediaDevicesAvailable: Boolean(mediaDevices?.enumerateDevices),
         enumerateDevicesCount,
+        mediaCaptureBlocked,
       }
     })
 
-    const mediaDevicesLockedDown = !result.mediaDevicesAvailable
-      || result.enumerateDevicesCount === 0
-      || result.enumerateDevicesCount === null
+    const mediaDevicesLockedDown = result.mediaCaptureBlocked
 
     return {
       webrtcExposed: result.webrtcExposed,
@@ -542,15 +809,25 @@ async function focusPage(managed: ManagedSession, page: Page): Promise<Page> {
   return page
 }
 
-async function createManagedSession(contextId: string, mode: BrowserMode): Promise<ManagedSession> {
+async function createManagedSession(
+  contextId: string,
+  mode: BrowserMode,
+  profile?: StealthProfile,
+): Promise<ManagedSession> {
   const launchStartedAt = Date.now()
+  const stealthProfile = normalizeStealthProfile(profile)
+  const fingerprint = mode === 'stealth'
+    ? buildStealthFingerprint(stealthProfile, contextId)
+    : undefined
   const display = await allocateDisplayNumber()
   const vncPort = await allocateVncPort()
   const displayEnv = `:${display}`
+  const browserWidth = fingerprint?.viewport.width || BROWSER_WIDTH
+  const browserHeight = fingerprint?.viewport.height || BROWSER_HEIGHT
 
   const xvfbProcess = spawnProcess('Xvfb', [
     displayEnv,
-    '-screen', '0', `${BROWSER_WIDTH}x${BROWSER_HEIGHT}x24`,
+    '-screen', '0', `${browserWidth}x${browserHeight}x24`,
     '-ac',
     '-nolisten', 'tcp',
   ])
@@ -571,16 +848,19 @@ async function createManagedSession(contextId: string, mode: BrowserMode): Promi
         DISPLAY: displayEnv,
       },
       args: [
-        ...buildChromiumLaunchArgs(mode),
+        ...buildChromiumLaunchArgs(mode, stealthProfile),
         '--window-position=0,0',
-        `--window-size=${BROWSER_WIDTH},${BROWSER_HEIGHT}`,
+        `--window-size=${browserWidth},${browserHeight}`,
       ],
     })
 
-    context = await browser.newContext(buildContextOptions(mode))
+    context = await browser.newContext(buildContextOptions(mode, {
+      profile: stealthProfile,
+      fingerprint,
+    }))
 
-    if (mode === 'stealth') {
-      await applyStealthInitScript(context)
+    if (mode === 'stealth' && fingerprint) {
+      await applyStealthInitScript(context, fingerprint, stealthProfile)
     }
 
     let activePage: Page | null = null
@@ -588,7 +868,7 @@ async function createManagedSession(contextId: string, mode: BrowserMode): Promi
     activePage = page
 
     if (mode === 'stealth') {
-      await page.setContent(buildStealthLandingHtml(), { waitUntil: 'domcontentloaded' }).catch(() => {})
+      await page.setContent(buildStealthLandingHtml(stealthProfile), { waitUntil: 'domcontentloaded' }).catch(() => {})
     }
 
     context.on('page', (nextPage) => {
@@ -630,6 +910,8 @@ async function createManagedSession(contextId: string, mode: BrowserMode): Promi
         activePage = pageValue
       },
       mode,
+      stealthProfile,
+      fingerprint,
       display,
       vncPort,
       xvfbProcess,
@@ -660,12 +942,14 @@ async function createManagedSession(contextId: string, mode: BrowserMode): Promi
   }
 }
 
-async function ensureManagedSession(contextId: string, mode: BrowserMode): Promise<ManagedSession> {
+async function ensureManagedSession(contextId: string, mode: BrowserMode, profile?: StealthProfile): Promise<ManagedSession> {
   const existing = uwafPoolState.sessions.get(contextId)
+  const resolvedProfile = normalizeStealthProfile(profile)
   if (existing) {
     const expired = Date.now() - existing.lastUsed > CONTEXT_TTL_MS
     const disconnected = !existing.browser.isConnected()
-    if (!expired && !disconnected && existing.mode === mode) {
+    const profileChanged = profile !== undefined && existing.stealthProfile !== resolvedProfile
+    if (!expired && !disconnected && existing.mode === mode && !profileChanged) {
       existing.lastUsed = Date.now()
       return existing
     }
@@ -675,14 +959,14 @@ async function ensureManagedSession(contextId: string, mode: BrowserMode): Promi
   const launchPromise = uwafPoolState.launchPromises.get(contextId)
   if (launchPromise) {
     const launched = await launchPromise
-    if (launched.mode === mode) {
+    if (launched.mode === mode && (profile === undefined || launched.stealthProfile === resolvedProfile)) {
       launched.lastUsed = Date.now()
       return launched
     }
     await closeManagedSession(contextId)
   }
 
-  const nextLaunch = createManagedSession(contextId, mode)
+  const nextLaunch = createManagedSession(contextId, mode, resolvedProfile)
     .finally(() => {
       uwafPoolState.launchPromises.delete(contextId)
     })
@@ -691,8 +975,8 @@ async function ensureManagedSession(contextId: string, mode: BrowserMode): Promi
   return nextLaunch
 }
 
-export async function getPage(contextId: string, mode: BrowserMode): Promise<Page> {
-  const managed = await ensureManagedSession(contextId, mode)
+export async function getPage(contextId: string, mode: BrowserMode, profile?: StealthProfile): Promise<Page> {
+  const managed = await ensureManagedSession(contextId, mode, profile)
   managed.lastUsed = Date.now()
 
   const pages = managed.context.pages()
@@ -724,8 +1008,8 @@ export async function getLiveBrowserInfo(contextId: string, mode: BrowserMode): 
   return {
     vncPort: managed.vncPort,
     viewport: {
-      width: BROWSER_WIDTH,
-      height: BROWSER_HEIGHT,
+      width: managed.fingerprint?.viewport.width || BROWSER_WIDTH,
+      height: managed.fingerprint?.viewport.height || BROWSER_HEIGHT,
     },
   }
 }
@@ -737,18 +1021,28 @@ export async function closeContext(contextId: string): Promise<void> {
 async function withEphemeralBrowser<T>(
   contextOptions: Parameters<Browser['newContext']>[0],
   fn: (context: BrowserContext) => Promise<T>,
+  options?: {
+    stealthProfile?: StealthProfile
+    fingerprint?: StealthFingerprint
+  },
 ): Promise<T> {
   const resolvedContextOptions = contextOptions ?? {}
   const mode: BrowserMode = resolvedContextOptions.proxy?.server ? 'stealth' : 'direct'
+  const stealthProfile = normalizeStealthProfile(options?.stealthProfile)
+  const fingerprint = mode === 'stealth'
+    ? (options?.fingerprint || buildStealthFingerprint(stealthProfile, `ephemeral:${Date.now()}`))
+    : undefined
   const browser = await chromium.launch({
     executablePath: CHROMIUM_PATH,
     headless: true,
-    args: buildChromiumLaunchArgs(mode),
+    args: buildChromiumLaunchArgs(mode, stealthProfile),
   })
 
-  const context = await browser.newContext(resolvedContextOptions)
-  if (mode === 'stealth') {
-    await applyStealthInitScript(context)
+  const context = await browser.newContext(mode === 'stealth'
+    ? buildContextOptions(mode, { profile: stealthProfile, fingerprint })
+    : resolvedContextOptions)
+  if (mode === 'stealth' && fingerprint) {
+    await applyStealthInitScript(context, fingerprint, stealthProfile)
   }
 
   try {
@@ -759,11 +1053,10 @@ async function withEphemeralBrowser<T>(
   }
 }
 
-export async function checkTorProxyStatus(): Promise<{ reachable: boolean; error?: string }> {
+export async function checkTorProxyStatus(profile: StealthProfile = getDefaultStealthProfile()): Promise<{ reachable: boolean; error?: string }> {
   try {
     return await withEphemeralBrowser({
       proxy: { server: TOR_PROXY_URL },
-      userAgent: randomStealthUA(),
     }, async (context) => {
       const page = await context.newPage()
       await page.goto('https://check.torproject.org/api/ip', {
@@ -784,6 +1077,8 @@ export async function checkTorProxyStatus(): Promise<{ reachable: boolean; error
       } catch {
         return { reachable: false, error: 'Invalid response from Tor check service' }
       }
+    }, {
+      stealthProfile: profile,
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -828,11 +1123,10 @@ async function lookupTorExitCountry(context: BrowserContext, ip: string): Promis
   }
 }
 
-export async function getStealthInfo(): Promise<{ ip: string; country: string; isTor: boolean } | null> {
+export async function getStealthInfo(profile: StealthProfile = getDefaultStealthProfile()): Promise<{ ip: string; country: string; isTor: boolean } | null> {
   try {
     return await withEphemeralBrowser({
       proxy: { server: TOR_PROXY_URL },
-      userAgent: randomStealthUA(),
     }, async (context) => {
       const page = await context.newPage()
       await page.goto('https://check.torproject.org/api/ip', {
@@ -848,13 +1142,15 @@ export async function getStealthInfo(): Promise<{ ip: string; country: string; i
         country: data.CountryCode || await lookupTorExitCountry(context, ip),
         isTor: data.IsTor === true,
       }
+    }, {
+      stealthProfile: profile,
     })
   } catch {
     return null
   }
 }
 
-export async function checkOnionResolution(rawUrl: string): Promise<OnionResolutionResult> {
+export async function checkOnionResolution(rawUrl: string, profile: StealthProfile = getDefaultStealthProfile()): Promise<OnionResolutionResult> {
   const parsed = parseOnionUrl(rawUrl)
   const checkedAt = new Date().toISOString()
   if (!parsed) {
@@ -882,7 +1178,6 @@ export async function checkOnionResolution(rawUrl: string): Promise<OnionResolut
   try {
     return await withEphemeralBrowser({
       proxy: { server: TOR_PROXY_URL },
-      userAgent: randomStealthUA(),
     }, async (context) => {
       const page = await context.newPage()
       try {
@@ -901,6 +1196,8 @@ export async function checkOnionResolution(rawUrl: string): Promise<OnionResolut
       } finally {
         await page.close().catch(() => {})
       }
+    }, {
+      stealthProfile: profile,
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -915,24 +1212,28 @@ export async function checkOnionResolution(rawUrl: string): Promise<OnionResolut
   }
 }
 
-export async function runStealthPreflight(options?: { force?: boolean }): Promise<StealthPreflightResult> {
+export async function runStealthPreflight(options?: { force?: boolean; profile?: StealthProfile }): Promise<StealthPreflightResult> {
   const force = options?.force === true
+  const profile = normalizeStealthProfile(options?.profile)
   const now = Date.now()
 
-  if (!force && stealthPreflightCache && stealthPreflightCache.expiresAt > now) {
-    return stealthPreflightCache.value
+  const cached = stealthPreflightCache.get(profile)
+  if (!force && cached && cached.expiresAt > now) {
+    return cached.value
   }
 
-  if (!force && stealthPreflightPromise) {
-    return stealthPreflightPromise
+  const pending = stealthPreflightPromises.get(profile)
+  if (!force && pending) {
+    return pending
   }
 
-  stealthPreflightPromise = (async () => {
+  const preflightPromise = (async () => {
     const checkedAt = new Date().toISOString()
+    const fingerprint = buildStealthFingerprint(profile, `preflight:${checkedAt}`)
     const [torStatus, directIp, stealthInfo] = await Promise.all([
-      checkTorProxyStatus(),
+      checkTorProxyStatus(profile),
       getDirectIp().catch(() => 'unavailable'),
-      getStealthInfo().catch(() => null),
+      getStealthInfo(profile).catch(() => null),
     ])
 
     let dnsLeakVerified = false
@@ -941,19 +1242,26 @@ export async function runStealthPreflight(options?: { force?: boolean }): Promis
     let webrtcExposed = true
     let udpLeakProtected = false
     let runtimeProtectionVerified = false
+    let fingerprintRegressionPassed = false
+    let fingerprintRegressionWarnings: string[] = []
+    let fingerprintDetectors: StealthFingerprintDetectorResult[] = []
     const warnings: string[] = []
 
     try {
       const runtimeChecks = await withEphemeralBrowser({
         proxy: { server: TOR_PROXY_URL },
-        userAgent: randomStealthUA(),
       }, async (context) => {
         const runtimeProtection = await verifyStealthRuntimeProtection(context)
         const dnsVerification = await runDnsLeakVerification(context, directIp)
+        const fingerprintRegression = await runFingerprintRegressionChecks(context, profile)
         return {
           runtimeProtection,
           dnsVerification,
+          fingerprintRegression,
         }
+      }, {
+        stealthProfile: profile,
+        fingerprint,
       })
 
       webrtcExposed = runtimeChecks.runtimeProtection.webrtcExposed
@@ -962,6 +1270,9 @@ export async function runStealthPreflight(options?: { force?: boolean }): Promis
       dnsLeakVerified = runtimeChecks.dnsVerification.dnsLeakVerified
       dnsLeakDetected = runtimeChecks.dnsVerification.dnsLeakDetected
       dnsResolverIps = runtimeChecks.dnsVerification.dnsResolverIps
+      fingerprintRegressionPassed = runtimeChecks.fingerprintRegression.fingerprintRegressionPassed
+      fingerprintRegressionWarnings = runtimeChecks.fingerprintRegression.fingerprintRegressionWarnings
+      fingerprintDetectors = runtimeChecks.fingerprintRegression.fingerprintDetectors
     } catch (error) {
       warnings.push(`Stealth runtime verification failed: ${error instanceof Error ? error.message : String(error)}`)
     }
@@ -984,11 +1295,13 @@ export async function runStealthPreflight(options?: { force?: boolean }): Promis
           : 'Stealth runtime verification indicates possible UDP/WebRTC exposure',
       )
     }
+    warnings.push(...fingerprintRegressionWarnings)
 
     const ok = torStatus.reachable
       && stealthInfo?.isTor === true
       && exitDiffersFromDirect
       && dnsLeakVerified
+      && runtimeProtectionVerified
     const error = !torStatus.reachable
       ? torStatus.error || 'Tor proxy unreachable'
       : stealthInfo?.isTor !== true
@@ -999,10 +1312,14 @@ export async function runStealthPreflight(options?: { force?: boolean }): Promis
             ? dnsLeakDetected
               ? 'DNS leak verification indicates the direct IP was exposed in resolver results'
               : 'DNS leak verification did not produce trusted resolver evidence'
+            : !runtimeProtectionVerified
+              ? 'Stealth runtime verification could not prove WebRTC and browser-feature lockdown'
             : undefined
 
     const result: StealthPreflightResult = {
       ok,
+      profile,
+      fingerprintId: fingerprint.id,
       checkedAt,
       directIp,
       torExitIp,
@@ -1016,21 +1333,25 @@ export async function runStealthPreflight(options?: { force?: boolean }): Promis
       webrtcExposed,
       udpLeakProtected,
       runtimeProtectionVerified,
+      fingerprintRegressionPassed,
+      fingerprintRegressionWarnings,
+      fingerprintDetectors,
       warnings,
       ...(error ? { error } : {}),
     }
 
-    stealthPreflightCache = {
+    stealthPreflightCache.set(profile, {
       value: result,
       expiresAt: Date.now() + STEALTH_PREFLIGHT_TTL_MS,
-    }
+    })
 
     return result
   })().finally(() => {
-    stealthPreflightPromise = null
+    stealthPreflightPromises.delete(profile)
   })
 
-  return stealthPreflightPromise
+  stealthPreflightPromises.set(profile, preflightPromise)
+  return preflightPromise
 }
 
 export async function shutdownPlaywright(): Promise<void> {

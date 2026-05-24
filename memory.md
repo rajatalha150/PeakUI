@@ -354,7 +354,9 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 | `src/lib/openclaw-browser.ts` | Controlled public-web browser session logic with SSRF protections, link/form extraction, and approval-gated submits |
 | `src/lib/uwaf-browser.ts` | Unified Web Agent Framework browser engine — dual-mode (direct/stealth) Playwright-based browser with form interaction, research batch crawling, and binary download blocking |
 | `src/lib/uwaf-sanitizer.ts` | Three-stage sanitize-first pipeline (HTML pruning → readability filtering → Markdown conversion via Turndown), table extraction, and binary URL blocking |
-| `src/lib/uwaf-pool.ts` | Playwright browser pool manager — lazy Chromium init, context reuse with 30-min TTL, stealth mode config (randomized UA, SOCKS5 proxy, WebRTC disabled), Tor health checks, IP detection |
+| `src/lib/uwaf-pool.ts` | Playwright browser pool manager — lazy Chromium init, context reuse with 30-min TTL, stealth profile/fingerprint generation, SOCKS5 proxy routing, WebRTC/DNS/fingerprint regression preflight, and Tor health checks |
+| `src/lib/uwaf-fingerprint.ts` | Stealth fingerprint catalog plus `normal`/`high` stealth profile definitions and deterministic per-session fingerprint generation |
+| `src/lib/uwaf-search-providers.ts` | Search-provider registry, provider scoring/cooldowns, and curated stealth entry-point metadata |
 | `src/app/api/openclaw/uwaf-browser/route.ts` | Main UWAF browser execution route with auth, settings, approval validation |
 | `src/app/api/openclaw/uwaf-browser/request/route.ts` | Approval token creation for submit/research_batch actions |
 | `src/app/api/openclaw/uwaf-browser/status/route.ts` | Connection status endpoint (Direct IP, Tor reachability, Tor exit info) |
@@ -409,8 +411,17 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `fix: normalize media uploads for vision models`
-- **Previous committed baseline:** `fix: render markdown images in chat responses`
+- **Current committed baseline:** `feat: harden uwaf stealth fingerprints and search rotation`
+- **Previous committed baseline:** `fix: normalize media uploads for vision models`
+
+### Latest Changes (UWAF Fingerprint Hardening & Search Rotation)
+- **Stealth fingerprints are now real session profiles:** the old tiny static UA pool was replaced by a broader versioned desktop fingerprint catalog with deterministic per-session selection for locale, timezone, platform, hardware concurrency, device memory, viewport, screen size, and WebGL identity.
+- **Two stealth profiles now exist:** `normal` balances compatibility and diversity, while `high` uses a more conservative fingerprint subset and stricter Chromium launch flags for more bot-sensitive `.onion`, hidden-service, or research-batch flows. Normal stealth remains the default for broad dark-web searches, and high profile can also be selected explicitly in unified-browser requests.
+- **Browser-surface normalization is stronger:** stealth init scripts now normalize `navigator.userAgentData`, plugin/mime-type exposure, screen/window sizing, WebGL vendor/renderer, media-device behavior, `navigator.connection`, `doNotTrack`, and other automation-adjacent surfaces instead of only hiding webdriver/WebRTC.
+- **Fingerprint regression checks added to preflight:** stealth preflight now caches detector-page checks against known fingerprint-test pages alongside Tor reachability, DNS leak verification, WebRTC constructor removal, media-capture denial, and UDP/proxy-bypass lockdown.
+- **Stealth search is now multi-provider:** Ahmia is no longer the only stealth search path; the runtime can rotate across Ahmia, DuckDuckGo Lite, Startpage, and other configured providers, retry via on-page forms, cool down degraded engines, and expose provider-health snapshots through status telemetry.
+- **Curated stealth entry points added:** the provider layer now carries curated stealth entry-point metadata plus optional env-configured entries for operator-specific mirrors or onion-discovery sources.
+- **Tor audit fixes completed:** stealth Chromium now disables QUIC and blocks non-proxy host resolution, approval/preflight/execution all use the same resolved stealth profile, `.onion` hostnames validate before navigation, and failed onion opens return precise Tor diagnostics without making successful onion opens do duplicate pre-navigation checks.
 
 ### Latest Changes (Media Upload Normalization)
 - **HEIC/HEIF upload failure fixed:** Open Claw now preserves converted image payloads from `/api/files/extract` instead of dropping `nativeImageData`, so HEIC uploads no longer fall back to original unsupported bytes.

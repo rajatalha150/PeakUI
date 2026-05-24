@@ -99,17 +99,22 @@ WorkSpaces includes a collapsible Canvas panel that:
 - **Browser control**: Open public pages, inspect links/forms, stage fills, submit with approval, and extract content
 - **UWAF browser (Unified Web Agent Framework)**: Dual-mode browser engine supporting Direct (Clear Web) and Stealth (Tor-routed Dark Web) research modes
   - **Direct mode**: Standard Playwright Chromium browsing for public web research, table extraction, and form interaction
-  - **Stealth mode**: Tor-routed browsing via SOCKS5 proxy for anonymous research and `.onion` access, with randomized User-Agent, WebRTC disabled, and strict content sanitization
+  - **Stealth mode**: Tor-routed browsing via SOCKS5 proxy for anonymous research and `.onion` access, with broader versioned desktop fingerprints, randomized locale/timezone/hardware/viewport traits per session, WebRTC lock-down, browser-surface normalization, and strict content sanitization
+  - **Stealth profiles**: `normal` balances compatibility and diversity; `high` uses a more conservative fingerprint set and stricter launch flags for higher-friction targets. Normal stealth remains the default for ordinary dark-web research; high stealth is used for `.onion`, hidden-service, research-batch, or explicitly requested high-stealth flows.
+  - **Fingerprint regression checks**: Stealth preflight now caches detector-page checks against known fingerprint pages in addition to DNS/WebRTC/Tor verification
+  - **Leak-prevention preflight**: Stealth startup verifies Tor exit alignment, DNS resolver behavior, WebRTC constructor removal, and media-capture denial before allowing navigation
+  - **Provider rotation**: Stealth search can rotate across Ahmia, DuckDuckGo Lite, Startpage, and other configured providers instead of relying on one engine
+  - **Provider health scoring**: Search providers accumulate uptime, latency, anti-bot, and usefulness scores, then cool down automatically after repeated degraded outcomes
   - **Validated search semantics**: `search` now verifies that the resulting page actually reflects the requested query and contains usable result blocks; homepage bounces, zero-result pages, and anti-bot/login gates are surfaced as explicit failures instead of being treated as evidence
   - **Richer browser primitives**: Added `type`, `press`, `wait_for_selector`, `scroll`, `back`, `forward`, `new_tab`, `list_tabs`, `switch_tab`, `close_tab`, `select`, and `hover` so the model can operate on real browser state instead of relying on only open/click/fill
   - **Action diagnostics**: Browser results now include redirect state, HTTP status when available, query-match checks, result counts, tab state, selector match/wait timeout flags, anti-bot/login detection, and recent JS/network failures
   - **Research batch**: Crawl a starting URL and follow links up to depth 3 (max 10 pages), returning aggregated Markdown content
   - **Table extraction**: Pull all `<table>` elements as structured Markdown or CSV
   - **Live browser instead of screenshots**: Static screenshot capture is disabled; the live noVNC browser is the visual browsing surface
-  - **Network Hub Panel**: Shows Direct IP, Tor connection status, Tor exit node country, and mode selector
+  - **Network Hub Panel**: Shows Direct IP, Tor connection status, Tor exit node country, preferred stealth search provider, and current stealth profile
   - **Truthfulness guardrails**: The WorkSpaces prompt now instructs the model to treat browser evidence fields as authoritative and to report browser failure explicitly instead of converting prior knowledge into claimed live observations
   - **Source labeling**: Clear Web sources shown as blue chips, Dark Web sources as purple chips
-  - **Security**: Binary download blocking (.exe, .sh, .bin, etc.), .onion URLs only in stealth mode, stealth fails closed if Tor proxy is unavailable
+  - **Security**: Binary download blocking (.exe, .sh, .bin, etc.), .onion URLs only in stealth mode, host DNS fallback blocked for stealth Chromium sessions, and stealth fails closed if Tor proxy verification fails
 - **Managed workspace**: WorkSpaces tools share `/mnt/openclaw/workspace` in-container and `/tmp/peakui-openclaw-workspace` as the host-style alias
 
 ### Providers

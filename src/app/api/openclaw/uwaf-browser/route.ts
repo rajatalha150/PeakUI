@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserIdWithPermissions } from '@/lib/request-auth'
-import { runUwafBrowserAction, getUwafBrowserSession, type UwafBrowserRequest } from '@/lib/uwaf-browser'
+import { runUwafBrowserAction, getUwafBrowserSession, resolveStealthProfileForRequest, type UwafBrowserRequest } from '@/lib/uwaf-browser'
 import { isBrowserInterrupted, restartScreencastForSession } from '@/lib/live-browser-server'
 import { prisma } from '@/lib/prisma'
 import { normalizeOpenClawUwafBrowserMode, normalizeOpenClawUwafDefaultMode, DEFAULT_SETTINGS } from '@/lib/settings'
 import { runStealthPreflight } from '@/lib/uwaf-pool'
 import { logUwafActionTelemetry, logUwafTorDiagnostic } from '@/lib/uwaf-telemetry'
+import { getDefaultStealthProfile, normalizeStealthProfile } from '@/lib/uwaf-fingerprint'
 
 const VALID_ACTIONS: UwafBrowserRequest['action'][] = [
   'search',
@@ -133,6 +134,14 @@ export async function POST(request: NextRequest) {
       sessionId,
       url: typeof body.url === 'string' ? body.url : '',
       browserMode: requestBrowserMode,
+      stealthProfile: resolveStealthProfileForRequest({
+        action: 'research_batch',
+        url: typeof body.url === 'string' ? body.url : undefined,
+        query: typeof body.query === 'string' ? body.query : undefined,
+        stealthProfile: typeof body.stealthProfile === 'string'
+          ? normalizeStealthProfile(body.stealthProfile)
+          : undefined,
+      }, getDefaultStealthProfile()),
     }
 
     const verification = verifyOpenClawApprovalToken(approvalToken, {
@@ -169,6 +178,9 @@ export async function POST(request: NextRequest) {
     uwafRequest.mode = body.mode as UwafBrowserRequest['mode']
   }
   uwafRequest.browserMode = requestBrowserMode
+  if (typeof body.stealthProfile === 'string') {
+    uwafRequest.stealthProfile = normalizeStealthProfile(body.stealthProfile)
+  }
   if (typeof body.depth === 'number' && Number.isInteger(body.depth) && body.depth >= 1 && body.depth <= 3) {
     uwafRequest.depth = body.depth
   }
@@ -180,6 +192,11 @@ export async function POST(request: NextRequest) {
   if (typeof body.deltaY === 'number' && Number.isFinite(body.deltaY)) uwafRequest.deltaY = body.deltaY
   if (typeof body.optionValue === 'string' && body.optionValue.trim()) uwafRequest.optionValue = body.optionValue.trim()
   if (typeof body.optionLabel === 'string' && body.optionLabel.trim()) uwafRequest.optionLabel = body.optionLabel.trim()
+
+  const resolvedStealthProfile = resolveStealthProfileForRequest(uwafRequest, getDefaultStealthProfile())
+  if (requestBrowserMode === 'stealth') {
+    uwafRequest.stealthProfile = resolvedStealthProfile
+  }
 
   const actionStartedAt = Date.now()
 
@@ -195,7 +212,7 @@ export async function POST(request: NextRequest) {
 
     if (requestBrowserMode === 'stealth') {
       const preflightStartedAt = Date.now()
-      const preflight = await runStealthPreflight()
+      const preflight = await runStealthPreflight({ profile: resolvedStealthProfile })
       logUwafTorDiagnostic({
         userId,
         sessionId,
@@ -211,7 +228,7 @@ export async function POST(request: NextRequest) {
       })
       if (!preflight.ok) {
         return NextResponse.json({
-          error: `Stealth preflight failed: ${preflight.error || 'Tor routing could not be verified'}. Direct IP: ${preflight.directIp}. Tor exit IP: ${preflight.torExitIp}.`,
+          error: `Stealth preflight failed for ${resolvedStealthProfile} profile: ${preflight.error || 'Tor routing could not be verified'}. Direct IP: ${preflight.directIp}. Tor exit IP: ${preflight.torExitIp}.`,
         }, { status: 503 })
       }
     }

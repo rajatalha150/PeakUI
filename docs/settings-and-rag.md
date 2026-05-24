@@ -204,6 +204,21 @@ WorkSpaces uses the shared attachment system:
 - Processing state and error handling
 - Send button works with just attachments (no text required)
 
+### UWAF Stealth Runtime
+
+- Stealth mode now uses a larger desktop fingerprint catalog instead of a tiny static UA list.
+- Each stealth session randomizes coherent fingerprint surfaces such as locale, timezone, platform hints, hardware concurrency, device memory, viewport, screen, and WebGL identity.
+- Browser feature exposure is normalized in the init script to reduce obvious automation combinations: webdriver is hidden, WebRTC constructors are removed, media capture is denied, plugin/mime-type state is normalized, and `navigator.userAgentData` / `navigator.connection` are made more coherent.
+- Stealth Chromium launch args also disable QUIC and block non-proxy host resolution so a proxy bypass cannot silently fall back to direct DNS.
+- Two stealth profiles now exist:
+  - `normal`: broader diversity with lower compatibility risk
+  - `high`: more conservative fingerprints and stricter Chromium flags for bot-heavier targets
+- Normal stealth remains the default for broad dark-web searches. High stealth is selected automatically for `.onion`, hidden-service, and research-batch flows, or when a tool request explicitly asks for `stealthProfile: "high"`.
+- Stealth preflight now also runs cached fingerprint-regression checks against known detector pages in addition to Tor, DNS leak, and WebRTC verification.
+- The WebRTC/runtime verifier treats blank generic device enumeration as acceptable only when media capture is denied and WebRTC constructors are unavailable, preventing false failures from the intended stealth media-device shim.
+- Stealth search no longer relies on only Ahmia. The provider layer can rotate across multiple stealth-safe search engines and scores them by recent uptime, latency, anti-bot friction, and result usefulness.
+- `.onion` navigation validates onion hostnames before loading and runs the expensive diagnostic resolution pass only when navigation fails, so successful onion opens avoid duplicate page loads while failures still return precise Tor diagnostics.
+
 Useful pull commands:
 
 ```bash

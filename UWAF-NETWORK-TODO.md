@@ -27,19 +27,20 @@ This file tracks targeted improvements for the Unified Web Agent Framework, stea
 - [x] Add a preflight that confirms outbound IP, DNS resolver behavior, and Tor exit alignment before first stealth navigation
 - [x] Add `.onion` resolution checks that fail early with precise diagnostics
 - [x] Add guardrails that block direct-mode fallback anywhere inside stealth execution paths
+- [x] Block non-proxy DNS fallback in stealth Chromium launch args and avoid duplicate onion pre-navigation checks on successful opens
 
 ### Fingerprint hardening
-- [ ] Replace the tiny static stealth UA pool with broader, versioned desktop fingerprints
-- [ ] Randomize additional fingerprint surfaces per session: language, timezone strategy, platform hints, hardware concurrency, device memory, viewport presets
-- [ ] Normalize stealth/browser feature exposure to reduce obviously automated combinations
-- [ ] Add bot-fingerprint regression checks against known detection pages
-- [ ] Separate “normal stealth” and “high-stealth” profiles with different tradeoffs
+- [x] Replace the tiny static stealth UA pool with broader, versioned desktop fingerprints
+- [x] Randomize additional fingerprint surfaces per session: language, timezone strategy, platform hints, hardware concurrency, device memory, viewport presets
+- [x] Normalize stealth/browser feature exposure to reduce obviously automated combinations
+- [x] Add bot-fingerprint regression checks against known detection pages
+- [x] Separate “normal stealth” and “high-stealth” profiles with different tradeoffs
 
 ### Search and entry-point resiliency
-- [ ] Add multiple stealth-safe search providers instead of relying mainly on Ahmia
-- [ ] Detect search-engine degradation and rotate to alternative providers automatically
-- [ ] Add provider scoring based on uptime, latency, anti-bot frequency, and result usefulness
-- [ ] Keep a curated set of known-good `.onion` entry points and mirrors where appropriate
+- [x] Add multiple stealth-safe search providers instead of relying mainly on Ahmia
+- [x] Detect search-engine degradation and rotate to alternative providers automatically
+- [x] Add provider scoring based on uptime, latency, anti-bot frequency, and result usefulness
+- [x] Keep a curated set of known-good `.onion` entry points and mirrors where appropriate
 
 ## 2. Browser Reliability and Session Robustness
 
@@ -101,7 +102,7 @@ This file tracks targeted improvements for the Unified Web Agent Framework, stea
 ## 5. Safety and Isolation
 
 ### Session isolation
-- [ ] Ensure direct and stealth sessions never reuse the same browser context or storage state
+- [x] Ensure direct and stealth sessions never reuse the same browser context or storage state
 - [ ] Add stronger storage/cookie/cache isolation across sessions and modes
 - [ ] Add policy controls for clipboard, downloads, and external protocol handlers
 - [ ] Add outbound allow/deny policy hooks for domains, schemes, and file types

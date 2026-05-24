@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserIdWithPermissions } from '@/lib/request-auth'
-import { getUwafBrowserSession } from '@/lib/uwaf-browser'
+import { getUwafBrowserSession, resolveStealthProfileForRequest } from '@/lib/uwaf-browser'
 import { createOpenClawApprovalToken } from '@/lib/openclaw-tool-approvals'
 import { prisma } from '@/lib/prisma'
 import { normalizeOpenClawUwafBrowserMode, normalizeOpenClawUwafDefaultMode, DEFAULT_SETTINGS } from '@/lib/settings'
+import { getDefaultStealthProfile, normalizeStealthProfile } from '@/lib/uwaf-fingerprint'
 
 export async function POST(request: NextRequest) {
   const userId = await getCurrentUserIdWithPermissions(['openclaw.use', 'openclaw.uwaf'])
@@ -42,6 +43,14 @@ export async function POST(request: NextRequest) {
     : null
   const browserMode = explicitBrowserMode
     ?? normalizeOpenClawUwafDefaultMode(settingsRow?.openClawUwafDefaultMode ?? DEFAULT_SETTINGS.openClawUwafDefaultMode)
+  const stealthProfile = resolveStealthProfileForRequest({
+    action: action as 'submit' | 'research_batch',
+    url: typeof body.url === 'string' ? body.url : undefined,
+    query: typeof body.query === 'string' ? body.query : undefined,
+    stealthProfile: typeof body.stealthProfile === 'string'
+      ? normalizeStealthProfile(body.stealthProfile)
+      : undefined,
+  }, getDefaultStealthProfile())
 
   if (action === 'submit') {
     const session = getUwafBrowserSession(userId, sessionId, browserMode)
@@ -95,6 +104,7 @@ export async function POST(request: NextRequest) {
       sessionId,
       url,
       browserMode,
+      stealthProfile,
       depth,
     }
 
@@ -113,6 +123,7 @@ export async function POST(request: NextRequest) {
       url,
       depth,
       browserMode,
+      stealthProfile,
       approvalToken,
       description: `Research batch: crawl ${url} up to depth ${depth} in ${modeLabel} mode`,
     })
