@@ -30,6 +30,9 @@ import {
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_LABEL,
   formatBytes,
+  isImageFile,
+  normalizeImageMimeType,
+  shouldNormalizeImageForCompatibility,
   type ExtractedFilePayload,
 } from '@/lib/file-shared';
 import type { OllamaHealthSummary } from '@/lib/ollama-health';
@@ -516,6 +519,9 @@ interface ChatFileAttachment {
   truncated?: boolean;
   extractionStatus?: ExtractedFilePayload['extractionStatus'];
   modelInput?: ExtractedFilePayload['modelInput'];
+  nativeImageData?: string;
+  nativeImageType?: string;
+  nativeImageName?: string;
   statusMessage?: string;
 }
 
@@ -753,6 +759,14 @@ export default function Home() {
     });
 
   const getImageData = (image: StoredChatImage) => typeof image === 'string' ? image : image.data;
+  const getImagePayload = (image: StoredChatImage) =>
+    typeof image === 'string'
+      ? image
+      : {
+          data: image.data,
+          mimeType: image.type,
+          name: image.name,
+        };
   const getImageSrc = (image: StoredChatImage) =>
     typeof image === 'string' ? `data:image/jpeg;base64,${image}` : image.dataUrl;
   const getImageName = (image: StoredChatImage, index: number) =>
@@ -783,7 +797,7 @@ export default function Home() {
         `[Attached image ${idx + 1}: ${image.name}]`,
         `MIME: ${image.type || 'image/*'}`,
         `Size: ${formatBytes(image.size)}`,
-        'Model input: original image bytes via Ollama images array',
+        `Model input: image bytes (${image.type || 'image/*'}) via Ollama images array`,
       ].join('\n');
     });
 
@@ -825,14 +839,21 @@ export default function Home() {
           break;
         }
 
-        if (file.type.startsWith('image/')) {
-          const b64 = await readAsBase64(file);
+        if (isImageFile(file.name, file.type)) {
+          const mimeType = normalizeImageMimeType(file.name, file.type || 'application/octet-stream');
+          const shouldNormalize = shouldNormalizeImageForCompatibility(file.name, mimeType);
+          const [b64, imageExtraction] = await Promise.all([
+            readAsBase64(file),
+            shouldNormalize ? extractAttachment(file) : Promise.resolve(null),
+          ]);
+          const imageData = imageExtraction?.nativeImageData || b64;
+          const imageType = imageExtraction?.nativeImageType || mimeType;
           newImages.push({
-            name: file.name,
-            type: file.type || 'image/*',
+            name: imageExtraction?.nativeImageName || file.name,
+            type: imageType,
             size: file.size,
-            data: b64,
-            dataUrl: `data:${file.type || 'image/jpeg'};base64,${b64}`,
+            data: imageData,
+            dataUrl: `data:${imageType};base64,${imageData}`,
           });
         } else {
           const attachment = await extractAttachment(file);
@@ -1946,7 +1967,7 @@ export default function Home() {
             messages: toolRoundMessages.map(m => ({
               role: m.role,
               content: buildAttachmentContext(m.attachments, m.images, m.content),
-              ...(m.images && m.images.length > 0 ? { images: m.images.map(getImageData) } : {}),
+              ...(m.images && m.images.length > 0 ? { images: m.images.map(getImagePayload) } : {}),
             })),
           })
         });

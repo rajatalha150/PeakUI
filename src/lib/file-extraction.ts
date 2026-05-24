@@ -9,13 +9,16 @@ import {
   detectFileKind,
   getFileExtension,
   isCodeExtension,
-  isImageMimeType,
+  isImageFile,
   isOfficeLikeExtension,
+  normalizeMediaMimeType,
+  shouldNormalizeImageForCompatibility,
   type ExtractedFilePayload,
   type FileExtractionStatus,
   type FileKind,
   type FileModelInput,
 } from './file-shared'
+import { convertImageBufferToJpeg } from './image-normalization'
 
 const execFileAsync = promisify(execFile)
 
@@ -109,7 +112,39 @@ function guessMimeType(filename: string): string {
     case 'bmp': return 'image/bmp'
     case 'tif':
     case 'tiff': return 'image/tiff'
+    case 'avif': return 'image/avif'
+    case 'heic': return 'image/heic'
+    case 'heif': return 'image/heif'
     case 'svg': return 'image/svg+xml'
+    case 'mp3': return 'audio/mpeg'
+    case 'wav': return 'audio/wav'
+    case 'm4a': return 'audio/mp4'
+    case 'aac': return 'audio/aac'
+    case 'flac': return 'audio/flac'
+    case 'ogg':
+    case 'oga': return 'audio/ogg'
+    case 'opus': return 'audio/opus'
+    case 'wma': return 'audio/x-ms-wma'
+    case 'aif':
+    case 'aiff': return 'audio/aiff'
+    case 'amr': return 'audio/amr'
+    case 'mid':
+    case 'midi': return 'audio/midi'
+    case 'mp4':
+    case 'm4v': return 'video/mp4'
+    case 'mov': return 'video/quicktime'
+    case 'webm': return 'video/webm'
+    case 'mkv': return 'video/x-matroska'
+    case 'avi': return 'video/x-msvideo'
+    case 'wmv': return 'video/x-ms-wmv'
+    case 'flv': return 'video/x-flv'
+    case 'mpg':
+    case 'mpeg': return 'video/mpeg'
+    case '3gp': return 'video/3gpp'
+    case '3g2': return 'video/3gpp2'
+    case 'mts':
+    case 'm2ts': return 'video/mp2t'
+    case 'hevc': return 'video/hevc'
     case 'pdf': return 'application/pdf'
     case 'doc':
     case 'docx':
@@ -198,6 +233,9 @@ function makePayload(
   values: {
     text?: string
     ocrText?: string
+    nativeImageData?: string
+    nativeImageType?: string
+    nativeImageName?: string
     kind?: FileKind
     extractionStatus: FileExtractionStatus
     modelInput: FileModelInput
@@ -207,18 +245,26 @@ function makePayload(
   const extension = getFileExtension(options.name)
   const normalizedText = formatTextForPayload(options.name, values.text ?? '')
   const { text, truncated } = truncateText(normalizedText, options.maxTextChars)
+  const mimeType = normalizeMediaMimeType(options.name, options.type || guessMimeType(options.name))
 
   return {
     name: options.name,
-    type: options.type || guessMimeType(options.name),
+    type: mimeType,
     size: options.size ?? options.buffer.length,
     extension,
-    kind: values.kind ?? detectFileKind(options.name, options.type || guessMimeType(options.name)),
+    kind: values.kind ?? detectFileKind(options.name, mimeType),
     text,
     ...(values.ocrText
       ? {
           ocrText: values.ocrText,
           ocrTextCharCount: values.ocrText.length,
+        }
+      : {}),
+    ...(values.nativeImageData
+      ? {
+          nativeImageData: values.nativeImageData,
+          nativeImageType: values.nativeImageType,
+          nativeImageName: values.nativeImageName,
         }
       : {}),
     textCharCount: text.length,
@@ -331,6 +377,40 @@ async function extractImageText(buffer: Buffer, extension: string): Promise<stri
     return await ocrImageFile(filePath)
   } finally {
     await rm(tempDir, { recursive: true, force: true })
+  }
+}
+
+function shouldNormalizeImageForVision(extension: string, mimeType: string): boolean {
+  return shouldNormalizeImageForCompatibility(`image.${extension || 'bin'}`, mimeType)
+}
+
+function replaceImageExtension(filename: string, extension: string) {
+  return filename.includes('.')
+    ? filename.replace(/\.[^.]+$/, `.${extension}`)
+    : `${filename}.${extension}`
+}
+
+async function normalizeNativeImageForVision(
+  buffer: Buffer,
+  filename: string,
+  extension: string,
+  mimeType: string,
+): Promise<{ data?: string; type?: string; name?: string; message?: string }> {
+  if (!shouldNormalizeImageForVision(extension, mimeType)) return {}
+
+  try {
+    const converted = await convertImageBufferToJpeg(buffer, { name: filename, mimeType })
+    return {
+      data: converted.data.toString('base64'),
+      type: 'image/jpeg',
+      name: replaceImageExtension(filename, 'jpg'),
+      message: `Converted the uploaded image to JPEG for browser preview and vision-model compatibility (${converted.method}).`,
+    }
+  } catch (error) {
+    console.error('Image normalization failed:', error)
+    return {
+      message: 'Image bytes stay attached for vision models, but conversion to JPEG failed in this runtime.',
+    }
   }
 }
 
@@ -542,7 +622,7 @@ async function extractArchiveText(options: ExtractFileOptions, context: Extracti
 
 async function extractFilePayloadInternal(options: ExtractFileOptions, context: ExtractionContext): Promise<ExtractedFilePayload> {
   const extension = getFileExtension(options.name)
-  const mimeType = options.type || guessMimeType(options.name)
+  const mimeType = normalizeMediaMimeType(options.name, options.type || guessMimeType(options.name))
   const kind = detectFileKind(options.name, mimeType)
 
   if (kind === 'archive') {
@@ -558,19 +638,35 @@ async function extractFilePayloadInternal(options: ExtractFileOptions, context: 
     })
   }
 
-  if (isImageMimeType(mimeType) && extension !== 'svg') {
-    const ocrText = await extractImageText(options.buffer, extension || 'png')
+  if (isImageFile(options.name, mimeType) && extension !== 'svg') {
+    const [ocrText, nativeImage] = await Promise.all([
+      extractImageText(options.buffer, extension || 'png'),
+      normalizeNativeImageForVision(options.buffer, options.name, extension, mimeType),
+    ])
     return makePayload(options, {
       kind: 'image',
       extractionStatus: 'native',
       modelInput: 'native-image',
+      ...(nativeImage.data
+        ? {
+            nativeImageData: nativeImage.data,
+            nativeImageType: nativeImage.type,
+            nativeImageName: nativeImage.name,
+          }
+        : {}),
       ...(ocrText.trim()
         ? {
             ocrText: normalizeExtractedText(ocrText),
-            statusMessage: 'Image bytes stay attached for vision models. OCR text is available as optional supplemental context.',
+            statusMessage: [
+              nativeImage.message,
+              'Image bytes stay attached for vision models. OCR text is available as optional supplemental context.',
+            ].filter(Boolean).join(' '),
           }
         : {
-            statusMessage: 'Image bytes are sent as native image input when the selected model supports vision.',
+            statusMessage: [
+              nativeImage.message,
+              'Image bytes are sent as native image input when the selected model supports vision.',
+            ].filter(Boolean).join(' '),
           }),
     })
   }

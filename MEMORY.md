@@ -71,6 +71,13 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - **KB embedding retry**: 2 retries with exponential backoff
 - **KB error recovery**: Errored docs can be re-uploaded
 
+### File & Media Uploads
+- WorkSpaces image uploads are vision-first: native image bytes stay attached by default, while OCR text is optional supplemental context.
+- Per-image modes let users choose `Vision only`, `Vision + OCR`, or `OCR only`.
+- HEIC/HEIF, TIFF, BMP, AVIF, and related still-image formats are normalized to JPEG before Ollama receives them, using `sharp` first and `heif-convert`/ImageMagick fallbacks when runtime codec support is external.
+- Image payloads now preserve `data`, `mimeType`, and `name` through chat serialization so server-side normalization can make model-facing bytes safe.
+- Audio/video files are detected by MIME or extension instead of generic binary fallback, but remain metadata-only until transcription/frame extraction is implemented.
+
 ### UWAF Browser
 - Removed crash-causing Chromium flags; added retry logic in `getPage()`
 - Live browser is now a true interactive remote display instead of frame polling: headed Chromium runs under `Xvfb`, `x11vnc` exposes the session, and the client embeds noVNC over authenticated websocket paths
@@ -90,6 +97,7 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 ## 🌐 Deployment Notes
 - App runs on port `3000`, and the standalone live-browser websocket bridge listens on `3001` as a fallback if same-origin attachment is unavailable
 - `network_mode: host` allows the container to reach Ollama, Tor, and the live-browser bridge
+- The Docker runtime includes media conversion/OCR helpers: `poppler-utils`, `tesseract-ocr`, `imagemagick`, `imagemagick-heic`, `imagemagick-tiff`, `imagemagick-webp`, and `libheif-tools`
 - **Nginx Proxy Manager**: if you proxy the app externally, websocket upgrades must reach the app server so `/ws/live-browser/control` and `/ws/live-browser/vnc` work:
   ```
   proxy_http_version 1.1;

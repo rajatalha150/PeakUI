@@ -27,6 +27,8 @@
 - 100 MB upload limit
 - Attachment preview and removal
 - WorkSpaces file attachments
+- Vision-first image uploads with OCR as supplemental context
+- Server-side JPEG normalization for HEIC/HEIF, TIFF, BMP, AVIF, and other still-image formats before Ollama vision requests
 
 ### v0.5.0 - Response Improvements
 - Inline image gallery for AI-generated images

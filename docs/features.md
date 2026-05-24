@@ -22,9 +22,11 @@ PeakUI now opens directly into WorkSpaces. The former normal-chat surface and it
 ### File & Media Attachments
 
 - **Attach files and images**: Click the paperclip button or drag-and-drop files onto the message input
-- **Supported formats**: Images (PNG, JPG, GIF, WebP, SVG) are sent directly to vision-capable models; documents are extracted to text
+- **Supported formats**: Common still images are treated as vision inputs, including PNG, JPG/JPEG, GIF, WebP, BMP, TIFF, AVIF, HEIC, and HEIF. Documents are extracted to text when possible.
+- **Vision-model compatibility**: HEIC/HEIF, TIFF, BMP, AVIF, and other unsupported still-image uploads are normalized to JPEG before the Ollama `images` payload is sent, using `sharp` first and system converters (`heif-convert` / ImageMagick) as fallback.
+- **Audio/video detection**: Audio and video uploads are classified by MIME or extension instead of generic binary metadata. They remain metadata-only until a transcription/frame-extraction pipeline is added.
 - **Upload limit**: 100 MB per file
-- **Processing**: Documents are automatically extracted using text, RTF, or Office parsers depending on format
+- **Processing**: Documents are automatically extracted using text, RTF, or Office parsers depending on format. Images can include OCR text as supplemental context without replacing the native image payload.
 - **Preview**: Pending attachments show as chips above the input with thumbnail (images) or filename (documents) and an X to remove
 - **Images in responses**: AI-generated images embedded as base64 in responses display inline with click-to-expand and download
 
@@ -48,7 +50,8 @@ WorkSpaces is the primary workspace for agentic tasks with persistent task modes
 
 WorkSpaces uses the shared file and image attachment system:
 - Paperclip button in the composer for file selection
-- Images sent as base64 to vision models
+- Images sent as normalized image bytes to vision models, with MIME/name metadata preserved through the chat API
+- Per-image attachment modes: `Vision only`, `Vision + OCR`, and `OCR only`
 - Documents extracted to text and prepended to the message
 - Attachment preview with remove capability
 

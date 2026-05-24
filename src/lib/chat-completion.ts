@@ -21,6 +21,8 @@ import { unloadOtherOllamaModels } from '@/lib/ollama-control';
 import type { ServerStreamStatus } from '@/lib/stream-status';
 import { isHuggingFaceRouterUrl } from './chat-platforms';
 import { trimMessagesToFit, estimateStringTokens } from './message-trim';
+import { normalizeImageMimeType, shouldNormalizeImageForCompatibility } from './file-shared';
+import { convertImageBufferToJpeg } from './image-normalization';
 
 const CHAT_HEARTBEAT_INTERVAL_MS = 15000;
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
@@ -88,6 +90,13 @@ interface IncomingChatMessage {
   images?: unknown;
 }
 
+interface IncomingImagePayload {
+  data?: unknown;
+  mimeType?: unknown;
+  type?: unknown;
+  name?: unknown;
+}
+
 interface IncomingChatBody {
   model?: unknown;
   chat_id?: unknown;
@@ -113,7 +122,107 @@ interface IncomingChatBody {
 interface InternalChatMessage {
   role: 'user' | 'assistant' | 'system';
   content?: string;
+  images?: InternalImagePayload[];
+}
+
+interface InternalImagePayload {
+  data: string;
+  mimeType?: string;
+  name?: string;
+}
+
+type OllamaChatMessage = Omit<InternalChatMessage, 'images'> & {
   images?: string[];
+};
+
+function normalizeBase64ImageData(value: string): string {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^data:([^;,]+);base64,(.+)$/i);
+  return match ? match[2] : trimmed;
+}
+
+function normalizeIncomingImage(image: unknown): InternalImagePayload | null {
+  if (typeof image === 'string') {
+    const trimmed = image.trim();
+    if (!trimmed) return null;
+    const dataUrlMatch = trimmed.match(/^data:([^;,]+);base64,(.+)$/i);
+    return {
+      data: dataUrlMatch ? dataUrlMatch[2] : trimmed,
+      ...(dataUrlMatch ? { mimeType: dataUrlMatch[1].toLowerCase() } : {}),
+    };
+  }
+
+  if (!image || typeof image !== 'object') return null;
+
+  const payload = image as IncomingImagePayload;
+  if (typeof payload.data !== 'string' || !payload.data.trim()) return null;
+
+  const name = typeof payload.name === 'string' ? payload.name.trim() : '';
+  const rawMimeType = typeof payload.mimeType === 'string'
+    ? payload.mimeType
+    : typeof payload.type === 'string'
+      ? payload.type
+      : '';
+  const dataUrlMatch = payload.data.trim().match(/^data:([^;,]+);base64,(.+)$/i);
+  const mimeType = rawMimeType || dataUrlMatch?.[1] || '';
+
+  return {
+    data: normalizeBase64ImageData(payload.data),
+    ...(mimeType ? { mimeType: normalizeImageMimeType(name || 'image', mimeType) } : {}),
+    ...(name ? { name } : {}),
+  };
+}
+
+const OLLAMA_DIRECT_IMAGE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+]);
+
+async function normalizeImageForOllama(image: InternalImagePayload): Promise<string> {
+  const name = image.name || 'uploaded image';
+  const mimeType = image.mimeType
+    ? normalizeImageMimeType(name, image.mimeType)
+    : undefined;
+
+  if (mimeType && OLLAMA_DIRECT_IMAGE_MIME_TYPES.has(mimeType) && !shouldNormalizeImageForCompatibility(name, mimeType)) {
+    return image.data;
+  }
+
+  if (!mimeType && !shouldNormalizeImageForCompatibility(name, 'application/octet-stream')) {
+    return image.data;
+  }
+
+  try {
+    const converted = await convertImageBufferToJpeg(Buffer.from(image.data, 'base64'), {
+      name,
+      mimeType: mimeType || 'application/octet-stream',
+    });
+    return converted.data.toString('base64');
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Could not convert "${name}" (${mimeType || 'unknown image type'}) into a JPEG image accepted by Ollama: ${detail}`);
+  }
+}
+
+async function buildOllamaMessages(messages: InternalChatMessage[]): Promise<OllamaChatMessage[]> {
+  return Promise.all(messages.map(async message => {
+    if (!message.images?.length) {
+      return {
+        role: message.role,
+        content: message.content,
+      };
+    }
+
+    const images = await Promise.all(message.images.map(normalizeImageForOllama));
+    return {
+      role: message.role,
+      content: message.content,
+      images,
+    };
+  }));
 }
 
 function normalizeMessages(messages: unknown): InternalChatMessage[] {
@@ -125,7 +234,7 @@ function normalizeMessages(messages: unknown): InternalChatMessage[] {
       const role = typeof message.role === 'string' ? message.role : '';
       const content = typeof message.content === 'string' ? message.content : '';
       const images = Array.isArray(message.images)
-        ? message.images.filter((image): image is string => typeof image === 'string')
+        ? message.images.map(normalizeIncomingImage).filter((image): image is InternalImagePayload => Boolean(image))
         : [];
 
       if (!['user', 'assistant', 'system'].includes(role) || (!content.trim() && images.length === 0)) return [];
@@ -398,7 +507,7 @@ async function streamOpenAICompatibleResponse(options: {
       messages: options.messages.map(message => ({
         role: message.role,
         content: message.content ?? '',
-        ...(message.images?.length ? { images: message.images } : {}),
+        ...(message.images?.length ? { images: message.images.map(image => image.data) } : {}),
       })),
       stream: true,
       temperature: options.temperature,
@@ -747,7 +856,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 model: requestedModel,
-                messages: messagesForStream,
+                messages: await buildOllamaMessages(messagesForStream),
                 stream: true,
                 options: {
                   temperature: settings.temperature,

@@ -253,9 +253,11 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 ### File Attachments & Downloads
 - Chat attachments use `/api/files/extract` and shared file metadata; text-like files are sent as extracted text plus original filename/MIME/size metadata
-- Images are preserved as original base64 bytes and passed to Ollama through the native `images` array for vision-capable models
+- Images are handled vision-first and passed to Ollama through the native `images` array for vision-capable models, with MIME/name metadata preserved until the server normalizes model-facing bytes
 - Uploaded images are now vision-first with OCR as optional supplemental context instead of OCR replacing the image payload
 - Open Claw composer now supports per-image attachment modes: `Vision only`, `Vision + OCR`, and `OCR only`
+- HEIC/HEIF, TIFF, BMP, AVIF, and related still-image uploads are converted to JPEG before reaching Ollama so local/cloud Ollama models do not reject them as `application/octet-stream`
+- Audio/video uploads are now classified by MIME or extension instead of generic binary metadata, while remaining metadata-only until a transcription/frame-extraction pipeline is added
 - Unsupported binary/audio/video/archive files can be attached as metadata-only, with a clear model-input status instead of pretending the bytes are text
 - Assistant responses render a format-aware response download button plus fenced code block downloads for content that declares `filename="..."`; `base64 filename="..."` blocks download as decoded binary blobs
 - Browser-side image previews now prefer blob/object URLs over base64-heavy `data:` URLs where possible, reducing DOM churn for pending uploads, Canvas previews, and inline assistant images
@@ -324,6 +326,7 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 | `src/app/api/auth/login/route.ts` | Login + first-time admin setup |
 | `src/lib/rag.ts` | Shared chunking, embeddings, cosine scoring, BM25 keyword search |
 | `src/lib/file-extraction.ts` | Shared file extraction for chat attachments and RAG |
+| `src/lib/image-normalization.ts` | Shared still-image conversion helper that tries `sharp` first, then `heif-convert`/ImageMagick fallbacks for Ollama-compatible JPEG output |
 | `src/lib/chat-completion.ts` | Shared streaming completion helper |
 | `src/lib/chat-platforms.ts` | Shared chat-platform types, Hugging Face base URL normalization, provider-aware model ids, and router detection helpers |
 | `src/lib/chat-sessions.ts` | Chat session normalization, creation, and finalization helpers |
@@ -381,7 +384,7 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 | `OPENCLAW-TODO.md` | Comprehensive gap analysis of missing agent infrastructure (10 categories, ~50 items) vs the full Open Claw agent platform |
 | `UWAF-NETWORK-TODO.md` | Focused improvement backlog for UWAF, Tor/stealth browsing, live-browser transport, and network/browser reliability |
 | `docker-compose.yml` | Orchestrates `app` (Next.js) + `db` (Postgres) + `tor-proxy` (Tor SOCKS5) with host networking plus Open Claw host mounts, including the managed writable workspace root mounted at `/mnt/openclaw/workspace`. Tor proxy maps host 9050→container 9150. |
-| `Dockerfile` | Multi-stage Node 22 Alpine build, `ENV HOSTNAME 0.0.0.0` for LAN access, plus runtime tooling (`git`, `curl`, `wget`, `bash`, `tar`, `unzip`, `chromium`, `chromium-chromedriver`, `poppler-utils`, `tesseract-ocr`) and workspace-alias bootstrapping |
+| `Dockerfile` | Multi-stage Node 22 Alpine build, `ENV HOSTNAME 0.0.0.0` for LAN access, plus runtime tooling (`git`, `curl`, `wget`, `bash`, `tar`, `unzip`, `chromium`, `chromium-chromedriver`, `poppler-utils`, `tesseract-ocr`, `imagemagick`, HEIC/TIFF/WebP codecs) and workspace-alias bootstrapping |
 
 ## 🌐 Deployment Notes
 - Runs on port `3000`, accessible via `localhost:3000` or LAN IP
@@ -406,8 +409,15 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `fix: render markdown images in chat responses`
-- **Previous committed baseline:** `fix: streamline settings and uwaf mode switching`
+- **Current committed baseline:** `fix: normalize media uploads for vision models`
+- **Previous committed baseline:** `fix: render markdown images in chat responses`
+
+### Latest Changes (Media Upload Normalization)
+- **HEIC/HEIF upload failure fixed:** Open Claw now preserves converted image payloads from `/api/files/extract` instead of dropping `nativeImageData`, so HEIC uploads no longer fall back to original unsupported bytes.
+- **Image metadata survives chat serialization:** chat requests now send image objects with `data`, `mimeType`, and `name` instead of anonymous base64 strings, allowing the backend to normalize unsupported still-image formats before calling Ollama.
+- **Server-side still-image conversion added:** `src/lib/image-normalization.ts` converts unsupported still images to JPEG using `sharp` first, then `heif-convert` or ImageMagick fallbacks when codec support is external.
+- **Docker media codecs added:** the runtime image now installs ImageMagick HEIC/TIFF/WebP support plus `libheif-tools`, and the exact `IMG_8731.HEIC` sample was verified to convert to JPEG inside the rebuilt container.
+- **Media detection broadened:** HEIC/HEIF/TIFF/BMP/AVIF images and common audio/video extensions are classified correctly even when browsers report `application/octet-stream`; audio/video remain metadata-only pending dedicated transcription/frame extraction.
 
 ### Latest Changes (Chat Image Rendering Fix)
 - **Markdown images now render inline in plain responses:** assistant messages that only contain image markdown no longer bypass the structured renderer, so `![alt](url)` is treated as a real image instead of text.

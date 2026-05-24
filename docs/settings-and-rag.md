@@ -55,10 +55,13 @@ WorkSpaces is the primary app shell. Generation settings are saved per user in `
 ### File Attachments
 
 - **Upload limit**: 100 MB per file (configured via `MAX_UPLOAD_BYTES` in `src/lib/file-shared.ts`)
-- **Image handling**: Images are read as base64 and sent in the Ollama/OpenAI images array for vision-capable models
+- **Image handling**: Images are handled vision-first. The browser keeps preview metadata, `/api/files/extract` can add OCR as supplemental context, and the chat request preserves image data, MIME type, and filename so the server can normalize unsupported still-image formats before calling Ollama.
+- **Compatibility normalization**: HEIC/HEIF, TIFF, BMP, AVIF, and related still-image uploads are converted to JPEG for model compatibility. The server tries `sharp` first, then falls back to `heif-convert` or ImageMagick when the runtime codec support is needed.
+- **Audio/video handling**: Audio/video uploads are classified by extension/MIME and attached as metadata-only until dedicated transcription or frame extraction is implemented.
 - **Document extraction**: Non-image files are sent to `/api/files/extract` for text extraction using officeparser
 - **Extraction pipeline**:
   - Office files (PDF, DOCX, PPTX, XLSX, RTF) → officeparser
+  - Still images → vision payload + optional OCR text
   - Text files → direct read with charset detection
   - Unknown files → text extraction attempt with fallback to metadata-only
 - **Attachment context**: Extracted text is prepended to the message with metadata header showing filename, MIME type, size, extraction status, and content preview
@@ -194,7 +197,8 @@ Production behavior:
 WorkSpaces uses the shared attachment system:
 
 - Paperclip button in the composer opens file picker
-- Images sent as base64 to vision-capable models
+- Images sent as normalized image bytes to vision-capable models
+- Per-image mode controls decide whether a given image is sent as `Vision only`, `Vision + OCR`, or `OCR only`
 - Documents extracted to text via `/api/files/extract`
 - Attachment preview chips with X to remove
 - Processing state and error handling

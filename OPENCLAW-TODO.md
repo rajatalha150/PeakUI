@@ -83,6 +83,8 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 - [x] **Edit-in-place** — Edit agent-generated code/docs directly in the UI
 - [x] **Vision-first image attachments** — Uploaded images stay as native image input, with OCR kept as optional supplemental context
 - [x] **Per-image attachment mode** — Vision only / Vision + OCR / OCR only controls in the WorkSpaces composer
+- [x] **Media-format detection** — Image/audio/video uploads are classified by MIME or extension instead of falling through to generic binary metadata
+- [x] **Model-safe still-image normalization** — HEIC/HEIF, TIFF, BMP, AVIF, and related still-image formats convert to JPEG before Ollama receives the image payload
 - [x] **Canvas lazy previews** — Large code and markdown artifacts avoid full eager rendering until expanded
 - [x] **Canvas virtualization** — Artifact lists are now windowed to keep large sessions responsive
 - [x] **Long chat virtualization** — WorkSpaces chat history now window-renders long threads

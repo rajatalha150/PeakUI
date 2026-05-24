@@ -41,7 +41,14 @@ import { Settings } from 'lucide-react';
 import { getStreamPhaseLabel, isServerStreamStatus, type UiStreamPhase } from '@/lib/stream-status';
 import { applyTheme } from '@/lib/theme-options';
 import { useStickyScroll } from '@/lib/use-sticky-scroll';
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL, formatBytes, type ExtractedFilePayload } from '@/lib/file-shared';
+import {
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_LABEL,
+  formatBytes,
+  isImageFile,
+  normalizeImageMimeType,
+  type ExtractedFilePayload,
+} from '@/lib/file-shared';
 import {
   extractOpenClawToolRequest,
   stripAllToolTags,
@@ -142,7 +149,73 @@ interface OpenClawFileAttachment {
   modelInput?: ExtractedFilePayload['modelInput'];
   ocrText?: string;
   ocrTextCharCount?: number;
+  nativeImageData?: string;
+  nativeImageType?: string;
+  nativeImageName?: string;
   statusMessage?: string;
+}
+
+function getOpenClawImageSrc(image: OpenClawImageAttachment) {
+  if (image.previewUrl) return image.previewUrl;
+  const mimeType = image.type || 'image/jpeg';
+  return `data:${mimeType};base64,${image.data}`;
+}
+
+function OpenClawAttachedImagePreview({ image }: { image: OpenClawImageAttachment }) {
+  const [failed, setFailed] = useState(false);
+  const imageSrc = getOpenClawImageSrc(image);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [imageSrc]);
+
+  if (failed) {
+    return (
+      <div
+        title={`${image.name} (${formatBytes(image.size)})`}
+        style={{
+          width: '220px',
+          minHeight: '72px',
+          borderRadius: '10px',
+          border: '1px solid var(--border-color)',
+          background: 'var(--accent-faint)',
+          color: 'var(--text-secondary)',
+          padding: '10px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '4px',
+          justifyContent: 'center',
+        }}
+      >
+        <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {image.name}
+        </span>
+        <span style={{ fontSize: '0.72rem' }}>
+          {image.type || 'image'} · {formatBytes(image.size)}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <ObjectUrlImage
+      src={image.previewUrl || undefined}
+      base64Data={image.previewUrl ? undefined : image.data}
+      mimeType={image.type}
+      alt={image.name}
+      title={`${image.name} (${formatBytes(image.size)})`}
+      maxPreviewWidth={360}
+      maxPreviewHeight={260}
+      onError={() => setFailed(true)}
+      style={{
+        maxWidth: '320px',
+        maxHeight: '240px',
+        borderRadius: '10px',
+        objectFit: 'cover',
+        border: '1px solid var(--border-color)',
+      }}
+    />
+  );
 }
 
 function getImageAttachmentSummary(mode: ImageAttachmentMode, hasOcrText: boolean) {
@@ -648,13 +721,22 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
               )}
             </MessageRenderBoundary>
           ) : (
-            <ChatMessageContent
-              content={messageContent}
-              isStreaming={isStreaming}
-              isLast={isLast}
-              presentation={msg.presentation}
-              sources={messageSources}
-            />
+            <>
+              {msg.images && msg.images.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: messageContent.trim() ? '10px' : 0 }}>
+                  {msg.images.map((image, imageIndex) => (
+                    <OpenClawAttachedImagePreview key={`${image.name}-${imageIndex}`} image={image} />
+                  ))}
+                </div>
+              )}
+              <ChatMessageContent
+                content={messageContent}
+                isStreaming={isStreaming}
+                isLast={isLast}
+                presentation={msg.presentation}
+                sources={messageSources}
+              />
+            </>
           )}
         </div>
       </div>
@@ -1578,7 +1660,7 @@ export default function OpenClawWorkspace({
   useEffect(() => {
     const nextPreviewUrls = pendingImages
       .map(image => image.previewUrl)
-      .filter(Boolean);
+      .filter((url): url is string => typeof url === 'string' && url.startsWith('blob:'));
 
     for (const previousUrl of pendingPreviewUrlsRef.current) {
       if (!nextPreviewUrls.includes(previousUrl)) {
@@ -3880,6 +3962,13 @@ export default function OpenClawWorkspace({
       modelInput: data.modelInput,
       statusMessage: data.statusMessage,
       ...(data.ocrText ? { ocrText: data.ocrText, ocrTextCharCount: data.ocrTextCharCount } : {}),
+      ...(data.nativeImageData
+        ? {
+            nativeImageData: data.nativeImageData,
+            nativeImageType: data.nativeImageType,
+            nativeImageName: data.nativeImageName,
+          }
+        : {}),
     };
   };
 
@@ -3893,7 +3982,7 @@ export default function OpenClawWorkspace({
       ];
 
       if (image.attachmentMode !== 'ocr-only') {
-        lines.push('Model input: original image bytes');
+        lines.push(`Model input: image bytes (${image.type || 'image/*'})`);
       }
 
       if (image.attachmentMode !== 'vision-only') {
@@ -3939,17 +4028,23 @@ export default function OpenClawWorkspace({
           setAttachmentError(`"${file.name}" is too large. Files are limited to ${MAX_UPLOAD_LABEL}.`);
           break;
         }
-        if (file.type.startsWith('image/')) {
+        if (isImageFile(file.name, file.type)) {
+          const mimeType = normalizeImageMimeType(file.name, file.type || 'application/octet-stream');
           const [b64, imageExtraction] = await Promise.all([
             readAsBase64Fn(file),
             extractAttachment(file),
           ]);
+          const imageData = imageExtraction.nativeImageData || b64;
+          const imageType = imageExtraction.nativeImageType || mimeType;
+          const previewUrl = imageExtraction.nativeImageData
+            ? `data:${imageType};base64,${imageData}`
+            : URL.createObjectURL(file);
           nextImages.push({
-            name: file.name,
-            type: file.type || 'image/*',
+            name: imageExtraction.nativeImageName || file.name,
+            type: imageType,
             size: file.size,
-            data: b64,
-            previewUrl: URL.createObjectURL(file),
+            data: imageData,
+            previewUrl,
             attachmentMode: imageExtraction.ocrText?.trim() ? 'vision+ocr' : 'vision-only',
             ocrText: imageExtraction.ocrText,
             ocrTextCharCount: imageExtraction.ocrTextCharCount,
@@ -4161,7 +4256,15 @@ export default function OpenClawWorkspace({
         messages: options.conversationMessages.map(message => ({
           role: message.role,
           content: message.content,
-          ...(message.images?.length ? { images: message.images.map(img => img.data) } : {}),
+          ...(message.images?.length
+            ? {
+                images: message.images.map(img => ({
+                  data: img.data,
+                  mimeType: img.type,
+                  name: img.name,
+                })),
+              }
+            : {}),
         })),
       }),
     });

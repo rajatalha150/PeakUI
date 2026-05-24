@@ -18,7 +18,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN apk add --no-cache bash curl git tar unzip wget python3 py3-pip poppler-utils tesseract-ocr tesseract-ocr-data-eng chromium chromium-chromedriver xvfb x11vnc
+RUN apk add --no-cache bash curl git tar unzip wget python3 py3-pip poppler-utils tesseract-ocr tesseract-ocr-data-eng chromium chromium-chromedriver xvfb x11vnc imagemagick imagemagick-heic imagemagick-tiff imagemagick-webp libheif-tools
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./

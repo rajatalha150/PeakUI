@@ -41,6 +41,7 @@ A premium AI Studio command center with WorkSpaces as the local-first agent shel
 - **PostgreSQL Castle Memory System:** Auto-saves your chat histories and accounts into a robust PostgreSQL database.
 - **Zero-Config Auth Layer:** Ensures only authenticated users can access the studio. On a fresh deployment, the system prompts the first visitor to configure the primary Admin account.
 - **RAG Knowledge Base:** Upload documents → auto-chunk with safe full-document mode for small files → index locally with Semantic embeddings or Keyword/BM25 → parse PDFs page-by-page with text-layer extraction plus OCR fallback for scanned or mixed documents using `poppler-utils` + `tesseract` in the runtime image → search retrieved excerpts with chunk/file metadata, filters, health summaries, and full-document drill-down → browse the indexed corpus with paginated lists, page-size controls, multi-select, and bulk delete → inject cited sources into WorkSpaces.
+- **Vision-First Media Uploads:** WorkSpaces keeps uploaded images as native vision inputs by default, adds OCR only as supplemental context, and normalizes HEIC/HEIF, TIFF, BMP, AVIF, and other still-image formats to JPEG before sending them to Ollama models that reject unsupported image MIME types.
 - **Folder Tree Uploads:** The Knowledge Base upload area can accept individual files or whole folders. Folder uploads preserve relative paths, keep the folder tree intact in the index, and queue the uploaded tree in batches so large project drops stay responsive.
 - **Production-Ready Settings:** WorkSpaces provider selection, system prompt, temperature, context window, Ollama host, compatible-provider base URL, exclusive switching, RAG mode, tool permissions, and embedding model settings are saved per user, normalized server-side, and documented in [Settings and RAG Behavior](docs/settings-and-rag.md). Logout now lives in Settings.
 - **RAG Model Recommendations:** Settings → RAG now surfaces a larger embedding-model shortlist that covers tiny/fast, balanced, multilingual, and higher-recall options instead of only the original three defaults.
@@ -56,7 +57,7 @@ A premium AI Studio command center with WorkSpaces as the local-first agent shel
 - **Authentication:** `jose` Edge-compatible JWTs
 - **RAG:** Ollama embeddings for Semantic mode, built-in BM25 for Keyword mode
 - **Styling:** Vanilla CSS (`globals.css`), Glassmorphism UI, CSS-variable theme system
-- **Deployment:** Docker & Docker Compose
+- **Deployment:** Docker & Docker Compose. The runtime image includes Chromium/noVNC tooling plus media helpers such as `poppler-utils`, `tesseract-ocr`, `imagemagick`, `imagemagick-heic`, `imagemagick-tiff`, `imagemagick-webp`, and `libheif-tools`.
 
 ## 🏃 Getting Started (Dockerized)
 
