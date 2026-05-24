@@ -1492,6 +1492,21 @@ export default function OpenClawWorkspace({
   const [browserLiveStatus, setBrowserLiveStatus] = useState<'connecting' | 'live' | 'disconnected' | 'failed'>('connecting');
   const [browserTakeoverRequestId, setBrowserTakeoverRequestId] = useState(0);
   const browserInterruptedRef = useRef(false);
+  const switchUwafBrowserMode = useCallback((nextMode: 'direct' | 'stealth') => {
+    setUwafBrowserMode((currentMode) => {
+      if (currentMode === nextMode) return currentMode;
+
+      setBrowserModalOpen(false);
+      setBrowserInterrupted(false);
+      browserInterruptedRef.current = false;
+      setBrowserLiveStatus('connecting');
+      setUwafCurrentUrl('');
+      setUwafCurrentTitle('');
+      setBrowserTakeoverRequestId((previous) => previous + 1);
+
+      return nextMode;
+    });
+  }, []);
   const [stoppingModel, setStoppingModel] = useState(false);
   const [modelControlNote, setModelControlNote] = useState('');
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
@@ -5437,14 +5452,14 @@ export default function OpenClawWorkspace({
                       <button
                         type="button"
                         className={`openclaw-mode-segment${uwafBrowserMode === 'direct' ? ' is-active' : ''}`}
-                        onClick={() => setUwafBrowserMode('direct')}
+                        onClick={() => switchUwafBrowserMode('direct')}
                       >
                         Direct
                       </button>
                       <button
                         type="button"
                         className={`openclaw-mode-segment${uwafBrowserMode === 'stealth' ? ' is-active is-stealth' : ''}`}
-                        onClick={() => setUwafBrowserMode('stealth')}
+                        onClick={() => switchUwafBrowserMode('stealth')}
                       >
                         Stealth
                       </button>
@@ -7242,13 +7257,14 @@ export default function OpenClawWorkspace({
             {settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && (
               <UwafNetworkPanel
                 currentMode={uwafBrowserMode}
-                onModeChange={setUwafBrowserMode}
+                onModeChange={switchUwafBrowserMode}
               />
             )}
 
             {/* UWAF Browser — Live View (shown when internet is enabled) */}
             {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && currentSessionId && browserLiveStatus !== 'failed' && !browserModalOpen ? (
               <LiveBrowserView
+                key={`${currentSessionId}:${uwafBrowserMode}:inline`}
                 sessionId={currentSessionId}
                 mode={uwafBrowserMode}
                 currentUrl={uwafCurrentUrl}
@@ -7288,6 +7304,7 @@ export default function OpenClawWorkspace({
             {/* Browser Modal */}
             {browserModalOpen && currentSessionId && (
               <BrowserModal
+                key={`${currentSessionId}:${uwafBrowserMode}:modal`}
                 sessionId={currentSessionId}
                 mode={uwafBrowserMode}
                 currentUrl={uwafCurrentUrl}

@@ -950,9 +950,6 @@ export async function runUwafBrowserAction(
   }
 
   const mode: BrowserMode = request.browserMode || settings.openClawUwafDefaultMode || 'direct'
-  if (openClawUwafBrowserMode !== mode) {
-    throw new Error(`UWAF browser is configured for ${openClawUwafBrowserMode} mode, but this request asked for ${mode}. Switch the UWAF mode in Settings before changing network mode.`)
-  }
 
   if (mode === 'stealth') {
     const { runStealthPreflight } = await import('./uwaf-pool')

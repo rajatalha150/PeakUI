@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Settings, Server, Bot, Database, MessageSquare,
-  CheckCircle, AlertCircle, Loader2, Save, Palette, Users, Shield, Trash2, LogOut
+  CheckCircle, AlertCircle, Loader2, Save, Palette, Users, Shield, Trash2, LogOut, X
 } from 'lucide-react';
 import { ollamaModelKey, RECOMMENDED_EMBEDDING_MODELS } from '@/lib/embedding-models';
 import { applyTheme, THEME_OPTIONS } from '@/lib/theme-options';
@@ -213,6 +213,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
   const [usersError, setUsersError] = useState('');
   const [userNotice, setUserNotice] = useState('');
   const [creatingUser, setCreatingUser] = useState(false);
+  const [createUserModalOpen, setCreateUserModalOpen] = useState(false);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({});
@@ -564,6 +565,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
         permissionOverrides: { allow: [], deny: [] },
       });
       setUserNotice(`Created ${data.user.username}.`);
+      setCreateUserModalOpen(false);
     } catch (error) {
       setUsersError(error instanceof Error ? error.message : 'Failed to create user.');
     } finally {
@@ -653,15 +655,30 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                   Bootstrap stays unchanged: the first deployed login still creates the initial admin. After that, admins manage all accounts here.
                 </div>
               </div>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                style={{ padding: '8px 14px' }}
-                onClick={() => void fetchManagedUsers()}
-                disabled={usersLoading}
-              >
-                {usersLoading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : 'Refresh'}
-              </button>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  style={{ padding: '8px 14px' }}
+                  onClick={() => void fetchManagedUsers()}
+                  disabled={usersLoading}
+                >
+                  {usersLoading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : 'Refresh'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ padding: '8px 14px' }}
+                  onClick={() => {
+                    setUsersError('');
+                    setUserNotice('');
+                    setCreateUserModalOpen(true);
+                  }}
+                >
+                  <Users size={14} />
+                  Add user
+                </button>
+              </div>
             </div>
 
             {usersError && (
@@ -675,117 +692,6 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                 {userNotice}
               </div>
             )}
-
-            <div style={{ padding: '14px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'var(--bg-glass)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Shield size={16} color="var(--accent-primary)" />
-                <div style={{ fontWeight: 700, fontSize: '0.88rem' }}>Create user</div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
-                <input
-                  className="input-field"
-                  placeholder="Username"
-                  value={createUserForm.username}
-                  onChange={e => setCreateUserForm(prev => ({ ...prev, username: e.target.value }))}
-                />
-                <input
-                  className="input-field"
-                  type="password"
-                  placeholder="Password"
-                  value={createUserForm.password}
-                  onChange={e => setCreateUserForm(prev => ({ ...prev, password: e.target.value }))}
-                />
-                <input
-                  className="input-field"
-                  type="password"
-                  placeholder="Confirm password"
-                  value={createUserForm.confirmPassword}
-                  onChange={e => setCreateUserForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
-                />
-                <select
-                  className="input-field"
-                  value={createUserForm.role}
-                  onChange={e => setCreateUserForm(prev => ({ ...prev, role: e.target.value as ManagedUser['role'] }))}
-                >
-                  {availableRoles.map(role => (
-                    <option key={role.key} value={role.key}>{role.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                New passwords must use 10+ characters with uppercase, lowercase, and a number.
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <input
-                  id="create-user-active"
-                  type="checkbox"
-                  checked={createUserForm.isActive}
-                  onChange={e => setCreateUserForm(prev => ({ ...prev, isActive: e.target.checked }))}
-                />
-                <label htmlFor="create-user-active" style={{ fontSize: '0.82rem', color: 'var(--text-primary)' }}>
-                  User starts active
-                </label>
-              </div>
-
-              {createUserForm.role !== 'ADMIN' && permissionDefinitions.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {Object.entries(permissionsByCategory).map(([category, permissions]) => (
-                    <div key={category} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{category}</div>
-                      {permissions.map(permission => {
-                        const mode = createUserForm.permissionOverrides.allow.includes(permission.key)
-                          ? 'allow'
-                          : createUserForm.permissionOverrides.deny.includes(permission.key)
-                            ? 'deny'
-                            : 'default';
-
-                        return (
-                          <div key={permission.key} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 120px', gap: '10px', alignItems: 'center' }}>
-                            <div>
-                              <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>{permission.label}</div>
-                              <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>{permission.description}</div>
-                            </div>
-                            <select
-                              className="input-field"
-                              value={mode}
-                              onChange={e => setCreateUserForm(prev => ({
-                                ...prev,
-                                permissionOverrides: setPermissionOverride(prev.permissionOverrides, permission.key, e.target.value as 'default' | 'allow' | 'deny'),
-                              }))}
-                            >
-                              <option value="default">Role default</option>
-                              <option value="allow">Allow</option>
-                              <option value="deny">Deny</option>
-                            </select>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {createUserForm.role === 'ADMIN' && (
-                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                  Admin users always receive the full permission set.
-                </div>
-              )}
-
-              <div>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => void createManagedUser()}
-                  disabled={creatingUser}
-                  style={{ padding: '10px 16px' }}
-                >
-                  {creatingUser ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : 'Create User'}
-                </button>
-              </div>
-            </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {managedUsers.map(user => (
@@ -917,6 +823,184 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             </div>
           </div>
         </Section>
+      )}
+
+      {canManageUsers && createUserModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Create user"
+          onClick={() => !creatingUser && setCreateUserModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1300,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            background: 'rgba(3, 6, 23, 0.66)',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <div
+            onClick={event => event.stopPropagation()}
+            style={{
+              width: 'min(980px, calc(100vw - 32px))',
+              maxHeight: 'min(88vh, 900px)',
+              overflowY: 'auto',
+              padding: '18px',
+              borderRadius: '18px',
+              border: '1px solid var(--border-color)',
+              background: 'var(--sidebar-bg)',
+              boxShadow: '0 24px 72px rgba(0, 0, 0, 0.42)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '14px',
+            }}
+          >
+            <div style={{ position: 'sticky', top: 0, zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', paddingBottom: '10px', background: 'var(--sidebar-bg)', borderBottom: '1px solid var(--border-color)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Shield size={18} color="var(--accent-primary)" />
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)' }}>Create user</div>
+                  <div style={{ marginTop: '3px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    Add an account and set role-level overrides before first login.
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setCreateUserModalOpen(false)}
+                disabled={creatingUser}
+                aria-label="Close create user dialog"
+                style={{ padding: '8px 10px' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {usersError && (
+              <div style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--danger)', background: 'rgba(239,68,68,0.08)', color: '#fca5a5', fontSize: '0.82rem' }}>
+                {usersError}
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+              <input
+                className="input-field"
+                placeholder="Username"
+                value={createUserForm.username}
+                onChange={e => setCreateUserForm(prev => ({ ...prev, username: e.target.value }))}
+              />
+              <input
+                className="input-field"
+                type="password"
+                placeholder="Password"
+                value={createUserForm.password}
+                onChange={e => setCreateUserForm(prev => ({ ...prev, password: e.target.value }))}
+              />
+              <input
+                className="input-field"
+                type="password"
+                placeholder="Confirm password"
+                value={createUserForm.confirmPassword}
+                onChange={e => setCreateUserForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+              />
+              <select
+                className="input-field"
+                value={createUserForm.role}
+                onChange={e => setCreateUserForm(prev => ({ ...prev, role: e.target.value as ManagedUser['role'] }))}
+              >
+                {availableRoles.map(role => (
+                  <option key={role.key} value={role.key}>{role.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              New passwords must use 10+ characters with uppercase, lowercase, and a number.
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <input
+                id="create-user-active"
+                type="checkbox"
+                checked={createUserForm.isActive}
+                onChange={e => setCreateUserForm(prev => ({ ...prev, isActive: e.target.checked }))}
+              />
+              <label htmlFor="create-user-active" style={{ fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                User starts active
+              </label>
+            </div>
+
+            {createUserForm.role !== 'ADMIN' && permissionDefinitions.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {Object.entries(permissionsByCategory).map(([category, permissions]) => (
+                  <div key={category} style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{category}</div>
+                    {permissions.map(permission => {
+                      const mode = createUserForm.permissionOverrides.allow.includes(permission.key)
+                        ? 'allow'
+                        : createUserForm.permissionOverrides.deny.includes(permission.key)
+                          ? 'deny'
+                          : 'default';
+
+                      return (
+                        <div key={permission.key} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 120px', gap: '10px', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>{permission.label}</div>
+                            <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>{permission.description}</div>
+                          </div>
+                          <select
+                            className="input-field"
+                            value={mode}
+                            onChange={e => setCreateUserForm(prev => ({
+                              ...prev,
+                              permissionOverrides: setPermissionOverride(prev.permissionOverrides, permission.key, e.target.value as 'default' | 'allow' | 'deny'),
+                            }))}
+                          >
+                            <option value="default">Role default</option>
+                            <option value="allow">Allow</option>
+                            <option value="deny">Deny</option>
+                          </select>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {createUserForm.role === 'ADMIN' && (
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                Admin users always receive the full permission set.
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap', paddingTop: '4px' }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setCreateUserModalOpen(false)}
+                disabled={creatingUser}
+                style={{ padding: '10px 16px' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void createManagedUser()}
+                disabled={creatingUser}
+                style={{ padding: '10px 16px' }}
+              >
+                {creatingUser ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : 'Create User'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Appearance */}
@@ -1179,17 +1263,6 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             )}
           </Field>
         )}
-
-        <Field label="System Prompt" help="A persistent instruction prepended to every conversation. Useful for setting a persona or behavioral rules.">
-          <textarea
-            className="input-field"
-            rows={4}
-            value={settings.systemPrompt}
-            onChange={e => update('systemPrompt', e.target.value)}
-            placeholder="You are a helpful assistant that is concise and direct..."
-            style={{ resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.5 }}
-          />
-        </Field>
 
         <Field label={`Temperature: ${settings.temperature.toFixed(1)}`} help="Controls randomness. Lower = focused and deterministic. Higher = creative and varied. (0.0 – 2.0)">
           <input

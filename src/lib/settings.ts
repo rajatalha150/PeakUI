@@ -32,6 +32,8 @@ export type OpenClawUwafDefaultMode = 'direct' | 'stealth'
 export const MIN_CONTEXT_LENGTH = 512
 export const MAX_CONTEXT_LENGTH = 131072
 export const CONTEXT_STEP = 512
+export const LEGACY_DEFAULT_SYSTEM_PROMPT = "Include images with markdown syntax ![alt](https://...) only when you have a real, verified HTTPS URL. If you don't know the actual URL, describe the image in text instead."
+
 export interface AppSettings {
   chatPlatform: ChatPlatform
   chatModel: string
@@ -91,7 +93,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ragModel: DEFAULT_EMBEDDING_MODEL,
   ragMode: 'semantic',
   ollamaHost: 'http://127.0.0.1:11434',
-  systemPrompt: "Include images with markdown syntax ![alt](https://...) only when you have a real, verified HTTPS URL. If you don't know the actual URL, describe the image in text instead.",
+  systemPrompt: '',
   temperature: 0.7,
   contextLength: 16384,
   theme: 'aurora',
@@ -281,6 +283,9 @@ export function normalizeOpenClawAllowedPaths(value: unknown): string {
 }
 
 export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings, unknown>> | null | undefined): AppSettings {
+  const rawSystemPrompt = typeof settings?.systemPrompt === 'string' ? settings.systemPrompt : DEFAULT_SETTINGS.systemPrompt
+  const systemPrompt = rawSystemPrompt.trim() === LEGACY_DEFAULT_SYSTEM_PROMPT ? '' : rawSystemPrompt
+
   return {
     chatPlatform: normalizeChatPlatform(settings?.chatPlatform),
     chatModel: typeof settings?.chatModel === 'string' ? settings.chatModel.trim() : DEFAULT_SETTINGS.chatModel,
@@ -293,7 +298,7 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     ragModel: normalizeRagModel(settings?.ragModel),
     ragMode: normalizeRagMode(settings?.ragMode),
     ollamaHost: normalizeOllamaHost(settings?.ollamaHost),
-    systemPrompt: typeof settings?.systemPrompt === 'string' ? settings.systemPrompt : DEFAULT_SETTINGS.systemPrompt,
+    systemPrompt,
     temperature: normalizeTemperature(settings?.temperature),
     contextLength: normalizeContextLength(settings?.contextLength),
     theme: normalizeTheme(settings?.theme),

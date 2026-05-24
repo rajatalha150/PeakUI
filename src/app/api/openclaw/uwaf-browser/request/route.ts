@@ -3,7 +3,7 @@ import { getCurrentUserIdWithPermissions } from '@/lib/request-auth'
 import { getUwafBrowserSession } from '@/lib/uwaf-browser'
 import { createOpenClawApprovalToken } from '@/lib/openclaw-tool-approvals'
 import { prisma } from '@/lib/prisma'
-import { normalizeOpenClawUwafBrowserMode, DEFAULT_SETTINGS } from '@/lib/settings'
+import { normalizeOpenClawUwafBrowserMode, normalizeOpenClawUwafDefaultMode, DEFAULT_SETTINGS } from '@/lib/settings'
 
 export async function POST(request: NextRequest) {
   const userId = await getCurrentUserIdWithPermissions(['openclaw.use', 'openclaw.uwaf'])
@@ -40,13 +40,8 @@ export async function POST(request: NextRequest) {
   const explicitBrowserMode = typeof body.browserMode === 'string' && ['direct', 'stealth'].includes(body.browserMode)
     ? body.browserMode as 'direct' | 'stealth'
     : null
-  if (explicitBrowserMode && explicitBrowserMode !== mode) {
-    return NextResponse.json({
-      allowed: false,
-      reason: `UWAF browser is configured for ${mode} mode, but this approval request asked for ${explicitBrowserMode}.`,
-    }, { status: 403 })
-  }
-  const browserMode = mode
+  const browserMode = explicitBrowserMode
+    ?? normalizeOpenClawUwafDefaultMode(settingsRow?.openClawUwafDefaultMode ?? DEFAULT_SETTINGS.openClawUwafDefaultMode)
 
   if (action === 'submit') {
     const session = getUwafBrowserSession(userId, sessionId, browserMode)

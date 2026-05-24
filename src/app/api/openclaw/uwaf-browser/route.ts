@@ -80,12 +80,8 @@ export async function POST(request: NextRequest) {
   const explicitBrowserMode = typeof body.browserMode === 'string' && ['direct', 'stealth'].includes(body.browserMode)
     ? body.browserMode as 'direct' | 'stealth'
     : null
-  if (explicitBrowserMode && explicitBrowserMode !== settings.openClawUwafBrowserMode) {
-    return NextResponse.json({
-      error: `UWAF browser is configured for ${settings.openClawUwafBrowserMode} mode, but this request asked for ${explicitBrowserMode}. Switch the UWAF mode in Settings before changing network mode.`,
-    }, { status: 403 })
-  }
-  const requestBrowserMode = settings.openClawUwafBrowserMode
+  const requestBrowserMode = explicitBrowserMode
+    || (settings.openClawUwafDefaultMode === 'stealth' ? 'stealth' : 'direct')
 
   if (action === 'submit') {
     const approvalToken = typeof body.approvalToken === 'string' ? body.approvalToken : ''

@@ -29,6 +29,7 @@ import {
   normalizeShellHostMaxOutputBytes,
   normalizeTemperature,
   normalizeString,
+  LEGACY_DEFAULT_SYSTEM_PROMPT,
 } from '@/lib/settings';
 import { normalizeTheme } from '@/lib/theme-options';
 
@@ -122,7 +123,10 @@ export async function POST(req: Request) {
     if (body.ragModel !== undefined) data.ragModel = normalizeRagModel(body.ragModel);
     if (body.ragMode !== undefined) data.ragMode = normalizeRagMode(body.ragMode);
     if (body.ollamaHost !== undefined) data.ollamaHost = normalizeOllamaHost(body.ollamaHost);
-    if (body.systemPrompt !== undefined) data.systemPrompt = String(body.systemPrompt);
+    if (body.systemPrompt !== undefined) {
+      const systemPrompt = String(body.systemPrompt);
+      data.systemPrompt = systemPrompt.trim() === LEGACY_DEFAULT_SYSTEM_PROMPT ? '' : systemPrompt;
+    }
     if (body.temperature !== undefined) data.temperature = normalizeTemperature(body.temperature);
     if (body.contextLength !== undefined) data.contextLength = normalizeContextLength(body.contextLength);
     if (body.theme !== undefined) data.theme = normalizeTheme(body.theme);

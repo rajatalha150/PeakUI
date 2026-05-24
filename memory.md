@@ -273,8 +273,8 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - **Appearance theme** — persisted per user and applied immediately across the studio
 - **Default chat model** — remembered across sessions, pre-selected on load
 - **Legacy chat platform fields** — `UserSettings` still carries chat-platform fields for shared backend compatibility, but the visible normal-chat platform controls are hidden from the primary Open Claw shell
-- **System prompt** — prepended to every conversation
-- **System prompt, Temperature, and Context Window** are normalized through `/api/settings` and applied server-side in `/api/chat`
+- **Background system prompt support** — `UserSettings.systemPrompt` still exists for backend compatibility, but the old shared System Prompt textbox is now hidden from the primary Settings UI and the stock image-markdown safety rule is injected server-side in the completion pipeline
+- **Temperature and Context Window** are normalized through `/api/settings` and applied server-side in `/api/chat`
 - **Temperature** slider (0–2) and **Context Window** slider (512–128k)
 - **RAG mode:** Semantic (embedding model) vs Keyword/BM25 (no model needed), now wired end-to-end
 - **Embedding model selector** with **Test** button (`/api/rag/test-embed`) — deduplicates `:latest` aliases, shows installed/pull-required state, returns embedding dimensions, and now recommends more Ollama embedding models for different speed/quality tradeoffs
@@ -289,6 +289,7 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - **Managed Open Claw workspace** — Docker now mounts `${OPENCLAW_HOST_WORKSPACE_DIR:-/tmp/peakui-openclaw-workspace}` into the app container at `/mnt/openclaw/workspace`, and the runtime creates a host-style alias so shell/code prompts can reliably use `/tmp/peakui-openclaw-workspace`
 - **Shell approval logic refinement** — destructive operations remain blocked, but repo/network/install/service commands such as `git clone`, `curl`, `wget`, `npm install`, and `docker compose up` now require explicit approval instead of being misclassified as inherently dangerous; the runtime image now includes `git`, `curl`, `wget`, `bash`, `tar`, and `unzip`
 - Settings propagate immediately to active chat (temperature + context + system prompt injected into every API call)
+- **Admin user creation moved into a modal** — the always-visible Create User form is now hidden behind an Add User action in Settings so account management stays compact while preserving the existing admin routes and permission-override controls
 
 ## 🔑 Key Files
 | File | Purpose |
@@ -405,8 +406,15 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `fix: repair uwaf network panel build`
-- **Previous committed baseline:** `feat: improve canvas rendering and uwaf telemetry`
+- **Current committed baseline:** `fix: streamline settings and uwaf mode switching`
+- **Previous committed baseline:** `fix: repair uwaf network panel build`
+
+### Latest Changes (Settings UX & UWAF Mode Switching)
+- **UWAF mode switching is now runtime-smooth:** the backend no longer blocks explicit `direct` or `stealth` requests just because the saved UWAF mode setting differs, so switching browser modes inside the same Open Claw chat works without the old configuration-mismatch failure.
+- **Live browser state now resets on mode flips:** changing between Direct and Stealth closes stale live-browser surfaces, clears stale page labels/takeover state, and remounts the live browser view/modal under a fresh mode-specific key so users do not inherit broken socket/session state.
+- **Create User moved behind an Add User modal:** the always-exposed admin user-creation form in Settings is now hidden until requested, while the existing `/api/admin/users` create/update/delete routes and permission override controls continue to work.
+- **Shared System Prompt field removed from primary Settings:** the old visible textbox is no longer shown in the Open Claw-first settings flow; the stock image-markdown rule now runs in the background as a server-side instruction instead of pretending to be a user-editable prompt.
+- **Context behavior clarified in code/docs:** Open Claw requests still use the active thread only, then add hidden workspace/task/memory/RAG context and trim to the selected context window; the app does not dump all chats into each request.
 
 ### Latest Changes (UWAF Network Panel Fix)
 - **Build-breaking JSX was corrected:** the incoming UWAF network panel update had a malformed fragment/closing-tag structure that prevented the Next build from completing.
