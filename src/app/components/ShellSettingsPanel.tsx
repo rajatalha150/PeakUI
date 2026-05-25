@@ -30,6 +30,7 @@ export default function ShellSettingsPanel({ onClose }: ShellSettingsPanelProps)
   const [hostExecutorStatus, setHostExecutorStatus] = useState<HostExecutorStatus | null>(null)
   const [saving, setSaving] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [errorMessage, setErrorMessage] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -37,10 +38,19 @@ export default function ShellSettingsPanel({ onClose }: ShellSettingsPanelProps)
     const load = async () => {
       try {
         const res = await fetch('/api/openclaw/shell/settings')
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error)
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          throw new Error(
+            typeof data.actionRequired === 'string'
+              ? data.actionRequired
+              : typeof data.error === 'string'
+                ? data.error
+                : 'Failed to load shell settings'
+          )
+        }
         if (cancelled) return
 
+        setErrorMessage('')
         setTarget(data.shellExecutionTarget === 'host' ? 'host' : 'container')
         setMode(data.shellExecutionMode === 'auto-approve' || data.shellExecutionMode === 'deny' ? data.shellExecutionMode : 'ask-first')
         setAllowedCommands(data.shellAllowedCommands || '')
@@ -51,6 +61,9 @@ export default function ShellSettingsPanel({ onClose }: ShellSettingsPanelProps)
         setHostExecutorStatus(data.hostExecutorStatus || null)
       } catch (error) {
         console.error('Failed to load shell settings:', error)
+        if (!cancelled) {
+          setErrorMessage(error instanceof Error ? error.message : 'Failed to load shell settings')
+        }
       } finally {
         if (!cancelled) {
           setLoaded(true)
@@ -67,6 +80,7 @@ export default function ShellSettingsPanel({ onClose }: ShellSettingsPanelProps)
 
   const handleSave = async () => {
     setSaving(true)
+    setErrorMessage('')
     try {
       const res = await fetch('/api/openclaw/shell/settings', {
         method: 'POST',
@@ -81,11 +95,20 @@ export default function ShellSettingsPanel({ onClose }: ShellSettingsPanelProps)
           shellHostMaxOutputBytes: hostMaxOutputBytes,
         }),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(
+          typeof data.actionRequired === 'string'
+            ? data.actionRequired
+            : typeof data.error === 'string'
+              ? data.error
+              : 'Failed to save shell settings'
+        )
+      }
       onClose()
     } catch (error) {
       console.error('Failed to save shell settings:', error)
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to save shell settings')
     } finally {
       setSaving(false)
     }
@@ -178,6 +201,20 @@ export default function ShellSettingsPanel({ onClose }: ShellSettingsPanelProps)
         </div>
 
         <div style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
+          {errorMessage && (
+            <section style={{
+              marginBottom: '20px',
+              padding: '12px 14px',
+              borderRadius: '10px',
+              border: '1px solid rgba(239, 68, 68, 0.35)',
+              background: 'rgba(239, 68, 68, 0.08)',
+              color: 'var(--text-primary)',
+              fontSize: '13px',
+              lineHeight: 1.6,
+            }}>
+              {errorMessage}
+            </section>
+          )}
           <section style={{ marginBottom: '24px' }}>
             <h3 style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px' }}>
               Execution Target

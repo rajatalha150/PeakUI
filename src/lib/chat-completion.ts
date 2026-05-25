@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCurrentUserId } from '@/lib/request-auth';
+import { getCurrentAuth } from '@/lib/request-auth';
 import {
   DEFAULT_HUGGING_FACE_BASE_URL,
   DEFAULT_SETTINGS,
   getUserSettings,
   normalizeHuggingFaceBaseUrl,
 } from '@/lib/settings';
+import { buildEffectiveOpenClawToolAccess } from './openclaw-tool-access';
 import { getErrorMessage, buildKnowledgeBaseContext } from '@/lib/rag';
 import type { RagSearchResult } from '@/lib/rag';
 import {
@@ -18,6 +19,7 @@ import { buildOpenClawSystemPrompt, buildChatInternetToolPrompt } from '@/lib/op
 import type { OpenClawPersona, OpenClawUserProfile } from '@/lib/openclaw-persona';
 import { normalizeOpenClawProvider } from '@/lib/settings';
 import { unloadOtherOllamaModels } from '@/lib/ollama-control';
+import { getHostExecutorStatus } from './openclaw-host-executor';
 import type { ServerStreamStatus } from '@/lib/stream-status';
 import { isHuggingFaceRouterUrl } from './chat-platforms';
 import { trimMessagesToFit, estimateStringTokens } from './message-trim';
@@ -631,8 +633,9 @@ async function streamOpenAICompatibleResponse(options: {
 
 export async function createChatCompletionResponse(req: NextRequest) {
   try {
-    const userId = await getCurrentUserId();
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const auth = await getCurrentAuth();
+    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const userId = auth.user.id;
 
     const settings = await getUserSettings(userId);
     const body = await req.json() as IncomingChatBody;
@@ -702,6 +705,18 @@ export async function createChatCompletionResponse(req: NextRequest) {
       context: settings.openClawUserProfileContext,
     } : undefined;
 
+    const effectiveToolAccess = buildEffectiveOpenClawToolAccess(settings, auth.permissions);
+    const hostExecutorStatus = surface === 'openclaw'
+      && effectiveToolAccess.shellEnabled
+      && settings.shellExecutionTarget === 'host'
+        ? await getHostExecutorStatus()
+        : undefined;
+    const effectiveShellTarget = settings.shellExecutionTarget === 'host'
+      && hostExecutorStatus?.configured
+      && hostExecutorStatus.reachable
+        ? 'host'
+        : 'container';
+
     const openClawPrompt = surface === 'openclaw'
       ? buildOpenClawSystemPrompt({
           provider: provider === 'openai-compatible' ? 'openai-compatible' : 'ollama',
@@ -709,19 +724,19 @@ export async function createChatCompletionResponse(req: NextRequest) {
           persona: openClawPersona,
           userProfile: openClawUserProfile,
           internetToolEnabled,
-          shellEnabled: settings.shellExecutionMode !== 'deny',
-          shellTarget: settings.shellExecutionTarget,
-          filesystemEnabled: settings.openClawFileAccessMode === 'read-only',
+          shellEnabled: effectiveToolAccess.shellEnabled,
+          shellTarget: effectiveShellTarget,
+          filesystemEnabled: effectiveToolAccess.filesystemEnabled,
           allowedFilesystemPaths: settings.openClawAllowedPaths
             ? settings.openClawAllowedPaths.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean)
             : [],
-          filesystemWriteEnabled: settings.openClawFileWriteMode !== 'deny',
+          filesystemWriteEnabled: effectiveToolAccess.filesystemWriteEnabled,
           writableFilesystemPaths: settings.openClawWritablePaths
             ? settings.openClawWritablePaths.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean)
             : [],
-          codeExecutionEnabled: settings.openClawCodeExecutionMode !== 'deny',
-          browserMode: internetToolEnabled ? settings.openClawBrowserMode : 'deny',
-          uwafBrowserMode: internetToolEnabled ? settings.openClawUwafBrowserMode : 'deny',
+          codeExecutionEnabled: effectiveToolAccess.codeExecutionEnabled,
+          browserMode: internetToolEnabled ? effectiveToolAccess.browserMode : 'deny',
+          uwafBrowserMode: internetToolEnabled ? effectiveToolAccess.uwafBrowserMode : 'deny',
         })
       : '';
     const chatInternetPrompt = surface === 'chat' && internetToolEnabled

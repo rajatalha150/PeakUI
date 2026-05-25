@@ -62,6 +62,12 @@ export const PERMISSION_DEFINITIONS = [
     category: 'OpenClaw',
   },
   {
+    key: 'openclaw.code',
+    label: 'Code execution',
+    description: 'Run the managed OpenClaw Python/Node code sandbox.',
+    category: 'OpenClaw',
+  },
+  {
     key: 'users.manage',
     label: 'Manage users',
     description: 'Create users, deactivate accounts, reset passwords, and manage roles and permissions.',
@@ -98,6 +104,7 @@ const ROLE_DEFAULTS: Record<Role, PermissionKey[]> = {
     'openclaw.browser',
     'openclaw.uwaf',
     'openclaw.shell',
+    'openclaw.code',
   ],
   USER: [
     'knowledge.use',

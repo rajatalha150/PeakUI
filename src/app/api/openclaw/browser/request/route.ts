@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getCurrentUserIdWithPermissions } from '@/lib/request-auth'
+import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import {
   buildOpenClawBrowserApprovalPayload,
   getOpenClawBrowserSession,
   prepareOpenClawBrowserSubmit,
   type OpenClawBrowserRequest,
 } from '@/lib/openclaw-browser'
-import { normalizeOpenClawBrowserMode } from '@/lib/settings'
+import { DEFAULT_SETTINGS, normalizeOpenClawBrowserMode } from '@/lib/settings'
 import { createOpenClawApprovalToken } from '@/lib/openclaw-tool-approvals'
 
 export const runtime = 'nodejs'
@@ -17,10 +17,12 @@ function isBrowserAction(value: unknown): value is OpenClawBrowserRequest['actio
 }
 
 export async function POST(request: NextRequest) {
-  const userId = await getCurrentUserIdWithPermissions(['openclaw.use', 'openclaw.browser'])
-  if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const access = await requireCurrentAuthWithPermissions(['openclaw.use', 'openclaw.browser'], {
+    forbiddenMessage: 'OpenClaw browser control is not granted for this account.',
+    actionRequired: 'Grant the OpenClaw browser permission in Settings -> User Management, then enable browser control in personal Settings.',
+  })
+  if ('response' in access) return access.response
+  const userId = access.userId
 
   try {
     const body = await request.json()
@@ -46,7 +48,9 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    const mode = normalizeOpenClawBrowserMode(settings?.openClawBrowserMode)
+    const mode = normalizeOpenClawBrowserMode(
+      settings?.openClawBrowserMode ?? DEFAULT_SETTINGS.openClawBrowserMode
+    )
     if (mode === 'deny') {
       return NextResponse.json({
         allowed: false,

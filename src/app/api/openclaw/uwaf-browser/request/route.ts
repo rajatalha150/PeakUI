@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserIdWithPermissions } from '@/lib/request-auth'
+import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import { getUwafBrowserSession, resolveStealthProfileForRequest } from '@/lib/uwaf-browser'
 import { createOpenClawApprovalToken } from '@/lib/openclaw-tool-approvals'
 import { prisma } from '@/lib/prisma'
@@ -7,10 +7,12 @@ import { normalizeOpenClawUwafBrowserMode, normalizeOpenClawUwafDefaultMode, DEF
 import { getDefaultStealthProfile, normalizeStealthProfile } from '@/lib/uwaf-fingerprint'
 
 export async function POST(request: NextRequest) {
-  const userId = await getCurrentUserIdWithPermissions(['openclaw.use', 'openclaw.uwaf'])
-  if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const access = await requireCurrentAuthWithPermissions(['openclaw.use', 'openclaw.uwaf'], {
+    forbiddenMessage: 'OpenClaw UWAF access is not granted for this account.',
+    actionRequired: 'Grant the OpenClaw stealth browser permission in Settings -> User Management, then enable UWAF browser mode in personal Settings.',
+  })
+  if ('response' in access) return access.response
+  const userId = access.userId
 
   let body: Record<string, unknown>
   try {
@@ -31,7 +33,9 @@ export async function POST(request: NextRequest) {
 
   const settingsRow = await prisma.userSettings.findUnique({ where: { userId } })
   const mode = settingsRow
-    ? normalizeOpenClawUwafBrowserMode(settingsRow.openClawUwafBrowserMode)
+    ? normalizeOpenClawUwafBrowserMode(
+        settingsRow.openClawUwafBrowserMode ?? DEFAULT_SETTINGS.openClawUwafBrowserMode
+      )
     : (DEFAULT_SETTINGS.openClawUwafBrowserMode as 'deny' | 'direct' | 'stealth')
 
   if (mode === 'deny') {
@@ -42,7 +46,9 @@ export async function POST(request: NextRequest) {
     ? body.browserMode as 'direct' | 'stealth'
     : null
   const browserMode = explicitBrowserMode
-    ?? normalizeOpenClawUwafDefaultMode(settingsRow?.openClawUwafDefaultMode ?? DEFAULT_SETTINGS.openClawUwafDefaultMode)
+    ?? normalizeOpenClawUwafDefaultMode(
+      settingsRow?.openClawUwafDefaultMode ?? DEFAULT_SETTINGS.openClawUwafDefaultMode
+    )
   const stealthProfile = resolveStealthProfileForRequest({
     action: action as 'submit' | 'research_batch',
     url: typeof body.url === 'string' ? body.url : undefined,

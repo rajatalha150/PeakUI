@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getCurrentUserIdWithPermissions } from '@/lib/request-auth'
+import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import { runUwafBrowserAction, getUwafBrowserSession, resolveStealthProfileForRequest, type UwafBrowserRequest } from '@/lib/uwaf-browser'
 import { isBrowserInterrupted, restartScreencastForSession } from '@/lib/live-browser-server'
 import { prisma } from '@/lib/prisma'
@@ -41,10 +41,12 @@ function describeRequestTarget(body: Record<string, unknown>): string | undefine
 }
 
 export async function POST(request: NextRequest) {
-  const userId = await getCurrentUserIdWithPermissions(['openclaw.use', 'openclaw.uwaf'])
-  if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const access = await requireCurrentAuthWithPermissions(['openclaw.use', 'openclaw.uwaf'], {
+    forbiddenMessage: 'OpenClaw UWAF access is not granted for this account.',
+    actionRequired: 'Grant the OpenClaw stealth browser permission in Settings -> User Management, then enable UWAF browser mode in personal Settings.',
+  })
+  if ('response' in access) return access.response
+  const userId = access.userId
 
   let body: Record<string, unknown>
   try {
@@ -65,9 +67,13 @@ export async function POST(request: NextRequest) {
 
   const settingsRow = await prisma.userSettings.findUnique({ where: { userId } })
   const settings = settingsRow ? {
-    openClawUwafBrowserMode: normalizeOpenClawUwafBrowserMode(settingsRow.openClawUwafBrowserMode),
+    openClawUwafBrowserMode: normalizeOpenClawUwafBrowserMode(
+      settingsRow.openClawUwafBrowserMode ?? DEFAULT_SETTINGS.openClawUwafBrowserMode
+    ),
     openClawUwafScreenshots: false,
-    openClawUwafDefaultMode: normalizeOpenClawUwafDefaultMode(settingsRow.openClawUwafDefaultMode),
+    openClawUwafDefaultMode: normalizeOpenClawUwafDefaultMode(
+      settingsRow.openClawUwafDefaultMode ?? DEFAULT_SETTINGS.openClawUwafDefaultMode
+    ),
   } : {
     openClawUwafBrowserMode: DEFAULT_SETTINGS.openClawUwafBrowserMode as 'deny' | 'direct' | 'stealth',
     openClawUwafScreenshots: false,

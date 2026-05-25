@@ -5,13 +5,14 @@
 
 import { NextResponse } from 'next/server'
 import { loadRecentMemory, buildMemoryContext, loadLongTermMemory } from '@/lib/memory'
-import { getCurrentUserIdWithPermission } from '@/lib/request-auth'
+import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 
 export async function GET() {
-  const userId = await getCurrentUserIdWithPermission('openclaw.use')
-  if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const access = await requireCurrentAuthWithPermissions(['openclaw.use'], {
+    forbiddenMessage: 'OpenClaw access is not granted for this account.',
+    actionRequired: 'Grant the OpenClaw permission in Settings -> User Management before loading WorkSpaces memory for this user.',
+  })
+  if ('response' in access) return access.response
 
   try {
     const recentMemories = await loadRecentMemory(2)

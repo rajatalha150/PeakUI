@@ -1,4 +1,5 @@
 import type { Role } from '@prisma/client'
+import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { AUTH_COOKIE_NAME, type AuthTokenClaims, verifyToken } from './auth'
 import { hasPermission, resolvePermissions, type PermissionKey } from './permissions'
@@ -94,6 +95,47 @@ export async function currentUserHasPermission(permission: PermissionKey): Promi
   const auth = await getCurrentAuth()
   if (!auth) return false
   return hasPermission(auth.user, permission)
+}
+
+export async function requireCurrentAuthWithPermissions(
+  requiredPermissions: PermissionKey[],
+  options?: {
+    forbiddenMessage?: string
+    actionRequired?: string
+  }
+): Promise<
+  | { auth: RequestAuthContext; userId: string }
+  | { response: NextResponse }
+> {
+  const auth = await getCurrentAuth()
+  if (!auth) {
+    return {
+      response: NextResponse.json(
+        { error: 'Unauthorized', code: 'unauthorized' },
+        { status: 401 }
+      ),
+    }
+  }
+
+  const missingPermissions = requiredPermissions.filter(permission => !auth.permissions.includes(permission))
+  if (missingPermissions.length > 0) {
+    return {
+      response: NextResponse.json(
+        {
+          error: options?.forbiddenMessage || 'Forbidden',
+          code: 'permission_denied',
+          missingPermissions,
+          ...(options?.actionRequired ? { actionRequired: options.actionRequired } : {}),
+        },
+        { status: 403 }
+      ),
+    }
+  }
+
+  return {
+    auth,
+    userId: auth.user.id,
+  }
 }
 
 export async function getAuthContextFromToken(rawToken: string): Promise<RequestAuthContext | null> {

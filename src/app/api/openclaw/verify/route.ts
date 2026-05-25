@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getCurrentUserIdWithPermission } from '@/lib/request-auth';
+import { requireCurrentAuthWithPermissions } from '@/lib/request-auth';
 import { getUserSettings, normalizeOpenClawProvider, normalizeOllamaHost } from '@/lib/settings';
 
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
@@ -29,8 +29,12 @@ function normalizeProviderBaseUrl(value: unknown, provider: 'ollama' | 'openai-c
 
 export async function POST(req: Request) {
   try {
-    const userId = await getCurrentUserIdWithPermission('openclaw.use');
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const access = await requireCurrentAuthWithPermissions(['openclaw.use'], {
+      forbiddenMessage: 'OpenClaw access is not granted for this account.',
+      actionRequired: 'Grant the OpenClaw permission in Settings -> User Management before verifying WorkSpaces providers for this user.',
+    });
+    if ('response' in access) return access.response;
+    const userId = access.userId;
 
     const settings = await getUserSettings(userId);
     const body = await req.json().catch(() => ({})) as Record<string, unknown>;

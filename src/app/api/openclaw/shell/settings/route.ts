@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getCurrentUserIdWithPermissions } from '@/lib/request-auth'
+import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import { getHostExecutorStatus } from '@/lib/openclaw-host-executor'
 import {
   DEFAULT_SETTINGS,
@@ -20,10 +20,12 @@ import {
 } from '@/lib/settings'
 
 export async function POST(request: NextRequest) {
-  const userId = await getCurrentUserIdWithPermissions(['openclaw.use', 'openclaw.shell'])
-  if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const access = await requireCurrentAuthWithPermissions(['openclaw.use', 'openclaw.shell'], {
+    forbiddenMessage: 'OpenClaw shell execution is not granted for this account.',
+    actionRequired: 'Grant the OpenClaw shell execution permission in Settings -> User Management before editing shell settings for this user.',
+  })
+  if ('response' in access) return access.response
+  const userId = access.userId
 
   try {
     const body = await request.json()
@@ -94,10 +96,12 @@ export async function POST(request: NextRequest) {
  */
 
 export async function GET() {
-  const userId = await getCurrentUserIdWithPermissions(['openclaw.use', 'openclaw.shell'])
-  if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const access = await requireCurrentAuthWithPermissions(['openclaw.use', 'openclaw.shell'], {
+    forbiddenMessage: 'OpenClaw shell execution is not granted for this account.',
+    actionRequired: 'Grant the OpenClaw shell execution permission in Settings -> User Management before accessing shell settings for this user.',
+  })
+  if ('response' in access) return access.response
+  const userId = access.userId
 
   try {
     const hostExecutorStatus = await getHostExecutorStatus()

@@ -1,22 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getCurrentUserIdWithPermission } from '@/lib/request-auth'
+import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import {
   buildOpenClawCodeApprovalPayload,
   prepareOpenClawCodeExecutionRequest,
   runOpenClawCodeExecution,
   type OpenClawCodeExecutionRequest,
 } from '@/lib/openclaw-code-execution'
-import { normalizeOpenClawCodeExecutionMode } from '@/lib/settings'
+import { DEFAULT_SETTINGS, normalizeOpenClawCodeExecutionMode } from '@/lib/settings'
 import { verifyOpenClawApprovalToken } from '@/lib/openclaw-tool-approvals'
 
 export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
-  const userId = await getCurrentUserIdWithPermission('openclaw.use')
-  if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const access = await requireCurrentAuthWithPermissions(['openclaw.use', 'openclaw.code'], {
+    forbiddenMessage: 'OpenClaw code execution is not granted for this account.',
+    actionRequired: 'Grant the OpenClaw code execution permission in Settings -> User Management before enabling the code sandbox for this user.',
+  })
+  if ('response' in access) return access.response
+  const userId = access.userId
 
   try {
     const body = await request.json()
@@ -38,7 +40,9 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    const mode = normalizeOpenClawCodeExecutionMode(settings?.openClawCodeExecutionMode)
+    const mode = normalizeOpenClawCodeExecutionMode(
+      settings?.openClawCodeExecutionMode ?? DEFAULT_SETTINGS.openClawCodeExecutionMode
+    )
     const prepared = prepareOpenClawCodeExecutionRequest(codeRequest, {
       openClawCodeExecutionMode: mode,
     })

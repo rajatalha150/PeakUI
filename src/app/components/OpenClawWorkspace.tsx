@@ -50,6 +50,10 @@ import {
   type ExtractedFilePayload,
 } from '@/lib/file-shared';
 import {
+  buildEffectiveOpenClawToolAccess,
+  type EffectiveOpenClawToolAccess,
+} from '@/lib/openclaw-tool-access';
+import {
   extractOpenClawToolRequest,
   stripAllToolTags,
   type OpenClawBrowserToolRequest,
@@ -262,6 +266,99 @@ interface OpenClawSettings {
   openClawUserProfileRole: string;
   openClawUserProfilePreferences: string;
   openClawUserProfileContext: string;
+}
+
+interface ParsedOpenClawSettingsResponse {
+  settings: OpenClawSettings;
+  effectiveToolAccess: EffectiveOpenClawToolAccess;
+}
+
+function parseOpenClawPermissions(value: unknown): EffectiveOpenClawToolAccess['permissions'] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (entry): entry is EffectiveOpenClawToolAccess['permissions'][number] => typeof entry === 'string'
+  );
+}
+
+function parseOpenClawToolAccess(
+  value: unknown,
+  fallback: EffectiveOpenClawToolAccess
+): EffectiveOpenClawToolAccess {
+  if (!value || typeof value !== 'object') return fallback;
+
+  const candidate = value as Partial<EffectiveOpenClawToolAccess>;
+  return {
+    permissions: fallback.permissions,
+    shellGranted: candidate.shellGranted === true,
+    shellEnabled: candidate.shellEnabled === true,
+    filesystemGranted: candidate.filesystemGranted === true,
+    filesystemEnabled: candidate.filesystemEnabled === true,
+    filesystemWriteEnabled: candidate.filesystemWriteEnabled === true,
+    codeGranted: candidate.codeGranted === true,
+    codeExecutionEnabled: candidate.codeExecutionEnabled === true,
+    browserGranted: candidate.browserGranted === true,
+    browserMode: candidate.browserMode === 'read-only' || candidate.browserMode === 'ask-first'
+      ? candidate.browserMode
+      : 'deny',
+    uwafGranted: candidate.uwafGranted === true,
+    uwafBrowserMode: candidate.uwafBrowserMode === 'direct' || candidate.uwafBrowserMode === 'stealth'
+      ? candidate.uwafBrowserMode
+      : 'deny',
+  };
+}
+
+function parseOpenClawSettingsResponse(data: Record<string, unknown>): ParsedOpenClawSettingsResponse {
+  const settings: OpenClawSettings = {
+    openClawProvider: data.openClawProvider === 'openai-compatible' ? 'openai-compatible' : 'ollama',
+    openClawModel: typeof data.openClawModel === 'string' ? data.openClawModel : '',
+    openClawBaseUrl: typeof data.openClawBaseUrl === 'string' ? data.openClawBaseUrl : '',
+    ollamaHost: typeof data.ollamaHost === 'string' ? data.ollamaHost : 'http://127.0.0.1:11434',
+    theme: typeof data.theme === 'string' ? data.theme : 'aurora',
+    shellExecutionTarget: data.shellExecutionTarget === 'host' ? 'host' : 'container',
+    shellExecutionMode: typeof data.shellExecutionMode === 'string' ? data.shellExecutionMode : 'ask-first',
+    shellAllowedCommands: typeof data.shellAllowedCommands === 'string' ? data.shellAllowedCommands : '',
+    shellHostAllowedRoots: typeof data.shellHostAllowedRoots === 'string' ? data.shellHostAllowedRoots : '/tmp/peakui-openclaw-workspace',
+    shellHostAllowedEnvVars: typeof data.shellHostAllowedEnvVars === 'string' ? data.shellHostAllowedEnvVars : 'PATH\nHOME\nUSER\nSHELL\nLANG\nTERM',
+    shellHostMaxTimeoutMs: typeof data.shellHostMaxTimeoutMs === 'number' ? data.shellHostMaxTimeoutMs : 60000,
+    shellHostMaxOutputBytes: typeof data.shellHostMaxOutputBytes === 'number' ? data.shellHostMaxOutputBytes : 262144,
+    openClawFileAccessMode: data.openClawFileAccessMode === 'read-only' ? 'read-only' : 'deny',
+    openClawAllowedPaths: typeof data.openClawAllowedPaths === 'string' ? data.openClawAllowedPaths : '',
+    openClawFileWriteMode: data.openClawFileWriteMode === 'auto-approve' || data.openClawFileWriteMode === 'ask-first'
+      ? data.openClawFileWriteMode
+      : 'deny',
+    openClawWritablePaths: typeof data.openClawWritablePaths === 'string' ? data.openClawWritablePaths : '',
+    openClawCodeExecutionMode: data.openClawCodeExecutionMode === 'auto-approve' || data.openClawCodeExecutionMode === 'ask-first'
+      ? data.openClawCodeExecutionMode
+      : 'deny',
+    openClawBrowserMode: data.openClawBrowserMode === 'read-only' || data.openClawBrowserMode === 'ask-first'
+      ? data.openClawBrowserMode
+      : 'deny',
+    openClawUwafBrowserMode: data.openClawUwafBrowserMode === 'direct' || data.openClawUwafBrowserMode === 'stealth'
+      ? data.openClawUwafBrowserMode
+      : 'deny',
+    openClawUwafDefaultMode: data.openClawUwafDefaultMode === 'stealth' ? 'stealth' : 'direct',
+    openClawUwafLiveBrowser: data.openClawUwafLiveBrowser !== false,
+    ragEnabled: data.ragEnabled === true,
+    ragTopK: typeof data.ragTopK === 'number' ? data.ragTopK : 8,
+    openClawPersonaTemplate: typeof data.openClawPersonaTemplate === 'string' ? data.openClawPersonaTemplate : 'custom',
+    openClawPersonaName: typeof data.openClawPersonaName === 'string' ? data.openClawPersonaName : '',
+    openClawPersonaTone: typeof data.openClawPersonaTone === 'string' ? data.openClawPersonaTone : '',
+    openClawPersonaExpertise: typeof data.openClawPersonaExpertise === 'string' ? data.openClawPersonaExpertise : '',
+    openClawPersonaBoundaries: typeof data.openClawPersonaBoundaries === 'string' ? data.openClawPersonaBoundaries : '',
+    openClawPersonaOperatingInstructions: typeof data.openClawPersonaOperatingInstructions === 'string' ? data.openClawPersonaOperatingInstructions : '',
+    openClawUserProfileName: typeof data.openClawUserProfileName === 'string' ? data.openClawUserProfileName : '',
+    openClawUserProfileRole: typeof data.openClawUserProfileRole === 'string' ? data.openClawUserProfileRole : '',
+    openClawUserProfilePreferences: typeof data.openClawUserProfilePreferences === 'string' ? data.openClawUserProfilePreferences : '',
+    openClawUserProfileContext: typeof data.openClawUserProfileContext === 'string' ? data.openClawUserProfileContext : '',
+  };
+
+  const permissions = parseOpenClawPermissions(data.permissions);
+  const fallbackToolAccess = buildEffectiveOpenClawToolAccess(settings, permissions);
+
+  return {
+    settings,
+    effectiveToolAccess: parseOpenClawToolAccess(data.effectiveToolAccess, fallbackToolAccess),
+  };
 }
 
 interface ShellOutputEntry {
@@ -1530,6 +1627,7 @@ export default function OpenClawWorkspace({
   };
 
   const [settings, setSettings] = useState<OpenClawSettings | null>(null);
+  const [effectiveToolAccess, setEffectiveToolAccess] = useState<EffectiveOpenClawToolAccess | null>(null);
   const [models, setModels] = useState<OpenClawModel[]>([]);
   const [apiKey, setApiKey] = useState('');
   const [apiKeyLoaded, setApiKeyLoaded] = useState(false);
@@ -1629,8 +1727,6 @@ export default function OpenClawWorkspace({
   const [workspaceControlsModalOpen, setWorkspaceControlsModalOpen] = useState(false);
   const [memoryContext, setMemoryContext] = useState<string>('');
   const [hasMemory, setHasMemory] = useState(false);
-  // Shell execution state
-  const [shellEnabled, setShellEnabled] = useState(false);
   const [shellSettingsOpen, setShellSettingsOpen] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<PendingToolApproval | null>(null);
   const [, setExecutingCommand] = useState(false);
@@ -1779,11 +1875,18 @@ export default function OpenClawWorkspace({
     setHeaderModeMenuOpen(null);
   };
 
-  const filesystemEnabled = settings?.openClawFileAccessMode === 'read-only';
-  const filesystemWriteEnabled = settings?.openClawFileWriteMode !== 'deny';
-  const codeExecutionEnabled = settings?.openClawCodeExecutionMode !== 'deny';
-  const browserMode = settings?.openClawBrowserMode || 'deny';
+  const shellGranted = effectiveToolAccess?.shellGranted ?? false;
+  const shellEnabled = effectiveToolAccess?.shellEnabled ?? false;
+  const filesystemGranted = effectiveToolAccess?.filesystemGranted ?? false;
+  const filesystemEnabled = effectiveToolAccess?.filesystemEnabled ?? false;
+  const filesystemWriteEnabled = effectiveToolAccess?.filesystemWriteEnabled ?? false;
+  const codeGranted = effectiveToolAccess?.codeGranted ?? false;
+  const codeExecutionEnabled = effectiveToolAccess?.codeExecutionEnabled ?? false;
+  const browserGranted = effectiveToolAccess?.browserGranted ?? false;
+  const browserMode = effectiveToolAccess?.browserMode ?? 'deny';
   const browserEnabled = browserMode !== 'deny';
+  const uwafBrowserSettingMode = effectiveToolAccess?.uwafBrowserMode ?? 'deny';
+  const uwafBrowserEnabled = uwafBrowserSettingMode !== 'deny';
   const allowedFilesystemPaths = useMemo(() => {
     if (!settings?.openClawAllowedPaths) return [];
     return settings.openClawAllowedPaths
@@ -1798,42 +1901,54 @@ export default function OpenClawWorkspace({
       .map(entry => entry.trim())
       .filter(Boolean);
   }, [settings?.openClawWritablePaths]);
-  const filesystemAccessSummary = filesystemEnabled
-    ? allowedFilesystemPaths.length > 0
-      ? `${allowedFilesystemPaths.length} approved path${allowedFilesystemPaths.length === 1 ? '' : 's'}`
-      : 'Read-only mode, no approved paths'
-    : 'Disabled';
-  const filesystemAccessBadge = filesystemEnabled
-    ? allowedFilesystemPaths.length > 0
-      ? `${allowedFilesystemPaths.length} path${allowedFilesystemPaths.length === 1 ? '' : 's'}`
-      : 'Read-only'
-    : 'Off';
-  const filesystemWriteSummary = filesystemWriteEnabled
-    ? settings?.openClawFileWriteMode === 'auto-approve'
-      ? 'Auto-approve'
-      : settings?.openClawFileWriteMode === 'ask-first'
-        ? 'Ask-first'
-        : 'Disabled'
-    : 'Disabled';
-  const filesystemWriteBadge = filesystemWriteEnabled
-    ? settings?.openClawFileWriteMode === 'auto-approve'
-      ? 'Auto'
-      : settings?.openClawFileWriteMode === 'ask-first'
-        ? 'Ask-first'
-        : 'Off'
-    : 'Off';
-  const codeSandboxSummary = codeExecutionEnabled
-    ? settings?.openClawCodeExecutionMode === 'auto-approve'
-      ? 'Auto-approve'
-      : 'Ask-first'
-    : 'Disabled';
-  const codeSandboxBadge = codeExecutionEnabled
-    ? settings?.openClawCodeExecutionMode === 'auto-approve'
-      ? 'Auto'
-      : 'Ask-first'
-    : 'Off';
-  const browserControlSummary = browserEnabled ? browserMode : 'Disabled';
-  const browserControlBadge = browserEnabled ? browserMode : 'Off';
+  const filesystemAccessSummary = !filesystemGranted
+    ? 'Blocked by account permission'
+    : filesystemEnabled
+      ? allowedFilesystemPaths.length > 0
+        ? `${allowedFilesystemPaths.length} approved path${allowedFilesystemPaths.length === 1 ? '' : 's'}`
+        : 'Read-only mode, no approved paths'
+      : 'Disabled';
+  const filesystemAccessBadge = !filesystemGranted
+    ? 'Blocked'
+    : filesystemEnabled
+      ? allowedFilesystemPaths.length > 0
+        ? `${allowedFilesystemPaths.length} path${allowedFilesystemPaths.length === 1 ? '' : 's'}`
+        : 'Read-only'
+      : 'Off';
+  const filesystemWriteSummary = !filesystemGranted
+    ? 'Blocked by account permission'
+    : filesystemWriteEnabled
+      ? settings?.openClawFileWriteMode === 'auto-approve'
+        ? 'Auto-approve'
+        : settings?.openClawFileWriteMode === 'ask-first'
+          ? 'Ask-first'
+          : 'Disabled'
+      : 'Disabled';
+  const filesystemWriteBadge = !filesystemGranted
+    ? 'Blocked'
+    : filesystemWriteEnabled
+      ? settings?.openClawFileWriteMode === 'auto-approve'
+        ? 'Auto'
+        : settings?.openClawFileWriteMode === 'ask-first'
+          ? 'Ask-first'
+          : 'Off'
+      : 'Off';
+  const codeSandboxSummary = !codeGranted
+    ? 'Blocked by account permission'
+    : codeExecutionEnabled
+      ? settings?.openClawCodeExecutionMode === 'auto-approve'
+        ? 'Auto-approve'
+        : 'Ask-first'
+      : 'Disabled';
+  const codeSandboxBadge = !codeGranted
+    ? 'Blocked'
+    : codeExecutionEnabled
+      ? settings?.openClawCodeExecutionMode === 'auto-approve'
+        ? 'Auto'
+        : 'Ask-first'
+      : 'Off';
+  const browserControlSummary = !browserGranted ? 'Blocked by account permission' : browserEnabled ? browserMode : 'Disabled';
+  const browserControlBadge = !browserGranted ? 'Blocked' : browserEnabled ? browserMode : 'Off';
   const activeAgentMode = OPENCLAW_AGENT_MODE_OPTIONS.find(option => option.id === agentPreferences.mode);
 
   const persistApiKey = (value: string) => {
@@ -1858,56 +1973,14 @@ export default function OpenClawWorkspace({
     const res = await fetch('/api/settings');
     const data = await res.json();
     if (data.error) throw new Error(data.error);
-
-    const nextSettings: OpenClawSettings = {
-      openClawProvider: data.openClawProvider === 'openai-compatible' ? 'openai-compatible' : 'ollama',
-      openClawModel: typeof data.openClawModel === 'string' ? data.openClawModel : '',
-      openClawBaseUrl: typeof data.openClawBaseUrl === 'string' ? data.openClawBaseUrl : '',
-      ollamaHost: typeof data.ollamaHost === 'string' ? data.ollamaHost : 'http://127.0.0.1:11434',
-      theme: typeof data.theme === 'string' ? data.theme : 'aurora',
-      shellExecutionTarget: data.shellExecutionTarget === 'host' ? 'host' : 'container',
-      shellExecutionMode: typeof data.shellExecutionMode === 'string' ? data.shellExecutionMode : 'ask-first',
-      shellAllowedCommands: typeof data.shellAllowedCommands === 'string' ? data.shellAllowedCommands : '',
-      shellHostAllowedRoots: typeof data.shellHostAllowedRoots === 'string' ? data.shellHostAllowedRoots : '/tmp/peakui-openclaw-workspace',
-      shellHostAllowedEnvVars: typeof data.shellHostAllowedEnvVars === 'string' ? data.shellHostAllowedEnvVars : 'PATH\nHOME\nUSER\nSHELL\nLANG\nTERM',
-      shellHostMaxTimeoutMs: typeof data.shellHostMaxTimeoutMs === 'number' ? data.shellHostMaxTimeoutMs : 60000,
-      shellHostMaxOutputBytes: typeof data.shellHostMaxOutputBytes === 'number' ? data.shellHostMaxOutputBytes : 262144,
-      openClawFileAccessMode: data.openClawFileAccessMode === 'read-only' ? 'read-only' : 'deny',
-      openClawAllowedPaths: typeof data.openClawAllowedPaths === 'string' ? data.openClawAllowedPaths : '',
-      openClawFileWriteMode: data.openClawFileWriteMode === 'auto-approve' || data.openClawFileWriteMode === 'ask-first'
-        ? data.openClawFileWriteMode
-        : 'deny',
-      openClawWritablePaths: typeof data.openClawWritablePaths === 'string' ? data.openClawWritablePaths : '',
-      openClawCodeExecutionMode: data.openClawCodeExecutionMode === 'auto-approve' || data.openClawCodeExecutionMode === 'ask-first'
-        ? data.openClawCodeExecutionMode
-        : 'deny',
-      openClawBrowserMode: data.openClawBrowserMode === 'read-only' || data.openClawBrowserMode === 'ask-first'
-        ? data.openClawBrowserMode
-        : 'deny',
-      openClawUwafBrowserMode: data.openClawUwafBrowserMode === 'direct' || data.openClawUwafBrowserMode === 'stealth'
-        ? data.openClawUwafBrowserMode
-        : 'deny',
-      openClawUwafDefaultMode: data.openClawUwafDefaultMode === 'stealth' ? 'stealth' : 'direct',
-      openClawUwafLiveBrowser: data.openClawUwafLiveBrowser !== false,
-      ragEnabled: data.ragEnabled === true,
-      ragTopK: typeof data.ragTopK === 'number' ? data.ragTopK : 8,
-      openClawPersonaTemplate: typeof data.openClawPersonaTemplate === 'string' ? data.openClawPersonaTemplate : 'custom',
-      openClawPersonaName: typeof data.openClawPersonaName === 'string' ? data.openClawPersonaName : '',
-      openClawPersonaTone: typeof data.openClawPersonaTone === 'string' ? data.openClawPersonaTone : '',
-      openClawPersonaExpertise: typeof data.openClawPersonaExpertise === 'string' ? data.openClawPersonaExpertise : '',
-      openClawPersonaBoundaries: typeof data.openClawPersonaBoundaries === 'string' ? data.openClawPersonaBoundaries : '',
-      openClawPersonaOperatingInstructions: typeof data.openClawPersonaOperatingInstructions === 'string' ? data.openClawPersonaOperatingInstructions : '',
-      openClawUserProfileName: typeof data.openClawUserProfileName === 'string' ? data.openClawUserProfileName : '',
-      openClawUserProfileRole: typeof data.openClawUserProfileRole === 'string' ? data.openClawUserProfileRole : '',
-      openClawUserProfilePreferences: typeof data.openClawUserProfilePreferences === 'string' ? data.openClawUserProfilePreferences : '',
-      openClawUserProfileContext: typeof data.openClawUserProfileContext === 'string' ? data.openClawUserProfileContext : '',
-    };
+    const parsed = parseOpenClawSettingsResponse(data as Record<string, unknown>);
+    const nextSettings = parsed.settings;
 
     setSettings(nextSettings);
+    setEffectiveToolAccess(parsed.effectiveToolAccess);
     setProvider(nextSettings.openClawProvider);
     setBaseUrl(nextSettings.openClawBaseUrl);
     setSelectedModel(nextSettings.openClawModel);
-    setShellEnabled(nextSettings.shellExecutionMode !== 'deny');
     applyTheme(nextSettings.theme);
     if (getStoredRagEnabled() === null) {
       setRagEnabled(nextSettings.ragEnabled);
@@ -2200,56 +2273,14 @@ export default function OpenClawWorkspace({
       if (!res.ok) {
         throw new Error(data.error || 'Failed to save WorkSpaces settings');
       }
-
-      const nextSettings: OpenClawSettings = {
-        openClawProvider: data.openClawProvider === 'openai-compatible' ? 'openai-compatible' : 'ollama',
-        openClawModel: typeof data.openClawModel === 'string' ? data.openClawModel : '',
-        openClawBaseUrl: typeof data.openClawBaseUrl === 'string' ? data.openClawBaseUrl : '',
-        ollamaHost: typeof data.ollamaHost === 'string' ? data.ollamaHost : 'http://127.0.0.1:11434',
-        theme: typeof data.theme === 'string' ? data.theme : 'aurora',
-        shellExecutionTarget: data.shellExecutionTarget === 'host' ? 'host' : 'container',
-        shellExecutionMode: typeof data.shellExecutionMode === 'string' ? data.shellExecutionMode : 'ask-first',
-        shellAllowedCommands: typeof data.shellAllowedCommands === 'string' ? data.shellAllowedCommands : '',
-        shellHostAllowedRoots: typeof data.shellHostAllowedRoots === 'string' ? data.shellHostAllowedRoots : '/tmp/peakui-openclaw-workspace',
-        shellHostAllowedEnvVars: typeof data.shellHostAllowedEnvVars === 'string' ? data.shellHostAllowedEnvVars : 'PATH\nHOME\nUSER\nSHELL\nLANG\nTERM',
-        shellHostMaxTimeoutMs: typeof data.shellHostMaxTimeoutMs === 'number' ? data.shellHostMaxTimeoutMs : 60000,
-        shellHostMaxOutputBytes: typeof data.shellHostMaxOutputBytes === 'number' ? data.shellHostMaxOutputBytes : 262144,
-        openClawFileAccessMode: data.openClawFileAccessMode === 'read-only' ? 'read-only' : 'deny',
-        openClawAllowedPaths: typeof data.openClawAllowedPaths === 'string' ? data.openClawAllowedPaths : '',
-        openClawFileWriteMode: data.openClawFileWriteMode === 'auto-approve' || data.openClawFileWriteMode === 'ask-first'
-          ? data.openClawFileWriteMode
-          : 'deny',
-        openClawWritablePaths: typeof data.openClawWritablePaths === 'string' ? data.openClawWritablePaths : '',
-        openClawCodeExecutionMode: data.openClawCodeExecutionMode === 'auto-approve' || data.openClawCodeExecutionMode === 'ask-first'
-          ? data.openClawCodeExecutionMode
-          : 'deny',
-        openClawBrowserMode: data.openClawBrowserMode === 'read-only' || data.openClawBrowserMode === 'ask-first'
-          ? data.openClawBrowserMode
-          : 'deny',
-        openClawUwafBrowserMode: data.openClawUwafBrowserMode === 'direct' || data.openClawUwafBrowserMode === 'stealth'
-          ? data.openClawUwafBrowserMode
-          : 'deny',
-        openClawUwafDefaultMode: data.openClawUwafDefaultMode === 'stealth' ? 'stealth' : 'direct',
-        openClawUwafLiveBrowser: data.openClawUwafLiveBrowser !== false,
-        ragEnabled: data.ragEnabled === true,
-        ragTopK: typeof data.ragTopK === 'number' ? data.ragTopK : 8,
-        openClawPersonaTemplate: typeof data.openClawPersonaTemplate === 'string' ? data.openClawPersonaTemplate : 'custom',
-        openClawPersonaName: typeof data.openClawPersonaName === 'string' ? data.openClawPersonaName : '',
-        openClawPersonaTone: typeof data.openClawPersonaTone === 'string' ? data.openClawPersonaTone : '',
-        openClawPersonaExpertise: typeof data.openClawPersonaExpertise === 'string' ? data.openClawPersonaExpertise : '',
-        openClawPersonaBoundaries: typeof data.openClawPersonaBoundaries === 'string' ? data.openClawPersonaBoundaries : '',
-        openClawPersonaOperatingInstructions: typeof data.openClawPersonaOperatingInstructions === 'string' ? data.openClawPersonaOperatingInstructions : '',
-        openClawUserProfileName: typeof data.openClawUserProfileName === 'string' ? data.openClawUserProfileName : '',
-        openClawUserProfileRole: typeof data.openClawUserProfileRole === 'string' ? data.openClawUserProfileRole : '',
-        openClawUserProfilePreferences: typeof data.openClawUserProfilePreferences === 'string' ? data.openClawUserProfilePreferences : '',
-        openClawUserProfileContext: typeof data.openClawUserProfileContext === 'string' ? data.openClawUserProfileContext : '',
-      };
+      const parsed = parseOpenClawSettingsResponse(data as Record<string, unknown>);
+      const nextSettings = parsed.settings;
 
       setSettings(nextSettings);
+      setEffectiveToolAccess(parsed.effectiveToolAccess);
       setProvider(nextSettings.openClawProvider);
       setBaseUrl(nextSettings.openClawBaseUrl);
       setSelectedModel(nextSettings.openClawModel);
-      setShellEnabled(nextSettings.shellExecutionMode !== 'deny');
       applyTheme(nextSettings.theme);
       if (getStoredRagEnabled() === null) {
         setRagEnabled(nextSettings.ragEnabled);
@@ -2689,7 +2720,6 @@ export default function OpenClawWorkspace({
       const res = await fetch('/api/openclaw/shell/settings');
       const data = await res.json();
       if (res.ok) {
-        setShellEnabled(data.shellExecutionMode !== 'deny');
         setSettings(current => current ? {
           ...current,
           shellExecutionTarget: data.shellExecutionTarget === 'host' ? 'host' : current.shellExecutionTarget,
@@ -5221,7 +5251,7 @@ export default function OpenClawWorkspace({
     ragEnabled ? 'RAG' : null,
     unrestrictedEnabled ? 'Unrestricted' : null,
     uncensoredEnabled ? 'Uncensored' : null,
-    settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny'
+    uwafBrowserEnabled
       ? uwafBrowserMode === 'stealth'
         ? 'Stealth'
         : 'UWAF'
@@ -5624,7 +5654,7 @@ export default function OpenClawWorkspace({
                   <span>{internetEnabled ? 'On' : 'Off'}</span>
                 </button>
 
-                {settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && (
+                {uwafBrowserEnabled && (
                   <div className="openclaw-mode-section">
                     <div className="openclaw-mode-section-header">
                       <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -6615,7 +6645,7 @@ export default function OpenClawWorkspace({
                     <div className="openclaw-disclosure-pill-row">
                       <span className="openclaw-disclosure-pill">{activeAgentMode?.label || 'Plan'}</span>
                       <span className="openclaw-disclosure-pill">{taskStateFieldCount}/4 task fields</span>
-                      <span className="openclaw-disclosure-pill">Shell: {shellEnabled ? 'On' : 'Off'}</span>
+                      <span className="openclaw-disclosure-pill">Shell: {shellGranted ? (shellEnabled ? 'On' : 'Off') : 'Blocked'}</span>
                     </div>
                   </div>
                   <span className="openclaw-inline-button">
@@ -6681,7 +6711,7 @@ export default function OpenClawWorkspace({
                         <span className="openclaw-disclosure-pill">Task state: {taskStateSummary}</span>
                         <span className="openclaw-disclosure-pill">Persona: {personaSummary}</span>
                         <span className="openclaw-disclosure-pill">Profile: {userProfileSummary}</span>
-                        <span className="openclaw-disclosure-pill">Shell: {shellEnabled ? 'Enabled' : 'Disabled'}</span>
+                        <span className="openclaw-disclosure-pill">Shell: {shellGranted ? (shellEnabled ? 'Enabled' : 'Disabled') : 'Blocked'}</span>
                       </div>
                     </div>
                     <div style={{ display: 'grid', gap: '12px' }}>
@@ -7227,24 +7257,28 @@ export default function OpenClawWorkspace({
                   <div>
                     <div className="openclaw-section-label">Shell execution</div>
                     <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                      {shellEnabled ? 'Enabled' : 'Disabled'}
+                      {!shellGranted ? 'Blocked by account permission' : shellEnabled ? 'Enabled' : 'Disabled'}
                     </div>
                   </div>
                   <button
                     type="button"
                     className="openclaw-inline-button"
                     onClick={() => {
+                      if (!shellGranted) return;
                       setWorkspaceControlsModalOpen(false);
                       setShellSettingsOpen(true);
                     }}
+                    disabled={!shellGranted}
                   >
                     <Settings size={14} /> Configure
                   </button>
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                  {shellEnabled
-                    ? 'Agent can request shell command execution. Commands require approval in ask-first mode.'
-                    : 'Shell execution is disabled. Enable in settings to allow command execution.'}
+                  {!shellGranted
+                    ? 'This account does not have OpenClaw shell permission. An admin must grant it in Settings -> User Management before personal shell settings can take effect.'
+                    : shellEnabled
+                      ? 'Agent can request shell command execution. Commands require approval in ask-first mode.'
+                      : 'Shell execution is disabled in personal settings. Enable it to allow command execution.'}
                 </div>
               </div>
 
@@ -7287,11 +7321,13 @@ export default function OpenClawWorkspace({
                         </div>
                       </div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                        {filesystemEnabled
-                          ? allowedFilesystemPaths.length > 0
-                            ? `Agent can inspect approved host paths in read-only mode: ${allowedFilesystemPaths.join(', ')}`
-                            : 'Read-only mode is enabled, but no host paths are approved yet. Add paths in Settings to let the agent inspect files.'
-                          : 'Filesystem access is disabled. Enable it in Settings to allow read-only host file inspection.'}
+                        {!filesystemGranted
+                          ? 'This account does not have OpenClaw filesystem permission. An admin must grant it in Settings -> User Management before approved paths in personal settings can take effect.'
+                          : filesystemEnabled
+                            ? allowedFilesystemPaths.length > 0
+                              ? `Agent can inspect approved host paths in read-only mode: ${allowedFilesystemPaths.join(', ')}`
+                              : 'Read-only mode is enabled, but no host paths are approved yet. Add paths in Settings to let the agent inspect files.'
+                            : 'Filesystem access is disabled in personal settings. Enable it to allow read-only host file inspection.'}
                       </div>
                     </div>
 
@@ -7305,11 +7341,13 @@ export default function OpenClawWorkspace({
                         </div>
                       </div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                        {filesystemWriteEnabled
-                          ? allowedWritablePaths.length > 0
-                            ? `Agent can create folders and write text files inside approved writable roots: ${allowedWritablePaths.join(', ')}`
-                            : 'Write mode is enabled, but no writable roots are configured yet in Settings.'
-                          : 'Filesystem writes are disabled. Enable them in Settings if you want WorkSpaces to create or edit files.'}
+                        {!filesystemGranted
+                          ? 'This account does not have OpenClaw filesystem permission, so write settings are ignored until an admin grants it.'
+                          : filesystemWriteEnabled
+                            ? allowedWritablePaths.length > 0
+                              ? `Agent can create folders and write text files inside approved writable roots: ${allowedWritablePaths.join(', ')}`
+                              : 'Write mode is enabled, but no writable roots are configured yet in Settings.'
+                            : 'Filesystem writes are disabled in personal settings. Enable them if you want WorkSpaces to create or edit files.'}
                       </div>
                     </div>
 
@@ -7323,9 +7361,11 @@ export default function OpenClawWorkspace({
                         </div>
                       </div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                        {codeExecutionEnabled
-                          ? 'Agent can run short Python or Node scripts in the managed WorkSpaces workspace with sandbox guardrails.'
-                          : 'Code execution sandbox is disabled. Enable it in Settings to let WorkSpaces run short scripts.'}
+                        {!codeGranted
+                          ? 'This account does not have OpenClaw code-execution permission. An admin must grant it before personal code settings can take effect.'
+                          : codeExecutionEnabled
+                            ? 'Agent can run short Python or Node scripts in the managed WorkSpaces workspace with sandbox guardrails.'
+                            : 'Code execution sandbox is disabled in personal settings. Enable it to let WorkSpaces run short scripts.'}
                       </div>
                     </div>
 
@@ -7339,11 +7379,13 @@ export default function OpenClawWorkspace({
                         </div>
                       </div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                        {browserEnabled
-                          ? browserMode === 'read-only'
-                            ? 'Agent can navigate and inspect public web pages, but form fill and submit actions are blocked.'
-                            : 'Agent can navigate public pages and request approval before submitting forms or other state-changing browser actions.'
-                          : 'Browser control is disabled. Enable it in Settings to allow page navigation, scraping, and controlled form workflows.'}
+                        {!browserGranted
+                          ? 'This account does not have OpenClaw browser permission. An admin must grant it before personal browser settings can take effect.'
+                          : browserEnabled
+                            ? browserMode === 'read-only'
+                              ? 'Agent can navigate and inspect public web pages, but form fill and submit actions are blocked.'
+                              : 'Agent can navigate public pages and request approval before submitting forms or other state-changing browser actions.'
+                            : 'Browser control is disabled in personal settings. Enable it to allow page navigation, scraping, and controlled form workflows.'}
                       </div>
                     </div>
 
@@ -7490,7 +7532,7 @@ export default function OpenClawWorkspace({
             </div>
 
             {/* UWAF Network Hub Panel */}
-            {settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && (
+            {uwafBrowserEnabled && (
               <UwafNetworkPanel
                 currentMode={uwafBrowserMode}
                 onModeChange={switchUwafBrowserMode}
@@ -7498,7 +7540,7 @@ export default function OpenClawWorkspace({
             )}
 
             {/* UWAF Browser — Live View (shown when internet is enabled) */}
-            {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && currentSessionId && browserLiveStatus !== 'failed' && !browserModalOpen ? (
+            {internetEnabled && uwafBrowserEnabled && settings?.openClawUwafLiveBrowser && currentSessionId && browserLiveStatus !== 'failed' && !browserModalOpen ? (
               <LiveBrowserView
                 key={`${currentSessionId}:${uwafBrowserMode}:inline`}
                 sessionId={currentSessionId}
@@ -7512,7 +7554,7 @@ export default function OpenClawWorkspace({
             ) : null}
 
             {/* Live Browser Expand Button */}
-            {internetEnabled && settings?.openClawUwafBrowserMode && settings.openClawUwafBrowserMode !== 'deny' && settings?.openClawUwafLiveBrowser && currentSessionId && browserLiveStatus !== 'failed' && !browserModalOpen && (
+            {internetEnabled && uwafBrowserEnabled && settings?.openClawUwafLiveBrowser && currentSessionId && browserLiveStatus !== 'failed' && !browserModalOpen && (
               <div style={{ padding: '4px 12px' }}>
                 <button
                   onClick={() => setBrowserModalOpen(true)}
@@ -7697,7 +7739,7 @@ export default function OpenClawWorkspace({
       {shellSettingsOpen && (
         <ShellSettingsPanel onClose={() => {
           setShellSettingsOpen(false);
-          void loadShellSettings();
+          void Promise.all([loadShellSettings(), loadSettings()]);
         }} />
       )}
     </div>

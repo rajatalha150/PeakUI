@@ -68,6 +68,13 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - WorkSpaces feeds filesystem denial codes and action guidance back into the model-visible tool result so the agent can explain exactly which setting or mount is blocking the request.
 - The optional host executor now resolves approved roots and requested working directories through real paths before spawning commands, preventing symlinked cwd bypasses of approved-root boundaries.
 
+### Settings & Permission Consistency
+- Effective WorkSpaces tool access is now computed once from account permissions plus personal settings and reused by `/api/settings`, the Open Claw prompt, the WorkSpaces client, and the shell/browser/UWAF/code routes.
+- WorkSpaces now shows shell/filesystem/code/browser/UWAF capabilities as `Blocked` when the account lacks permission instead of advertising the tool and then failing later with a route denial.
+- Added a dedicated `openclaw.code` permission so managed Python/Node execution is controlled separately from general Open Claw access.
+- Settings normalization now falls back to the intended defaults for missing tool-mode fields (`read-only` / `ask-first`) instead of silently collapsing older rows to `deny`.
+- Shell settings now surface permission/action-required failures directly in the UI, and browser/UWAF/code routes return permission-aware `403` responses instead of collapsing everything into generic unauthorized behavior.
+
 ### Chat Mode System
 - **Uncensored/Unrestricted modes have full tool access.** Dynamic tool-aware clause replaces anti-tool language.
 - **Current date/time injected into ALL system prompts.**

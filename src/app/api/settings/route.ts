@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { getCurrentUserId } from '@/lib/request-auth';
+import { getCurrentAuth } from '@/lib/request-auth';
 import {
   DEFAULT_SETTINGS,
   normalizeAppSettings,
@@ -31,6 +31,7 @@ import {
   normalizeString,
   LEGACY_DEFAULT_SYSTEM_PROMPT,
 } from '@/lib/settings';
+import { buildEffectiveOpenClawToolAccess } from '@/lib/openclaw-tool-access';
 import { normalizeTheme } from '@/lib/theme-options';
 
 interface SettingsBody {
@@ -83,18 +84,23 @@ interface SettingsBody {
 // GET: Return user settings (create defaults if none exist)
 export async function GET() {
   try {
-    const userId = await getCurrentUserId();
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const auth = await getCurrentAuth();
+    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    let settings = await prisma.userSettings.findUnique({ where: { userId } });
+    let settings = await prisma.userSettings.findUnique({ where: { userId: auth.user.id } });
 
     if (!settings) {
       settings = await prisma.userSettings.create({
-        data: { userId, ...DEFAULT_SETTINGS }
+        data: { userId: auth.user.id, ...DEFAULT_SETTINGS }
       });
     }
 
-    return NextResponse.json(normalizeAppSettings(settings));
+    const normalized = normalizeAppSettings(settings)
+    return NextResponse.json({
+      ...normalized,
+      permissions: auth.permissions,
+      effectiveToolAccess: buildEffectiveOpenClawToolAccess(normalized, auth.permissions),
+    });
   } catch (error) {
     console.error('Settings GET error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -104,8 +110,8 @@ export async function GET() {
 // POST: Save user settings
 export async function POST(req: Request) {
   try {
-    const userId = await getCurrentUserId();
-    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const auth = await getCurrentAuth();
+    if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json() as SettingsBody;
 
@@ -170,12 +176,17 @@ export async function POST(req: Request) {
     }
 
     const settings = await prisma.userSettings.upsert({
-      where: { userId },
+      where: { userId: auth.user.id },
       update: data,
-      create: { userId, ...DEFAULT_SETTINGS, ...data }
+      create: { userId: auth.user.id, ...DEFAULT_SETTINGS, ...data }
     });
 
-    return NextResponse.json(normalizeAppSettings(settings));
+    const normalized = normalizeAppSettings(settings)
+    return NextResponse.json({
+      ...normalized,
+      permissions: auth.permissions,
+      effectiveToolAccess: buildEffectiveOpenClawToolAccess(normalized, auth.permissions),
+    });
   } catch (error) {
     console.error('Settings POST error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

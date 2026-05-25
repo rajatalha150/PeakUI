@@ -88,6 +88,7 @@ WorkSpaces includes a collapsible Canvas panel that:
 
 ### Tool Execution
 
+- **Effective capability model**: Tool availability is now the intersection of account permission, personal settings, and runtime availability. WorkSpaces no longer advertises shell/filesystem/code/browser/UWAF capabilities that the backend will reject.
 - **Shell execution**: Run shell commands from WorkSpaces and stream output back into the task
 - **Shell target selection**: Run commands in the default app container or through the optional host executor when host-installed CLIs are needed
 - **Shell approval modes**: Configure `auto-approve`, `ask-first`, or `deny`
@@ -96,7 +97,7 @@ WorkSpaces includes a collapsible Canvas panel that:
 - **Host fallback behavior**: If Host is selected but the executor is not configured or reachable, WorkSpaces falls back to the container shell and labels the actual target in the approval/output UI
 - **Filesystem read**: List, read, and stat files inside approved host paths
 - **Filesystem write**: Write, append, and create directories inside approved writable roots with approval support
-- **Code execution sandbox**: Run short Python or Node scripts in a managed workspace-scoped sandbox with timeouts, output limits, and generated-file reporting
+- **Code execution sandbox**: Run short Python or Node scripts in a managed workspace-scoped sandbox with timeouts, output limits, and generated-file reporting. This now has its own `openclaw.code` account permission instead of piggybacking only on general WorkSpaces access.
 - **Browser control**: Open public pages, inspect links/forms, stage fills, submit with approval, and extract content
 - **UWAF browser (Unified Web Agent Framework)**: Dual-mode browser engine supporting Direct (Clear Web) and Stealth (Tor-routed Dark Web) research modes
   - **Direct mode**: Standard Playwright Chromium browsing for public web research, table extraction, and form interaction
@@ -228,6 +229,7 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 
 ### WorkSpaces Tool Settings
 
+- **Permission-aware status**: Shell, filesystem, code, browser, and UWAF settings now report when a capability is blocked by account permission instead of looking enabled and then failing with a generic route error.
 - **Host access presets/status**: Quickly switch between safe workspace-only access, home-read/workspace-write access, or mounted-root audit mode; status reports host executor reachability and filesystem readiness
 - **Shell target**: `container` or `host`
 - **Shell mode**: `auto-approve`, `ask-first`, or `deny`

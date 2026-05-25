@@ -47,6 +47,13 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Settings now includes Host Access presets for safe workspace-only access, home-read/workspace-write access, and mounted-root audit mode while keeping shell execution in `ask-first` and writes workspace-only by default.
 - WorkSpaces feeds filesystem denial codes/action guidance back into the model-visible tool result so the agent stops retrying the same blocked path and can tell the user exactly what setting needs to change.
 
+### Settings & Permission Consistency Audit ✅
+- Effective WorkSpaces capability is now computed from account permissions plus personal settings, and that same result is reused by `/api/settings`, the Open Claw system prompt, the WorkSpaces client, and the shell/browser/UWAF/code routes.
+- WorkSpaces now marks shell, filesystem, code, browser, and UWAF capabilities as `Blocked` when the account lacks permission, instead of showing them as enabled and then failing later with a backend denial.
+- Added a dedicated `openclaw.code` permission so the managed Python/Node sandbox is governed independently from general Open Claw access.
+- Fixed settings normalization for older or partially populated `UserSettings` rows so missing tool-mode fields now fall back to the intended defaults (`read-only` / `ask-first`) instead of silently collapsing to `deny`.
+- Browser/UWAF/code/shell settings failures now surface permission-aware `403` responses and actionable UI error text rather than generic unauthorized behavior.
+
 ### Open Claw UI Fixes ✅
 - Fixed the Open Claw model dropdown stacking/hit-area issue by giving the Open Claw header chrome its own higher stacking layer. The full dropdown is now clickable over the chat area instead of only the top exposed strip.
 

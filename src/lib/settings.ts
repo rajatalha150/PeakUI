@@ -319,17 +319,27 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     shellHostAllowedEnvVars: normalizeShellHostAllowedEnvVars(settings?.shellHostAllowedEnvVars),
     shellHostMaxTimeoutMs: normalizeShellHostMaxTimeoutMs(settings?.shellHostMaxTimeoutMs),
     shellHostMaxOutputBytes: normalizeShellHostMaxOutputBytes(settings?.shellHostMaxOutputBytes),
-    openClawFileAccessMode: normalizeOpenClawFileAccessMode(settings?.openClawFileAccessMode),
+    openClawFileAccessMode: normalizeOpenClawFileAccessMode(
+      settings?.openClawFileAccessMode ?? DEFAULT_SETTINGS.openClawFileAccessMode
+    ),
     openClawAllowedPaths: normalizeOpenClawAllowedPaths(settings?.openClawAllowedPaths),
-    openClawFileWriteMode: normalizeOpenClawFileWriteMode(settings?.openClawFileWriteMode),
+    openClawFileWriteMode: normalizeOpenClawFileWriteMode(
+      settings?.openClawFileWriteMode ?? DEFAULT_SETTINGS.openClawFileWriteMode
+    ),
     openClawWritablePaths: normalizeOpenClawAllowedPaths(
       settings?.openClawWritablePaths !== undefined
         ? settings.openClawWritablePaths
         : DEFAULT_SETTINGS.openClawWritablePaths
     ),
-    openClawCodeExecutionMode: normalizeOpenClawCodeExecutionMode(settings?.openClawCodeExecutionMode),
-    openClawBrowserMode: normalizeOpenClawBrowserMode(settings?.openClawBrowserMode),
-    openClawUwafBrowserMode: normalizeOpenClawUwafBrowserMode(settings?.openClawUwafBrowserMode),
+    openClawCodeExecutionMode: normalizeOpenClawCodeExecutionMode(
+      settings?.openClawCodeExecutionMode ?? DEFAULT_SETTINGS.openClawCodeExecutionMode
+    ),
+    openClawBrowserMode: normalizeOpenClawBrowserMode(
+      settings?.openClawBrowserMode ?? DEFAULT_SETTINGS.openClawBrowserMode
+    ),
+    openClawUwafBrowserMode: normalizeOpenClawUwafBrowserMode(
+      settings?.openClawUwafBrowserMode ?? DEFAULT_SETTINGS.openClawUwafBrowserMode
+    ),
     openClawUwafScreenshots: false,
     openClawUwafDefaultMode: normalizeOpenClawUwafDefaultMode(settings?.openClawUwafDefaultMode),
     openClawUwafLiveBrowser: normalizeBoolean(settings?.openClawUwafLiveBrowser, DEFAULT_SETTINGS.openClawUwafLiveBrowser),
