@@ -2,6 +2,7 @@
 
 import http from 'http'
 import path from 'path'
+import fs from 'fs/promises'
 import { spawn } from 'child_process'
 
 const bindHost = process.env.OPENCLAW_HOST_EXECUTOR_BIND || '127.0.0.1'
@@ -71,12 +72,24 @@ function normalizeAbsolutePath(input) {
   return path.resolve(String(input || '').trim())
 }
 
-function normalizeRoots(value) {
+async function normalizeExistingRoots(value) {
   if (!Array.isArray(value)) return []
-  return value
+  const candidates = value
     .filter(entry => typeof entry === 'string' && entry.trim())
     .map(entry => normalizeAbsolutePath(entry))
     .filter((entry, index, all) => all.indexOf(entry) === index)
+
+  const roots = []
+  for (const candidate of candidates) {
+    try {
+      const realPath = await fs.realpath(candidate)
+      if (!roots.includes(realPath)) roots.push(realPath)
+    } catch {
+      // Ignore missing roots here; the caller returns a clear error if none are usable.
+    }
+  }
+
+  return roots
 }
 
 function pathIsInsideRoot(candidate, roots) {
@@ -231,7 +244,7 @@ const server = http.createServer(async (request, response) => {
   try {
     const body = await readJsonBody(request)
     const command = typeof body.command === 'string' ? body.command.trim() : ''
-    const allowedRoots = normalizeRoots(body.allowedRoots)
+    const allowedRoots = await normalizeExistingRoots(body.allowedRoots)
     const allowedEnvNames = normalizeEnvNames(body.allowedEnvNames)
     const timeoutMs = clampNumber(body.timeoutMs, 1000, 300000, 60000)
     const maxOutputBytes = clampNumber(body.maxOutputBytes, 16384, 1048576, 262144)
@@ -242,13 +255,21 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (allowedRoots.length === 0) {
-      sendJson(response, 400, { error: 'At least one allowed root is required for host shell execution.' })
+      sendJson(response, 400, { error: 'At least one existing allowed root is required for host shell execution.' })
       return
     }
 
-    const cwd = typeof body.cwd === 'string' && body.cwd.trim()
+    const requestedCwd = typeof body.cwd === 'string' && body.cwd.trim()
       ? normalizeAbsolutePath(body.cwd)
       : allowedRoots[0]
+
+    let cwd
+    try {
+      cwd = await fs.realpath(requestedCwd)
+    } catch {
+      sendJson(response, 403, { error: `Working directory does not exist or is not accessible: ${requestedCwd}` })
+      return
+    }
 
     if (!pathIsInsideRoot(cwd, allowedRoots)) {
       sendJson(response, 403, { error: `Working directory is outside the approved roots: ${cwd}` })

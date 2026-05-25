@@ -108,7 +108,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   openClawUserProfilePreferences: '',
   openClawUserProfileContext: '',
   shellExecutionTarget: 'container',
-  shellExecutionMode: 'auto-approve',
+  shellExecutionMode: 'ask-first',
   shellAllowedCommands: '',
   shellHostAllowedRoots: getOpenClawWorkspaceHostRoot(),
   shellHostAllowedEnvVars: 'PATH\nHOME\nUSER\nSHELL\nLANG\nTERM',

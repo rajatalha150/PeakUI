@@ -306,6 +306,8 @@ interface FilesystemToolResultEntry {
   }>;
   success: boolean;
   error?: string;
+  code?: string;
+  actionRequired?: string;
 }
 
 interface PendingToolApprovalBase {
@@ -1025,8 +1027,14 @@ function formatFilesystemToolResult(entry: FilesystemToolResultEntry): string {
   ];
 
   if (!entry.success) {
+    if (entry.code?.trim()) {
+      lines.push(`Code: ${entry.code.trim()}`);
+    }
     if (entry.error?.trim()) {
       lines.push(`Error: ${entry.error.trim()}`);
+    }
+    if (entry.actionRequired?.trim()) {
+      lines.push(`Action required: ${entry.actionRequired.trim()}`);
     }
     lines.push('', 'Use this result to continue the task. Do not claim file access that did not happen.');
     return lines.join('\n');
@@ -2860,11 +2868,20 @@ export default function OpenClawWorkspace({
       });
       const data = await res.json();
       if (!res.ok) {
+        const requestDiagnostic = data && typeof data === 'object'
+          ? (data as { diagnostics?: { request?: { actionRequired?: unknown } } }).diagnostics?.request
+          : undefined;
         return {
           action: request.action,
           path: request.path,
           success: false,
           error: typeof data.error === 'string' ? data.error : 'Filesystem request failed',
+          code: typeof data.code === 'string' ? data.code : undefined,
+          actionRequired: typeof data.actionRequired === 'string'
+            ? data.actionRequired
+            : typeof requestDiagnostic?.actionRequired === 'string'
+              ? requestDiagnostic.actionRequired
+              : undefined,
         };
       }
 
@@ -2923,7 +2940,21 @@ export default function OpenClawWorkspace({
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'Filesystem write request failed');
+        const requestDiagnostic = data && typeof data === 'object'
+          ? (data as { diagnostics?: { request?: { actionRequired?: unknown } } }).diagnostics?.request
+          : undefined;
+        return {
+          action: request.action,
+          path: request.path,
+          success: false,
+          error: typeof data.error === 'string' ? data.error : 'Filesystem write request failed',
+          code: typeof data.code === 'string' ? data.code : undefined,
+          actionRequired: typeof data.actionRequired === 'string'
+            ? data.actionRequired
+            : typeof requestDiagnostic?.actionRequired === 'string'
+              ? requestDiagnostic.actionRequired
+              : undefined,
+        };
       }
 
       if (data.autoApproved) {
@@ -2958,6 +2989,8 @@ export default function OpenClawWorkspace({
         path: request.path,
         success: false,
         error: data.reason || 'Filesystem write was rejected',
+        code: typeof data.code === 'string' ? data.code : undefined,
+        actionRequired: typeof data.actionRequired === 'string' ? data.actionRequired : undefined,
       };
     } catch (error) {
       return {

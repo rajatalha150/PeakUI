@@ -56,11 +56,47 @@ export interface OpenClawFilesystemApprovalPayload {
   createDirectories?: boolean
 }
 
-interface MountedRoot {
+export interface OpenClawMountedRoot {
   label: string
   hostPath: string
   containerPath: string
   writable: boolean
+}
+
+export type OpenClawFilesystemDiagnosticCode =
+  | 'ok'
+  | 'invalid_path'
+  | 'filesystem_read_disabled'
+  | 'filesystem_write_disabled'
+  | 'no_approved_read_roots'
+  | 'no_approved_writable_roots'
+  | 'outside_approved_read_roots'
+  | 'outside_approved_writable_roots'
+  | 'outside_mounted_host_roots'
+  | 'outside_mounted_writable_roots'
+  | 'missing_approval_token'
+
+export interface OpenClawFilesystemDiagnostic {
+  allowed: boolean
+  code: OpenClawFilesystemDiagnosticCode
+  message: string
+  actionRequired?: string
+  requestedPath?: string
+  normalizedPath?: string
+  approvedRoot?: string
+  mountedRoot?: OpenClawMountedRoot
+}
+
+export interface OpenClawFilesystemAccessStatus {
+  readMode: OpenClawFileAccessMode
+  writeMode: OpenClawFileWriteMode
+  approvedReadRoots: string[]
+  approvedWritableRoots: string[]
+  mountedRoots: OpenClawMountedRoot[]
+  mountedWritableRoots: OpenClawMountedRoot[]
+  readReady: boolean
+  writeReady: boolean
+  warnings: string[]
 }
 
 const FILE_READ_LIMIT_BYTES = 180_000
@@ -76,7 +112,7 @@ function isWithinPath(targetPath: string, rootPath: string): boolean {
   return targetPath === rootPath || targetPath.startsWith(`${rootPath}${path.sep}`)
 }
 
-function getMountedRoots(): MountedRoot[] {
+function getMountedRoots(): OpenClawMountedRoot[] {
   const roots = [
     {
       label: 'Host home tree',
@@ -138,7 +174,11 @@ export function getMountedOpenClawWritableRoots(): string[] {
   return getMountedRoots().filter(root => root.writable).map(root => root.hostPath)
 }
 
-function resolveMountedRootForPath(hostPath: string, options?: { writableOnly?: boolean }): MountedRoot | null {
+export function getMountedOpenClawRootDetails(): OpenClawMountedRoot[] {
+  return getMountedRoots().map(root => ({ ...root }))
+}
+
+function resolveMountedRootForPath(hostPath: string, options?: { writableOnly?: boolean }): OpenClawMountedRoot | null {
   const normalized = normalizeAbsolutePath(hostPath)
   const roots = getMountedRoots()
     .filter(root => !options?.writableOnly || root.writable)
@@ -148,9 +188,164 @@ function resolveMountedRootForPath(hostPath: string, options?: { writableOnly?: 
 }
 
 function findAuthorizedRoot(normalizedHostPath: string, allowedRoots: string[]): string | null {
-  return allowedRoots
+  return [...allowedRoots]
     .sort((a, b) => b.length - a.length)
     .find(root => isWithinPath(normalizedHostPath, root)) || null
+}
+
+export function buildOpenClawFilesystemAccessStatus(
+  settings: OpenClawFilesystemAccessSettings
+): OpenClawFilesystemAccessStatus {
+  const approvedReadRoots = parseAllowedOpenClawPaths(settings.openClawAllowedPaths)
+  const approvedWritableRoots = parseAllowedOpenClawPaths(settings.openClawWritablePaths)
+  const mountedRoots = getMountedOpenClawRootDetails()
+  const mountedWritableRoots = mountedRoots.filter(root => root.writable)
+  const warnings: string[] = []
+
+  if (settings.openClawFileAccessMode === 'read-only' && approvedReadRoots.length === 0) {
+    warnings.push('Read-only filesystem access is enabled, but no approved host read roots are configured.')
+  }
+
+  if (settings.openClawFileWriteMode !== 'deny' && approvedWritableRoots.length === 0) {
+    warnings.push('Filesystem writes are enabled, but no approved writable roots are configured.')
+  }
+
+  if (approvedReadRoots.some(root => !resolveMountedRootForPath(root))) {
+    warnings.push('One or more approved read roots are outside the Docker-mounted host roots.')
+  }
+
+  if (approvedWritableRoots.some(root => !resolveMountedRootForPath(root, { writableOnly: true }))) {
+    warnings.push('One or more approved writable roots are outside the Docker-mounted writable roots.')
+  }
+
+  return {
+    readMode: settings.openClawFileAccessMode,
+    writeMode: settings.openClawFileWriteMode,
+    approvedReadRoots,
+    approvedWritableRoots,
+    mountedRoots,
+    mountedWritableRoots,
+    readReady: settings.openClawFileAccessMode === 'read-only'
+      && approvedReadRoots.length > 0
+      && approvedReadRoots.some(root => Boolean(resolveMountedRootForPath(root))),
+    writeReady: settings.openClawFileWriteMode !== 'deny'
+      && approvedWritableRoots.length > 0
+      && approvedWritableRoots.some(root => Boolean(resolveMountedRootForPath(root, { writableOnly: true }))),
+    warnings,
+  }
+}
+
+export function diagnoseOpenClawFilesystemRequest(
+  request: OpenClawFilesystemRequest,
+  settings: OpenClawFilesystemAccessSettings,
+  options: { approvalTokenPresent?: boolean } = {}
+): OpenClawFilesystemDiagnostic {
+  const requestedPath = typeof request.path === 'string' ? request.path.trim() : ''
+  if (!requestedPath) {
+    return {
+      allowed: false,
+      code: 'invalid_path',
+      message: 'A valid absolute host path is required.',
+      actionRequired: 'Use an absolute host path, for example /home/raza/project or /tmp/peakui-openclaw-workspace.',
+    }
+  }
+
+  const normalizedPath = normalizeAbsolutePath(requestedPath)
+  const isWriteAction = isOpenClawFilesystemWriteAction(request.action)
+
+  if (!isWriteAction && settings.openClawFileAccessMode !== 'read-only') {
+    return {
+      allowed: false,
+      code: 'filesystem_read_disabled',
+      message: 'Filesystem read access is disabled.',
+      actionRequired: 'Enable Settings -> WorkSpaces -> Filesystem Access, then add at least one approved host read path.',
+      requestedPath,
+      normalizedPath,
+    }
+  }
+
+  if (isWriteAction && settings.openClawFileWriteMode === 'deny') {
+    return {
+      allowed: false,
+      code: 'filesystem_write_disabled',
+      message: 'Filesystem writes are disabled.',
+      actionRequired: 'Enable Settings -> WorkSpaces -> Filesystem Writes in ask-first mode and approve a writable root.',
+      requestedPath,
+      normalizedPath,
+    }
+  }
+
+  const approvedRoots = isWriteAction
+    ? parseAllowedOpenClawPaths(settings.openClawWritablePaths)
+    : parseAllowedOpenClawPaths(settings.openClawAllowedPaths)
+
+  if (approvedRoots.length === 0) {
+    return {
+      allowed: false,
+      code: isWriteAction ? 'no_approved_writable_roots' : 'no_approved_read_roots',
+      message: isWriteAction
+        ? 'No approved writable host roots are configured.'
+        : 'No approved host read roots are configured.',
+      actionRequired: isWriteAction
+        ? 'Add a writable root such as /tmp/peakui-openclaw-workspace in Settings.'
+        : 'Add an approved host read root such as /home or /tmp in Settings.',
+      requestedPath,
+      normalizedPath,
+    }
+  }
+
+  const approvedRoot = findAuthorizedRoot(normalizedPath, approvedRoots)
+  if (!approvedRoot) {
+    return {
+      allowed: false,
+      code: isWriteAction ? 'outside_approved_writable_roots' : 'outside_approved_read_roots',
+      message: isWriteAction
+        ? 'Requested path is not inside the approved writable roots.'
+        : 'Requested path is not inside the approved filesystem roots.',
+      actionRequired: `Approve a matching ${isWriteAction ? 'writable' : 'read'} root in Settings, or request a path under: ${approvedRoots.join(', ')}.`,
+      requestedPath,
+      normalizedPath,
+    }
+  }
+
+  const mountedRoot = resolveMountedRootForPath(normalizedPath, { writableOnly: isWriteAction })
+  if (!mountedRoot) {
+    const mountedRoots = isWriteAction ? getMountedOpenClawWritableRoots() : getMountedOpenClawHostRoots()
+    return {
+      allowed: false,
+      code: isWriteAction ? 'outside_mounted_writable_roots' : 'outside_mounted_host_roots',
+      message: isWriteAction
+        ? 'Requested path is outside the mounted writable roots.'
+        : 'Requested path is outside the mounted host roots.',
+      actionRequired: `Add a Docker bind mount for that host path first, then approve it in Settings. Currently mounted roots: ${mountedRoots.join(', ') || 'none'}.`,
+      requestedPath,
+      normalizedPath,
+      approvedRoot,
+    }
+  }
+
+  if (isWriteAction && settings.openClawFileWriteMode === 'ask-first' && !options.approvalTokenPresent) {
+    return {
+      allowed: false,
+      code: 'missing_approval_token',
+      message: 'Filesystem write blocked: Missing approval token.',
+      actionRequired: 'Request write approval first, then execute the approved filesystem action with the returned token.',
+      requestedPath,
+      normalizedPath,
+      approvedRoot,
+      mountedRoot,
+    }
+  }
+
+  return {
+    allowed: true,
+    code: 'ok',
+    message: 'Filesystem request is allowed by the current configuration.',
+    requestedPath,
+    normalizedPath,
+    approvedRoot,
+    mountedRoot,
+  }
 }
 
 async function resolveNearestExistingRealPath(inputPath: string): Promise<string> {

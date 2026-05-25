@@ -34,11 +34,18 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Open Claw shell execution now has an explicit target setting: `container` for the built-in app runtime or `host` for an optional host-side executor daemon.
 - The optional host executor lives at `scripts/openclaw-host-executor.mjs`, listens on `127.0.0.1:4318` by default, requires `OPENCLAW_HOST_EXECUTOR_TOKEN`, and executes commands on the host with host `PATH`/CLI availability.
 - Host execution is constrained by approved working-directory roots, allowlisted host environment variables, per-command timeout caps, output-size caps, and the existing shell approval model.
+- Host executor root/cwd validation now resolves approved roots and requested working directories through real paths before execution, so symlinked cwd paths cannot bypass the configured root boundary.
 - If Host is selected but the executor token is missing or the daemon is unreachable, Open Claw now falls back to the normal container shell and labels the actual target in both approval dialogs and command output. This prevents simple commands from failing only because host mode is not fully configured.
 - Shell requests and results are now stored in PostgreSQL via `ShellCommandAudit`, including user/session/message, command, cwd, target, approval mode, status, timeout/output caps, allowed roots/env vars, stdout/stderr, exit code, and duration.
 - Shell settings now include target, approval mode, additional auto-approve prefixes, host allowed roots, host allowed env vars, host timeout, host output cap, and host executor status.
 - The Open Claw system prompt now tells the model whether the shell is currently container-backed or host-backed, so it can reason correctly about available commands and paths.
 - Added `docs/openclaw-host-executor.md` and `npm run openclaw:host-executor` for operating the optional daemon.
+
+### Open Claw Host Access Diagnostics ✅
+- `/api/openclaw/filesystem` now supports a status `GET` that reports required permissions, mounted host roots, approved read/write roots, filesystem readiness, host shell settings, and host executor reachability.
+- Filesystem `403` responses now include structured denial codes, `actionRequired` text, and current diagnostics for missing account permissions, disabled modes, missing approved roots, paths outside Docker mounts, and missing write approval tokens.
+- Settings now includes Host Access presets for safe workspace-only access, home-read/workspace-write access, and mounted-root audit mode while keeping shell execution in `ask-first` and writes workspace-only by default.
+- WorkSpaces feeds filesystem denial codes/action guidance back into the model-visible tool result so the agent stops retrying the same blocked path and can tell the user exactly what setting needs to change.
 
 ### Open Claw UI Fixes ✅
 - Fixed the Open Claw model dropdown stacking/hit-area issue by giving the Open Claw header chrome its own higher stacking layer. The full dropdown is now clickable over the chat area instead of only the top exposed strip.
@@ -414,8 +421,15 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `feat: add recoverable canvas revisions`
-- **Previous committed baseline:** `feat: harden uwaf stealth fingerprints and search rotation`
+- **Current committed baseline:** `fix: clarify host filesystem access`
+- **Previous committed baseline:** `feat: add recoverable canvas revisions`
+
+### Latest Changes (Host Filesystem & Executor Access)
+- **Filesystem denials are now actionable:** `/api/openclaw/filesystem` returns structured `code`, `actionRequired`, and diagnostics instead of a bare 403 for blocked paths.
+- **Filesystem status endpoint:** `GET /api/openclaw/filesystem` reports account permission state, mounted host roots, approved read/write roots, readiness warnings, host shell settings, and host executor reachability.
+- **Settings host-access presets:** Settings now provides Safe Workspace, Home Read + Workspace Write, and Mounted Host Audit presets that configure shell/filesystem fields together while keeping host shell and writes in `ask-first`.
+- **Model-visible tool failures:** WorkSpaces includes filesystem denial codes and action guidance in the tool result so the agent can explain what setting is missing instead of retrying the same blocked path.
+- **Host executor hardening:** the optional host executor now resolves approved roots and requested working directories through real paths before spawning commands, preventing symlinked cwd bypasses of the approved-root boundary.
 
 ### Latest Changes (Canvas Revision & Recovery Pass)
 - **Durable Canvas revision history:** added `CanvasArtifactRevision` plus revision creation on artifact create, edit, and restore, so the version number now has actual recoverable snapshots behind it.

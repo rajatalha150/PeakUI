@@ -61,6 +61,13 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - Raw internal `<openclaw_tool>` bridge messages are stripped and hidden before session persistence/reload so reopened Open Claw sessions do not crash on leaked tool turns.
 - Local Ollama refresh/switch flows now skip redundant compatible-provider verification calls and rely on model discovery plus Ollama health instead.
 
+### Host Filesystem & Executor Access
+- `/api/openclaw/filesystem` now has a status `GET` that reports required permissions, mounted host roots, approved read/write roots, readiness warnings, host shell settings, and host executor reachability.
+- Filesystem `403` responses now include structured denial codes, `actionRequired`, and diagnostics for missing account permissions, disabled modes, missing approved roots, paths outside Docker mounts, and missing write approval tokens.
+- Settings includes Host Access presets for safe workspace-only access, home-read/workspace-write access, and mounted-root audit mode; all presets keep host shell execution and file writes in `ask-first`.
+- WorkSpaces feeds filesystem denial codes and action guidance back into the model-visible tool result so the agent can explain exactly which setting or mount is blocking the request.
+- The optional host executor now resolves approved roots and requested working directories through real paths before spawning commands, preventing symlinked cwd bypasses of approved-root boundaries.
+
 ### Chat Mode System
 - **Uncensored/Unrestricted modes have full tool access.** Dynamic tool-aware clause replaces anti-tool language.
 - **Current date/time injected into ALL system prompts.**

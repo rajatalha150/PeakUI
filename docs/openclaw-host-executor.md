@@ -11,7 +11,7 @@ If `Host` is selected but the executor is not configured or reachable, WorkSpace
 - Executes commands on the host machine, not in the container
 - Enforces:
   - explicit approvals when configured
-  - approved working-directory roots
+  - approved working-directory roots, resolved through real paths before execution
   - allowlisted host environment variables
   - per-command timeout caps
   - output-size caps
@@ -61,6 +61,28 @@ In Settings:
 5. Review timeout and output caps
 
 The host executor is optional. Container shell remains available even without this daemon, but it sees the container filesystem and container-installed tools.
+
+Settings also includes Host Access presets:
+
+- `Safe Workspace`: host shell starts only inside the managed workspace; filesystem read/write is scoped to the workspace.
+- `Home Read + Workspace Write`: filesystem reads are allowed for mounted home/temp roots; writes remain workspace-only.
+- `Mounted Host Audit`: reads all mounted host roots and lets host shell commands start from those mounted roots; writes remain workspace-only.
+
+The status card calls `/api/openclaw/filesystem` and reports:
+
+- whether the current account has filesystem permission
+- mounted host roots and writable roots
+- approved read/write roots
+- host executor token/reachability
+- warnings when access is enabled but no approved roots are configured
+
+Filesystem denials now return structured diagnostics. Common `code` values:
+
+- `permission_denied`: the account lacks the required OpenClaw filesystem permission
+- `no_approved_read_roots`: filesystem read mode is enabled, but no read roots are approved
+- `outside_approved_read_roots`: the requested path is not under an approved read root
+- `outside_mounted_host_roots`: the requested path is not mounted into the app container
+- `missing_approval_token`: a write action was attempted without the ask-first approval token
 
 ## Important limitation
 

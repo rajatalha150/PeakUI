@@ -46,6 +46,9 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 - [x] **Shell command execution** — Agent runs commands on host, displays output in chat
 - [x] **Tool approval modes** — Auto-approve, ask-first, or deny for shell commands
 - [x] **Shell target selection** — WorkSpaces can run shell commands in the app container or through an optional host executor
+- [x] **Host access presets and status** — Settings can configure safe workspace-only, home-read/workspace-write, or mounted-root audit access and report host executor/filesystem readiness
+- [x] **Filesystem denial diagnostics** — Filesystem API failures include structured codes, action-required guidance, and mounted/approved-root diagnostics for model and operator feedback
+- [x] **Host executor realpath guardrails** — Host shell allowed roots and requested cwd are resolved through real paths before execution to prevent symlinked cwd boundary bypasses
 - [x] **Shell command audit log** — Shell requests/results persist in DB via `ShellCommandAudit`
 - [x] **File system read** — Agent reads files from designated directories
 - [x] **File system write** — Agent creates/edits files with user approval

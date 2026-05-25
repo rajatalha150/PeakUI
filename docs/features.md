@@ -228,6 +228,7 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 
 ### WorkSpaces Tool Settings
 
+- **Host access presets/status**: Quickly switch between safe workspace-only access, home-read/workspace-write access, or mounted-root audit mode; status reports host executor reachability and filesystem readiness
 - **Shell target**: `container` or `host`
 - **Shell mode**: `auto-approve`, `ask-first`, or `deny`
 - **Shell allowlist extensions**: Additional command prefixes for auto-approval
@@ -236,6 +237,7 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 - **Allowed filesystem paths**: Host paths WorkSpaces may inspect
 - **Filesystem write mode**: `deny`, `ask-first`, or `auto-approve`
 - **Writable filesystem paths**: Host roots WorkSpaces may create or modify files in
+- **Filesystem diagnostics**: `/api/openclaw/filesystem` returns structured denial codes and `actionRequired` hints for missing permissions, missing approved roots, paths outside mounts, and missing approval tokens
 - **Code execution mode**: `deny`, `ask-first`, or `auto-approve`
 - **Browser mode**: `deny`, `read-only`, or `ask-first`
 - **UWAF browser mode**: `deny`, `direct` (Clear Web), or `stealth` (Dark Web/Tor)

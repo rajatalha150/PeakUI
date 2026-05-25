@@ -183,11 +183,14 @@ Production behavior:
 - Code sandbox execution has a 60-second timeout and 256MB memory limit.
 - If `UserSettings.shellExecutionTarget` is set to `host`, shell requests are forwarded to the optional host executor daemon at `OPENCLAW_HOST_EXECUTOR_URL` with `OPENCLAW_HOST_EXECUTOR_TOKEN`.
 - Host execution is constrained by allowed working roots, environment-variable names, timeout, output caps, and approval mode.
+- Host executor cwd checks now resolve approved roots and requested working directories through real paths before execution, so symlinked cwd paths cannot bypass the configured root boundary.
 - If Host target is selected but the host executor is not configured or reachable, WorkSpaces falls back to the container executor and shows the fallback reason in the approval or blocked-command UI.
 - Every shell command request/result is audited in `ShellCommandAudit`, including requested target, effective target, approval decision, fallback reason, exit code, duration, and output preview.
 - Commands that fetch from the network, install packages, or start services such as `git clone`, `curl`, `wget`, `npm install`, `npx`, `docker run`, or `docker compose up` are intentionally not auto-approved and require explicit approval when shell access is enabled.
 - Truly dangerous shell operations like `rm -rf /`, `sudo`, `ssh`, `mkfs`, and sensitive `/etc/passwd` or `/etc/shadow` access are blocked outright.
 - Filesystem writes are constrained to approved writable roots and use full-content write/append semantics rather than shell patching.
+- Filesystem denials return a machine-readable `code`, `actionRequired`, and current access diagnostics. This keeps the model from retrying the same blocked path and tells the operator whether to grant account permission, approve a root, add a Docker bind mount, or approve the pending write.
+- Settings includes Host Access presets for safe workspace-only access, home-read/workspace-write access, and mounted-root audit mode. These presets keep writes workspace-only by default and leave shell execution in `ask-first`.
 - Code execution runs only in the managed WorkSpaces workspace, with runtime guards, timeouts, and output caps.
 - Browser control is limited to public `http` and `https` pages. Local/private targets, credentialed URLs, and non-standard ports are blocked. In `read-only`, WorkSpaces can inspect pages but cannot fill or submit forms.
 - Every tool execution (shell, code, filesystem, browser, web) shows a live phase label during execution: `Running command...`, `Running code...`, `Reading filesystem...`, `Browsing page...`, or `Searching web...`. If a tool fails, the error becomes a model-visible message and the tool loop continues instead of crashing the session.

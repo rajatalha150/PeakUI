@@ -98,6 +98,37 @@ interface ManagedUser {
   permissionOverrides: PermissionOverrides;
 }
 
+interface HostAccessStatus {
+  error?: string;
+  actionRequired?: string;
+  filesystem?: {
+    readMode: string;
+    writeMode: string;
+    approvedReadRoots: string[];
+    approvedWritableRoots: string[];
+    readReady: boolean;
+    writeReady: boolean;
+    warnings: string[];
+    mountedRoots: Array<{
+      label: string;
+      hostPath: string;
+      containerPath: string;
+      writable: boolean;
+    }>;
+  };
+  shell?: {
+    target: string;
+    mode: string;
+    hostAllowedRoots: string[];
+    hostExecutorStatus?: {
+      configured: boolean;
+      reachable: boolean;
+      url: string;
+      error?: string;
+    };
+  };
+}
+
 interface Props {
   onSettingsChange?: (settings: UserSettings) => void;
   onLogout?: () => void;
@@ -121,9 +152,9 @@ const INITIAL_SETTINGS: UserSettings = {
   shellHostAllowedEnvVars: 'PATH\nHOME\nUSER\nSHELL\nLANG\nTERM',
   shellHostMaxTimeoutMs: 60000,
   shellHostMaxOutputBytes: 262144,
-  openClawFileAccessMode: 'deny',
+  openClawFileAccessMode: 'read-only',
   openClawAllowedPaths: '',
-  openClawFileWriteMode: 'deny',
+  openClawFileWriteMode: 'ask-first',
   openClawWritablePaths: '/tmp/peakui-openclaw-workspace',
   openClawCodeExecutionMode: 'deny',
   openClawBrowserMode: 'deny',
@@ -206,6 +237,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
   const [embedError, setEmbedError] = useState('');
   const [embedDetails, setEmbedDetails] = useState('');
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [hostAccessStatus, setHostAccessStatus] = useState<HostAccessStatus | null>(null);
+  const [hostAccessStatusLoading, setHostAccessStatusLoading] = useState(false);
   const [managedUsers, setManagedUsers] = useState<ManagedUser[]>([]);
   const [permissionDefinitions, setPermissionDefinitions] = useState<PermissionDefinition[]>([]);
   const [roleDefinitions, setRoleDefinitions] = useState<RoleDefinition[]>([]);
@@ -323,6 +356,21 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
     }
   }, []);
 
+  const fetchHostAccessStatus = useCallback(async () => {
+    setHostAccessStatusLoading(true);
+    try {
+      const res = await fetch('/api/openclaw/filesystem', { cache: 'no-store' });
+      const data = await res.json().catch(() => ({})) as HostAccessStatus;
+      setHostAccessStatus(data);
+    } catch (error) {
+      setHostAccessStatus({
+        error: error instanceof Error ? error.message : 'Failed to load host access status.',
+      });
+    } finally {
+      setHostAccessStatusLoading(false);
+    }
+  }, []);
+
   const fetchManagedUsers = useCallback(async () => {
     setUsersLoading(true);
     setUsersError('');
@@ -358,6 +406,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
       await Promise.all([
         fetchModels(nextSettings.ollamaHost),
         SHOW_LEGACY_CHAT_SETTINGS ? fetchChatModels(nextSettings, huggingFaceApiKey) : Promise.resolve(),
+        authUser?.permissions.includes('openclaw.filesystem') ? fetchHostAccessStatus() : Promise.resolve(),
       ]);
       if (authUser?.permissions.includes('users.manage')) {
         await fetchManagedUsers();
@@ -365,7 +414,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
     };
 
     void loadInitialSettings();
-  }, [fetchSettings, fetchModels, fetchChatModels, fetchManagedUsers, fetchSession, huggingFaceApiKey]);
+  }, [fetchSettings, fetchModels, fetchChatModels, fetchManagedUsers, fetchSession, fetchHostAccessStatus, huggingFaceApiKey]);
 
   useEffect(() => {
     if (loading) return;
@@ -392,6 +441,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
         applyTheme(data.theme);
         onSettingsChange?.(data);
         void fetchModels(data.ollamaHost);
+        if (sessionUser?.permissions.includes('openclaw.filesystem')) void fetchHostAccessStatus();
         if (SHOW_LEGACY_CHAT_SETTINGS) void fetchChatModels(data, huggingFaceApiKey);
         setTimeout(() => setSaved(false), 3000);
       }
@@ -449,6 +499,64 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
       setEmbedError('');
       setEmbedDetails('');
     }
+    setSaved(false);
+  };
+
+  const applyHostAccessPreset = (preset: 'workspace' | 'home-read' | 'mounted-audit') => {
+    setSettings(prev => {
+      const mountedRoots = hostAccessStatus?.filesystem?.mountedRoots || [];
+      const mountedReadRoots = mountedRoots
+        .filter(root => !root.writable)
+        .map(root => root.hostPath)
+        .filter(Boolean);
+      const mountedWritableRoots = mountedRoots
+        .filter(root => root.writable)
+        .map(root => root.hostPath)
+        .filter(Boolean);
+      const workspaceRoot = mountedWritableRoots[0]
+        || prev.openClawWritablePaths.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean)[0]
+        || '/tmp/peakui-openclaw-workspace';
+      const defaultReadRoots = mountedReadRoots.length > 0 ? mountedReadRoots : ['/home', '/tmp'];
+
+      if (preset === 'workspace') {
+        return {
+          ...prev,
+          shellExecutionTarget: 'host',
+          shellExecutionMode: 'ask-first',
+          shellHostAllowedRoots: workspaceRoot,
+          openClawFileAccessMode: 'read-only',
+          openClawAllowedPaths: workspaceRoot,
+          openClawFileWriteMode: 'ask-first',
+          openClawWritablePaths: workspaceRoot,
+        };
+      }
+
+      if (preset === 'home-read') {
+        return {
+          ...prev,
+          shellExecutionTarget: 'host',
+          shellExecutionMode: 'ask-first',
+          shellHostAllowedRoots: [...defaultReadRoots, workspaceRoot].filter((entry, index, all) => all.indexOf(entry) === index).join('\n'),
+          openClawFileAccessMode: 'read-only',
+          openClawAllowedPaths: defaultReadRoots.join('\n'),
+          openClawFileWriteMode: 'ask-first',
+          openClawWritablePaths: workspaceRoot,
+        };
+      }
+
+      const allMountedRoots = [...defaultReadRoots, workspaceRoot]
+        .filter((entry, index, all) => all.indexOf(entry) === index);
+      return {
+        ...prev,
+        shellExecutionTarget: 'host',
+        shellExecutionMode: 'ask-first',
+        shellHostAllowedRoots: allMountedRoots.join('\n'),
+        openClawFileAccessMode: 'read-only',
+        openClawAllowedPaths: allMountedRoots.join('\n'),
+        openClawFileWriteMode: 'ask-first',
+        openClawWritablePaths: workspaceRoot,
+      };
+    });
     setSaved(false);
   };
 
@@ -1353,6 +1461,81 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               placeholder="gpt-4o-mini"
             />
           )}
+        </Field>
+
+        <Field label="Host Access Presets" help="Presets update the shell and filesystem fields below. They are not saved until you click Save Settings. Keep ask-first enabled for host access unless the workflow is already proven.">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+            {[
+              {
+                key: 'workspace' as const,
+                label: 'Safe Workspace',
+                desc: 'Host shell plus read/write access only inside the managed workspace root.',
+              },
+              {
+                key: 'home-read' as const,
+                label: 'Home Read + Workspace Write',
+                desc: 'Read mounted host home/temp roots, write only inside the managed workspace.',
+              },
+              {
+                key: 'mounted-audit' as const,
+                label: 'Mounted Host Audit',
+                desc: 'Read all mounted host roots and allow host shell starts from those roots; writes stay workspace-only.',
+              },
+            ].map(preset => (
+              <button
+                key={preset.key}
+                type="button"
+                onClick={() => applyHostAccessPreset(preset.key)}
+                style={{
+                  textAlign: 'left',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '12px',
+                  padding: '12px',
+                  background: 'var(--bg-glass)',
+                  color: 'var(--text-primary)',
+                  cursor: 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: '4px' }}>{preset.label}</div>
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>{preset.desc}</div>
+              </button>
+            ))}
+          </div>
+          <div style={{ marginTop: '10px', padding: '10px 12px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'var(--bg-soft)', fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+            <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>Current host access status</div>
+            {hostAccessStatusLoading ? (
+              <span>Checking host access...</span>
+            ) : hostAccessStatus?.error ? (
+              <span>{hostAccessStatus.error}{hostAccessStatus.actionRequired ? ` ${hostAccessStatus.actionRequired}` : ''}</span>
+            ) : (
+              <>
+                <div>Filesystem: {hostAccessStatus?.filesystem?.readReady ? 'read-ready' : 'read not ready'} · {hostAccessStatus?.filesystem?.writeReady ? 'write-ready' : 'write not ready'}</div>
+                <div>Host executor: {hostAccessStatus?.shell?.hostExecutorStatus?.reachable ? 'reachable' : hostAccessStatus?.shell?.hostExecutorStatus?.configured ? 'configured but unreachable' : 'token not configured'}</div>
+                {hostAccessStatus?.filesystem?.warnings?.length ? (
+                  <div style={{ marginTop: '4px' }}>
+                    {hostAccessStatus.filesystem.warnings.join(' ')}
+                  </div>
+                ) : null}
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => void fetchHostAccessStatus()}
+              style={{
+                marginTop: '8px',
+                border: '1px solid var(--border-color)',
+                background: 'transparent',
+                color: 'var(--text-primary)',
+                borderRadius: '999px',
+                padding: '5px 9px',
+                cursor: 'pointer',
+                fontSize: '0.72rem',
+              }}
+            >
+              Refresh status
+            </button>
+          </div>
         </Field>
 
         <Field label="Shell Target" help="Choose whether WorkSpaces shell commands run inside the app container or on the host machine through the optional host executor.">
