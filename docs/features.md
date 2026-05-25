@@ -61,8 +61,9 @@ WorkSpaces includes a collapsible Canvas panel that:
 - Displays generated artifacts as visual cards
 - Supports code, markdown, and image file types
 - Allows inline editing of content
-- Enables single or batch artifact download
-- Persists artifacts via the CanvasArtifact model
+- Enables single artifact downloads plus bundle-level JSON export/delete actions
+- Persists artifacts via the CanvasArtifact model and stores durable CanvasArtifactRevision snapshots on create, edit, and restore
+- Supports revision history, restore, lightweight revision comparison, lineage links, search, and cursor paging so large Canvas sessions are recoverable and navigable
 
 ### Task Modes
 

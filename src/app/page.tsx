@@ -704,6 +704,8 @@ export default function Home() {
   const isDocker = activeTab === 'docker';
   const isSettings = activeTab === 'settings';
   const [canvasArtifacts, setCanvasArtifacts] = useState<CanvasArtifactRecord[]>([]);
+  const [canvasNextCursor, setCanvasNextCursor] = useState<string | null>(null);
+  const [canvasHasMore, setCanvasHasMore] = useState(false);
   const [canvasRailCollapsed, setCanvasRailCollapsed] = useState(false);
   const [ollamaHealth, setOllamaHealth] = useState<OllamaHealthSummary | null>(null);
   const [ollamaHealthLoading, setOllamaHealthLoading] = useState(false);
@@ -1052,12 +1054,17 @@ export default function Home() {
       });
   };
 
-  const loadCanvasArtifacts = (sessionId: string) => {
+  const loadCanvasArtifacts = (sessionId: string, options: { append?: boolean; cursor?: string | null } = {}) => {
     try {
-      fetch(`/api/canvas/artifacts?sessionId=${sessionId}&limit=100`)
+      const params = new URLSearchParams({ sessionId, limit: '50' });
+      if (options.cursor) params.set('cursor', options.cursor);
+      fetch(`/api/canvas/artifacts?${params.toString()}`)
         .then(res => res.json())
         .then(data => {
-          setCanvasArtifacts(data.artifacts || []);
+          const artifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
+          setCanvasArtifacts(prev => options.append ? [...prev, ...artifacts] : artifacts);
+          setCanvasNextCursor(typeof data.pageInfo?.nextCursor === 'string' ? data.pageInfo.nextCursor : null);
+          setCanvasHasMore(Boolean(data.pageInfo?.hasMore));
         });
     } catch (error) {
       console.error("Failed to load canvas artifacts:", error);
@@ -1126,6 +1133,9 @@ export default function Home() {
           if (storedSelection === CHAT_DRAFT_SESSION_SENTINEL) {
             setCurrentSessionId(null);
             setChatHistory([]);
+            setCanvasArtifacts([]);
+            setCanvasNextCursor(null);
+            setCanvasHasMore(false);
             return;
           }
 
@@ -1144,6 +1154,8 @@ export default function Home() {
           setCurrentSessionId(null);
           setChatHistory([]);
           setCanvasArtifacts([]);
+          setCanvasNextCursor(null);
+          setCanvasHasMore(false);
         }
       })
       .catch(e => console.error("Failed to load chats:", e));
@@ -1416,6 +1428,8 @@ export default function Home() {
       loadCanvasArtifacts(id);
     } else {
       setCanvasArtifacts([]);
+      setCanvasNextCursor(null);
+      setCanvasHasMore(false);
     }
   };
 
@@ -3723,6 +3737,11 @@ export default function Home() {
                     }
                     return null;
                   }}
+                  onLoadMore={() => {
+                    if (!currentSessionId || !canvasNextCursor) return;
+                    loadCanvasArtifacts(currentSessionId, { append: true, cursor: canvasNextCursor });
+                  }}
+                  hasMore={canvasHasMore}
                 />
               </div>
             )}

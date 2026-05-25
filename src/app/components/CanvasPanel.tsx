@@ -11,14 +11,20 @@ import {
   FileJson,
   FileSpreadsheet,
   FileText,
-  Image,
+  GitBranch,
+  History,
+  Image as ImageIcon,
+  Layers,
   Loader2,
+  RotateCcw,
   Save,
+  Search,
+  Trash2,
   X,
 } from 'lucide-react'
 import ArtifactPreviewContent from './ArtifactPreviewContent'
 import VirtualizedList from './VirtualizedList'
-import type { CanvasArtifactRecord } from '@/lib/canvas-artifacts'
+import type { CanvasArtifactRecord, CanvasArtifactRevisionRecord } from '@/lib/canvas-artifacts'
 import {
   isChartArtifact,
   isCodeArtifact,
@@ -38,14 +44,23 @@ export type { CanvasArtifactRecord as CanvasArtifactData }
 
 interface CanvasPanelProps {
   artifacts: CanvasArtifactRecord[]
-  onUpdate: (id: string, content: string, name: string) => Promise<void>
+  onUpdate: (id: string, content: string, name: string) => Promise<CanvasArtifactRecord | void>
   onDelete: (id: string) => Promise<void>
   onDownload: (artifact: CanvasArtifactRecord) => void
   onFetchContent: (id: string) => Promise<CanvasArtifactRecord | null>
+  onFetchRevisions?: (id: string) => Promise<CanvasArtifactRevisionRecord[]>
+  onRestoreRevision?: (id: string, version: number) => Promise<CanvasArtifactRecord | null>
+  onLoadMore?: () => Promise<void> | void
+  onSearch?: (query: string) => Promise<void> | void
+  hasMore?: boolean
+  loading?: boolean
+  error?: string | null
+  searchQuery?: string
+  totalCount?: number | null
 }
 
 type CanvasRow =
-  | { type: 'bundle'; id: string; label: string; count: number }
+  | { type: 'bundle'; id: string; label: string; count: number; artifacts: CanvasArtifactRecord[]; collapsed: boolean }
   | { type: 'artifact'; artifact: CanvasArtifactRecord }
 
 const actionButtonStyle: React.CSSProperties = {
@@ -61,15 +76,70 @@ const actionButtonStyle: React.CSSProperties = {
   cursor: 'pointer',
 }
 
+const inputStyle: React.CSSProperties = {
+  minWidth: 0,
+  border: '1px solid var(--border-color)',
+  borderRadius: '6px',
+  background: 'var(--bg-secondary)',
+  color: 'var(--text-primary)',
+  fontSize: '0.76rem',
+  padding: '6px 8px',
+}
+
+const fallbackHistoryPreStyle: React.CSSProperties = {
+  margin: 0,
+  maxHeight: '260px',
+  overflow: 'auto',
+  border: '1px solid var(--border-color)',
+  borderRadius: '8px',
+  background: 'var(--bg-primary)',
+  color: 'var(--text-secondary)',
+  fontSize: '0.72rem',
+  lineHeight: 1.5,
+  padding: '10px',
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+}
+
+function getRevisionLabel(revision: CanvasArtifactRevisionRecord): string {
+  return `v${revision.version} · ${revision.name}`
+}
+
+function buildRevisionComparison(left?: CanvasArtifactRevisionRecord, right?: CanvasArtifactRevisionRecord): string {
+  if (!left || !right) return 'Select two revisions to compare.'
+  const leftLines = (left.content ?? '').split('\n')
+  const rightLines = (right.content ?? '').split('\n')
+  const maxLines = Math.max(leftLines.length, rightLines.length)
+  let changedLines = 0
+
+  for (let index = 0; index < maxLines; index += 1) {
+    if ((leftLines[index] ?? '') !== (rightLines[index] ?? '')) changedLines += 1
+  }
+
+  const leftPreview = (left.content ?? '').trim().slice(0, 900) || '[empty]'
+  const rightPreview = (right.content ?? '').trim().slice(0, 900) || '[empty]'
+
+  return [
+    `${getRevisionLabel(left)} -> ${getRevisionLabel(right)}`,
+    `${changedLines} changed line${changedLines === 1 ? '' : 's'} across ${maxLines} line${maxLines === 1 ? '' : 's'}.`,
+    '',
+    `--- ${getRevisionLabel(left)} preview ---`,
+    leftPreview,
+    '',
+    `--- ${getRevisionLabel(right)} preview ---`,
+    rightPreview,
+  ].join('\n')
+}
+
 function getArtifactIcon(artifact: CanvasArtifactRecord) {
-  if (isImageArtifact(artifact)) return <Image size={14} />
+  if (isImageArtifact(artifact)) return <ImageIcon size={14} />
   if (isMarkdownArtifact(artifact)) return <FileText size={14} />
   if (isTableArtifact(artifact)) return <FileSpreadsheet size={14} />
   if (artifact.kind === 'data' || artifact.mimeType === 'application/json') return <FileJson size={14} />
   return <FileText size={14} />
 }
 
-function createCanvasRows(artifacts: CanvasArtifactRecord[]): CanvasRow[] {
+function createCanvasRows(artifacts: CanvasArtifactRecord[], collapsedBundleIds: Set<string>): CanvasRow[] {
   const groups = new Map<string, CanvasArtifactRecord[]>()
   const singles: CanvasArtifactRecord[] = []
 
@@ -87,12 +157,17 @@ function createCanvasRows(artifacts: CanvasArtifactRecord[]): CanvasRow[] {
   const rows: CanvasRow[] = []
   for (const artifactsInBundle of groups.values()) {
     const bundleLabel = artifactsInBundle[0]?.bundleName || artifactsInBundle[0]?.bundleId || 'Artifact bundle'
+    const bundleId = artifactsInBundle[0]?.bundleId || bundleLabel
+    const collapsed = collapsedBundleIds.has(bundleId)
     rows.push({
       type: 'bundle',
-      id: artifactsInBundle[0]?.bundleId || bundleLabel,
+      id: bundleId,
       label: bundleLabel,
       count: artifactsInBundle.length,
+      artifacts: artifactsInBundle,
+      collapsed,
     })
+    if (collapsed) continue
     for (const artifact of artifactsInBundle) {
       rows.push({ type: 'artifact', artifact })
     }
@@ -114,6 +189,7 @@ function ArtifactCard({
   editName,
   onToggleExpand,
   onLoadFullPreview,
+  onRetryLoad,
   onStartEdit,
   onCancelEdit,
   onSaveEdit,
@@ -123,9 +199,21 @@ function ArtifactCard({
   onDownload,
   onDelete,
   onExport,
+  onToggleHistory,
+  onRestoreRevision,
+  onSelectCompareRevision,
+  onOpenRelated,
   copied,
   saving,
+  restoring,
+  historyAvailable,
   error,
+  historyOpen,
+  revisions,
+  revisionsLoading,
+  revisionsError,
+  compareLeftVersion,
+  compareRightVersion,
 }: {
   artifact: CanvasArtifactRecord
   expanded: boolean
@@ -135,6 +223,7 @@ function ArtifactCard({
   editName: string
   onToggleExpand: () => void
   onLoadFullPreview: () => void
+  onRetryLoad: () => void
   onStartEdit: () => void
   onCancelEdit: () => void
   onSaveEdit: () => Promise<void>
@@ -144,9 +233,21 @@ function ArtifactCard({
   onDownload: () => void
   onDelete: () => void
   onExport: (target: CanvasArtifactRecord['exportTargets'][number]) => void
+  onToggleHistory: () => void
+  onRestoreRevision: (version: number) => Promise<void>
+  onSelectCompareRevision: (side: 'left' | 'right', version: number) => void
+  onOpenRelated: (id: string) => void
   copied: boolean
   saving: boolean
+  restoring: boolean
+  historyAvailable: boolean
   error: string | null
+  historyOpen: boolean
+  revisions: CanvasArtifactRevisionRecord[] | null
+  revisionsLoading: boolean
+  revisionsError: string | null
+  compareLeftVersion?: number
+  compareRightVersion?: number
 }) {
   const content = artifact.content || ''
   const largeContent = isLargeArtifactContent(content)
@@ -204,8 +305,13 @@ function ArtifactCard({
       </div>
 
       {error && (
-        <div style={{ padding: '6px 10px', background: 'rgba(239,68,68,0.1)', color: 'var(--danger)', fontSize: '0.75rem' }}>
-          {error}
+        <div style={{ padding: '6px 10px', background: 'rgba(239,68,68,0.1)', color: 'var(--danger)', fontSize: '0.75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+          <span>{error}</span>
+          {expanded && (
+            <button type="button" onClick={onRetryLoad} style={{ ...actionButtonStyle, color: 'var(--danger)', borderColor: 'rgba(239,68,68,0.45)' }}>
+              Retry
+            </button>
+          )}
         </div>
       )}
 
@@ -267,6 +373,27 @@ function ArtifactCard({
           </button>
         ))}
 
+        {historyAvailable && (
+          <button type="button" onClick={onToggleHistory} style={actionButtonStyle}>
+            <History size={11} />
+            History
+          </button>
+        )}
+
+        {artifact.sourceArtifact && (
+          <button type="button" onClick={() => onOpenRelated(artifact.sourceArtifact!.id)} style={actionButtonStyle}>
+            <GitBranch size={11} />
+            Source
+          </button>
+        )}
+
+        {artifact.derivedArtifacts?.slice(0, 2).map(derived => (
+          <button key={derived.id} type="button" onClick={() => onOpenRelated(derived.id)} style={actionButtonStyle}>
+            <GitBranch size={11} />
+            {derived.name}
+          </button>
+        ))}
+
         {editable && (
           <button type="button" onClick={onStartEdit} style={actionButtonStyle}>
             <Edit2 size={11} />
@@ -288,10 +415,74 @@ function ArtifactCard({
         )}
 
         <button type="button" onClick={onDelete} style={{ ...actionButtonStyle, color: 'var(--danger)', marginLeft: 'auto' }}>
-          <X size={11} />
+          <Trash2 size={11} />
           Delete
         </button>
       </div>
+
+      {historyOpen && (
+        <div style={{ borderTop: '1px solid var(--border-color)', padding: '10px', display: 'grid', gap: '10px' }}>
+          {revisionsLoading && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.76rem' }}>
+              <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />
+              Loading revisions
+            </div>
+          )}
+          {revisionsError && (
+            <div style={{ padding: '8px', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.35)', color: 'var(--danger)', fontSize: '0.76rem' }}>
+              {revisionsError}
+            </div>
+          )}
+          {revisions && revisions.length > 0 && (
+            <>
+              <div style={{ display: 'grid', gap: '6px' }}>
+                {revisions.slice(0, 8).map(revision => (
+                  <div key={revision.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '7px 8px', border: '1px solid var(--border-color)', borderRadius: '8px', background: 'rgba(255,255,255,0.02)' }}>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: '0.74rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {getRevisionLabel(revision)} · {formatBytes(revision.size)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onRestoreRevision(revision.version)}
+                      disabled={restoring || revision.version === artifact.version}
+                      style={actionButtonStyle}
+                    >
+                      {restoring ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <RotateCcw size={11} />}
+                      Restore
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {revisions.length > 1 && (
+                <div style={{ display: 'grid', gap: '8px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <select
+                      value={compareLeftVersion ?? revisions[1]?.version ?? revisions[0]?.version}
+                      onChange={(event) => onSelectCompareRevision('left', Number(event.target.value))}
+                      style={inputStyle}
+                    >
+                      {revisions.map(revision => <option key={revision.id} value={revision.version}>{getRevisionLabel(revision)}</option>)}
+                    </select>
+                    <select
+                      value={compareRightVersion ?? revisions[0]?.version}
+                      onChange={(event) => onSelectCompareRevision('right', Number(event.target.value))}
+                      style={inputStyle}
+                    >
+                      {revisions.map(revision => <option key={revision.id} value={revision.version}>{getRevisionLabel(revision)}</option>)}
+                    </select>
+                  </div>
+                  <pre style={{ ...fallbackHistoryPreStyle }}>
+                    {buildRevisionComparison(
+                      revisions.find(revision => revision.version === (compareLeftVersion ?? revisions[1]?.version ?? revisions[0]?.version)),
+                      revisions.find(revision => revision.version === (compareRightVersion ?? revisions[0]?.version)),
+                    )}
+                  </pre>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -302,18 +493,52 @@ export default function CanvasPanel({
   onDelete,
   onDownload,
   onFetchContent,
+  onFetchRevisions,
+  onRestoreRevision,
+  onLoadMore,
+  onSearch,
+  hasMore = false,
+  loading = false,
+  error = null,
+  searchQuery = '',
+  totalCount = null,
 }: CanvasPanelProps) {
   const [expandedIds, setExpandedIds] = React.useState<Set<string>>(new Set())
   const [editingIds, setEditingIds] = React.useState<Set<string>>(new Set())
   const [fullPreviewIds, setFullPreviewIds] = React.useState<Set<string>>(new Set())
+  const [collapsedBundleIds, setCollapsedBundleIds] = React.useState<Set<string>>(new Set())
+  const [historyOpenIds, setHistoryOpenIds] = React.useState<Set<string>>(new Set())
   const [editContentMap, setEditContentMap] = React.useState<Record<string, string>>({})
   const [editNameMap, setEditNameMap] = React.useState<Record<string, string>>({})
   const [copiedIds, setCopiedIds] = React.useState<Set<string>>(new Set())
   const [savingIds, setSavingIds] = React.useState<Set<string>>(new Set())
+  const [restoringIds, setRestoringIds] = React.useState<Set<string>>(new Set())
   const [errors, setErrors] = React.useState<Record<string, string | null>>({})
   const [fullContentMap, setFullContentMap] = React.useState<Record<string, CanvasArtifactRecord | null>>({})
+  const [revisionsMap, setRevisionsMap] = React.useState<Record<string, CanvasArtifactRevisionRecord[] | null>>({})
+  const [revisionLoadingIds, setRevisionLoadingIds] = React.useState<Set<string>>(new Set())
+  const [revisionErrors, setRevisionErrors] = React.useState<Record<string, string | null>>({})
+  const [compareMap, setCompareMap] = React.useState<Record<string, { left?: number; right?: number }>>({})
+  const [searchDraft, setSearchDraft] = React.useState(searchQuery)
 
-  const rows = React.useMemo(() => createCanvasRows(artifacts), [artifacts])
+  const rows = React.useMemo(() => createCanvasRows(artifacts, collapsedBundleIds), [artifacts, collapsedBundleIds])
+
+  const loadFullArtifact = React.useCallback(async (artifact: CanvasArtifactRecord) => {
+    if (fullContentMap[artifact.id]) return fullContentMap[artifact.id]
+    try {
+      setErrors(prev => ({ ...prev, [artifact.id]: null }))
+      const full = await onFetchContent(artifact.id)
+      if (!full) {
+        setErrors(prev => ({ ...prev, [artifact.id]: 'Failed to load artifact content' }))
+        return null
+      }
+      setFullContentMap(prev => ({ ...prev, [artifact.id]: full }))
+      return full
+    } catch {
+      setErrors(prev => ({ ...prev, [artifact.id]: 'Failed to load artifact content' }))
+      return null
+    }
+  }, [fullContentMap, onFetchContent])
 
   const toggleExpand = React.useCallback(async (artifact: CanvasArtifactRecord) => {
     const nextExpanded = new Set(expandedIds)
@@ -326,18 +551,8 @@ export default function CanvasPanel({
     nextExpanded.add(artifact.id)
     setExpandedIds(nextExpanded)
 
-    if (fullContentMap[artifact.id]) return
-    try {
-      const full = await onFetchContent(artifact.id)
-      if (!full) {
-        setErrors(prev => ({ ...prev, [artifact.id]: 'Failed to load artifact content' }))
-        return
-      }
-      setFullContentMap(prev => ({ ...prev, [artifact.id]: full }))
-    } catch {
-      setErrors(prev => ({ ...prev, [artifact.id]: 'Failed to load artifact content' }))
-    }
-  }, [expandedIds, fullContentMap, onFetchContent])
+    await loadFullArtifact(artifact)
+  }, [expandedIds, loadFullArtifact])
 
   const startEdit = React.useCallback((artifact: CanvasArtifactRecord) => {
     setEditingIds(prev => new Set(prev).add(artifact.id))
@@ -358,25 +573,37 @@ export default function CanvasPanel({
   const saveEdit = React.useCallback(async (id: string) => {
     const content = editContentMap[id]
     const name = editNameMap[id]
-    if (!content || !name) return
+    if (content === undefined || name === undefined || !name.trim()) {
+      setErrors(prev => ({ ...prev, [id]: 'Artifact name is required' }))
+      return
+    }
 
     setSavingIds(prev => new Set(prev).add(id))
     setErrors(prev => ({ ...prev, [id]: null }))
     try {
-      await onUpdate(id, content, name)
+      const updated = await onUpdate(id, content, name.trim())
       setEditingIds(prev => {
         const next = new Set(prev)
         next.delete(id)
         return next
       })
-      setFullContentMap(prev => {
-        const existing = prev[id]
-        if (!existing) return prev
-        return {
-          ...prev,
-          [id]: { ...existing, content, name, version: existing.version + 1 },
-        }
-      })
+      if (updated) {
+        setFullContentMap(prev => ({ ...prev, [id]: updated }))
+        setRevisionsMap(prev => {
+          const next = { ...prev }
+          delete next[id]
+          return next
+        })
+      } else {
+        setFullContentMap(prev => {
+          const existing = prev[id]
+          if (!existing) return prev
+          return {
+            ...prev,
+            [id]: { ...existing, content, name: name.trim(), version: existing.version + 1 },
+          }
+        })
+      }
     } catch {
       setErrors(prev => ({ ...prev, [id]: 'Failed to save changes' }))
     } finally {
@@ -390,7 +617,8 @@ export default function CanvasPanel({
 
   const handleCopy = React.useCallback(async (artifact: CanvasArtifactRecord) => {
     try {
-      await navigator.clipboard.writeText(fullContentMap[artifact.id]?.content ?? artifact.content ?? '')
+      const full = await loadFullArtifact(artifact)
+      await navigator.clipboard.writeText(full?.content ?? artifact.content ?? '')
       setCopiedIds(prev => new Set(prev).add(artifact.id))
       window.setTimeout(() => {
         setCopiedIds(prev => {
@@ -402,11 +630,13 @@ export default function CanvasPanel({
     } catch {
       setErrors(prev => ({ ...prev, [artifact.id]: 'Failed to copy' }))
     }
-  }, [fullContentMap])
+  }, [loadFullArtifact])
 
-  const handleDownload = React.useCallback((artifact: CanvasArtifactRecord) => {
-    onDownload({ ...artifact, content: fullContentMap[artifact.id]?.content ?? artifact.content })
-  }, [fullContentMap, onDownload])
+  const handleDownload = React.useCallback(async (artifact: CanvasArtifactRecord) => {
+    const full = await loadFullArtifact(artifact)
+    if (!full && !artifact.content) return
+    onDownload({ ...artifact, ...(full ?? {}), content: full?.content ?? artifact.content })
+  }, [loadFullArtifact, onDownload])
 
   const handleDelete = React.useCallback(async (id: string) => {
     try {
@@ -431,40 +661,216 @@ export default function CanvasPanel({
         delete next[id]
         return next
       })
+      setRevisionsMap(prev => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
     } catch {
       setErrors(prev => ({ ...prev, [id]: 'Failed to delete artifact' }))
     }
   }, [onDelete])
 
-  const handleExport = React.useCallback((artifact: CanvasArtifactRecord, target: CanvasArtifactRecord['exportTargets'][number]) => {
+  const handleExport = React.useCallback(async (artifact: CanvasArtifactRecord, target: CanvasArtifactRecord['exportTargets'][number]) => {
     try {
-      const payload = buildArtifactExport(artifact, target, fullContentMap[artifact.id]?.content ?? artifact.content ?? '')
+      const full = await loadFullArtifact(artifact)
+      const payload = buildArtifactExport(full ?? artifact, target, full?.content ?? artifact.content ?? '')
       downloadBlob(payload.filename, new Blob([payload.content], { type: payload.mimeType }))
     } catch {
       setErrors(prev => ({ ...prev, [artifact.id]: `Failed to export ${target}` }))
     }
-  }, [fullContentMap])
+  }, [loadFullArtifact])
 
-  if (artifacts.length === 0) return null
+  const loadRevisions = React.useCallback(async (artifactId: string) => {
+    if (!onFetchRevisions) {
+      setRevisionErrors(prev => ({ ...prev, [artifactId]: 'Revision history is unavailable in this view' }))
+      return
+    }
+    setRevisionLoadingIds(prev => new Set(prev).add(artifactId))
+    setRevisionErrors(prev => ({ ...prev, [artifactId]: null }))
+    try {
+      const revisions = await onFetchRevisions(artifactId)
+      setRevisionsMap(prev => ({ ...prev, [artifactId]: revisions }))
+      setCompareMap(prev => ({
+        ...prev,
+        [artifactId]: {
+          left: revisions[1]?.version ?? revisions[0]?.version,
+          right: revisions[0]?.version,
+        },
+      }))
+    } catch {
+      setRevisionErrors(prev => ({ ...prev, [artifactId]: 'Failed to load revision history' }))
+    } finally {
+      setRevisionLoadingIds(prev => {
+        const next = new Set(prev)
+        next.delete(artifactId)
+        return next
+      })
+    }
+  }, [onFetchRevisions])
+
+  const toggleHistory = React.useCallback(async (artifact: CanvasArtifactRecord) => {
+    const next = new Set(historyOpenIds)
+    if (next.has(artifact.id)) {
+      next.delete(artifact.id)
+      setHistoryOpenIds(next)
+      return
+    }
+
+    next.add(artifact.id)
+    setHistoryOpenIds(next)
+    if (!revisionsMap[artifact.id]) {
+      await loadRevisions(artifact.id)
+    }
+  }, [historyOpenIds, loadRevisions, revisionsMap])
+
+  const restoreRevision = React.useCallback(async (artifact: CanvasArtifactRecord, version: number) => {
+    setRestoringIds(prev => new Set(prev).add(artifact.id))
+    setRevisionErrors(prev => ({ ...prev, [artifact.id]: null }))
+    try {
+      if (!onRestoreRevision) {
+        setRevisionErrors(prev => ({ ...prev, [artifact.id]: 'Revision restore is unavailable in this view' }))
+        return
+      }
+      const restored = await onRestoreRevision(artifact.id, version)
+      if (!restored) {
+        setRevisionErrors(prev => ({ ...prev, [artifact.id]: 'Failed to restore revision' }))
+        return
+      }
+      setFullContentMap(prev => ({ ...prev, [artifact.id]: restored }))
+      setRevisionsMap(prev => {
+        const next = { ...prev }
+        delete next[artifact.id]
+        return next
+      })
+      await loadRevisions(artifact.id)
+    } catch {
+      setRevisionErrors(prev => ({ ...prev, [artifact.id]: 'Failed to restore revision' }))
+    } finally {
+      setRestoringIds(prev => {
+        const next = new Set(prev)
+        next.delete(artifact.id)
+        return next
+      })
+    }
+  }, [loadRevisions, onRestoreRevision])
+
+  const openRelatedArtifact = React.useCallback((id: string) => {
+    const related = artifacts.find(artifact => artifact.id === id)
+    if (!related) return
+    setExpandedIds(prev => new Set(prev).add(id))
+    void loadFullArtifact(related)
+  }, [artifacts, loadFullArtifact])
+
+  const toggleBundle = React.useCallback((bundleId: string) => {
+    setCollapsedBundleIds(prev => {
+      const next = new Set(prev)
+      if (next.has(bundleId)) next.delete(bundleId)
+      else next.add(bundleId)
+      return next
+    })
+  }, [])
+
+  const downloadBundle = React.useCallback(async (label: string, bundleArtifacts: CanvasArtifactRecord[]) => {
+    const fullArtifacts = await Promise.all(bundleArtifacts.map(async artifact => await loadFullArtifact(artifact) ?? artifact))
+    const bundle = {
+      name: label,
+      exportedAt: new Date().toISOString(),
+      artifacts: fullArtifacts.map(artifact => ({
+        name: artifact.name,
+        mimeType: artifact.mimeType,
+        kind: artifact.kind,
+        version: artifact.version,
+        content: artifact.content ?? '',
+      })),
+    }
+    downloadBlob(`${label.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'canvas-bundle'}.json`, new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' }))
+  }, [loadFullArtifact])
+
+  const deleteBundle = React.useCallback(async (label: string, bundleArtifacts: CanvasArtifactRecord[]) => {
+    if (!window.confirm(`Delete ${bundleArtifacts.length} artifact${bundleArtifacts.length === 1 ? '' : 's'} from "${label}"?`)) return
+    await Promise.all(bundleArtifacts.map(artifact => handleDelete(artifact.id)))
+  }, [handleDelete])
+
+  const submitSearch = React.useCallback((event: React.FormEvent) => {
+    event.preventDefault()
+    void onSearch?.(searchDraft.trim())
+  }, [onSearch, searchDraft])
+
+  if (artifacts.length === 0 && !searchQuery && !error && !loading) return null
 
   return (
-    <VirtualizedList
-      items={rows}
-      getItemKey={(row) => row.type === 'bundle' ? `bundle-${row.id}` : row.artifact.id}
-      estimateItemHeight={(row) => {
-        if (row.type === 'bundle') return 44
-        if (isImageArtifact(row.artifact)) return 380
-        if (isMarkdownArtifact(row.artifact)) return 340
-        return 360
-      }}
-      overscanPx={1200}
-      renderItem={(row) => {
+    <div style={{ display: 'grid', gap: '10px' }}>
+      <form onSubmit={submitSearch} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <input
+          type="search"
+          value={searchDraft}
+          onChange={(event) => setSearchDraft(event.target.value)}
+          placeholder="Search artifacts"
+          style={{ ...inputStyle, flex: 1 }}
+        />
+        <button type="submit" style={actionButtonStyle} disabled={loading}>
+          {loading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Search size={12} />}
+          Search
+        </button>
+        {searchQuery && (
+          <button
+            type="button"
+            style={actionButtonStyle}
+            onClick={() => {
+              setSearchDraft('')
+              void onSearch?.('')
+            }}
+          >
+            Clear
+          </button>
+        )}
+      </form>
+
+      {error && (
+        <div style={{ padding: '8px', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.35)', color: 'var(--danger)', fontSize: '0.76rem', display: 'flex', justifyContent: 'space-between', gap: '8px' }}>
+          <span>{error}</span>
+          {onSearch && (
+            <button type="button" style={{ ...actionButtonStyle, color: 'var(--danger)' }} onClick={() => void onSearch(searchQuery)}>
+              Retry
+            </button>
+          )}
+        </div>
+      )}
+
+      {artifacts.length === 0 ? (
+        <div style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', padding: '8px 0' }}>
+          No Canvas artifacts match this view.
+        </div>
+      ) : (
+        <VirtualizedList
+          items={rows}
+          getItemKey={(row) => row.type === 'bundle' ? `bundle-${row.id}` : row.artifact.id}
+          estimateItemHeight={(row) => {
+            if (row.type === 'bundle') return 52
+            if (isImageArtifact(row.artifact)) return 380
+            if (isMarkdownArtifact(row.artifact)) return 340
+            return 360
+          }}
+          overscanPx={1200}
+          renderItem={(row) => {
         if (row.type === 'bundle') {
           return (
             <div style={{ paddingBottom: '8px', paddingTop: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.76rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                <span>{row.label}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.76rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                <button type="button" onClick={() => toggleBundle(row.id)} style={{ ...actionButtonStyle, textTransform: 'none', letterSpacing: 0 }}>
+                  {row.collapsed ? <ChevronDown size={11} /> : <ChevronUp size={11} />}
+                  <Layers size={11} />
+                </button>
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.label}</span>
                 <span style={{ opacity: 0.7 }}>{row.count} item{row.count === 1 ? '' : 's'}</span>
+                <button type="button" onClick={() => void downloadBundle(row.label, row.artifacts)} style={{ ...actionButtonStyle, textTransform: 'none', letterSpacing: 0 }}>
+                  <Download size={11} />
+                  Bundle
+                </button>
+                <button type="button" onClick={() => void deleteBundle(row.label, row.artifacts)} style={{ ...actionButtonStyle, color: 'var(--danger)', textTransform: 'none', letterSpacing: 0 }}>
+                  <Trash2 size={11} />
+                </button>
               </div>
             </div>
           )
@@ -486,23 +892,53 @@ export default function CanvasPanel({
               editName={editNameMap[artifact.id] ?? artifact.name}
               onToggleExpand={() => toggleExpand(row.artifact)}
               onLoadFullPreview={() => setFullPreviewIds(prev => new Set(prev).add(artifact.id))}
+              onRetryLoad={() => void loadFullArtifact(artifact)}
               onStartEdit={() => startEdit(artifact)}
               onCancelEdit={() => cancelEdit(artifact.id)}
               onSaveEdit={() => saveEdit(artifact.id)}
               onContentChange={(nextContent) => setEditContentMap(prev => ({ ...prev, [artifact.id]: nextContent }))}
               onNameChange={(nextName) => setEditNameMap(prev => ({ ...prev, [artifact.id]: nextName }))}
               onCopy={() => handleCopy(artifact)}
-              onDownload={() => handleDownload(artifact)}
+              onDownload={() => void handleDownload(artifact)}
               onDelete={() => handleDelete(artifact.id)}
-              onExport={(target) => handleExport(artifact, target)}
+              onExport={(target) => void handleExport(artifact, target)}
+              onToggleHistory={() => void toggleHistory(artifact)}
+              onRestoreRevision={(version) => restoreRevision(artifact, version)}
+              onSelectCompareRevision={(side, version) => setCompareMap(prev => ({
+                ...prev,
+                [artifact.id]: { ...prev[artifact.id], [side]: version },
+              }))}
+              onOpenRelated={openRelatedArtifact}
               copied={copiedIds.has(artifact.id)}
               saving={savingIds.has(artifact.id)}
+              restoring={restoringIds.has(artifact.id)}
+              historyAvailable={Boolean(onFetchRevisions)}
               error={errors[artifact.id] ?? null}
+              historyOpen={historyOpenIds.has(artifact.id)}
+              revisions={revisionsMap[artifact.id] ?? null}
+              revisionsLoading={revisionLoadingIds.has(artifact.id)}
+              revisionsError={revisionErrors[artifact.id] ?? null}
+              compareLeftVersion={compareMap[artifact.id]?.left}
+              compareRightVersion={compareMap[artifact.id]?.right}
             />
           </div>
         )
       }}
-      style={{ display: 'block' }}
-    />
+          style={{ display: 'block' }}
+        />
+      )}
+
+      {(hasMore || loading || totalCount !== null) && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+          <span>{totalCount !== null ? `${artifacts.length} of ${totalCount} loaded` : `${artifacts.length} loaded`}</span>
+          {hasMore && (
+            <button type="button" onClick={() => void onLoadMore?.()} disabled={loading} style={actionButtonStyle}>
+              {loading ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <ChevronDown size={11} />}
+              Load more
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

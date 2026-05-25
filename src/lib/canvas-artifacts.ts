@@ -28,7 +28,41 @@ export interface CanvasArtifactRecord {
   bundleRole: string | null
   exportTargets: ArtifactExportTarget[]
   sourceArtifactId: string | null
+  sourceArtifact?: CanvasArtifactRelationSummary | null
+  derivedArtifacts?: CanvasArtifactRelationSummary[]
   derivedArtifactIds?: string[]
+  revisionCount?: number
+}
+
+export interface CanvasArtifactRelationSummary {
+  id: string
+  name: string
+  version: number
+}
+
+export interface CanvasArtifactRevisionRecord {
+  id: string
+  artifactId: string
+  version: number
+  name: string
+  content?: string
+  mimeType: string
+  kind: string
+  extension: string | null
+  size: number
+  previewKind: ArtifactPreviewKind
+  previewSummary: string | null
+  previewWidth: number | null
+  previewHeight: number | null
+  contentHash: string | null
+  presentationType: ArtifactPresentationType
+  bundleId: string | null
+  bundleName: string | null
+  bundleRole: string | null
+  exportTargets: ArtifactExportTarget[]
+  sourceArtifactId: string | null
+  messageId: string | null
+  createdAt: string
 }
 
 export type CanvasArtifactSavePayload = {

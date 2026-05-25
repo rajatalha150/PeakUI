@@ -200,6 +200,7 @@ model CanvasArtifact {
   updatedAt   DateTime @updatedAt
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  revisions   CanvasArtifactRevision[]
 
 
   @@index([userId, createdAt])
@@ -207,6 +208,35 @@ model CanvasArtifact {
   @@index([bundleId])
   @@index([sourceArtifactId])
   @@index([presentationType])
+}
+
+model CanvasArtifactRevision {
+  id          String   @id @default(uuid())
+  artifactId  String
+  artifact    CanvasArtifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  version     Int
+  name        String
+  content     String
+  mimeType    String
+  kind        String
+  extension   String?
+  size        Int      @default(0)
+  previewKind String   @default("file")
+  previewSummary String?
+  previewWidth Int?
+  previewHeight Int?
+  contentHash  String?
+  presentationType String @default("auto")
+  bundleId     String?
+  bundleName   String?
+  bundleRole   String?
+  exportTargets String @default("[]")
+  sourceArtifactId String?
+  messageId   String?
+  createdAt   DateTime @default(now())
+
+  @@unique([artifactId, version])
+  @@index([artifactId, createdAt])
 }
 
 model ShellCommandAudit {

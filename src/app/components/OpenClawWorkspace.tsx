@@ -62,7 +62,7 @@ import UwafNetworkPanel from './UwafNetworkPanel';
 import LiveBrowserView from './LiveBrowserView';
 import BrowserModal from './BrowserModal';
 import { reportClientError } from '@/lib/client-error-reporting';
-import type { CanvasArtifactRecord } from '@/lib/canvas-artifacts';
+import type { CanvasArtifactRecord, CanvasArtifactRevisionRecord } from '@/lib/canvas-artifacts';
 
 type OpenClawProvider = 'ollama' | 'openai-compatible';
 type ImageAttachmentMode = 'vision-only' | 'vision+ocr' | 'ocr-only';
@@ -1629,6 +1629,12 @@ export default function OpenClawWorkspace({
   const [shellOutput, setShellOutput] = useState<ShellOutputEntry[]>([]);
   // Canvas artifacts state
   const [canvasArtifacts, setCanvasArtifacts] = useState<CanvasArtifactRecord[]>([]);
+  const [canvasNextCursor, setCanvasNextCursor] = useState<string | null>(null);
+  const [canvasHasMore, setCanvasHasMore] = useState(false);
+  const [canvasTotalCount, setCanvasTotalCount] = useState<number | null>(null);
+  const [canvasSearchQuery, setCanvasSearchQuery] = useState('');
+  const [canvasLoading, setCanvasLoading] = useState(false);
+  const [canvasError, setCanvasError] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingApprovalResolverRef = useRef<((result: ToolApprovalResolution) => void) | null>(null);
@@ -1930,6 +1936,11 @@ export default function OpenClawWorkspace({
     if (storedSelection === OPENCLAW_DRAFT_TASK_ID) {
       setCurrentSessionId(null);
       setChatHistory([]);
+      setCanvasArtifacts([]);
+      setCanvasNextCursor(null);
+      setCanvasHasMore(false);
+      setCanvasTotalCount(null);
+      setCanvasSearchQuery('');
       setSelectedSessionInfo('New WorkSpaces task thread');
       return;
     }
@@ -1942,10 +1953,17 @@ export default function OpenClawWorkspace({
     if (nextSession) {
       setCurrentSessionId(nextSession.id);
       setChatHistory(sanitizeOpenClawMessages(nextSession.messages || []));
+      setCanvasSearchQuery('');
+      loadCanvasArtifacts(nextSession.id, { query: '' });
       setSelectedSessionInfo(`${nextSession.title} · updated ${formatTimestamp(nextSession.updatedAt)}`);
     } else {
       setCurrentSessionId(null);
       setChatHistory([]);
+      setCanvasArtifacts([]);
+      setCanvasNextCursor(null);
+      setCanvasHasMore(false);
+      setCanvasTotalCount(null);
+      setCanvasSearchQuery('');
       setSelectedSessionInfo('No saved sessions yet');
     }
   };
@@ -1976,15 +1994,36 @@ export default function OpenClawWorkspace({
     }
   };
 
-  const loadCanvasArtifacts = async (sessionId: string) => {
+  const loadCanvasArtifacts = async (
+    sessionId: string,
+    options: { append?: boolean; cursor?: string | null; query?: string } = {},
+  ) => {
+    setCanvasLoading(true);
+    setCanvasError(null);
     try {
-      const res = await fetch(`/api/canvas/artifacts?sessionId=${sessionId}&limit=100`);
-      if (res.ok) {
-        const data = await res.json();
-        setCanvasArtifacts(data.artifacts || []);
+      const params = new URLSearchParams({
+        sessionId,
+        limit: '50',
+      });
+      const query = options.query ?? canvasSearchQuery;
+      if (query) params.set('q', query);
+      if (options.cursor) params.set('cursor', options.cursor);
+
+      const res = await fetch(`/api/canvas/artifacts?${params.toString()}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to load Canvas artifacts');
       }
+      const nextArtifacts = Array.isArray(data.artifacts) ? data.artifacts : [];
+      setCanvasArtifacts(prev => options.append ? [...prev, ...nextArtifacts] : nextArtifacts);
+      setCanvasNextCursor(typeof data.pageInfo?.nextCursor === 'string' ? data.pageInfo.nextCursor : null);
+      setCanvasHasMore(Boolean(data.pageInfo?.hasMore));
+      setCanvasTotalCount(typeof data.pageInfo?.total === 'number' ? data.pageInfo.total : null);
     } catch (error) {
       console.error("Failed to load canvas artifacts:", error);
+      setCanvasError(error instanceof Error ? error.message : 'Failed to load Canvas artifacts');
+    } finally {
+      setCanvasLoading(false);
     }
   };
 
@@ -2434,7 +2473,8 @@ export default function OpenClawWorkspace({
     requestScrollReset();
     setCurrentSessionId(session.id);
     setChatHistory(sanitizeOpenClawMessages(session.messages || []));
-    loadCanvasArtifacts(session.id);
+    setCanvasSearchQuery('');
+    loadCanvasArtifacts(session.id, { query: '' });
     resetComposerDraftState();
     setLastSubmission(null);
     setSelectedSessionInfo(`${session.title} · updated ${formatTimestamp(session.updatedAt)}`);
@@ -2487,6 +2527,12 @@ export default function OpenClawWorkspace({
     resetComposerDraftState();
     setChatHistory([]);
     setCurrentSessionId(null);
+    setCanvasArtifacts([]);
+    setCanvasNextCursor(null);
+    setCanvasHasMore(false);
+    setCanvasTotalCount(null);
+    setCanvasSearchQuery('');
+    setCanvasError(null);
     setStreamPhase(null);
     setLiveStats(null);
     setSessionMenuOpen(null);
@@ -7314,6 +7360,7 @@ export default function OpenClawWorkspace({
                   <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{canvasArtifacts.length} artifact{canvasArtifacts.length !== 1 ? 's' : ''}</span>
                 </div>
                 <CanvasPanel
+                  key={currentSessionId ?? 'draft-canvas'}
                   artifacts={canvasArtifacts}
                   onUpdate={async (id, content, name) => {
                     try {
@@ -7328,7 +7375,10 @@ export default function OpenClawWorkspace({
                           if (!a) return [];
                           return [a.id === id ? data.artifact : a];
                         }));
+                        return data.artifact;
                       }
+                      const data = await res.json().catch(() => ({}));
+                      throw new Error(typeof data.error === 'string' ? data.error : 'Failed to update artifact');
                     } catch (error) {
                       console.error("Failed to update artifact:", error);
                       throw error;
@@ -7358,6 +7408,51 @@ export default function OpenClawWorkspace({
                     }
                     return null;
                   }}
+                  onFetchRevisions={async (id) => {
+                    try {
+                      const res = await fetch(`/api/canvas/artifacts/${id}/revisions?includeContent=1`);
+                      const data = await res.json().catch(() => ({}));
+                      if (!res.ok) {
+                        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to fetch artifact revisions');
+                      }
+                      return Array.isArray(data.revisions) ? data.revisions as CanvasArtifactRevisionRecord[] : [];
+                    } catch (error) {
+                      console.error("Failed to fetch artifact revisions:", error);
+                      throw error;
+                    }
+                  }}
+                  onRestoreRevision={async (id, version) => {
+                    try {
+                      const res = await fetch(`/api/canvas/artifacts/${id}/revisions`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ version }),
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (!res.ok) {
+                        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to restore artifact revision');
+                      }
+                      setCanvasArtifacts(prev => prev.map(a => a?.id === id ? data.artifact : a));
+                      return data.artifact;
+                    } catch (error) {
+                      console.error("Failed to restore artifact revision:", error);
+                      throw error;
+                    }
+                  }}
+                  onLoadMore={() => {
+                    if (!currentSessionId || !canvasNextCursor) return;
+                    void loadCanvasArtifacts(currentSessionId, { append: true, cursor: canvasNextCursor });
+                  }}
+                  onSearch={(query) => {
+                    setCanvasSearchQuery(query);
+                    if (!currentSessionId) return;
+                    void loadCanvasArtifacts(currentSessionId, { query });
+                  }}
+                  hasMore={canvasHasMore}
+                  loading={canvasLoading}
+                  error={canvasError}
+                  searchQuery={canvasSearchQuery}
+                  totalCount={canvasTotalCount}
                 />
             </div>
 

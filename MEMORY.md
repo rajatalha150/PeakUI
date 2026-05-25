@@ -78,6 +78,13 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - Image payloads now preserve `data`, `mimeType`, and `name` through chat serialization so server-side normalization can make model-facing bytes safe.
 - Audio/video files are detected by MIME or extension instead of generic binary fallback, but remain metadata-only until transcription/frame extraction is implemented.
 
+### Canvas Artifacts
+- Canvas now stores durable `CanvasArtifactRevision` snapshots on create, edit, and restore instead of only incrementing a version counter.
+- The Canvas API supports revision history/restore through `/api/canvas/artifacts/[id]/revisions`.
+- Artifact lists now support search, cursor paging, totals, and load-more behavior beyond the old fixed 100-artifact cap.
+- Bundles can collapse/expand, export as grouped JSON, or delete all artifacts in a group.
+- Artifact cards expose source/derived lineage links, lightweight revision comparison, restore controls, and retryable error states for content/history/list loading.
+
 ### UWAF Browser
 - Removed crash-causing Chromium flags; added retry logic in `getPage()`
 - Live browser is now a true interactive remote display instead of frame polling: headed Chromium runs under `Xvfb`, `x11vnc` exposes the session, and the client embeds noVNC over authenticated websocket paths

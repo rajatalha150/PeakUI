@@ -48,8 +48,8 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Files in markdown code blocks auto-save to Canvas when user clicks download
 - Canvas panel in Open Claw workspace rail shows all persisted artifacts per session
 - Canvas panel support remains in the shared assistant renderer path, but the primary UI now exposes artifacts through Open Claw
-- Support for artifact versioning (version field increments on edit), download, and delete
-- API endpoints: `GET/POST /api/canvas/artifacts`, `GET/PUT/DELETE /api/canvas/artifacts/[id]`
+- Support for durable artifact versioning via `CanvasArtifactRevision` snapshots on create/edit/restore, plus download and delete
+- API endpoints: `GET/POST /api/canvas/artifacts`, `GET/PUT/DELETE /api/canvas/artifacts/[id]`, `GET/POST /api/canvas/artifacts/[id]/revisions`
 - Visual artifact cards with code syntax highlighting (via `react-syntax-highlighter`)
 - Markdown file rendering with headers, bold, links, lists
 - Image preview support including external URLs (`![alt](https://...)` syntax)
@@ -58,6 +58,9 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Canvas only shows when session has artifacts (no empty state banner)
 - Canvas artifact cards now avoid eager heavy rendering when collapsed: markdown/code fall back to cheap text previews and only mount full markdown/syntax-highlighting on expand
 - Canvas artifact lists are now virtualized so large sessions stay responsive
+- Canvas artifact lists now support cursor paging, search, and load-more behavior instead of the old fixed 100-item session cap
+- Canvas bundles now collapse/expand and support bundle-level JSON export/delete actions
+- Canvas history now exposes revision restore, lightweight revision compare, source/derived lineage links, and retryable error states for content/history/list loading
 
 ### Knowledge Base / RAG (v2) ✅
 - **Server-side RAG integration:** When enabled, `buildKnowledgeBaseContext()` queries indexed documents during chat alongside web search
@@ -411,8 +414,16 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `feat: harden uwaf stealth fingerprints and search rotation`
-- **Previous committed baseline:** `fix: normalize media uploads for vision models`
+- **Current committed baseline:** `feat: add recoverable canvas revisions`
+- **Previous committed baseline:** `feat: harden uwaf stealth fingerprints and search rotation`
+
+### Latest Changes (Canvas Revision & Recovery Pass)
+- **Durable Canvas revision history:** added `CanvasArtifactRevision` plus revision creation on artifact create, edit, and restore, so the version number now has actual recoverable snapshots behind it.
+- **Canvas revision APIs:** added `GET/POST /api/canvas/artifacts/[id]/revisions` for history loading and restoring prior versions while preserving auth/permission checks.
+- **Canvas search and pagination:** `/api/canvas/artifacts` now supports query filters, cursor paging, totals, and `nextCursor`, and the WorkSpaces rail uses load-more instead of the old `limit=100` cap.
+- **Canvas bundle controls:** grouped bundles can now collapse/expand, export as grouped JSON, or delete all artifacts in the bundle.
+- **Canvas lineage and compare UX:** artifact cards expose source/derived artifact links and a history panel with lightweight revision comparison and restore controls.
+- **Canvas recovery fixes:** empty-content artifacts can be created/saved, content/history/list failures surface retryable UI states, and downloads/exports fetch full artifact content instead of exporting empty list-row previews.
 
 ### Latest Changes (UWAF Fingerprint Hardening & Search Rotation)
 - **Stealth fingerprints are now real session profiles:** the old tiny static UA pool was replaced by a broader versioned desktop fingerprint catalog with deterministic per-session selection for locale, timezone, platform, hardware concurrency, device memory, viewport, screen size, and WebGL identity.

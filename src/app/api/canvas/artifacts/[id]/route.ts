@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUserIdWithPermission } from '@/lib/request-auth'
+import { CANVAS_ARTIFACT_CONTENT_LIMIT } from '@/lib/canvas-api'
 import {
   computeCanvasArtifactMetadata,
   serializeArtifactExportTargets,
 } from '@/lib/canvas-artifact-metadata'
+import { upsertCanvasArtifactRevision } from '@/lib/canvas-artifact-revisions'
 import { serializeCanvasArtifact } from '@/lib/canvas-artifact-serialization'
 
 const ARTIFACT_DETAIL_INCLUDE = {
-  derivedArtifacts: { select: { id: true } },
+  sourceArtifact: { select: { id: true, name: true, version: true } },
+  derivedArtifacts: { select: { id: true, name: true, version: true } },
+  _count: { select: { revisions: true } },
 } as const
 
 export async function GET(
@@ -52,7 +56,19 @@ export async function PUT(
     const body = await request.json()
     const name = typeof body?.name === 'string' ? body.name.trim() : undefined
     const content = typeof body?.content === 'string' ? body.content : undefined
-    const sourceArtifactId = typeof body?.sourceArtifactId === 'string' ? body.sourceArtifactId : undefined
+    const sourceArtifactId = typeof body?.sourceArtifactId === 'string'
+      ? body.sourceArtifactId
+      : body?.sourceArtifactId === null
+        ? null
+        : undefined
+
+    if (name !== undefined && !name) {
+      return NextResponse.json({ error: 'Artifact name is required' }, { status: 400 })
+    }
+
+    if (content !== undefined && content.length > CANVAS_ARTIFACT_CONTENT_LIMIT) {
+      return NextResponse.json({ error: 'Artifact content exceeds 10 MB limit' }, { status: 413 })
+    }
 
     const existing = await prisma.canvasArtifact.findFirst({
       where: { id, userId },
@@ -63,8 +79,23 @@ export async function PUT(
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
 
+    if (sourceArtifactId && sourceArtifactId === id) {
+      return NextResponse.json({ error: 'An artifact cannot derive from itself' }, { status: 400 })
+    }
+
+    if (sourceArtifactId) {
+      const sourceExists = await prisma.canvasArtifact.findFirst({
+        where: { id: sourceArtifactId, userId },
+        select: { id: true },
+      })
+      if (!sourceExists) {
+        return NextResponse.json({ error: 'Source artifact not found' }, { status: 404 })
+      }
+    }
+
     const nextName = name ?? existing.name
     const nextContent = content ?? existing.content
+    const nextVersion = existing.version + 1
     const metadata = computeCanvasArtifactMetadata({
       name: nextName,
       content: nextContent,
@@ -78,27 +109,38 @@ export async function PUT(
       bundleRole: existing.bundleRole,
     })
 
-    const artifact = await prisma.canvasArtifact.update({
-      where: { id },
-      data: {
-        name: nextName,
-        content: nextContent,
-        size: content ? Buffer.byteLength(content, 'utf8') : existing.size,
-        version: existing.version + 1,
-        updatedAt: new Date(),
-        previewKind: metadata.previewKind,
-        previewSummary: metadata.previewSummary,
-        previewWidth: metadata.previewWidth,
-        previewHeight: metadata.previewHeight,
-        contentHash: metadata.contentHash,
-        presentationType: metadata.presentationType,
-        bundleId: metadata.bundleId,
-        bundleName: metadata.bundleName,
-        bundleRole: metadata.bundleRole,
-        exportTargets: serializeArtifactExportTargets(metadata.exportTargets),
-        sourceArtifactId: sourceArtifactId === undefined ? existing.sourceArtifactId : sourceArtifactId,
-      },
-      include: ARTIFACT_DETAIL_INCLUDE,
+    const artifact = await prisma.$transaction(async (tx) => {
+      await upsertCanvasArtifactRevision(tx, existing)
+
+      const updated = await tx.canvasArtifact.update({
+        where: { id },
+        data: {
+          name: nextName,
+          content: nextContent,
+          size: content !== undefined ? Buffer.byteLength(content, 'utf8') : existing.size,
+          version: nextVersion,
+          updatedAt: new Date(),
+          previewKind: metadata.previewKind,
+          previewSummary: metadata.previewSummary,
+          previewWidth: metadata.previewWidth,
+          previewHeight: metadata.previewHeight,
+          contentHash: metadata.contentHash,
+          presentationType: metadata.presentationType,
+          bundleId: metadata.bundleId,
+          bundleName: metadata.bundleName,
+          bundleRole: metadata.bundleRole,
+          exportTargets: serializeArtifactExportTargets(metadata.exportTargets),
+          sourceArtifactId: sourceArtifactId === undefined ? existing.sourceArtifactId : sourceArtifactId,
+        },
+        include: ARTIFACT_DETAIL_INCLUDE,
+      })
+
+      await upsertCanvasArtifactRevision(tx, updated)
+
+      return tx.canvasArtifact.findUniqueOrThrow({
+        where: { id },
+        include: ARTIFACT_DETAIL_INCLUDE,
+      })
     })
 
     return NextResponse.json({ artifact: serializeCanvasArtifact(artifact) })

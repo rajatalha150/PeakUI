@@ -78,9 +78,14 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 - [x] **Persistent artifacts** — Agent outputs persist beyond chat via CanvasArtifact DB model
 - [x] **Canvas nodes** — Visual cards for generated artifacts
 - [x] **File preview** — Render code files, markdown docs, images inline
-- [x] **Artifact versioning** — Tracked via version field in CanvasArtifact model
+- [x] **Artifact versioning** — Tracked via version field plus durable `CanvasArtifactRevision` snapshots for restore/compare
 - [x] **Export artifacts** — Download individually from Canvas panel or batch download
 - [x] **Edit-in-place** — Edit agent-generated code/docs directly in the UI
+- [x] **Revision restore and compare** — Canvas history can restore prior versions and show lightweight revision comparisons
+- [x] **Canvas search and paging** — Artifact API/UI now supports search plus cursor-based loading beyond the old 100-item cap
+- [x] **Collapsible bundles** — Artifact bundles can collapse, export as grouped JSON, or be deleted as a group
+- [x] **Lineage navigation** — Canvas cards expose source/derived artifact links when lineage metadata exists
+- [x] **Canvas recovery states** — Artifact load, revision load, and list fetch failures now surface retryable UI states
 - [x] **Vision-first image attachments** — Uploaded images stay as native image input, with OCR kept as optional supplemental context
 - [x] **Per-image attachment mode** — Vision only / Vision + OCR / OCR only controls in the WorkSpaces composer
 - [x] **Media-format detection** — Image/audio/video uploads are classified by MIME or extension instead of falling through to generic binary metadata
