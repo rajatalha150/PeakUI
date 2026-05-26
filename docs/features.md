@@ -85,6 +85,9 @@ WorkSpaces includes a collapsible Canvas panel that:
 - **Success criteria**: Define what "done" looks like for each task
 - **Pinned checklist**: Editable checklist that persists across messages
 - **Workspace controls launcher**: The rail now exposes one `Workspace controls` button that opens a modal for agent mode, response style, task state, workspace brief, persona, user profile, shell configuration, and workspace-capability details, freeing more vertical space for sessions.
+- **Multi-workspace selector**: The same controls modal now lets users create and switch between named project workspaces without leaving the active WorkSpaces thread.
+- **Scaffolded workspace files**: Each workspace gets its own `BOOT.md`, `TOOLS.md`, and `skills/` directory so local conventions and reusable prompts live with the workspace itself.
+- **Prompt-backed startup context**: The selected workspace's `BOOT.md`, `TOOLS.md`, and skill-template summaries are injected into the Open Claw system prompt for that turn.
 
 ### Tool Execution
 
@@ -118,6 +121,8 @@ WorkSpaces includes a collapsible Canvas panel that:
   - **Source labeling**: Clear Web sources shown as blue chips, Dark Web sources as purple chips
   - **Security**: Binary download blocking (.exe, .sh, .bin, etc.), .onion URLs only in stealth mode, host DNS fallback blocked for stealth Chromium sessions, and stealth fails closed if Tor proxy verification fails
 - **Managed workspace**: WorkSpaces tools share `/mnt/openclaw/workspace` in-container and `/tmp/peakui-openclaw-workspace` as the host-style alias
+- **Selected-workspace sandbox default**: When the model omits `workspacePath`, code execution now defaults to the currently selected named workspace instead of an anonymous per-thread sandbox path.
+- **Optional git auto-backup**: Each named workspace can auto-initialize a git repo and commit detected file changes automatically.
 
 ### Providers
 

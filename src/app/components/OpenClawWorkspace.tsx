@@ -90,6 +90,27 @@ interface OpenClawSession {
   tags?: Array<{ id: string; name: string; color: string }>;
 }
 
+interface OpenClawWorkspaceRecord {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  autoGitBackup: boolean;
+  createdAt: string;
+  updatedAt: string;
+  relativePath: string;
+  containerPath: string;
+  hostPath: string;
+  bootPath: string;
+  toolsPath: string;
+  skillsPath: string;
+  skillCount: number;
+  skillFiles: string[];
+  lastGitBackupAt?: string;
+  lastGitBackupCommit?: string;
+  lastGitBackupError?: string;
+}
+
 interface OpenClawFolder {
   id: string;
   name: string;
@@ -606,6 +627,7 @@ const OPENCLAW_DRAFT_TASK_ID = '__draft__';
 const OPENCLAW_PERSONA_STORAGE = 'peakui-openclaw-persona';
 const OPENCLAW_USER_PROFILE_STORAGE = 'peakui-openclaw-user-profile';
 const OPENCLAW_CURRENT_SESSION_STORAGE = 'peakui-openclaw-current-session';
+const OPENCLAW_CURRENT_WORKSPACE_STORAGE = 'peakui-openclaw-current-workspace';
 
 function getChatTitle(messages: OpenClawMessage[]) {
   const firstMessage = messages.find(message => message?.role === 'user' && message.content.trim());
@@ -1621,6 +1643,15 @@ export default function OpenClawWorkspace({
     }
   };
 
+  const getStoredCurrentWorkspaceSelection = () => {
+    if (typeof window === 'undefined') return '';
+    try {
+      return window.localStorage.getItem(OPENCLAW_CURRENT_WORKSPACE_STORAGE) || '';
+    } catch {
+      return '';
+    }
+  };
+
   const getIsMobileViewport = () => {
     if (typeof window === 'undefined') return false;
     return window.innerWidth <= MOBILE_BREAKPOINT;
@@ -1631,6 +1662,13 @@ export default function OpenClawWorkspace({
   const [models, setModels] = useState<OpenClawModel[]>([]);
   const [apiKey, setApiKey] = useState('');
   const [apiKeyLoaded, setApiKeyLoaded] = useState(false);
+  const [workspaces, setWorkspaces] = useState<OpenClawWorkspaceRecord[]>([]);
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string>(() => getStoredCurrentWorkspaceSelection());
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState('');
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
+  const [newWorkspaceName, setNewWorkspaceName] = useState('');
+  const [newWorkspaceDescription, setNewWorkspaceDescription] = useState('');
   const [sessions, setSessions] = useState<OpenClawSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(() => {
     const storedSelection = getStoredCurrentSessionSelection();
@@ -1827,6 +1865,18 @@ export default function OpenClawWorkspace({
   }, [currentSessionId]);
 
   useEffect(() => {
+    try {
+      if (currentWorkspaceId) {
+        window.localStorage.setItem(OPENCLAW_CURRENT_WORKSPACE_STORAGE, currentWorkspaceId);
+      } else {
+        window.localStorage.removeItem(OPENCLAW_CURRENT_WORKSPACE_STORAGE);
+      }
+    } catch {
+      // Ignore browser storage failures.
+    }
+  }, [currentWorkspaceId]);
+
+  useEffect(() => {
     const syncViewport = () => {
       const nextIsMobile = window.innerWidth <= MOBILE_BREAKPOINT;
       setIsMobileViewport(nextIsMobile);
@@ -1949,6 +1999,16 @@ export default function OpenClawWorkspace({
       : 'Off';
   const browserControlSummary = !browserGranted ? 'Blocked by account permission' : browserEnabled ? browserMode : 'Disabled';
   const browserControlBadge = !browserGranted ? 'Blocked' : browserEnabled ? browserMode : 'Off';
+  const currentWorkspace = useMemo(() => {
+    if (currentWorkspaceId) {
+      const selected = workspaces.find(workspace => workspace.id === currentWorkspaceId);
+      if (selected) return selected;
+    }
+    return workspaces[0] ?? null;
+  }, [currentWorkspaceId, workspaces]);
+  const workspaceSummary = currentWorkspace
+    ? `${currentWorkspace.name} · ${currentWorkspace.skillCount} skill${currentWorkspace.skillCount === 1 ? '' : 's'} · ${currentWorkspace.autoGitBackup ? 'Git backup on' : 'Git backup off'}`
+    : 'No workspace loaded';
   const activeAgentMode = OPENCLAW_AGENT_MODE_OPTIONS.find(option => option.id === agentPreferences.mode);
 
   const persistApiKey = (value: string) => {
@@ -2002,6 +2062,43 @@ export default function OpenClawWorkspace({
       preferences: nextSettings.openClawUserProfilePreferences,
       context: nextSettings.openClawUserProfileContext,
     });
+  };
+
+  const loadWorkspaces = async () => {
+    setWorkspaceLoading(true);
+    setWorkspaceError('');
+    try {
+      const res = await fetch('/api/openclaw/workspaces');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to load workspaces');
+      }
+
+      const nextWorkspaces: OpenClawWorkspaceRecord[] = Array.isArray(data.workspaces)
+        ? data.workspaces.filter((workspace: unknown): workspace is OpenClawWorkspaceRecord => {
+            if (!workspace || typeof workspace !== 'object') return false;
+            const candidate = workspace as Record<string, unknown>;
+            return typeof candidate.id === 'string'
+              && typeof candidate.name === 'string'
+              && typeof candidate.relativePath === 'string'
+              && typeof candidate.hostPath === 'string';
+          })
+        : [];
+
+      setWorkspaces(nextWorkspaces);
+      setCurrentWorkspaceId(current => {
+        if (current && nextWorkspaces.some(workspace => workspace.id === current)) {
+          return current;
+        }
+        return nextWorkspaces[0]?.id || '';
+      });
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : 'Failed to load workspaces');
+      setWorkspaces([]);
+      setCurrentWorkspaceId('');
+    } finally {
+      setWorkspaceLoading(false);
+    }
   };
 
   const loadSessions = async () => {
@@ -2294,10 +2391,72 @@ export default function OpenClawWorkspace({
     }
   };
 
+  const createWorkspace = async () => {
+    const name = newWorkspaceName.trim();
+    if (!name) {
+      setWorkspaceError('Workspace name is required.');
+      return;
+    }
+
+    setCreatingWorkspace(true);
+    setWorkspaceError('');
+    try {
+      const res = await fetch('/api/openclaw/workspaces', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name,
+          description: newWorkspaceDescription,
+          autoGitBackup: false,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to create workspace');
+      }
+
+      const nextWorkspace = data.workspace as OpenClawWorkspaceRecord | undefined;
+      await loadWorkspaces();
+      if (nextWorkspace?.id) {
+        setCurrentWorkspaceId(nextWorkspace.id);
+      }
+      setNewWorkspaceName('');
+      setNewWorkspaceDescription('');
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : 'Failed to create workspace');
+    } finally {
+      setCreatingWorkspace(false);
+    }
+  };
+
+  const updateCurrentWorkspace = async (patch: Partial<Pick<OpenClawWorkspaceRecord, 'name' | 'description' | 'autoGitBackup'>>) => {
+    if (!currentWorkspace) return;
+    setWorkspaceError('');
+    try {
+      const res = await fetch(`/api/openclaw/workspaces/${currentWorkspace.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to update workspace');
+      }
+      const nextWorkspace = data.workspace as OpenClawWorkspaceRecord | undefined;
+      if (!nextWorkspace) {
+        await loadWorkspaces();
+        return;
+      }
+      setWorkspaces(current => current.map(workspace => workspace.id === nextWorkspace.id ? nextWorkspace : workspace));
+    } catch (error) {
+      setWorkspaceError(error instanceof Error ? error.message : 'Failed to update workspace');
+    }
+  };
+
   useEffect(() => {
     void (async () => {
       try {
-        await Promise.all([loadSettings(), loadSessions(), loadFolders(), loadChatTags(), loadMemory(), loadShellSettings()]);
+        await Promise.all([loadSettings(), loadSessions(), loadFolders(), loadChatTags(), loadMemory(), loadShellSettings(), loadWorkspaces()]);
       } catch (error) {
         console.error('Failed to initialize WorkSpaces workspace:', error);
       }
@@ -3108,7 +3267,11 @@ export default function OpenClawWorkspace({
     request: OpenClawCodeToolRequest,
     options: { messageId: string; sessionId: string }
   ): Promise<CodeToolResultEntry> => {
-    const payload = { ...request, sessionId: options.sessionId };
+    const payload = {
+      ...request,
+      sessionId: options.sessionId,
+      workspacePath: request.workspacePath?.trim() || currentWorkspace?.relativePath || undefined,
+    };
 
     try {
       const res = await fetch('/api/openclaw/code/request', {
@@ -4355,6 +4518,7 @@ export default function OpenClawWorkspace({
         chat_id: options.chatId,
         session_id: 'openclaw',
         id: options.assistantMessageId,
+        workspace_id: currentWorkspace?.id,
         surface: 'openclaw',
         provider,
         base_url: provider === 'openai-compatible' ? baseUrl : settings?.ollamaHost,
@@ -6645,6 +6809,7 @@ export default function OpenClawWorkspace({
                     <div className="openclaw-disclosure-pill-row">
                       <span className="openclaw-disclosure-pill">{activeAgentMode?.label || 'Plan'}</span>
                       <span className="openclaw-disclosure-pill">{taskStateFieldCount}/4 task fields</span>
+                      <span className="openclaw-disclosure-pill">Workspace: {currentWorkspace?.name || 'None'}</span>
                       <span className="openclaw-disclosure-pill">Shell: {shellGranted ? (shellEnabled ? 'On' : 'Off') : 'Blocked'}</span>
                     </div>
                   </div>
@@ -6708,6 +6873,7 @@ export default function OpenClawWorkspace({
                         </button>
                       </div>
                       <div className="openclaw-disclosure-pill-row">
+                        <span className="openclaw-disclosure-pill">Workspace: {currentWorkspace?.name || 'None'}</span>
                         <span className="openclaw-disclosure-pill">Task state: {taskStateSummary}</span>
                         <span className="openclaw-disclosure-pill">Persona: {personaSummary}</span>
                         <span className="openclaw-disclosure-pill">Profile: {userProfileSummary}</span>
@@ -6715,6 +6881,111 @@ export default function OpenClawWorkspace({
                       </div>
                     </div>
                     <div style={{ display: 'grid', gap: '12px' }}>
+              <div className="openclaw-card">
+                <div className="openclaw-card-header">
+                  <div>
+                    <div className="openclaw-section-label">Workspace</div>
+                    <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      {workspaceSummary}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="openclaw-inline-button"
+                    onClick={() => void loadWorkspaces()}
+                    disabled={workspaceLoading}
+                  >
+                    {workspaceLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                    Refresh
+                  </button>
+                </div>
+                <div style={{ display: 'grid', gap: '10px' }}>
+                  <div>
+                    <label className="openclaw-field-label" htmlFor="openclaw-workspace-select">Selected workspace</label>
+                    <select
+                      id="openclaw-workspace-select"
+                      className="input-field"
+                      value={currentWorkspace?.id || ''}
+                      onChange={event => setCurrentWorkspaceId(event.target.value)}
+                    >
+                      {workspaces.map(workspace => (
+                        <option key={workspace.id} value={workspace.id}>
+                          {workspace.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {currentWorkspace && (
+                    <>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                        {currentWorkspace.description || 'No workspace description set.'}
+                      </div>
+                      <div className="openclaw-disclosure-pill-row">
+                        <span className="openclaw-disclosure-pill">Root: {currentWorkspace.hostPath}</span>
+                        <span className="openclaw-disclosure-pill">BOOT.md</span>
+                        <span className="openclaw-disclosure-pill">TOOLS.md</span>
+                        <span className="openclaw-disclosure-pill">skills/{currentWorkspace.skillCount}</span>
+                      </div>
+                      <div style={{ display: 'grid', gap: '8px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                          <input
+                            type="checkbox"
+                            checked={currentWorkspace.autoGitBackup}
+                            onChange={event => void updateCurrentWorkspace({ autoGitBackup: event.target.checked })}
+                          />
+                          Auto-commit workspace files to git when changes are detected
+                        </label>
+                        {currentWorkspace.lastGitBackupCommit && (
+                          <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                            Last backup: {currentWorkspace.lastGitBackupAt || 'unknown'} · {currentWorkspace.lastGitBackupCommit.slice(0, 12)}
+                          </div>
+                        )}
+                        {currentWorkspace.lastGitBackupError && (
+                          <div style={{ fontSize: '0.76rem', color: 'var(--danger)' }}>
+                            Git backup warning: {currentWorkspace.lastGitBackupError}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )}
+                  <div style={{ display: 'grid', gap: '8px', paddingTop: '4px', borderTop: '1px solid var(--border-color)' }}>
+                    <div className="openclaw-section-label">Create workspace</div>
+                    <input
+                      className="input-field"
+                      value={newWorkspaceName}
+                      onChange={event => setNewWorkspaceName(event.target.value)}
+                      placeholder="Workspace name"
+                    />
+                    <textarea
+                      className="input-field"
+                      rows={2}
+                      value={newWorkspaceDescription}
+                      onChange={event => setNewWorkspaceDescription(event.target.value)}
+                      placeholder="Optional description"
+                      style={{ resize: 'vertical' }}
+                    />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="openclaw-inline-button"
+                        onClick={() => void createWorkspace()}
+                        disabled={creatingWorkspace}
+                      >
+                        {creatingWorkspace ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                        Create workspace
+                      </button>
+                      <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                        Each workspace gets its own `BOOT.md`, `TOOLS.md`, and `skills/` folder.
+                      </span>
+                    </div>
+                    {workspaceError && (
+                      <div style={{ fontSize: '0.76rem', color: 'var(--danger)' }}>
+                        {workspaceError}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
               <div className="openclaw-card">
                 <div className="openclaw-card-header">
                   <div>

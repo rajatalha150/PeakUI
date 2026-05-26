@@ -25,6 +25,7 @@ import { isHuggingFaceRouterUrl } from './chat-platforms';
 import { trimMessagesToFit, estimateStringTokens } from './message-trim';
 import { normalizeImageMimeType, shouldNormalizeImageForCompatibility } from './file-shared';
 import { convertImageBufferToJpeg } from './image-normalization';
+import { getOpenClawWorkspaceContext } from './openclaw-project-workspaces';
 
 const CHAT_HEARTBEAT_INTERVAL_MS = 15000;
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
@@ -104,6 +105,7 @@ interface IncomingChatBody {
   chat_id?: unknown;
   session_id?: unknown;
   id?: unknown;
+  workspace_id?: unknown;
   response_presentation?: unknown;
   provider?: unknown;
   base_url?: unknown;
@@ -664,6 +666,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const chatId = typeof body.chat_id === 'string' && body.chat_id.trim() ? body.chat_id.trim() : '';
     const sessionId = typeof body.session_id === 'string' && body.session_id.trim() ? body.session_id.trim() : '';
     const assistantMessageId = typeof body.id === 'string' && body.id.trim() ? body.id.trim() : crypto.randomUUID();
+    const workspaceId = typeof body.workspace_id === 'string' && body.workspace_id.trim() ? body.workspace_id.trim() : '';
     const taskId = crypto.randomUUID();
     const surface = body.surface === 'openclaw' ? 'openclaw' : 'chat';
     const provider = surface === 'openclaw'
@@ -716,6 +719,9 @@ export async function createChatCompletionResponse(req: NextRequest) {
       && hostExecutorStatus.reachable
         ? 'host'
         : 'container';
+    const workspaceContext = surface === 'openclaw'
+      ? await getOpenClawWorkspaceContext(userId, workspaceId || undefined)
+      : null;
 
     const openClawPrompt = surface === 'openclaw'
       ? buildOpenClawSystemPrompt({
@@ -737,6 +743,16 @@ export async function createChatCompletionResponse(req: NextRequest) {
           codeExecutionEnabled: effectiveToolAccess.codeExecutionEnabled,
           browserMode: internetToolEnabled ? effectiveToolAccess.browserMode : 'deny',
           uwafBrowserMode: internetToolEnabled ? effectiveToolAccess.uwafBrowserMode : 'deny',
+          workspace: workspaceContext
+            ? {
+                name: workspaceContext.workspace.name,
+                relativePath: workspaceContext.workspace.relativePath,
+                hostPath: workspaceContext.workspace.hostPath,
+                bootInstructions: workspaceContext.bootInstructions,
+                toolsInstructions: workspaceContext.toolsInstructions,
+                skillTemplates: workspaceContext.skillTemplates,
+              }
+            : undefined,
         })
       : '';
     const chatInternetPrompt = surface === 'chat' && internetToolEnabled

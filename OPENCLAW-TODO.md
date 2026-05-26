@@ -56,19 +56,19 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 - [x] **Browser control** — Agent navigates public web pages, stages form input, submits with approval, and scrapes page structure/content
 
 ### 4. Workspace File System
-- [ ] **Workspace directory** — Dedicated `workspace/` dir the agent can read/write
-- [ ] **`TOOLS.md`** — Local tool conventions and available commands
-- [ ] **`BOOT.md`** — Startup checklist run when workspace loads
-- [ ] **Custom skills library** — User-defined reusable skill/prompt templates
-- [ ] **Workspace git backup** — Auto-commit workspace files to git
-- [ ] **Multi-workspace support** — Switch between different project workspaces
+- [x] **Workspace directory** — Dedicated managed workspace roots now exist per user/workspace under the Open Claw workspace mount, and code runs default into the selected workspace
+- [x] **`TOOLS.md`** — Every workspace now scaffolds `TOOLS.md`, and its contents are injected into the Open Claw system prompt as local operating conventions
+- [x] **`BOOT.md`** — Every workspace now scaffolds `BOOT.md`, and its startup checklist is loaded into prompt context for the selected workspace
+- [x] **Custom skills library** — Every workspace now has a `skills/` library for user-defined Markdown prompt/skill templates, and skill summaries are injected into prompt context
+- [x] **Workspace git backup** — Optional per-workspace git auto-backup now initializes a repo and snapshots detected file changes automatically
+- [x] **Multi-workspace support** — WorkSpaces can now create, select, and persist multiple named project workspaces from the workspace controls modal
 
 ### 5. Autonomous Scheduling
-- [ ] **Heartbeat check-ins** — Agent proactively checks in at intervals
-- [ ] **Cron-based tasks** — Schedule recurring agent tasks (daily standup, weekly review)
-- [ ] **Background monitoring** — Agent watches a condition and alerts on change
-- [ ] **Wake-on-event** — Agent triggers when files change, URLs update, etc.
-- [ ] **Proactive nudges** — Agent suggests follow-ups on incomplete tasks
+- [ ] **Heartbeat check-ins** — Missing. Current “heartbeat” logic is transport-level stream keepalive only, not autonomous agent check-ins
+- [ ] **Cron-based tasks** — Missing. No persistent scheduler or background worker exists yet
+- [ ] **Background monitoring** — Missing. No daemon/worker currently watches files, URLs, or task conditions outside active user sessions
+- [ ] **Wake-on-event** — Missing. No file-watch, webhook, or polling trigger pipeline exists yet
+- [ ] **Proactive nudges** — Missing. Task state exists, but there is no server-side reminder engine yet
 
 ### 6. Sub-Agent Delegation
 - [ ] **Task decomposition** — Break complex objective into sub-tasks
@@ -151,7 +151,7 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 5. Shell command execution (with approval gates)
 6. File system read/write in designated workspace
 7. Code execution sandbox
-8. Workspace directory structure (TOOLS.md, BOOT.md, skills/)
+8. Workspace directory structure (TOOLS.md, BOOT.md, skills/) ✅ COMPLETE
 
 ### Phase 3 — Autonomous Behavior
 9. Heartbeat check-ins

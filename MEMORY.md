@@ -60,6 +60,9 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - Rail scrolling now uses one main scroll container, and Open Claw chat sticky-scroll is throttled to reduce jumpiness during streaming.
 - Raw internal `<openclaw_tool>` bridge messages are stripped and hidden before session persistence/reload so reopened Open Claw sessions do not crash on leaked tool turns.
 - Local Ollama refresh/switch flows now skip redundant compatible-provider verification calls and rely on model discovery plus Ollama health instead.
+- WorkSpaces now supports multiple named project workspaces. Each workspace scaffolds `BOOT.md`, `TOOLS.md`, and a `skills/` library and can be created/selected from the Workspace controls modal.
+- The selected workspace's boot instructions, tool conventions, and custom skill summaries now flow into the Open Claw system prompt each turn.
+- Code sandbox runs default into the selected workspace when no explicit `workspacePath` is provided, and each workspace can optionally auto-commit detected file changes to its own git repo.
 
 ### Host Filesystem & Executor Access
 - `/api/openclaw/filesystem` now has a status `GET` that reports required permissions, mounted host roots, approved read/write roots, readiness warnings, host shell settings, and host executor reachability.

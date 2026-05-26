@@ -36,6 +36,18 @@ export interface OpenClawPromptContext {
   model: string;
   persona?: OpenClawPersona;
   userProfile?: OpenClawUserProfile;
+  workspace?: {
+    name: string;
+    relativePath: string;
+    hostPath: string;
+    bootInstructions?: string;
+    toolsInstructions?: string;
+    skillTemplates?: Array<{
+      fileName: string;
+      title: string;
+      summary: string;
+    }>;
+  };
   internetToolEnabled?: boolean;
   shellEnabled?: boolean;
   shellTarget?: ShellExecutionTarget;
@@ -64,6 +76,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
   const uwafBrowserMode = context.uwafBrowserMode || 'deny';
   const uwafBrowserAvailable = uwafBrowserMode !== 'deny';
   const shellTarget = context.shellTarget || 'container';
+  const workspace = context.workspace;
   const toolLabels = [
     context.internetToolEnabled && !uwafBrowserAvailable ? 'web research' : null,
     context.shellEnabled ? 'shell' : null,
@@ -88,6 +101,9 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     'When a tool is unavailable, say so and suggest a manual path.',
     'When cited web or knowledge-base context is provided, use it directly and do not ignore it.',
     'Use shell or filesystem tools for facts about the user\'s current machine, local files, repository state, running processes, or installed software — web research is for external information.',
+    workspace
+      ? `Current selected workspace: ${workspace.name} at ${workspace.hostPath} (managed relative path: ${workspace.relativePath}).`
+      : 'No explicit Open Claw workspace was selected for this turn.',
     'Keep the response presentation-ready. Use headings or lists only when they improve readability.',
     'Report only what tools actually return — do not fabricate results.',
     toolLabels.length > 0
@@ -162,7 +178,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
       'The sandbox is workspace-scoped, time-limited, output-limited, and returns generated files. It is not a full VM, and private/local network targets remain unavailable through the browser tool.',
       'Prefer the sandbox over shell for quick scripts or data-processing tasks.',
       `Use this exact format:\n${OPENCLAW_CODE_TOOL_EXAMPLE}`,
-      'workspacePath is optional and relative to the managed workspace root. If omitted, the run uses the current Open Claw thread workspace.',
+      'workspacePath is optional and relative to the managed workspace root. If omitted, the run uses the current selected Open Claw workspace.',
       'Do not request package installs or long-running daemons through the code tool.',
       'After a code result arrives, use the actual stdout, stderr, exit code, and artifact list to continue.',
     );
@@ -233,6 +249,39 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     const profileBrief = buildUserProfileBrief(context.userProfile);
     if (profileBrief.trim()) {
       lines.push(profileBrief);
+    }
+  }
+
+  if (workspace) {
+    lines.push(
+      'WORKSPACE FILESYSTEM:',
+      `- Workspace root: ${workspace.hostPath}`,
+      `- BOOT.md path: ${workspace.hostPath}/BOOT.md`,
+      `- TOOLS.md path: ${workspace.hostPath}/TOOLS.md`,
+      `- skills path: ${workspace.hostPath}/skills`,
+    );
+
+    if (workspace.toolsInstructions?.trim()) {
+      lines.push(
+        'TOOLS.md CONTENT:',
+        workspace.toolsInstructions.trim(),
+      );
+    }
+
+    if (workspace.bootInstructions?.trim()) {
+      lines.push(
+        'BOOT.md STARTUP INSTRUCTIONS:',
+        workspace.bootInstructions.trim(),
+      );
+    }
+
+    if (workspace.skillTemplates && workspace.skillTemplates.length > 0) {
+      lines.push('CUSTOM SKILLS LIBRARY:');
+      workspace.skillTemplates.forEach(skill => {
+        lines.push(`- ${skill.title} (${skill.fileName}): ${skill.summary || 'No summary provided.'}`);
+      });
+    } else {
+      lines.push('CUSTOM SKILLS LIBRARY: No custom workspace skill templates are defined yet.');
     }
   }
 
