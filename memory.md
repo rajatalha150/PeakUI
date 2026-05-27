@@ -197,6 +197,8 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Each named workspace can optionally auto-initialize a git repo and snapshot detected file changes as an automatic workspace backup.
 - Open Claw now includes persistent autonomous scheduling infrastructure: a Node-side worker polls heartbeat configs, cron schedules, URL monitors, file monitors, and wake events, then creates server-side automation nudges surfaced in WorkSpaces and injected into later task requests.
 - Autonomous file monitors now respect the same approved OpenClaw filesystem roots as manual file inspection, and URL monitors reuse the existing public-HTTP SSRF guardrails instead of becoming a private-network backdoor.
+- Autonomous scheduling can now switch from `nudge` delivery to unattended background model execution. Heartbeats, cron schedules, monitors, and wake events can queue durable Ollama-backed runs that post back into WorkSpaces threads with optional workspace and memory context.
+- Unattended execution is intentionally guarded: it is enabled from personal settings, rate-limited per user/hour, recorded in durable run history, and currently limited to local Ollama without interactive tool use.
 - **Identity & Persona System** — Agent persona config (name, tone, expertise, boundaries, operating instructions) and user profile (name, role, preferences, context) are persisted per-user in `UserSettings` and injected into every Open Claw system prompt
 - **Persona templates** — Pre-built personas: Developer, Researcher, Writer, Analyst, Product Manager, System Admin, plus a fully customizable Custom persona
 - Persona and user profile are editable in collapsible panels in the Open Claw left workspace rail, with template picker and live summary in the workspace top bar
@@ -446,10 +448,12 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 ### Latest Changes (Autonomous Scheduling)
 - **Persistent worker foundation:** `src/instrumentation.ts` now starts an Open Claw automation worker that ticks every 30 seconds and processes due heartbeats, cron schedules, and monitors.
 - **New automation models/routes:** Prisma now stores heartbeat configs, schedules, monitors, notifications, and event logs; new `GET/POST /api/openclaw/automation` and `POST /api/openclaw/automation/wake-event` routes manage the feature.
-- **Heartbeat, cron, monitor, and wake-event nudges:** stale-thread check-ins, recurring cron prompts, URL/file monitor triggers, and manual wake events all flow into one server-side nudge/notification pipeline.
-- **WorkSpaces automation controls:** the Workspace controls modal now exposes worker status, heartbeat settings, cron schedules, monitors, wake-event creation, and an automation nudge inbox.
+- **Heartbeat, cron, monitor, and wake-event delivery modes:** stale-thread check-ins, recurring cron prompts, URL/file monitor triggers, and manual wake events can now either create nudges or queue unattended background model runs.
+- **Durable execution runs:** Prisma now stores `AutomationExecutionRun` records with queued/running/succeeded/failed/skipped status, result preview, and error details for unattended executions.
+- **WorkSpaces automation controls:** the Workspace controls modal now exposes worker status, heartbeat settings, cron schedules, monitors, wake-event creation, an automation nudge inbox, and recent unattended run history.
 - **Prompt-aware follow-up:** unresolved automation nudges are injected into Open Claw requests as background system context so the agent can react to them naturally on the next turn.
 - **Security audit fixes:** file monitors now require approved filesystem roots and mounted host paths, while URL monitors reuse `assertPublicHttpUrl()` so automation cannot bypass existing filesystem or SSRF guardrails.
+- **Execution guardrails:** unattended runs now have explicit settings for enable/disable, model selection, hourly run budget, workspace-context attachment, and memory-context attachment. Current unattended execution is limited to local Ollama and does not invoke interactive tools in the background.
 
 ### Latest Changes (Canvas Revision & Recovery Pass)
 - **Durable Canvas revision history:** added `CanvasArtifactRevision` plus revision creation on artifact create, edit, and restore, so the version number now has actual recoverable snapshots behind it.

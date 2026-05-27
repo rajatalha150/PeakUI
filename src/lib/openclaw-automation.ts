@@ -8,6 +8,7 @@ import { resolvePermissions } from './permissions'
 import { assertPublicHttpUrl } from './openclaw-browser'
 import { getMountedOpenClawHostRoots, parseAllowedOpenClawPaths } from './openclaw-filesystem'
 import type { AuthenticatedUser } from './request-auth'
+import { queueAutomationExecution, processQueuedAutomationRuns } from './openclaw-automation-execution'
 
 const DEFAULT_AUTOMATION_TIMEZONE = 'America/New_York'
 const DEFAULT_HEARTBEAT_INTERVAL_MINUTES = 240
@@ -17,6 +18,7 @@ const NOTIFICATION_DEDUPE_WINDOW_MS = 30 * 60 * 1000
 
 export type AutomationMonitorKind = 'url' | 'file'
 export type AutomationTriggerMode = 'changed' | 'contains' | 'missing'
+export type AutomationDeliveryMode = 'nudge' | 'background-run'
 
 export interface AutomationWorkerSnapshot {
   running: boolean
@@ -32,6 +34,9 @@ export interface AutomationHeartbeatDto {
   intervalMinutes: number
   staleAfterMinutes: number
   promptTemplate: string
+  deliveryMode: AutomationDeliveryMode
+  targetSessionId: string | null
+  targetWorkspaceId: string | null
   nextRunAt: string | null
   lastRunAt: string | null
   lastStatus: string
@@ -42,6 +47,9 @@ export interface AutomationScheduleDto {
   id: string
   name: string
   prompt: string
+  deliveryMode: AutomationDeliveryMode
+  targetSessionId: string | null
+  targetWorkspaceId: string | null
   cronExpression: string
   timezone: string
   enabled: boolean
@@ -57,6 +65,9 @@ export interface AutomationMonitorDto {
   id: string
   name: string
   kind: AutomationMonitorKind
+  deliveryMode: AutomationDeliveryMode
+  targetSessionId: string | null
+  targetWorkspaceId: string | null
   target: string
   enabled: boolean
   checkIntervalSeconds: number
@@ -85,12 +96,32 @@ export interface AutomationNotificationDto {
   dismissedAt: string | null
 }
 
+export interface AutomationExecutionRunDto {
+  id: string
+  sourceKind: string
+  sourceId: string | null
+  deliveryMode: string
+  sessionId: string | null
+  workspaceId: string | null
+  title: string
+  prompt: string
+  provider: string
+  model: string
+  status: string
+  resultPreview: string | null
+  error: string | null
+  createdAt: string
+  startedAt: string | null
+  completedAt: string | null
+}
+
 export interface AutomationStateDto {
   worker: AutomationWorkerSnapshot
   heartbeat: AutomationHeartbeatDto
   schedules: AutomationScheduleDto[]
   monitors: AutomationMonitorDto[]
   nudges: AutomationNotificationDto[]
+  runs: AutomationExecutionRunDto[]
 }
 
 const workerState: AutomationWorkerSnapshot = {
@@ -107,6 +138,10 @@ function isoOrNull(value: Date | null | undefined): string | null {
 
 function hashText(value: string): string {
   return createHash('sha256').update(value).digest('hex')
+}
+
+function normalizeDeliveryMode(value: unknown): AutomationDeliveryMode {
+  return value === 'background-run' ? 'background-run' : 'nudge'
 }
 
 function isWithinPath(targetPath: string, rootPath: string): boolean {
@@ -324,6 +359,7 @@ export async function ensureAutomationHeartbeat(userId: string) {
       intervalMinutes: DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
       staleAfterMinutes: DEFAULT_STALE_AFTER_MINUTES,
       promptTemplate: 'Review stale WorkSpaces tasks and suggest the single best next action.',
+      deliveryMode: 'nudge',
       nextRunAt: new Date(now.getTime() + DEFAULT_HEARTBEAT_INTERVAL_MINUTES * 60 * 1000),
     },
   })
@@ -336,6 +372,9 @@ function toHeartbeatDto(value: Awaited<ReturnType<typeof ensureAutomationHeartbe
     intervalMinutes: value.intervalMinutes,
     staleAfterMinutes: value.staleAfterMinutes,
     promptTemplate: value.promptTemplate,
+    deliveryMode: normalizeDeliveryMode(value.deliveryMode),
+    targetSessionId: value.targetSessionId,
+    targetWorkspaceId: value.targetWorkspaceId,
     nextRunAt: isoOrNull(value.nextRunAt),
     lastRunAt: isoOrNull(value.lastRunAt),
     lastStatus: value.lastStatus,
@@ -347,6 +386,9 @@ function toScheduleDto(value: {
   id: string
   name: string
   prompt: string
+  deliveryMode: string
+  targetSessionId: string | null
+  targetWorkspaceId: string | null
   cronExpression: string
   timezone: string
   enabled: boolean
@@ -361,6 +403,9 @@ function toScheduleDto(value: {
     id: value.id,
     name: value.name,
     prompt: value.prompt,
+    deliveryMode: normalizeDeliveryMode(value.deliveryMode),
+    targetSessionId: value.targetSessionId,
+    targetWorkspaceId: value.targetWorkspaceId,
     cronExpression: value.cronExpression,
     timezone: value.timezone,
     enabled: value.enabled,
@@ -377,6 +422,9 @@ function toMonitorDto(value: {
   id: string
   name: string
   kind: string
+  deliveryMode: string
+  targetSessionId: string | null
+  targetWorkspaceId: string | null
   target: string
   enabled: boolean
   checkIntervalSeconds: number
@@ -395,6 +443,9 @@ function toMonitorDto(value: {
     id: value.id,
     name: value.name,
     kind: value.kind === 'file' ? 'file' : 'url',
+    deliveryMode: normalizeDeliveryMode(value.deliveryMode),
+    targetSessionId: value.targetSessionId,
+    targetWorkspaceId: value.targetWorkspaceId,
     target: value.target,
     enabled: value.enabled,
     checkIntervalSeconds: value.checkIntervalSeconds,
@@ -437,9 +488,47 @@ function toNotificationDto(value: {
   }
 }
 
+function toExecutionRunDto(value: {
+  id: string
+  sourceKind: string
+  sourceId: string | null
+  deliveryMode: string
+  sessionId: string | null
+  workspaceId: string | null
+  title: string
+  prompt: string
+  provider: string
+  model: string
+  status: string
+  resultPreview: string | null
+  error: string | null
+  createdAt: Date
+  startedAt: Date | null
+  completedAt: Date | null
+}): AutomationExecutionRunDto {
+  return {
+    id: value.id,
+    sourceKind: value.sourceKind,
+    sourceId: value.sourceId,
+    deliveryMode: value.deliveryMode,
+    sessionId: value.sessionId,
+    workspaceId: value.workspaceId,
+    title: value.title,
+    prompt: value.prompt,
+    provider: value.provider,
+    model: value.model,
+    status: value.status,
+    resultPreview: value.resultPreview,
+    error: value.error,
+    createdAt: value.createdAt.toISOString(),
+    startedAt: isoOrNull(value.startedAt),
+    completedAt: isoOrNull(value.completedAt),
+  }
+}
+
 export async function getAutomationState(userId: string): Promise<AutomationStateDto> {
   const heartbeat = await ensureAutomationHeartbeat(userId)
-  const [schedules, monitors, nudges] = await Promise.all([
+  const [schedules, monitors, nudges, runs] = await Promise.all([
     prisma.automationSchedule.findMany({
       where: { userId },
       orderBy: [{ enabled: 'desc' }, { nextRunAt: 'asc' }],
@@ -453,6 +542,11 @@ export async function getAutomationState(userId: string): Promise<AutomationStat
       orderBy: { createdAt: 'desc' },
       take: 20,
     }),
+    prisma.automationExecutionRun.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    }),
   ])
 
   return {
@@ -461,6 +555,7 @@ export async function getAutomationState(userId: string): Promise<AutomationStat
     schedules: schedules.map(toScheduleDto),
     monitors: monitors.map(toMonitorDto),
     nudges: nudges.map(toNotificationDto),
+    runs: runs.map(toExecutionRunDto),
   }
 }
 
@@ -469,6 +564,9 @@ export async function updateHeartbeatConfig(userId: string, input: {
   intervalMinutes?: number
   staleAfterMinutes?: number
   promptTemplate?: string
+  deliveryMode?: AutomationDeliveryMode
+  targetSessionId?: string | null
+  targetWorkspaceId?: string | null
 }) {
   const current = await ensureAutomationHeartbeat(userId)
   const intervalMinutes = typeof input.intervalMinutes === 'number'
@@ -481,6 +579,7 @@ export async function updateHeartbeatConfig(userId: string, input: {
   const promptTemplate = typeof input.promptTemplate === 'string' && input.promptTemplate.trim()
     ? input.promptTemplate.trim()
     : current.promptTemplate
+  const deliveryMode = input.deliveryMode ? normalizeDeliveryMode(input.deliveryMode) : normalizeDeliveryMode(current.deliveryMode)
 
   const nextRunAt = enabled
     ? new Date(Date.now() + intervalMinutes * 60 * 1000)
@@ -493,6 +592,17 @@ export async function updateHeartbeatConfig(userId: string, input: {
       intervalMinutes,
       staleAfterMinutes,
       promptTemplate,
+      deliveryMode,
+      targetSessionId: typeof input.targetSessionId === 'string' && input.targetSessionId.trim()
+        ? input.targetSessionId.trim()
+        : input.targetSessionId === null
+          ? null
+          : current.targetSessionId,
+      targetWorkspaceId: typeof input.targetWorkspaceId === 'string' && input.targetWorkspaceId.trim()
+        ? input.targetWorkspaceId.trim()
+        : input.targetWorkspaceId === null
+          ? null
+          : current.targetWorkspaceId,
       nextRunAt,
       ...(enabled ? { lastStatus: current.lastStatus === 'idle' ? 'scheduled' : current.lastStatus } : { lastStatus: 'paused' }),
       lastError: null,
@@ -507,6 +617,9 @@ export async function createAutomationSchedule(userId: string, input: {
   prompt: string
   cronExpression: string
   timezone?: string
+  deliveryMode?: AutomationDeliveryMode
+  targetSessionId?: string | null
+  targetWorkspaceId?: string | null
 }) {
   const name = input.name.trim()
   const prompt = input.prompt.trim()
@@ -522,6 +635,9 @@ export async function createAutomationSchedule(userId: string, input: {
       userId,
       name,
       prompt,
+      deliveryMode: normalizeDeliveryMode(input.deliveryMode),
+      targetSessionId: typeof input.targetSessionId === 'string' && input.targetSessionId.trim() ? input.targetSessionId.trim() : null,
+      targetWorkspaceId: typeof input.targetWorkspaceId === 'string' && input.targetWorkspaceId.trim() ? input.targetWorkspaceId.trim() : null,
       cronExpression,
       timezone,
       enabled: true,
@@ -540,6 +656,9 @@ export async function updateAutomationSchedule(userId: string, input: {
   cronExpression?: string
   timezone?: string
   enabled?: boolean
+  deliveryMode?: AutomationDeliveryMode
+  targetSessionId?: string | null
+  targetWorkspaceId?: string | null
 }) {
   const existing = await prisma.automationSchedule.findFirst({
     where: { id: input.id, userId },
@@ -558,6 +677,17 @@ export async function updateAutomationSchedule(userId: string, input: {
     data: {
       name: typeof input.name === 'string' && input.name.trim() ? input.name.trim() : existing.name,
       prompt: typeof input.prompt === 'string' && input.prompt.trim() ? input.prompt.trim() : existing.prompt,
+      deliveryMode: input.deliveryMode ? normalizeDeliveryMode(input.deliveryMode) : normalizeDeliveryMode(existing.deliveryMode),
+      targetSessionId: typeof input.targetSessionId === 'string' && input.targetSessionId.trim()
+        ? input.targetSessionId.trim()
+        : input.targetSessionId === null
+          ? null
+          : existing.targetSessionId,
+      targetWorkspaceId: typeof input.targetWorkspaceId === 'string' && input.targetWorkspaceId.trim()
+        ? input.targetWorkspaceId.trim()
+        : input.targetWorkspaceId === null
+          ? null
+          : existing.targetWorkspaceId,
       cronExpression,
       timezone,
       enabled,
@@ -583,6 +713,9 @@ export async function createAutomationMonitor(userId: string, input: {
   checkIntervalSeconds?: number
   triggerMode?: AutomationTriggerMode
   expectedPattern?: string
+  deliveryMode?: AutomationDeliveryMode
+  targetSessionId?: string | null
+  targetWorkspaceId?: string | null
 }) {
   const name = input.name.trim()
   let target = input.target.trim()
@@ -598,6 +731,9 @@ export async function createAutomationMonitor(userId: string, input: {
     data: {
       userId,
       name,
+      deliveryMode: normalizeDeliveryMode(input.deliveryMode),
+      targetSessionId: typeof input.targetSessionId === 'string' && input.targetSessionId.trim() ? input.targetSessionId.trim() : null,
+      targetWorkspaceId: typeof input.targetWorkspaceId === 'string' && input.targetWorkspaceId.trim() ? input.targetWorkspaceId.trim() : null,
       kind: input.kind,
       target,
       enabled: true,
@@ -621,6 +757,9 @@ export async function updateAutomationMonitor(userId: string, input: {
   triggerMode?: AutomationTriggerMode
   expectedPattern?: string
   enabled?: boolean
+  deliveryMode?: AutomationDeliveryMode
+  targetSessionId?: string | null
+  targetWorkspaceId?: string | null
 }) {
   const existing = await prisma.automationMonitor.findFirst({
     where: { id: input.id, userId },
@@ -640,6 +779,17 @@ export async function updateAutomationMonitor(userId: string, input: {
     where: { id: existing.id },
     data: {
       name: typeof input.name === 'string' && input.name.trim() ? input.name.trim() : existing.name,
+      deliveryMode: input.deliveryMode ? normalizeDeliveryMode(input.deliveryMode) : normalizeDeliveryMode(existing.deliveryMode),
+      targetSessionId: typeof input.targetSessionId === 'string' && input.targetSessionId.trim()
+        ? input.targetSessionId.trim()
+        : input.targetSessionId === null
+          ? null
+          : existing.targetSessionId,
+      targetWorkspaceId: typeof input.targetWorkspaceId === 'string' && input.targetWorkspaceId.trim()
+        ? input.targetWorkspaceId.trim()
+        : input.targetWorkspaceId === null
+          ? null
+          : existing.targetWorkspaceId,
       kind: nextKind,
       target: nextTarget,
       checkIntervalSeconds: typeof input.checkIntervalSeconds === 'number'
@@ -712,29 +862,90 @@ async function createAutomationEvent(userId: string, input: {
   })
 }
 
+async function deliverAutomationTrigger(userId: string, input: {
+  kind: string
+  sourceKind: string
+  sourceId?: string | null
+  title: string
+  message: string
+  sessionId?: string | null
+  workspaceId?: string | null
+  deliveryMode?: AutomationDeliveryMode
+}) {
+  const deliveryMode = normalizeDeliveryMode(input.deliveryMode)
+
+  if (deliveryMode === 'background-run') {
+    const queued = await queueAutomationExecution({
+      userId,
+      sourceKind: input.sourceKind,
+      sourceId: input.sourceId ?? null,
+      sessionId: input.sessionId ?? null,
+      workspaceId: input.workspaceId ?? null,
+      title: input.title,
+      prompt: input.message,
+    })
+
+    await createAutomationEvent(userId, {
+      kind: input.kind,
+      sourceKind: input.sourceKind,
+      sourceId: input.sourceId ?? null,
+      title: input.title,
+      message: input.message,
+      details: `Queued unattended execution run ${queued.id}.`,
+      status: 'queued',
+    })
+
+    return {
+      mode: 'background-run' as const,
+      queuedRunId: queued.id,
+    }
+  }
+
+  const notification = await createAutomationNotification(userId, {
+    kind: input.kind,
+    sourceKind: input.sourceKind,
+    sourceId: input.sourceId ?? null,
+    title: input.title,
+    message: input.message,
+    sessionId: input.sessionId ?? null,
+  })
+
+  await createAutomationEvent(userId, {
+    kind: input.kind,
+    sourceKind: input.sourceKind,
+    sourceId: input.sourceId ?? null,
+    title: input.title,
+    message: input.message,
+    status: 'triggered',
+  })
+
+  return {
+    mode: 'nudge' as const,
+    notification,
+  }
+}
+
 export async function createAutomationWakeEvent(userId: string, input: {
   title: string
   message: string
   sessionId?: string
+  workspaceId?: string
+  deliveryMode?: AutomationDeliveryMode
 }) {
   const title = input.title.trim()
   const message = input.message.trim()
   if (!title) throw new Error('Wake event title is required')
   if (!message) throw new Error('Wake event message is required')
-  const notification = await createAutomationNotification(userId, {
+  const result = await deliverAutomationTrigger(userId, {
     kind: 'wake_event',
+    sourceKind: 'wake_event',
     title,
     message,
     sessionId: input.sessionId,
-    sourceKind: 'wake_event',
+    workspaceId: input.workspaceId,
+    deliveryMode: input.deliveryMode,
   })
-  await createAutomationEvent(userId, {
-    kind: 'wake_event',
-    sourceKind: 'wake_event',
-    title,
-    message,
-  })
-  return notification
+  return result.mode === 'nudge' ? result.notification : null
 }
 
 async function createAutomationNotification(userId: string, input: {
@@ -862,22 +1073,15 @@ async function processHeartbeatConfig(config: Awaited<ReturnType<typeof ensureAu
         ...staleSessions.map(session => `- ${session.title} (${formatMinutesAgo(session.updatedAt)})`),
       ].join('\n')
 
-      await createAutomationNotification(config.userId, {
+      await deliverAutomationTrigger(config.userId, {
         kind: 'heartbeat',
         sourceKind: 'heartbeat',
         sourceId: config.id,
         title: 'Heartbeat check-in',
         message,
-        sessionId: staleSessions[0]?.id ?? null,
-      })
-
-      await createAutomationEvent(config.userId, {
-        kind: 'heartbeat',
-        sourceKind: 'heartbeat',
-        sourceId: config.id,
-        title: 'Heartbeat check-in',
-        message,
-        status: 'triggered',
+        sessionId: config.targetSessionId ?? staleSessions[0]?.id ?? null,
+        workspaceId: config.targetWorkspaceId,
+        deliveryMode: normalizeDeliveryMode(config.deliveryMode),
       })
     }
 
@@ -908,6 +1112,9 @@ async function processSchedule(schedule: {
   userId: string
   name: string
   prompt: string
+  deliveryMode: string
+  targetSessionId: string | null
+  targetWorkspaceId: string | null
   cronExpression: string
   timezone: string
   nextRunAt: Date
@@ -922,20 +1129,15 @@ async function processSchedule(schedule: {
   ].join('\n')
 
   try {
-    await createAutomationNotification(schedule.userId, {
+    await deliverAutomationTrigger(schedule.userId, {
       kind: 'cron',
       sourceKind: 'schedule',
       sourceId: schedule.id,
       title,
       message,
-    })
-    await createAutomationEvent(schedule.userId, {
-      kind: 'cron',
-      sourceKind: 'schedule',
-      sourceId: schedule.id,
-      title,
-      message,
-      status: 'triggered',
+      sessionId: schedule.targetSessionId,
+      workspaceId: schedule.targetWorkspaceId,
+      deliveryMode: normalizeDeliveryMode(schedule.deliveryMode),
     })
     await prisma.automationSchedule.update({
       where: { id: schedule.id },
@@ -963,6 +1165,9 @@ async function processMonitor(monitor: {
   id: string
   userId: string
   name: string
+  deliveryMode: string
+  targetSessionId: string | null
+  targetWorkspaceId: string | null
   kind: string
   target: string
   triggerMode: string
@@ -1007,20 +1212,15 @@ async function processMonitor(monitor: {
         `Target: ${monitor.target}`,
         `Summary: ${summary}`,
       ].join('\n')
-      await createAutomationNotification(monitor.userId, {
+      await deliverAutomationTrigger(monitor.userId, {
         kind: 'monitor',
         sourceKind: 'monitor',
         sourceId: monitor.id,
         title,
         message,
-      })
-      await createAutomationEvent(monitor.userId, {
-        kind: 'monitor',
-        sourceKind: 'monitor',
-        sourceId: monitor.id,
-        title,
-        message,
-        status: 'triggered',
+        sessionId: monitor.targetSessionId,
+        workspaceId: monitor.targetWorkspaceId,
+        deliveryMode: normalizeDeliveryMode(monitor.deliveryMode),
       })
     }
 
@@ -1096,4 +1296,5 @@ export async function runAutomationTick() {
   for (const monitor of monitors) {
     await processMonitor(monitor)
   }
+  await processQueuedAutomationRuns()
 }

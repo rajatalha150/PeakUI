@@ -18,11 +18,15 @@ export async function POST(request: NextRequest) {
     const title = typeof body?.title === 'string' ? body.title : ''
     const message = typeof body?.message === 'string' ? body.message : ''
     const sessionId = typeof body?.sessionId === 'string' && body.sessionId.trim() ? body.sessionId.trim() : undefined
+    const workspaceId = typeof body?.workspaceId === 'string' && body.workspaceId.trim() ? body.workspaceId.trim() : undefined
+    const deliveryMode = body?.deliveryMode === 'background-run' ? 'background-run' : undefined
 
     const notification = await createAutomationWakeEvent(access.userId, {
       title,
       message,
       sessionId,
+      workspaceId,
+      deliveryMode,
     })
 
     return NextResponse.json({ notification }, { status: 201 })

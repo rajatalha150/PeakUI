@@ -29,6 +29,7 @@ model User {
   automationMonitors  AutomationMonitor[]
   automationNotifications AutomationNotification[]
   automationEvents    AutomationEvent[]
+  automationExecutionRuns AutomationExecutionRun[]
 
   @@index([role, isActive])
 }
@@ -85,6 +86,11 @@ model UserSettings {
   openClawUwafScreenshots Boolean @default(false) // deprecated: static page screenshots are disabled in favor of the live browser
   openClawUwafDefaultMode String @default("direct") // "direct" | "stealth"
   openClawUwafLiveBrowser Boolean @default(true)
+  openClawAutomationExecutionEnabled Boolean @default(false)
+  openClawAutomationExecutionModel String @default("")
+  openClawAutomationExecutionMaxRunsPerHour Int @default(6)
+  openClawAutomationExecutionAttachWorkspace Boolean @default(true)
+  openClawAutomationExecutionAttachMemory Boolean @default(true)
   // Knowledge Base RAG Settings
   ragEnabled       Boolean @default(false)
   ragTopK          Int     @default(8)
@@ -283,6 +289,9 @@ model AutomationHeartbeatConfig {
   intervalMinutes   Int      @default(240)
   staleAfterMinutes Int      @default(180)
   promptTemplate    String   @default("Review stale WorkSpaces tasks and suggest the single best next action.")
+  deliveryMode      String   @default("nudge") // "nudge" | "background-run"
+  targetSessionId   String?
+  targetWorkspaceId String?
   nextRunAt         DateTime?
   lastRunAt         DateTime?
   lastStatus        String   @default("idle")
@@ -299,6 +308,9 @@ model AutomationSchedule {
   user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name           String
   prompt         String
+  deliveryMode   String   @default("nudge") // "nudge" | "background-run"
+  targetSessionId   String?
+  targetWorkspaceId String?
   cronExpression String
   timezone       String   @default("America/New_York")
   enabled        Boolean  @default(true)
@@ -317,6 +329,9 @@ model AutomationMonitor {
   userId              String
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name                String
+  deliveryMode        String   @default("nudge") // "nudge" | "background-run"
+  targetSessionId     String?
+  targetWorkspaceId   String?
   kind                String   @default("url") // "url" | "file"
   target              String
   enabled             Boolean  @default(true)
@@ -369,6 +384,31 @@ model AutomationEvent {
 
   @@index([userId, createdAt])
   @@index([sourceKind, sourceId])
+}
+
+model AutomationExecutionRun {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sourceKind    String
+  sourceId      String?
+  deliveryMode  String   @default("background-run")
+  sessionId     String?
+  workspaceId   String?
+  title         String
+  prompt        String
+  provider      String   @default("ollama")
+  model         String
+  status        String   @default("queued") // "queued" | "running" | "succeeded" | "failed" | "skipped"
+  resultPreview String?
+  error         String?
+  createdAt     DateTime @default(now())
+  startedAt     DateTime?
+  completedAt   DateTime?
+
+  @@index([userId, status, createdAt])
+  @@index([sourceKind, sourceId, createdAt])
+  @@index([sessionId])
 }
 
 enum Role {

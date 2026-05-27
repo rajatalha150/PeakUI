@@ -69,7 +69,7 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 - [x] **Background monitoring** — URL and file monitors now poll in the background with SSRF checks plus approved-root filesystem guardrails and create nudges when rules trigger
 - [x] **Wake-on-event** — Authenticated wake-event pipeline now exists via polling monitors and `POST /api/openclaw/automation/wake-event`
 - [x] **Proactive nudges** — Server-side nudges now surface in WorkSpaces UI and are injected into Open Claw request context for follow-up action
-- [ ] **Unattended model execution** — Future enhancement. Current automation is notification-driven and context-aware, but it does not yet launch background LLM runs fully autonomously
+- [x] **Unattended model execution** — Automation triggers can now queue durable background model runs that post back into WorkSpaces threads using workspace + memory context. Current implementation is intentionally limited to local Ollama models and does not request interactive tools while running unattended.
 
 ### 6. Sub-Agent Delegation
 - [ ] **Task decomposition** — Break complex objective into sub-tasks
@@ -158,7 +158,7 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 9. Heartbeat check-ins ✅ COMPLETE
 10. Cron-based scheduled tasks ✅ COMPLETE
 11. Proactive task nudge on incomplete objectives ✅ COMPLETE
-12. Unattended model execution from automation triggers
+12. Tool-capable unattended execution from automation triggers
 
 ### Phase 4 — Advanced
 12. Task decomposition + sub-agent delegation

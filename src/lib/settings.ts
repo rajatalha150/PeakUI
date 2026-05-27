@@ -28,6 +28,7 @@ export type OpenClawCodeExecutionMode = 'deny' | 'ask-first' | 'auto-approve'
 export type OpenClawBrowserMode = 'deny' | 'read-only' | 'ask-first'
 export type OpenClawUwafBrowserMode = 'deny' | 'direct' | 'stealth'
 export type OpenClawUwafDefaultMode = 'direct' | 'stealth'
+export type OpenClawAutomationExecutionProvider = 'ollama'
 
 export const MIN_CONTEXT_LENGTH = 512
 export const MAX_CONTEXT_LENGTH = 131072
@@ -77,6 +78,11 @@ export interface AppSettings {
   openClawUwafScreenshots: boolean
   openClawUwafDefaultMode: OpenClawUwafDefaultMode
   openClawUwafLiveBrowser: boolean
+  openClawAutomationExecutionEnabled: boolean
+  openClawAutomationExecutionModel: string
+  openClawAutomationExecutionMaxRunsPerHour: number
+  openClawAutomationExecutionAttachWorkspace: boolean
+  openClawAutomationExecutionAttachMemory: boolean
   ragEnabled: boolean
   ragTopK: number
 }
@@ -124,6 +130,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   openClawUwafScreenshots: false,
   openClawUwafDefaultMode: 'direct',
   openClawUwafLiveBrowser: true,
+  openClawAutomationExecutionEnabled: false,
+  openClawAutomationExecutionModel: '',
+  openClawAutomationExecutionMaxRunsPerHour: 6,
+  openClawAutomationExecutionAttachWorkspace: true,
+  openClawAutomationExecutionAttachMemory: true,
   ragEnabled: false,
   ragTopK: 8,
 }
@@ -282,6 +293,14 @@ export function normalizeOpenClawAllowedPaths(value: unknown): string {
   return normalized.join('\n')
 }
 
+export function normalizeOpenClawAutomationExecutionModel(value: unknown): string {
+  return typeof value === 'string' ? value.trim() : ''
+}
+
+export function normalizeOpenClawAutomationExecutionMaxRunsPerHour(value: unknown): number {
+  return Math.round(clampNumber(value, 1, 60, DEFAULT_SETTINGS.openClawAutomationExecutionMaxRunsPerHour))
+}
+
 export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings, unknown>> | null | undefined): AppSettings {
   const rawSystemPrompt = typeof settings?.systemPrompt === 'string' ? settings.systemPrompt : DEFAULT_SETTINGS.systemPrompt
   const systemPrompt = rawSystemPrompt.trim() === LEGACY_DEFAULT_SYSTEM_PROMPT ? '' : rawSystemPrompt
@@ -343,6 +362,24 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     openClawUwafScreenshots: false,
     openClawUwafDefaultMode: normalizeOpenClawUwafDefaultMode(settings?.openClawUwafDefaultMode),
     openClawUwafLiveBrowser: normalizeBoolean(settings?.openClawUwafLiveBrowser, DEFAULT_SETTINGS.openClawUwafLiveBrowser),
+    openClawAutomationExecutionEnabled: normalizeBoolean(
+      settings?.openClawAutomationExecutionEnabled,
+      DEFAULT_SETTINGS.openClawAutomationExecutionEnabled,
+    ),
+    openClawAutomationExecutionModel: normalizeOpenClawAutomationExecutionModel(
+      settings?.openClawAutomationExecutionModel,
+    ),
+    openClawAutomationExecutionMaxRunsPerHour: normalizeOpenClawAutomationExecutionMaxRunsPerHour(
+      settings?.openClawAutomationExecutionMaxRunsPerHour,
+    ),
+    openClawAutomationExecutionAttachWorkspace: normalizeBoolean(
+      settings?.openClawAutomationExecutionAttachWorkspace,
+      DEFAULT_SETTINGS.openClawAutomationExecutionAttachWorkspace,
+    ),
+    openClawAutomationExecutionAttachMemory: normalizeBoolean(
+      settings?.openClawAutomationExecutionAttachMemory,
+      DEFAULT_SETTINGS.openClawAutomationExecutionAttachMemory,
+    ),
     ragEnabled: normalizeBoolean(settings?.ragEnabled, DEFAULT_SETTINGS.ragEnabled),
     ragTopK: normalizeRagTopK(settings?.ragTopK),
   }

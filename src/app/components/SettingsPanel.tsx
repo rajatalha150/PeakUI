@@ -44,6 +44,11 @@ interface UserSettings {
   openClawUwafScreenshots: boolean;
   openClawUwafDefaultMode: string;
   openClawUwafLiveBrowser: boolean;
+  openClawAutomationExecutionEnabled: boolean;
+  openClawAutomationExecutionModel: string;
+  openClawAutomationExecutionMaxRunsPerHour: number;
+  openClawAutomationExecutionAttachWorkspace: boolean;
+  openClawAutomationExecutionAttachMemory: boolean;
   ragModel: string;
   ragMode: string;
   ragEnabled: boolean;
@@ -162,6 +167,11 @@ const INITIAL_SETTINGS: UserSettings = {
   openClawUwafScreenshots: false,
   openClawUwafDefaultMode: 'direct',
   openClawUwafLiveBrowser: true,
+  openClawAutomationExecutionEnabled: false,
+  openClawAutomationExecutionModel: '',
+  openClawAutomationExecutionMaxRunsPerHour: 6,
+  openClawAutomationExecutionAttachWorkspace: true,
+  openClawAutomationExecutionAttachMemory: true,
   ragModel: 'nomic-embed-text',
   ragMode: 'semantic',
   ragEnabled: false,
@@ -1462,6 +1472,93 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             />
           )}
         </Field>
+
+        <Field label="Unattended Model Execution" help="Allow automation schedules, heartbeat check-ins, monitors, and wake events to launch background WorkSpaces model runs without an active browser tab. This currently supports local Ollama only.">
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {[
+              { value: true, label: 'Enabled', desc: 'Automation triggers may queue unattended background runs' },
+              { value: false, label: 'Disabled', desc: 'Automation stays notification-only' },
+            ].map(opt => {
+              const active = settings.openClawAutomationExecutionEnabled === opt.value;
+              return (
+                <button
+                  key={opt.label}
+                  type="button"
+                  onClick={() => update('openClawAutomationExecutionEnabled', opt.value)}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    border: `1px solid ${active ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                    background: active ? 'var(--accent-soft)' : 'var(--bg-glass)',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    fontSize: '0.8rem',
+                  }}
+                  title={opt.desc}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+
+        {settings.openClawAutomationExecutionEnabled && (
+          <>
+            <Field label="Automation Execution Model" help="Model used for unattended background runs. Leave blank to fall back to the main WorkSpaces model.">
+              {settings.openClawProvider === 'ollama' ? (
+                <select
+                  className="input-field"
+                  value={settings.openClawAutomationExecutionModel}
+                  onChange={e => update('openClawAutomationExecutionModel', e.target.value)}
+                  style={{ width: '100%' }}
+                >
+                  <option value="">Use WorkSpaces model</option>
+                  {models.map(m => (
+                    <option key={m.name} value={m.name}>{m.name}</option>
+                  ))}
+                </select>
+              ) : (
+                <div style={{ padding: '12px 14px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  Unattended execution is currently limited to local Ollama models because browser-stored API keys are not available server-side.
+                </div>
+              )}
+            </Field>
+
+            <Field label="Automation Budget" help="Upper bound on unattended model runs per user per hour. Excess queued runs are skipped instead of bursting endlessly.">
+              <input
+                className="input-field"
+                type="number"
+                min={1}
+                max={60}
+                value={settings.openClawAutomationExecutionMaxRunsPerHour}
+                onChange={e => update('openClawAutomationExecutionMaxRunsPerHour', Math.max(1, Number(e.target.value) || 1))}
+              />
+            </Field>
+
+            <Field label="Background Context" help="Choose how much server-side context unattended runs can attach automatically.">
+              <div style={{ display: 'grid', gap: '10px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.84rem', color: 'var(--text-primary)' }}>
+                  <input
+                    type="checkbox"
+                    checked={settings.openClawAutomationExecutionAttachWorkspace}
+                    onChange={e => update('openClawAutomationExecutionAttachWorkspace', e.target.checked)}
+                  />
+                  Attach selected workspace instructions (`BOOT.md`, `TOOLS.md`, skills)
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.84rem', color: 'var(--text-primary)' }}>
+                  <input
+                    type="checkbox"
+                    checked={settings.openClawAutomationExecutionAttachMemory}
+                    onChange={e => update('openClawAutomationExecutionAttachMemory', e.target.checked)}
+                  />
+                  Attach recent memory and long-term memory
+                </label>
+              </div>
+            </Field>
+          </>
+        )}
 
         <Field label="Host Access Presets" help="Presets update the shell and filesystem fields below. They are not saved until you click Save Settings. Keep ask-first enabled for host access unless the workflow is already proven.">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>

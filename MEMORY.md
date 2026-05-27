@@ -66,6 +66,8 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - WorkSpaces now also exposes autonomous scheduling controls in the same modal: worker status, heartbeat check-ins, cron schedules, file/URL monitors, manual wake events, and a nudge inbox.
 - Automation nudges are server-side, survive browser reloads, and are injected back into later Open Claw task requests as background context.
 - File monitors now require approved filesystem roots, and URL monitors reuse the existing SSRF/public-host validation so automation cannot bypass manual tool guardrails.
+- Autonomous scheduling can now queue unattended Ollama-backed background runs from heartbeat, cron, monitor, and wake-event triggers instead of only creating nudges.
+- Unattended execution is controlled by explicit personal settings for enable/disable, model selection, hourly budget, workspace-context attachment, and memory-context attachment, and recent runs appear in the WorkSpaces automation modal.
 
 ### Host Filesystem & Executor Access
 - `/api/openclaw/filesystem` now has a status `GET` that reports required permissions, mounted host roots, approved read/write roots, readiness warnings, host shell settings, and host executor reachability.

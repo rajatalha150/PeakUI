@@ -125,6 +125,9 @@ interface AutomationHeartbeatState {
   intervalMinutes: number;
   staleAfterMinutes: number;
   promptTemplate: string;
+  deliveryMode: 'nudge' | 'background-run';
+  targetSessionId: string | null;
+  targetWorkspaceId: string | null;
   nextRunAt: string | null;
   lastRunAt: string | null;
   lastStatus: string;
@@ -135,6 +138,9 @@ interface AutomationScheduleState {
   id: string;
   name: string;
   prompt: string;
+  deliveryMode: 'nudge' | 'background-run';
+  targetSessionId: string | null;
+  targetWorkspaceId: string | null;
   cronExpression: string;
   timezone: string;
   enabled: boolean;
@@ -150,6 +156,9 @@ interface AutomationMonitorState {
   id: string;
   name: string;
   kind: 'url' | 'file';
+  deliveryMode: 'nudge' | 'background-run';
+  targetSessionId: string | null;
+  targetWorkspaceId: string | null;
   target: string;
   enabled: boolean;
   checkIntervalSeconds: number;
@@ -178,6 +187,25 @@ interface AutomationNotificationState {
   dismissedAt: string | null;
 }
 
+interface AutomationExecutionRunState {
+  id: string;
+  sourceKind: string;
+  sourceId: string | null;
+  deliveryMode: string;
+  sessionId: string | null;
+  workspaceId: string | null;
+  title: string;
+  prompt: string;
+  provider: string;
+  model: string;
+  status: string;
+  resultPreview: string | null;
+  error: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
 const DEFAULT_AUTOMATION_WORKER_STATE: AutomationWorkerState = {
   running: false,
   startedAt: null,
@@ -192,6 +220,9 @@ const DEFAULT_AUTOMATION_HEARTBEAT_STATE: AutomationHeartbeatState = {
   intervalMinutes: 240,
   staleAfterMinutes: 180,
   promptTemplate: 'Review stale WorkSpaces tasks and suggest the single best next action.',
+  deliveryMode: 'nudge',
+  targetSessionId: null,
+  targetWorkspaceId: null,
   nextRunAt: null,
   lastRunAt: null,
   lastStatus: 'idle',
@@ -362,6 +393,11 @@ interface OpenClawSettings {
   openClawUwafBrowserMode: 'deny' | 'direct' | 'stealth';
   openClawUwafDefaultMode: 'direct' | 'stealth';
   openClawUwafLiveBrowser: boolean;
+  openClawAutomationExecutionEnabled: boolean;
+  openClawAutomationExecutionModel: string;
+  openClawAutomationExecutionMaxRunsPerHour: number;
+  openClawAutomationExecutionAttachWorkspace: boolean;
+  openClawAutomationExecutionAttachMemory: boolean;
   ragEnabled: boolean;
   ragTopK: number;
   openClawPersonaTemplate: string;
@@ -387,6 +423,7 @@ interface ParsedAutomationStateResponse {
   schedules: AutomationScheduleState[];
   monitors: AutomationMonitorState[];
   nudges: AutomationNotificationState[];
+  runs: AutomationExecutionRunState[];
 }
 
 function parseAutomationWorkerState(value: unknown): AutomationWorkerState {
@@ -412,6 +449,9 @@ function parseAutomationHeartbeatState(value: unknown): AutomationHeartbeatState
     promptTemplate: typeof candidate.promptTemplate === 'string'
       ? candidate.promptTemplate
       : DEFAULT_AUTOMATION_HEARTBEAT_STATE.promptTemplate,
+    deliveryMode: candidate.deliveryMode === 'background-run' ? 'background-run' : 'nudge',
+    targetSessionId: typeof candidate.targetSessionId === 'string' ? candidate.targetSessionId : null,
+    targetWorkspaceId: typeof candidate.targetWorkspaceId === 'string' ? candidate.targetWorkspaceId : null,
     nextRunAt: typeof candidate.nextRunAt === 'string' ? candidate.nextRunAt : null,
     lastRunAt: typeof candidate.lastRunAt === 'string' ? candidate.lastRunAt : null,
     lastStatus: typeof candidate.lastStatus === 'string' ? candidate.lastStatus : 'idle',
@@ -440,6 +480,9 @@ function parseAutomationSchedules(value: unknown): AutomationScheduleState[] {
       id: candidate.id,
       name: candidate.name,
       prompt: candidate.prompt,
+      deliveryMode: candidate.deliveryMode === 'background-run' ? 'background-run' : 'nudge',
+      targetSessionId: typeof candidate.targetSessionId === 'string' ? candidate.targetSessionId : null,
+      targetWorkspaceId: typeof candidate.targetWorkspaceId === 'string' ? candidate.targetWorkspaceId : null,
       cronExpression: candidate.cronExpression,
       timezone: candidate.timezone,
       enabled: candidate.enabled === true,
@@ -476,6 +519,9 @@ function parseAutomationMonitors(value: unknown): AutomationMonitorState[] {
       id: candidate.id,
       name: candidate.name,
       kind,
+      deliveryMode: candidate.deliveryMode === 'background-run' ? 'background-run' : 'nudge',
+      targetSessionId: typeof candidate.targetSessionId === 'string' ? candidate.targetSessionId : null,
+      targetWorkspaceId: typeof candidate.targetWorkspaceId === 'string' ? candidate.targetWorkspaceId : null,
       target: candidate.target,
       enabled: candidate.enabled === true,
       checkIntervalSeconds: candidate.checkIntervalSeconds,
@@ -522,6 +568,44 @@ function parseAutomationNotifications(value: unknown): AutomationNotificationSta
   });
 }
 
+function parseAutomationRuns(value: unknown): AutomationExecutionRunState[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(entry => {
+    if (!entry || typeof entry !== 'object') return [];
+    const candidate = entry as Record<string, unknown>;
+    if (
+      typeof candidate.id !== 'string'
+      || typeof candidate.sourceKind !== 'string'
+      || typeof candidate.title !== 'string'
+      || typeof candidate.prompt !== 'string'
+      || typeof candidate.provider !== 'string'
+      || typeof candidate.model !== 'string'
+      || typeof candidate.status !== 'string'
+      || typeof candidate.createdAt !== 'string'
+    ) {
+      return [];
+    }
+    return [{
+      id: candidate.id,
+      sourceKind: candidate.sourceKind,
+      sourceId: typeof candidate.sourceId === 'string' ? candidate.sourceId : null,
+      deliveryMode: typeof candidate.deliveryMode === 'string' ? candidate.deliveryMode : 'background-run',
+      sessionId: typeof candidate.sessionId === 'string' ? candidate.sessionId : null,
+      workspaceId: typeof candidate.workspaceId === 'string' ? candidate.workspaceId : null,
+      title: candidate.title,
+      prompt: candidate.prompt,
+      provider: candidate.provider,
+      model: candidate.model,
+      status: candidate.status,
+      resultPreview: typeof candidate.resultPreview === 'string' ? candidate.resultPreview : null,
+      error: typeof candidate.error === 'string' ? candidate.error : null,
+      createdAt: candidate.createdAt,
+      startedAt: typeof candidate.startedAt === 'string' ? candidate.startedAt : null,
+      completedAt: typeof candidate.completedAt === 'string' ? candidate.completedAt : null,
+    }];
+  });
+}
+
 function parseAutomationStateResponse(data: Record<string, unknown>): ParsedAutomationStateResponse {
   return {
     worker: parseAutomationWorkerState(data.worker),
@@ -529,6 +613,7 @@ function parseAutomationStateResponse(data: Record<string, unknown>): ParsedAuto
     schedules: parseAutomationSchedules(data.schedules),
     monitors: parseAutomationMonitors(data.monitors),
     nudges: parseAutomationNotifications(data.nudges),
+    runs: parseAutomationRuns(data.runs),
   };
 }
 
@@ -604,6 +689,13 @@ function parseOpenClawSettingsResponse(data: Record<string, unknown>): ParsedOpe
       : 'deny',
     openClawUwafDefaultMode: data.openClawUwafDefaultMode === 'stealth' ? 'stealth' : 'direct',
     openClawUwafLiveBrowser: data.openClawUwafLiveBrowser !== false,
+    openClawAutomationExecutionEnabled: data.openClawAutomationExecutionEnabled === true,
+    openClawAutomationExecutionModel: typeof data.openClawAutomationExecutionModel === 'string' ? data.openClawAutomationExecutionModel : '',
+    openClawAutomationExecutionMaxRunsPerHour: typeof data.openClawAutomationExecutionMaxRunsPerHour === 'number'
+      ? data.openClawAutomationExecutionMaxRunsPerHour
+      : 6,
+    openClawAutomationExecutionAttachWorkspace: data.openClawAutomationExecutionAttachWorkspace !== false,
+    openClawAutomationExecutionAttachMemory: data.openClawAutomationExecutionAttachMemory !== false,
     ragEnabled: data.ragEnabled === true,
     ragTopK: typeof data.ragTopK === 'number' ? data.ragTopK : 8,
     openClawPersonaTemplate: typeof data.openClawPersonaTemplate === 'string' ? data.openClawPersonaTemplate : 'custom',
@@ -2021,9 +2113,11 @@ export default function OpenClawWorkspace({
   const [automationSchedules, setAutomationSchedules] = useState<AutomationScheduleState[]>([]);
   const [automationMonitors, setAutomationMonitors] = useState<AutomationMonitorState[]>([]);
   const [automationNudges, setAutomationNudges] = useState<AutomationNotificationState[]>([]);
+  const [automationRuns, setAutomationRuns] = useState<AutomationExecutionRunState[]>([]);
   const [newScheduleName, setNewScheduleName] = useState('');
   const [newSchedulePrompt, setNewSchedulePrompt] = useState('');
   const [newScheduleCron, setNewScheduleCron] = useState('0 9 * * 1-5');
+  const [newScheduleDeliveryMode, setNewScheduleDeliveryMode] = useState<'nudge' | 'background-run'>('nudge');
   const [newScheduleTimezone, setNewScheduleTimezone] = useState(() => {
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York';
@@ -2037,8 +2131,10 @@ export default function OpenClawWorkspace({
   const [newMonitorIntervalSeconds, setNewMonitorIntervalSeconds] = useState(300);
   const [newMonitorTriggerMode, setNewMonitorTriggerMode] = useState<'changed' | 'contains' | 'missing'>('changed');
   const [newMonitorExpectedPattern, setNewMonitorExpectedPattern] = useState('');
+  const [newMonitorDeliveryMode, setNewMonitorDeliveryMode] = useState<'nudge' | 'background-run'>('nudge');
   const [wakeEventTitle, setWakeEventTitle] = useState('');
   const [wakeEventMessage, setWakeEventMessage] = useState('');
+  const [wakeEventDeliveryMode, setWakeEventDeliveryMode] = useState<'nudge' | 'background-run'>('nudge');
   const [shellSettingsOpen, setShellSettingsOpen] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<PendingToolApproval | null>(null);
   const [, setExecutingCommand] = useState(false);
@@ -2469,6 +2565,7 @@ export default function OpenClawWorkspace({
           setAutomationSchedules([]);
           setAutomationMonitors([]);
           setAutomationNudges([]);
+          setAutomationRuns([]);
           return;
         }
 
@@ -2483,6 +2580,7 @@ export default function OpenClawWorkspace({
       setAutomationSchedules(parsed.schedules);
       setAutomationMonitors(parsed.monitors);
       setAutomationNudges(parsed.nudges);
+      setAutomationRuns(parsed.runs);
     } catch (error) {
       setAutomationError(error instanceof Error ? error.message : 'Failed to load automation state');
     } finally {
@@ -2515,27 +2613,41 @@ export default function OpenClawWorkspace({
     }
   };
 
+  const getAutomationTargetIds = () => ({
+    targetSessionId: currentSessionId || null,
+    targetWorkspaceId: currentWorkspaceId || null,
+  });
+
   const saveHeartbeatConfig = async (patch: Partial<AutomationHeartbeatState>) => {
+    const targets = getAutomationTargetIds();
     await postAutomationAction({
       action: 'update_heartbeat',
       ...(typeof patch.enabled === 'boolean' ? { enabled: patch.enabled } : {}),
       ...(typeof patch.intervalMinutes === 'number' ? { intervalMinutes: patch.intervalMinutes } : {}),
       ...(typeof patch.staleAfterMinutes === 'number' ? { staleAfterMinutes: patch.staleAfterMinutes } : {}),
       ...(typeof patch.promptTemplate === 'string' ? { promptTemplate: patch.promptTemplate } : {}),
+      ...(typeof patch.deliveryMode === 'string' ? { deliveryMode: patch.deliveryMode } : {}),
+      ...((patch.deliveryMode ?? automationHeartbeat.deliveryMode) === 'background-run'
+        ? targets
+        : { targetSessionId: null, targetWorkspaceId: null }),
     });
   };
 
   const createAutomationScheduleRecord = async () => {
+    const targets = getAutomationTargetIds();
     await postAutomationAction({
       action: 'create_schedule',
       name: newScheduleName,
       prompt: newSchedulePrompt,
       cronExpression: newScheduleCron,
       timezone: newScheduleTimezone,
+      deliveryMode: newScheduleDeliveryMode,
+      ...(newScheduleDeliveryMode === 'background-run' ? targets : {}),
     });
     setNewScheduleName('');
     setNewSchedulePrompt('');
     setNewScheduleCron('0 9 * * 1-5');
+    setNewScheduleDeliveryMode('nudge');
   };
 
   const toggleAutomationSchedule = async (schedule: AutomationScheduleState) => {
@@ -2551,6 +2663,7 @@ export default function OpenClawWorkspace({
   };
 
   const createAutomationMonitorRecord = async () => {
+    const targets = getAutomationTargetIds();
     await postAutomationAction({
       action: 'create_monitor',
       name: newMonitorName,
@@ -2559,12 +2672,15 @@ export default function OpenClawWorkspace({
       checkIntervalSeconds: newMonitorIntervalSeconds,
       triggerMode: newMonitorTriggerMode,
       expectedPattern: newMonitorExpectedPattern,
+      deliveryMode: newMonitorDeliveryMode,
+      ...(newMonitorDeliveryMode === 'background-run' ? targets : {}),
     });
     setNewMonitorName('');
     setNewMonitorTarget('');
     setNewMonitorIntervalSeconds(300);
     setNewMonitorTriggerMode('changed');
     setNewMonitorExpectedPattern('');
+    setNewMonitorDeliveryMode('nudge');
   };
 
   const toggleAutomationMonitor = async (monitor: AutomationMonitorState) => {
@@ -2589,14 +2705,22 @@ export default function OpenClawWorkspace({
   };
 
   const createAutomationWakeEventRecord = async () => {
+    const targets = getAutomationTargetIds();
     await postAutomationAction({
       action: 'create_wake_event',
       title: wakeEventTitle,
       message: wakeEventMessage,
-      ...(currentSessionId ? { sessionId: currentSessionId } : {}),
+      ...(wakeEventDeliveryMode === 'background-run'
+        ? {
+            sessionId: targets.targetSessionId,
+            workspaceId: targets.targetWorkspaceId,
+            deliveryMode: 'background-run',
+          }
+        : (currentSessionId ? { sessionId: currentSessionId } : {})),
     });
     setWakeEventTitle('');
     setWakeEventMessage('');
+    setWakeEventDeliveryMode('nudge');
   };
 
   const loadCanvasArtifacts = async (
@@ -5834,9 +5958,10 @@ export default function OpenClawWorkspace({
     : `${persona.name} · ${persona.templateId}`;
   const userProfileSummary = `${userProfile.name || 'Not set'} · ${userProfile.role || 'No role'}`;
   const openAutomationNudgeCount = automationNudges.filter(nudge => !nudge.dismissedAt).length;
+  const queuedAutomationRunCount = automationRuns.filter(run => run.status === 'queued' || run.status === 'running').length;
   const automationSummary = !automationPermissionGranted
     ? 'Blocked by account permission'
-    : `${automationHeartbeat.enabled ? `Heartbeat ${automationHeartbeat.intervalMinutes}m` : 'Heartbeat off'} · ${automationSchedules.length} schedule${automationSchedules.length === 1 ? '' : 's'} · ${automationMonitors.length} monitor${automationMonitors.length === 1 ? '' : 's'} · ${openAutomationNudgeCount} nudge${openAutomationNudgeCount === 1 ? '' : 's'}`;
+    : `${automationHeartbeat.enabled ? `Heartbeat ${automationHeartbeat.intervalMinutes}m` : 'Heartbeat off'} · ${automationSchedules.length} schedule${automationSchedules.length === 1 ? '' : 's'} · ${automationMonitors.length} monitor${automationMonitors.length === 1 ? '' : 's'} · ${openAutomationNudgeCount} nudge${openAutomationNudgeCount === 1 ? '' : 's'} · ${queuedAutomationRunCount} active run${queuedAutomationRunCount === 1 ? '' : 's'}`;
   const visibleChatHistory = useMemo(
   () => sanitizeOpenClawMessages(deferredChatHistory).filter(isVisibleMessage),
   [deferredChatHistory, isVisibleMessage]
@@ -8223,6 +8348,20 @@ export default function OpenClawWorkspace({
                                 placeholder="Review stale WorkSpaces tasks and suggest the single best next action."
                               />
                             </label>
+                            <label style={{ display: 'grid', gap: '6px' }}>
+                              <span className="openclaw-field-label">Delivery mode</span>
+                              <select
+                                className="input-field"
+                                value={automationHeartbeat.deliveryMode}
+                                onChange={event => setAutomationHeartbeat(current => ({
+                                  ...current,
+                                  deliveryMode: event.target.value === 'background-run' ? 'background-run' : 'nudge',
+                                }))}
+                              >
+                                <option value="nudge">Nudge only</option>
+                                <option value="background-run">Run model unattended</option>
+                              </select>
+                            </label>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                               <button
                                 type="button"
@@ -8231,6 +8370,7 @@ export default function OpenClawWorkspace({
                                   intervalMinutes: automationHeartbeat.intervalMinutes,
                                   staleAfterMinutes: automationHeartbeat.staleAfterMinutes,
                                   promptTemplate: automationHeartbeat.promptTemplate,
+                                  deliveryMode: automationHeartbeat.deliveryMode,
                                 })}
                                 disabled={automationSaving}
                               >
@@ -8240,6 +8380,11 @@ export default function OpenClawWorkspace({
                                 Next run: {formatAutomationTimestamp(automationHeartbeat.nextRunAt)} · Last status: {automationHeartbeat.lastStatus}
                               </span>
                             </div>
+                            {automationHeartbeat.deliveryMode === 'background-run' && (
+                              <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                                Unattended runs attach to the current WorkSpaces thread and selected workspace when available.
+                              </div>
+                            )}
                             {automationHeartbeat.lastError && (
                               <div style={{ fontSize: '0.76rem', color: 'var(--danger)' }}>
                                 {automationHeartbeat.lastError}
@@ -8270,7 +8415,7 @@ export default function OpenClawWorkspace({
                                       <div>
                                         <div style={{ fontSize: '0.9rem', fontWeight: 700 }}>{schedule.name}</div>
                                         <div style={{ marginTop: '4px', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                                          {schedule.cronExpression} · {schedule.timezone} · next {formatAutomationTimestamp(schedule.nextRunAt)}
+                                          {schedule.cronExpression} · {schedule.timezone} · {schedule.deliveryMode === 'background-run' ? 'background run' : 'nudge'} · next {formatAutomationTimestamp(schedule.nextRunAt)}
                                         </div>
                                       </div>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -8332,6 +8477,16 @@ export default function OpenClawWorkspace({
                                   placeholder="America/New_York"
                                 />
                               </div>
+                              <select
+                                className="input-field"
+                                value={newScheduleDeliveryMode}
+                                onChange={event => setNewScheduleDeliveryMode(
+                                  event.target.value === 'background-run' ? 'background-run' : 'nudge'
+                                )}
+                              >
+                                <option value="nudge">Nudge only</option>
+                                <option value="background-run">Run model unattended</option>
+                              </select>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                                 <button
                                   type="button"
@@ -8346,6 +8501,11 @@ export default function OpenClawWorkspace({
                                   Cron format: minute hour day month weekday
                                 </span>
                               </div>
+                              {newScheduleDeliveryMode === 'background-run' && (
+                                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                                  The run will post into the current WorkSpaces thread and selected workspace if one is active when you create it.
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -8372,7 +8532,7 @@ export default function OpenClawWorkspace({
                                       <div>
                                         <div style={{ fontSize: '0.9rem', fontWeight: 700 }}>{monitor.name}</div>
                                         <div style={{ marginTop: '4px', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                                          {monitor.kind.toUpperCase()} · {monitor.triggerMode} · every {monitor.checkIntervalSeconds}s · next {formatAutomationTimestamp(monitor.nextCheckAt)}
+                                          {monitor.kind.toUpperCase()} · {monitor.triggerMode} · {monitor.deliveryMode === 'background-run' ? 'background run' : 'nudge'} · every {monitor.checkIntervalSeconds}s · next {formatAutomationTimestamp(monitor.nextCheckAt)}
                                         </div>
                                       </div>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -8461,6 +8621,16 @@ export default function OpenClawWorkspace({
                                   disabled={newMonitorTriggerMode === 'changed'}
                                 />
                               </div>
+                              <select
+                                className="input-field"
+                                value={newMonitorDeliveryMode}
+                                onChange={event => setNewMonitorDeliveryMode(
+                                  event.target.value === 'background-run' ? 'background-run' : 'nudge'
+                                )}
+                              >
+                                <option value="nudge">Nudge only</option>
+                                <option value="background-run">Run model unattended</option>
+                              </select>
                               <button
                                 type="button"
                                 className="openclaw-inline-button"
@@ -8470,6 +8640,11 @@ export default function OpenClawWorkspace({
                                 <Plus size={12} />
                                 Add monitor
                               </button>
+                              {newMonitorDeliveryMode === 'background-run' && (
+                                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                                  The run will use the current WorkSpaces thread and selected workspace as its target when available.
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -8498,6 +8673,16 @@ export default function OpenClawWorkspace({
                               placeholder="What happened, and what should the agent know?"
                               style={{ resize: 'vertical' }}
                             />
+                            <select
+                              className="input-field"
+                              value={wakeEventDeliveryMode}
+                              onChange={event => setWakeEventDeliveryMode(
+                                event.target.value === 'background-run' ? 'background-run' : 'nudge'
+                              )}
+                            >
+                              <option value="nudge">Nudge only</option>
+                              <option value="background-run">Run model unattended</option>
+                            </select>
                             <button
                               type="button"
                               className="openclaw-inline-button"
@@ -8506,6 +8691,48 @@ export default function OpenClawWorkspace({
                             >
                               Trigger wake event
                             </button>
+                            {wakeEventDeliveryMode === 'background-run' && (
+                              <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                                The wake event will post into the current WorkSpaces thread and selected workspace if present.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="openclaw-card">
+                          <div className="openclaw-card-header">
+                            <div>
+                              <div className="openclaw-section-label">Recent unattended runs</div>
+                              <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                Durable background execution history for heartbeat, schedule, monitor, and wake-event runs.
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gap: '10px' }}>
+                            {automationRuns.length === 0 ? (
+                              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                No unattended runs recorded yet.
+                              </div>
+                            ) : (
+                              automationRuns.map(run => (
+                                <div key={run.id} style={{ display: 'grid', gap: '6px', padding: '12px', borderRadius: '14px', border: '1px solid var(--border-color)', background: 'var(--panel-bg)' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                                    <div>
+                                      <div style={{ fontSize: '0.9rem', fontWeight: 700 }}>{run.title}</div>
+                                      <div style={{ marginTop: '4px', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                                        {run.sourceKind} · {run.status} · {run.model || 'model pending'} · created {formatAutomationTimestamp(run.createdAt)}
+                                      </div>
+                                    </div>
+                                    <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                                      {run.sessionId ? 'Thread-linked' : 'Standalone'}
+                                    </div>
+                                  </div>
+                                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                                    {run.resultPreview || run.error || run.prompt}
+                                  </div>
+                                </div>
+                              ))
+                            )}
                           </div>
                         </div>
 

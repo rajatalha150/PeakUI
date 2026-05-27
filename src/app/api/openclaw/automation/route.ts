@@ -56,6 +56,11 @@ export async function POST(request: NextRequest) {
         ...(typeof body.intervalMinutes === 'number' ? { intervalMinutes: body.intervalMinutes } : {}),
         ...(typeof body.staleAfterMinutes === 'number' ? { staleAfterMinutes: body.staleAfterMinutes } : {}),
         ...(typeof body.promptTemplate === 'string' ? { promptTemplate: body.promptTemplate } : {}),
+        ...(body.deliveryMode === 'background-run' ? { deliveryMode: 'background-run' as const } : {}),
+        ...(typeof body.targetSessionId === 'string' ? { targetSessionId: body.targetSessionId } : {}),
+        ...(typeof body.targetWorkspaceId === 'string' ? { targetWorkspaceId: body.targetWorkspaceId } : {}),
+        ...(body.targetSessionId === null ? { targetSessionId: null } : {}),
+        ...(body.targetWorkspaceId === null ? { targetWorkspaceId: null } : {}),
       })
       return NextResponse.json({ heartbeat })
     }
@@ -66,6 +71,9 @@ export async function POST(request: NextRequest) {
         prompt: typeof body.prompt === 'string' ? body.prompt : '',
         cronExpression: typeof body.cronExpression === 'string' ? body.cronExpression : '',
         timezone: typeof body.timezone === 'string' ? body.timezone : undefined,
+        ...(body.deliveryMode === 'background-run' ? { deliveryMode: 'background-run' as const } : {}),
+        ...(typeof body.targetSessionId === 'string' ? { targetSessionId: body.targetSessionId } : {}),
+        ...(typeof body.targetWorkspaceId === 'string' ? { targetWorkspaceId: body.targetWorkspaceId } : {}),
       })
       return NextResponse.json({ schedule }, { status: 201 })
     }
@@ -78,6 +86,11 @@ export async function POST(request: NextRequest) {
         ...(typeof body.cronExpression === 'string' ? { cronExpression: body.cronExpression } : {}),
         ...(typeof body.timezone === 'string' ? { timezone: body.timezone } : {}),
         ...(typeof body.enabled === 'boolean' ? { enabled: body.enabled } : {}),
+        ...(body.deliveryMode === 'background-run' ? { deliveryMode: 'background-run' as const } : {}),
+        ...(typeof body.targetSessionId === 'string' ? { targetSessionId: body.targetSessionId } : {}),
+        ...(typeof body.targetWorkspaceId === 'string' ? { targetWorkspaceId: body.targetWorkspaceId } : {}),
+        ...(body.targetSessionId === null ? { targetSessionId: null } : {}),
+        ...(body.targetWorkspaceId === null ? { targetWorkspaceId: null } : {}),
       })
       return NextResponse.json({ schedule })
     }
@@ -95,6 +108,9 @@ export async function POST(request: NextRequest) {
         ...(typeof body.checkIntervalSeconds === 'number' ? { checkIntervalSeconds: body.checkIntervalSeconds } : {}),
         ...(body.triggerMode === 'contains' || body.triggerMode === 'missing' ? { triggerMode: body.triggerMode } : {}),
         ...(typeof body.expectedPattern === 'string' ? { expectedPattern: body.expectedPattern } : {}),
+        ...(body.deliveryMode === 'background-run' ? { deliveryMode: 'background-run' as const } : {}),
+        ...(typeof body.targetSessionId === 'string' ? { targetSessionId: body.targetSessionId } : {}),
+        ...(typeof body.targetWorkspaceId === 'string' ? { targetWorkspaceId: body.targetWorkspaceId } : {}),
       })
       return NextResponse.json({ monitor }, { status: 201 })
     }
@@ -111,6 +127,11 @@ export async function POST(request: NextRequest) {
           : {}),
         ...(typeof body.expectedPattern === 'string' ? { expectedPattern: body.expectedPattern } : {}),
         ...(typeof body.enabled === 'boolean' ? { enabled: body.enabled } : {}),
+        ...(body.deliveryMode === 'background-run' ? { deliveryMode: 'background-run' as const } : {}),
+        ...(typeof body.targetSessionId === 'string' ? { targetSessionId: body.targetSessionId } : {}),
+        ...(typeof body.targetWorkspaceId === 'string' ? { targetWorkspaceId: body.targetWorkspaceId } : {}),
+        ...(body.targetSessionId === null ? { targetSessionId: null } : {}),
+        ...(body.targetWorkspaceId === null ? { targetWorkspaceId: null } : {}),
       })
       return NextResponse.json({ monitor })
     }
@@ -130,6 +151,8 @@ export async function POST(request: NextRequest) {
         title: typeof body.title === 'string' ? body.title : '',
         message: typeof body.message === 'string' ? body.message : '',
         ...(typeof body.sessionId === 'string' && body.sessionId.trim() ? { sessionId: body.sessionId.trim() } : {}),
+        ...(typeof body.workspaceId === 'string' && body.workspaceId.trim() ? { workspaceId: body.workspaceId.trim() } : {}),
+        ...(body.deliveryMode === 'background-run' ? { deliveryMode: 'background-run' as const } : {}),
       })
       return NextResponse.json({ notification }, { status: 201 })
     }

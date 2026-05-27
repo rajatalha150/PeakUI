@@ -96,9 +96,12 @@ WorkSpaces includes a collapsible Canvas panel that:
 - **Cron schedules**: Users can store recurring prompts with cron expressions + timezone and receive scheduled nudges when they fire.
 - **Background monitors**: URL and file monitors run outside active chat sessions and trigger nudges on change, content match, or disappearance.
 - **Wake events**: Authenticated `POST /api/openclaw/automation/wake-event` lets external triggers raise a WorkSpaces automation nudge immediately.
+- **Unattended model execution**: Heartbeats, schedules, monitors, and wake events can now switch from `nudge` delivery to durable background model execution. Queued runs are processed by the same Node-side automation worker and post their result back into a WorkSpaces thread.
+- **Execution guardrails**: Personal settings now control whether unattended execution is enabled, which Ollama model it uses, the hourly execution budget, and whether workspace/memory context is attached automatically.
+- **Execution history**: The automation modal now shows recent unattended runs, including queued/running/succeeded/failed state plus result preview or error output.
 - **Nudge inbox**: Automation nudges show inside WorkSpaces, can jump to the linked thread, and are also injected into Open Claw request context on the backend.
 - **Guardrails**: File monitors require the same approved OpenClaw filesystem roots as manual file inspection, and URL monitors reuse the public-HTTP SSRF checks from the browser stack.
-- **Current boundary**: Automation is currently notification-driven. It does not yet run unattended model generations in the background.
+- **Current boundary**: Unattended execution currently supports local Ollama only and deliberately does not invoke interactive tools such as shell, filesystem, browser, or code while running in the background.
 
 ### Tool Execution
 

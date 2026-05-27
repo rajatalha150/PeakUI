@@ -17,6 +17,8 @@ import {
   normalizeOpenClawProvider,
   normalizeOpenClawCodeExecutionMode,
   normalizeOpenClawBrowserMode,
+  normalizeOpenClawAutomationExecutionMaxRunsPerHour,
+  normalizeOpenClawAutomationExecutionModel,
   normalizeOpenClawUwafBrowserMode,
   normalizeOpenClawUwafDefaultMode,
   normalizeRagMode,
@@ -77,6 +79,11 @@ interface SettingsBody {
   openClawUwafScreenshots?: unknown;
   openClawUwafDefaultMode?: unknown;
   openClawUwafLiveBrowser?: unknown;
+  openClawAutomationExecutionEnabled?: unknown;
+  openClawAutomationExecutionModel?: unknown;
+  openClawAutomationExecutionMaxRunsPerHour?: unknown;
+  openClawAutomationExecutionAttachWorkspace?: unknown;
+  openClawAutomationExecutionAttachMemory?: unknown;
   ragEnabled?: unknown;
   ragTopK?: unknown;
 }
@@ -162,6 +169,23 @@ export async function POST(req: Request) {
     if (Object.prototype.hasOwnProperty.call(body, 'openClawUwafScreenshots')) data.openClawUwafScreenshots = false;
     if (body.openClawUwafDefaultMode !== undefined) data.openClawUwafDefaultMode = normalizeOpenClawUwafDefaultMode(body.openClawUwafDefaultMode);
     if (Object.prototype.hasOwnProperty.call(body, 'openClawUwafLiveBrowser')) data.openClawUwafLiveBrowser = normalizeBoolean(body.openClawUwafLiveBrowser);
+    if (Object.prototype.hasOwnProperty.call(body, 'openClawAutomationExecutionEnabled')) {
+      data.openClawAutomationExecutionEnabled = normalizeBoolean(body.openClawAutomationExecutionEnabled);
+    }
+    if (body.openClawAutomationExecutionModel !== undefined) {
+      data.openClawAutomationExecutionModel = normalizeOpenClawAutomationExecutionModel(body.openClawAutomationExecutionModel);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'openClawAutomationExecutionMaxRunsPerHour')) {
+      data.openClawAutomationExecutionMaxRunsPerHour = normalizeOpenClawAutomationExecutionMaxRunsPerHour(
+        body.openClawAutomationExecutionMaxRunsPerHour
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'openClawAutomationExecutionAttachWorkspace')) {
+      data.openClawAutomationExecutionAttachWorkspace = normalizeBoolean(body.openClawAutomationExecutionAttachWorkspace);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'openClawAutomationExecutionAttachMemory')) {
+      data.openClawAutomationExecutionAttachMemory = normalizeBoolean(body.openClawAutomationExecutionAttachMemory);
+    }
     if (Object.prototype.hasOwnProperty.call(body, 'ragEnabled')) data.ragEnabled = normalizeBoolean(body.ragEnabled);
     if (Object.prototype.hasOwnProperty.call(body, 'ragTopK')) {
       const parsed = Number(body.ragTopK);

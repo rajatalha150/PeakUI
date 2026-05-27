@@ -18,6 +18,22 @@ describe('OpenClaw settings normalization', () => {
     expect(normalized.openClawBrowserMode).toBe(DEFAULT_SETTINGS.openClawBrowserMode)
     expect(normalized.openClawUwafBrowserMode).toBe(DEFAULT_SETTINGS.openClawUwafBrowserMode)
   })
+
+  it('normalizes unattended automation execution settings safely', () => {
+    const normalized = normalizeAppSettings({
+      openClawAutomationExecutionEnabled: 'yes',
+      openClawAutomationExecutionModel: '  llama3.2  ',
+      openClawAutomationExecutionMaxRunsPerHour: 999,
+      openClawAutomationExecutionAttachWorkspace: 'false',
+      openClawAutomationExecutionAttachMemory: 0,
+    } as never)
+
+    expect(normalized.openClawAutomationExecutionEnabled).toBe(true)
+    expect(normalized.openClawAutomationExecutionModel).toBe('llama3.2')
+    expect(normalized.openClawAutomationExecutionMaxRunsPerHour).toBe(60)
+    expect(normalized.openClawAutomationExecutionAttachWorkspace).toBe(false)
+    expect(normalized.openClawAutomationExecutionAttachMemory).toBe(false)
+  })
 })
 
 describe('OpenClaw effective tool access', () => {
