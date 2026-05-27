@@ -64,11 +64,12 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 - [x] **Multi-workspace support** — WorkSpaces can now create, select, and persist multiple named project workspaces from the workspace controls modal
 
 ### 5. Autonomous Scheduling
-- [ ] **Heartbeat check-ins** — Missing. Current “heartbeat” logic is transport-level stream keepalive only, not autonomous agent check-ins
-- [ ] **Cron-based tasks** — Missing. No persistent scheduler or background worker exists yet
-- [ ] **Background monitoring** — Missing. No daemon/worker currently watches files, URLs, or task conditions outside active user sessions
-- [ ] **Wake-on-event** — Missing. No file-watch, webhook, or polling trigger pipeline exists yet
-- [ ] **Proactive nudges** — Missing. Task state exists, but there is no server-side reminder engine yet
+- [x] **Heartbeat check-ins** — Persistent background worker now creates server-side heartbeat nudges for stale WorkSpaces threads on a configurable interval
+- [x] **Cron-based tasks** — Cron scheduler now stores recurring prompts per user, computes next run times, and raises recurring automation nudges/events
+- [x] **Background monitoring** — URL and file monitors now poll in the background with SSRF checks plus approved-root filesystem guardrails and create nudges when rules trigger
+- [x] **Wake-on-event** — Authenticated wake-event pipeline now exists via polling monitors and `POST /api/openclaw/automation/wake-event`
+- [x] **Proactive nudges** — Server-side nudges now surface in WorkSpaces UI and are injected into Open Claw request context for follow-up action
+- [ ] **Unattended model execution** — Future enhancement. Current automation is notification-driven and context-aware, but it does not yet launch background LLM runs fully autonomously
 
 ### 6. Sub-Agent Delegation
 - [ ] **Task decomposition** — Break complex objective into sub-tasks
@@ -154,9 +155,10 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 8. Workspace directory structure (TOOLS.md, BOOT.md, skills/) ✅ COMPLETE
 
 ### Phase 3 — Autonomous Behavior
-9. Heartbeat check-ins
-10. Cron-based scheduled tasks
-11. Proactive task nudge on incomplete objectives
+9. Heartbeat check-ins ✅ COMPLETE
+10. Cron-based scheduled tasks ✅ COMPLETE
+11. Proactive task nudge on incomplete objectives ✅ COMPLETE
+12. Unattended model execution from automation triggers
 
 ### Phase 4 — Advanced
 12. Task decomposition + sub-agent delegation

@@ -68,6 +68,12 @@ export const PERMISSION_DEFINITIONS = [
     category: 'OpenClaw',
   },
   {
+    key: 'openclaw.automation',
+    label: 'Automation scheduling',
+    description: 'Manage autonomous scheduling, monitoring, wake events, and proactive nudges.',
+    category: 'OpenClaw',
+  },
+  {
     key: 'users.manage',
     label: 'Manage users',
     description: 'Create users, deactivate accounts, reset passwords, and manage roles and permissions.',
@@ -105,6 +111,7 @@ const ROLE_DEFAULTS: Record<Role, PermissionKey[]> = {
     'openclaw.uwaf',
     'openclaw.shell',
     'openclaw.code',
+    'openclaw.automation',
   ],
   USER: [
     'knowledge.use',

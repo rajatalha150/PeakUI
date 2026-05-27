@@ -111,6 +111,93 @@ interface OpenClawWorkspaceRecord {
   lastGitBackupError?: string;
 }
 
+interface AutomationWorkerState {
+  running: boolean;
+  startedAt: string | null;
+  lastTickAt: string | null;
+  loopCount: number;
+  lastError: string | null;
+}
+
+interface AutomationHeartbeatState {
+  id: string;
+  enabled: boolean;
+  intervalMinutes: number;
+  staleAfterMinutes: number;
+  promptTemplate: string;
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastStatus: string;
+  lastError: string | null;
+}
+
+interface AutomationScheduleState {
+  id: string;
+  name: string;
+  prompt: string;
+  cronExpression: string;
+  timezone: string;
+  enabled: boolean;
+  nextRunAt: string;
+  lastRunAt: string | null;
+  lastStatus: string;
+  lastError: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface AutomationMonitorState {
+  id: string;
+  name: string;
+  kind: 'url' | 'file';
+  target: string;
+  enabled: boolean;
+  checkIntervalSeconds: number;
+  triggerMode: 'changed' | 'contains' | 'missing';
+  expectedPattern: string | null;
+  nextCheckAt: string | null;
+  lastCheckedAt: string | null;
+  lastStatus: string;
+  lastError: string | null;
+  lastSummary: string | null;
+  lastTriggeredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface AutomationNotificationState {
+  id: string;
+  kind: string;
+  sourceKind: string | null;
+  sourceId: string | null;
+  sessionId: string | null;
+  title: string;
+  message: string;
+  createdAt: string;
+  seenAt: string | null;
+  dismissedAt: string | null;
+}
+
+const DEFAULT_AUTOMATION_WORKER_STATE: AutomationWorkerState = {
+  running: false,
+  startedAt: null,
+  lastTickAt: null,
+  loopCount: 0,
+  lastError: null,
+};
+
+const DEFAULT_AUTOMATION_HEARTBEAT_STATE: AutomationHeartbeatState = {
+  id: '',
+  enabled: false,
+  intervalMinutes: 240,
+  staleAfterMinutes: 180,
+  promptTemplate: 'Review stale WorkSpaces tasks and suggest the single best next action.',
+  nextRunAt: null,
+  lastRunAt: null,
+  lastStatus: 'idle',
+  lastError: null,
+};
+
 interface OpenClawFolder {
   id: string;
   name: string;
@@ -292,6 +379,164 @@ interface OpenClawSettings {
 interface ParsedOpenClawSettingsResponse {
   settings: OpenClawSettings;
   effectiveToolAccess: EffectiveOpenClawToolAccess;
+}
+
+interface ParsedAutomationStateResponse {
+  worker: AutomationWorkerState;
+  heartbeat: AutomationHeartbeatState;
+  schedules: AutomationScheduleState[];
+  monitors: AutomationMonitorState[];
+  nudges: AutomationNotificationState[];
+}
+
+function parseAutomationWorkerState(value: unknown): AutomationWorkerState {
+  if (!value || typeof value !== 'object') return DEFAULT_AUTOMATION_WORKER_STATE;
+  const candidate = value as Record<string, unknown>;
+  return {
+    running: candidate.running === true,
+    startedAt: typeof candidate.startedAt === 'string' ? candidate.startedAt : null,
+    lastTickAt: typeof candidate.lastTickAt === 'string' ? candidate.lastTickAt : null,
+    loopCount: typeof candidate.loopCount === 'number' ? candidate.loopCount : 0,
+    lastError: typeof candidate.lastError === 'string' ? candidate.lastError : null,
+  };
+}
+
+function parseAutomationHeartbeatState(value: unknown): AutomationHeartbeatState {
+  if (!value || typeof value !== 'object') return DEFAULT_AUTOMATION_HEARTBEAT_STATE;
+  const candidate = value as Record<string, unknown>;
+  return {
+    id: typeof candidate.id === 'string' ? candidate.id : '',
+    enabled: candidate.enabled === true,
+    intervalMinutes: typeof candidate.intervalMinutes === 'number' ? candidate.intervalMinutes : 240,
+    staleAfterMinutes: typeof candidate.staleAfterMinutes === 'number' ? candidate.staleAfterMinutes : 180,
+    promptTemplate: typeof candidate.promptTemplate === 'string'
+      ? candidate.promptTemplate
+      : DEFAULT_AUTOMATION_HEARTBEAT_STATE.promptTemplate,
+    nextRunAt: typeof candidate.nextRunAt === 'string' ? candidate.nextRunAt : null,
+    lastRunAt: typeof candidate.lastRunAt === 'string' ? candidate.lastRunAt : null,
+    lastStatus: typeof candidate.lastStatus === 'string' ? candidate.lastStatus : 'idle',
+    lastError: typeof candidate.lastError === 'string' ? candidate.lastError : null,
+  };
+}
+
+function parseAutomationSchedules(value: unknown): AutomationScheduleState[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(entry => {
+    if (!entry || typeof entry !== 'object') return [];
+    const candidate = entry as Record<string, unknown>;
+    if (
+      typeof candidate.id !== 'string'
+      || typeof candidate.name !== 'string'
+      || typeof candidate.prompt !== 'string'
+      || typeof candidate.cronExpression !== 'string'
+      || typeof candidate.timezone !== 'string'
+      || typeof candidate.nextRunAt !== 'string'
+      || typeof candidate.createdAt !== 'string'
+      || typeof candidate.updatedAt !== 'string'
+    ) {
+      return [];
+    }
+    return [{
+      id: candidate.id,
+      name: candidate.name,
+      prompt: candidate.prompt,
+      cronExpression: candidate.cronExpression,
+      timezone: candidate.timezone,
+      enabled: candidate.enabled === true,
+      nextRunAt: candidate.nextRunAt,
+      lastRunAt: typeof candidate.lastRunAt === 'string' ? candidate.lastRunAt : null,
+      lastStatus: typeof candidate.lastStatus === 'string' ? candidate.lastStatus : 'scheduled',
+      lastError: typeof candidate.lastError === 'string' ? candidate.lastError : null,
+      createdAt: candidate.createdAt,
+      updatedAt: candidate.updatedAt,
+    }];
+  });
+}
+
+function parseAutomationMonitors(value: unknown): AutomationMonitorState[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(entry => {
+    if (!entry || typeof entry !== 'object') return [];
+    const candidate = entry as Record<string, unknown>;
+    if (
+      typeof candidate.id !== 'string'
+      || typeof candidate.name !== 'string'
+      || typeof candidate.target !== 'string'
+      || typeof candidate.checkIntervalSeconds !== 'number'
+      || typeof candidate.createdAt !== 'string'
+      || typeof candidate.updatedAt !== 'string'
+    ) {
+      return [];
+    }
+    const kind = candidate.kind === 'file' ? 'file' : 'url';
+    const triggerMode = candidate.triggerMode === 'contains' || candidate.triggerMode === 'missing'
+      ? candidate.triggerMode
+      : 'changed';
+    return [{
+      id: candidate.id,
+      name: candidate.name,
+      kind,
+      target: candidate.target,
+      enabled: candidate.enabled === true,
+      checkIntervalSeconds: candidate.checkIntervalSeconds,
+      triggerMode,
+      expectedPattern: typeof candidate.expectedPattern === 'string' ? candidate.expectedPattern : null,
+      nextCheckAt: typeof candidate.nextCheckAt === 'string' ? candidate.nextCheckAt : null,
+      lastCheckedAt: typeof candidate.lastCheckedAt === 'string' ? candidate.lastCheckedAt : null,
+      lastStatus: typeof candidate.lastStatus === 'string' ? candidate.lastStatus : 'scheduled',
+      lastError: typeof candidate.lastError === 'string' ? candidate.lastError : null,
+      lastSummary: typeof candidate.lastSummary === 'string' ? candidate.lastSummary : null,
+      lastTriggeredAt: typeof candidate.lastTriggeredAt === 'string' ? candidate.lastTriggeredAt : null,
+      createdAt: candidate.createdAt,
+      updatedAt: candidate.updatedAt,
+    }];
+  });
+}
+
+function parseAutomationNotifications(value: unknown): AutomationNotificationState[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(entry => {
+    if (!entry || typeof entry !== 'object') return [];
+    const candidate = entry as Record<string, unknown>;
+    if (
+      typeof candidate.id !== 'string'
+      || typeof candidate.kind !== 'string'
+      || typeof candidate.title !== 'string'
+      || typeof candidate.message !== 'string'
+      || typeof candidate.createdAt !== 'string'
+    ) {
+      return [];
+    }
+    return [{
+      id: candidate.id,
+      kind: candidate.kind,
+      sourceKind: typeof candidate.sourceKind === 'string' ? candidate.sourceKind : null,
+      sourceId: typeof candidate.sourceId === 'string' ? candidate.sourceId : null,
+      sessionId: typeof candidate.sessionId === 'string' ? candidate.sessionId : null,
+      title: candidate.title,
+      message: candidate.message,
+      createdAt: candidate.createdAt,
+      seenAt: typeof candidate.seenAt === 'string' ? candidate.seenAt : null,
+      dismissedAt: typeof candidate.dismissedAt === 'string' ? candidate.dismissedAt : null,
+    }];
+  });
+}
+
+function parseAutomationStateResponse(data: Record<string, unknown>): ParsedAutomationStateResponse {
+  return {
+    worker: parseAutomationWorkerState(data.worker),
+    heartbeat: parseAutomationHeartbeatState(data.heartbeat),
+    schedules: parseAutomationSchedules(data.schedules),
+    monitors: parseAutomationMonitors(data.monitors),
+    nudges: parseAutomationNotifications(data.nudges),
+  };
+}
+
+function formatAutomationTimestamp(value: string | null) {
+  if (!value) return 'not run yet';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
 }
 
 function parseOpenClawPermissions(value: unknown): EffectiveOpenClawToolAccess['permissions'] {
@@ -1742,6 +1987,7 @@ export default function OpenClawWorkspace({
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [headerModeMenuOpen, setHeaderModeMenuOpen] = useState<string | null>(null);
   const [workspaceCapabilitiesOpen, setWorkspaceCapabilitiesOpen] = useState(false);
+  const [automationPanelOpen, setAutomationPanelOpen] = useState(false);
   const [rightRailCollapsed, setRightRailCollapsed] = useState(getStoredRightRailCollapsed);
   const [isMobileViewport, setIsMobileViewport] = useState(getIsMobileViewport);
   const [mobileRailOpen, setMobileRailOpen] = useState(false);
@@ -1765,6 +2011,34 @@ export default function OpenClawWorkspace({
   const [workspaceControlsModalOpen, setWorkspaceControlsModalOpen] = useState(false);
   const [memoryContext, setMemoryContext] = useState<string>('');
   const [hasMemory, setHasMemory] = useState(false);
+  const [automationPermissionGranted, setAutomationPermissionGranted] = useState(true);
+  const [automationActionRequired, setAutomationActionRequired] = useState('');
+  const [automationLoading, setAutomationLoading] = useState(false);
+  const [automationSaving, setAutomationSaving] = useState(false);
+  const [automationError, setAutomationError] = useState('');
+  const [automationWorker, setAutomationWorker] = useState<AutomationWorkerState>(DEFAULT_AUTOMATION_WORKER_STATE);
+  const [automationHeartbeat, setAutomationHeartbeat] = useState<AutomationHeartbeatState>(DEFAULT_AUTOMATION_HEARTBEAT_STATE);
+  const [automationSchedules, setAutomationSchedules] = useState<AutomationScheduleState[]>([]);
+  const [automationMonitors, setAutomationMonitors] = useState<AutomationMonitorState[]>([]);
+  const [automationNudges, setAutomationNudges] = useState<AutomationNotificationState[]>([]);
+  const [newScheduleName, setNewScheduleName] = useState('');
+  const [newSchedulePrompt, setNewSchedulePrompt] = useState('');
+  const [newScheduleCron, setNewScheduleCron] = useState('0 9 * * 1-5');
+  const [newScheduleTimezone, setNewScheduleTimezone] = useState(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York';
+    } catch {
+      return 'America/New_York';
+    }
+  });
+  const [newMonitorName, setNewMonitorName] = useState('');
+  const [newMonitorKind, setNewMonitorKind] = useState<'url' | 'file'>('url');
+  const [newMonitorTarget, setNewMonitorTarget] = useState('');
+  const [newMonitorIntervalSeconds, setNewMonitorIntervalSeconds] = useState(300);
+  const [newMonitorTriggerMode, setNewMonitorTriggerMode] = useState<'changed' | 'contains' | 'missing'>('changed');
+  const [newMonitorExpectedPattern, setNewMonitorExpectedPattern] = useState('');
+  const [wakeEventTitle, setWakeEventTitle] = useState('');
+  const [wakeEventMessage, setWakeEventMessage] = useState('');
   const [shellSettingsOpen, setShellSettingsOpen] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<PendingToolApproval | null>(null);
   const [, setExecutingCommand] = useState(false);
@@ -2172,6 +2446,159 @@ export default function OpenClawWorkspace({
     }
   };
 
+  const loadAutomationState = async (options: { silent?: boolean } = {}) => {
+    if (!options.silent) {
+      setAutomationLoading(true);
+    }
+    if (!options.silent) {
+      setAutomationError('');
+    }
+
+    try {
+      const res = await fetch('/api/openclaw/automation');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const missingPermissions = Array.isArray(data.missingPermissions)
+          ? data.missingPermissions.filter((entry: unknown): entry is string => typeof entry === 'string')
+          : [];
+        if (res.status === 403 && missingPermissions.includes('openclaw.automation')) {
+          setAutomationPermissionGranted(false);
+          setAutomationActionRequired(typeof data.actionRequired === 'string' ? data.actionRequired : '');
+          setAutomationWorker(DEFAULT_AUTOMATION_WORKER_STATE);
+          setAutomationHeartbeat(DEFAULT_AUTOMATION_HEARTBEAT_STATE);
+          setAutomationSchedules([]);
+          setAutomationMonitors([]);
+          setAutomationNudges([]);
+          return;
+        }
+
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to load automation state');
+      }
+
+      const parsed = parseAutomationStateResponse(data as Record<string, unknown>);
+      setAutomationPermissionGranted(true);
+      setAutomationActionRequired('');
+      setAutomationWorker(parsed.worker);
+      setAutomationHeartbeat(parsed.heartbeat);
+      setAutomationSchedules(parsed.schedules);
+      setAutomationMonitors(parsed.monitors);
+      setAutomationNudges(parsed.nudges);
+    } catch (error) {
+      setAutomationError(error instanceof Error ? error.message : 'Failed to load automation state');
+    } finally {
+      if (!options.silent) {
+        setAutomationLoading(false);
+      }
+    }
+  };
+
+  const postAutomationAction = async (payload: Record<string, unknown>) => {
+    setAutomationSaving(true);
+    setAutomationError('');
+    try {
+      const res = await fetch('/api/openclaw/automation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Automation request failed');
+      }
+      await loadAutomationState({ silent: true });
+      return data as Record<string, unknown>;
+    } catch (error) {
+      setAutomationError(error instanceof Error ? error.message : 'Automation request failed');
+      throw error;
+    } finally {
+      setAutomationSaving(false);
+    }
+  };
+
+  const saveHeartbeatConfig = async (patch: Partial<AutomationHeartbeatState>) => {
+    await postAutomationAction({
+      action: 'update_heartbeat',
+      ...(typeof patch.enabled === 'boolean' ? { enabled: patch.enabled } : {}),
+      ...(typeof patch.intervalMinutes === 'number' ? { intervalMinutes: patch.intervalMinutes } : {}),
+      ...(typeof patch.staleAfterMinutes === 'number' ? { staleAfterMinutes: patch.staleAfterMinutes } : {}),
+      ...(typeof patch.promptTemplate === 'string' ? { promptTemplate: patch.promptTemplate } : {}),
+    });
+  };
+
+  const createAutomationScheduleRecord = async () => {
+    await postAutomationAction({
+      action: 'create_schedule',
+      name: newScheduleName,
+      prompt: newSchedulePrompt,
+      cronExpression: newScheduleCron,
+      timezone: newScheduleTimezone,
+    });
+    setNewScheduleName('');
+    setNewSchedulePrompt('');
+    setNewScheduleCron('0 9 * * 1-5');
+  };
+
+  const toggleAutomationSchedule = async (schedule: AutomationScheduleState) => {
+    await postAutomationAction({
+      action: 'update_schedule',
+      id: schedule.id,
+      enabled: !schedule.enabled,
+    });
+  };
+
+  const deleteAutomationScheduleRecord = async (id: string) => {
+    await postAutomationAction({ action: 'delete_schedule', id });
+  };
+
+  const createAutomationMonitorRecord = async () => {
+    await postAutomationAction({
+      action: 'create_monitor',
+      name: newMonitorName,
+      kind: newMonitorKind,
+      target: newMonitorTarget,
+      checkIntervalSeconds: newMonitorIntervalSeconds,
+      triggerMode: newMonitorTriggerMode,
+      expectedPattern: newMonitorExpectedPattern,
+    });
+    setNewMonitorName('');
+    setNewMonitorTarget('');
+    setNewMonitorIntervalSeconds(300);
+    setNewMonitorTriggerMode('changed');
+    setNewMonitorExpectedPattern('');
+  };
+
+  const toggleAutomationMonitor = async (monitor: AutomationMonitorState) => {
+    await postAutomationAction({
+      action: 'update_monitor',
+      id: monitor.id,
+      enabled: !monitor.enabled,
+    });
+  };
+
+  const deleteAutomationMonitorRecord = async (id: string) => {
+    await postAutomationAction({ action: 'delete_monitor', id });
+  };
+
+  const dismissAutomationNudge = async (id: string) => {
+    await postAutomationAction({ action: 'dismiss_nudge', id });
+  };
+
+  const markAutomationNudgesSeen = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    await postAutomationAction({ action: 'mark_seen', ids });
+  };
+
+  const createAutomationWakeEventRecord = async () => {
+    await postAutomationAction({
+      action: 'create_wake_event',
+      title: wakeEventTitle,
+      message: wakeEventMessage,
+      ...(currentSessionId ? { sessionId: currentSessionId } : {}),
+    });
+    setWakeEventTitle('');
+    setWakeEventMessage('');
+  };
+
   const loadCanvasArtifacts = async (
     sessionId: string,
     options: { append?: boolean; cursor?: string | null; query?: string } = {},
@@ -2456,7 +2883,7 @@ export default function OpenClawWorkspace({
   useEffect(() => {
     void (async () => {
       try {
-        await Promise.all([loadSettings(), loadSessions(), loadFolders(), loadChatTags(), loadMemory(), loadShellSettings(), loadWorkspaces()]);
+        await Promise.all([loadSettings(), loadSessions(), loadFolders(), loadChatTags(), loadMemory(), loadShellSettings(), loadWorkspaces(), loadAutomationState()]);
       } catch (error) {
         console.error('Failed to initialize WorkSpaces workspace:', error);
       }
@@ -2468,6 +2895,14 @@ export default function OpenClawWorkspace({
     if (settingsRevision <= 0) return;
     void loadSettings();
   }, [settingsRevision]);
+
+  useEffect(() => {
+    if (!automationPermissionGranted || workspaceControlsModalOpen) return;
+    const intervalId = window.setInterval(() => {
+      void loadAutomationState({ silent: true });
+    }, 45000);
+    return () => window.clearInterval(intervalId);
+  }, [automationPermissionGranted, workspaceControlsModalOpen]);
 
   useEffect(() => {
     if (settings?.openClawUwafLiveBrowser !== false) return;
@@ -2491,6 +2926,15 @@ export default function OpenClawWorkspace({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [workspaceControlsModalOpen]);
+
+  useEffect(() => {
+    if (!workspaceControlsModalOpen || !automationPermissionGranted) return;
+    const unseenIds = automationNudges
+      .filter(nudge => !nudge.seenAt && !nudge.dismissedAt)
+      .map(nudge => nudge.id);
+    if (unseenIds.length === 0) return;
+    void markAutomationNudgesSeen(unseenIds);
+  }, [workspaceControlsModalOpen, automationNudges, automationPermissionGranted]);
 
   useEffect(() => {
     setSessionListPage(0);
@@ -2680,6 +3124,19 @@ export default function OpenClawWorkspace({
     setCreateMenuOpen(false);
     setRenamingSessionId(null);
     setRenameValue('');
+  };
+
+  const openAutomationNudgeSession = (nudge: AutomationNotificationState) => {
+    if (!nudge.sessionId) {
+      setSelectedSessionInfo('This automation nudge is not tied to a specific WorkSpaces thread.');
+      return;
+    }
+    const session = sessions.find(candidate => candidate.id === nudge.sessionId);
+    if (!session) {
+      setSelectedSessionInfo('The WorkSpaces thread linked to this automation nudge no longer exists.');
+      return;
+    }
+    switchSession(session);
   };
 
   const createSession = async (baseMessages: OpenClawMessage[], sessionId: string) => {
@@ -5376,6 +5833,10 @@ export default function OpenClawWorkspace({
     ? (persona.name || 'Default persona')
     : `${persona.name} · ${persona.templateId}`;
   const userProfileSummary = `${userProfile.name || 'Not set'} · ${userProfile.role || 'No role'}`;
+  const openAutomationNudgeCount = automationNudges.filter(nudge => !nudge.dismissedAt).length;
+  const automationSummary = !automationPermissionGranted
+    ? 'Blocked by account permission'
+    : `${automationHeartbeat.enabled ? `Heartbeat ${automationHeartbeat.intervalMinutes}m` : 'Heartbeat off'} · ${automationSchedules.length} schedule${automationSchedules.length === 1 ? '' : 's'} · ${automationMonitors.length} monitor${automationMonitors.length === 1 ? '' : 's'} · ${openAutomationNudgeCount} nudge${openAutomationNudgeCount === 1 ? '' : 's'}`;
   const visibleChatHistory = useMemo(
   () => sanitizeOpenClawMessages(deferredChatHistory).filter(isVisibleMessage),
   [deferredChatHistory, isVisibleMessage]
@@ -6000,6 +6461,73 @@ export default function OpenClawWorkspace({
 
         <div className="chat-scroll-shell">
           <div ref={chatAreaRef} className="chat-area openclaw-chat-area" onScroll={handleChatScroll}>
+            {automationPermissionGranted && automationNudges.length > 0 && (
+              <div style={{ display: 'grid', gap: '10px', marginBottom: '18px' }}>
+                <div className="openclaw-card" style={{ padding: '14px 16px' }}>
+                  <div className="openclaw-card-header">
+                    <div>
+                      <div className="openclaw-section-label">Automation nudges</div>
+                      <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                        Background reminders, heartbeat check-ins, schedules, and monitor triggers surfaced by the worker.
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="openclaw-inline-button"
+                      onClick={() => setWorkspaceControlsModalOpen(true)}
+                    >
+                      Review
+                    </button>
+                  </div>
+                  <div style={{ display: 'grid', gap: '10px', marginTop: '10px' }}>
+                    {automationNudges.slice(0, 3).map(nudge => (
+                      <div
+                        key={nudge.id}
+                        style={{
+                          display: 'grid',
+                          gap: '8px',
+                          padding: '12px',
+                          borderRadius: '14px',
+                          border: '1px solid var(--border-color)',
+                          background: 'var(--panel-bg)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+                          <div>
+                            <div style={{ fontSize: '0.88rem', fontWeight: 700 }}>{nudge.title}</div>
+                            <div style={{ marginTop: '4px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                              {formatAutomationTimestamp(nudge.createdAt)}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            {nudge.sessionId && (
+                              <button
+                                type="button"
+                                className="openclaw-inline-button"
+                                onClick={() => openAutomationNudgeSession(nudge)}
+                              >
+                                Open thread
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="openclaw-inline-button"
+                              onClick={() => void dismissAutomationNudge(nudge.id)}
+                              disabled={automationSaving}
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        </div>
+                        <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.8rem', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+                          {nudge.message}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
             {visibleChatHistory.length === 0 ? (
               <div className="openclaw-empty-state">
                 <div style={{ textAlign: 'center', maxWidth: '720px', margin: '0 auto' }}>
@@ -7551,6 +8079,500 @@ export default function OpenClawWorkspace({
                       ? 'Agent can request shell command execution. Commands require approval in ask-first mode.'
                       : 'Shell execution is disabled in personal settings. Enable it to allow command execution.'}
                 </div>
+              </div>
+
+              <div className="openclaw-card">
+                <button
+                  type="button"
+                  className="openclaw-disclosure-toggle"
+                  onClick={() => {
+                    setAutomationPanelOpen(open => !open);
+                    if (!automationPanelOpen) {
+                      void loadAutomationState();
+                    }
+                  }}
+                  aria-expanded={automationPanelOpen}
+                >
+                  <div className="openclaw-disclosure-summary">
+                    <div>
+                      <div className="openclaw-section-label">Autonomous scheduling</div>
+                      <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                        {automationLoading ? 'Loading automation state...' : automationSummary}
+                      </div>
+                    </div>
+                    <div className="openclaw-disclosure-pill-row">
+                      <span className="openclaw-disclosure-pill">
+                        Worker: {automationWorker.running ? 'Running' : 'Stopped'}
+                      </span>
+                      <span className="openclaw-disclosure-pill">
+                        Nudges: {openAutomationNudgeCount}
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronDown
+                    size={16}
+                    className={`openclaw-disclosure-chevron${automationPanelOpen ? ' is-open' : ''}`}
+                  />
+                </button>
+
+                {automationPanelOpen && (
+                  <div className="openclaw-disclosure-body">
+                    {!automationPermissionGranted ? (
+                      <div style={{ display: 'grid', gap: '8px' }}>
+                        <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                          This account does not have OpenClaw automation permission. An admin must grant it before heartbeat check-ins, schedules, monitors, or wake events can run.
+                        </div>
+                        {automationActionRequired && (
+                          <div style={{ fontSize: '0.78rem', color: 'var(--danger)' }}>
+                            {automationActionRequired}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ display: 'grid', gap: '14px' }}>
+                        <div className="openclaw-card">
+                          <div className="openclaw-card-header">
+                            <div>
+                              <div className="openclaw-section-label">Worker status</div>
+                              <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                Polling background heartbeats, cron schedules, file checks, and URL checks every 30 seconds.
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="openclaw-inline-button"
+                              onClick={() => void loadAutomationState()}
+                              disabled={automationLoading}
+                            >
+                              {automationLoading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                              Refresh
+                            </button>
+                          </div>
+                          <div style={{ display: 'grid', gap: '8px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                            <div>Status: {automationWorker.running ? 'running' : 'stopped'} · loops: {automationWorker.loopCount}</div>
+                            <div>Started: {formatAutomationTimestamp(automationWorker.startedAt)}</div>
+                            <div>Last tick: {formatAutomationTimestamp(automationWorker.lastTickAt)}</div>
+                            {automationWorker.lastError && (
+                              <div style={{ color: 'var(--danger)' }}>Last worker error: {automationWorker.lastError}</div>
+                            )}
+                            {automationError && (
+                              <div style={{ color: 'var(--danger)' }}>{automationError}</div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="openclaw-card">
+                          <div className="openclaw-card-header">
+                            <div>
+                              <div className="openclaw-section-label">Heartbeat check-ins</div>
+                              <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                Create proactive reminders for stale WorkSpaces threads.
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className={`openclaw-toggle${automationHeartbeat.enabled ? ' active' : ''}`}
+                              onClick={() => void saveHeartbeatConfig({ enabled: !automationHeartbeat.enabled })}
+                              disabled={automationSaving}
+                            >
+                              {automationHeartbeat.enabled ? 'Enabled' : 'Disabled'}
+                            </button>
+                          </div>
+                          <div style={{ display: 'grid', gap: '10px' }}>
+                            <div style={{ display: 'grid', gap: '10px', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+                              <label style={{ display: 'grid', gap: '6px' }}>
+                                <span className="openclaw-field-label">Interval (minutes)</span>
+                                <input
+                                  className="input-field"
+                                  type="number"
+                                  min={15}
+                                  max={1440}
+                                  value={automationHeartbeat.intervalMinutes}
+                                  onChange={event => setAutomationHeartbeat(current => ({
+                                    ...current,
+                                    intervalMinutes: Math.max(15, Number(event.target.value) || 15),
+                                  }))}
+                                />
+                              </label>
+                              <label style={{ display: 'grid', gap: '6px' }}>
+                                <span className="openclaw-field-label">Stale after (minutes)</span>
+                                <input
+                                  className="input-field"
+                                  type="number"
+                                  min={15}
+                                  max={10080}
+                                  value={automationHeartbeat.staleAfterMinutes}
+                                  onChange={event => setAutomationHeartbeat(current => ({
+                                    ...current,
+                                    staleAfterMinutes: Math.max(15, Number(event.target.value) || 15),
+                                  }))}
+                                />
+                              </label>
+                            </div>
+                            <label style={{ display: 'grid', gap: '6px' }}>
+                              <span className="openclaw-field-label">Heartbeat prompt</span>
+                              <textarea
+                                className="input-field"
+                                rows={3}
+                                value={automationHeartbeat.promptTemplate}
+                                onChange={event => setAutomationHeartbeat(current => ({
+                                  ...current,
+                                  promptTemplate: event.target.value,
+                                }))}
+                                style={{ resize: 'vertical' }}
+                                placeholder="Review stale WorkSpaces tasks and suggest the single best next action."
+                              />
+                            </label>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                              <button
+                                type="button"
+                                className="openclaw-inline-button"
+                                onClick={() => void saveHeartbeatConfig({
+                                  intervalMinutes: automationHeartbeat.intervalMinutes,
+                                  staleAfterMinutes: automationHeartbeat.staleAfterMinutes,
+                                  promptTemplate: automationHeartbeat.promptTemplate,
+                                })}
+                                disabled={automationSaving}
+                              >
+                                Save heartbeat
+                              </button>
+                              <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                                Next run: {formatAutomationTimestamp(automationHeartbeat.nextRunAt)} · Last status: {automationHeartbeat.lastStatus}
+                              </span>
+                            </div>
+                            {automationHeartbeat.lastError && (
+                              <div style={{ fontSize: '0.76rem', color: 'var(--danger)' }}>
+                                {automationHeartbeat.lastError}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="openclaw-card">
+                          <div className="openclaw-card-header">
+                            <div>
+                              <div className="openclaw-section-label">Cron schedules</div>
+                              <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                Queue recurring task prompts without keeping a browser tab open.
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gap: '10px' }}>
+                            {automationSchedules.length === 0 ? (
+                              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                No recurring schedules yet.
+                              </div>
+                            ) : (
+                              <div style={{ display: 'grid', gap: '10px' }}>
+                                {automationSchedules.map(schedule => (
+                                  <div key={schedule.id} style={{ display: 'grid', gap: '8px', padding: '12px', borderRadius: '14px', border: '1px solid var(--border-color)', background: 'var(--panel-bg)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                                      <div>
+                                        <div style={{ fontSize: '0.9rem', fontWeight: 700 }}>{schedule.name}</div>
+                                        <div style={{ marginTop: '4px', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                                          {schedule.cronExpression} · {schedule.timezone} · next {formatAutomationTimestamp(schedule.nextRunAt)}
+                                        </div>
+                                      </div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                        <button
+                                          type="button"
+                                          className={`openclaw-toggle${schedule.enabled ? ' active' : ''}`}
+                                          onClick={() => void toggleAutomationSchedule(schedule)}
+                                          disabled={automationSaving}
+                                        >
+                                          {schedule.enabled ? 'Enabled' : 'Paused'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="openclaw-inline-button"
+                                          onClick={() => void deleteAutomationScheduleRecord(schedule.id)}
+                                          disabled={automationSaving}
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.8rem', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+                                      {schedule.prompt}
+                                    </div>
+                                    {schedule.lastError && (
+                                      <div style={{ fontSize: '0.76rem', color: 'var(--danger)' }}>{schedule.lastError}</div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <div style={{ display: 'grid', gap: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
+                              <div className="openclaw-section-label">Create schedule</div>
+                              <input
+                                className="input-field"
+                                value={newScheduleName}
+                                onChange={event => setNewScheduleName(event.target.value)}
+                                placeholder="Daily standup reminder"
+                              />
+                              <textarea
+                                className="input-field"
+                                rows={3}
+                                value={newSchedulePrompt}
+                                onChange={event => setNewSchedulePrompt(event.target.value)}
+                                placeholder="What should the agent remind or review when this schedule fires?"
+                                style={{ resize: 'vertical' }}
+                              />
+                              <div style={{ display: 'grid', gap: '10px', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+                                <input
+                                  className="input-field"
+                                  value={newScheduleCron}
+                                  onChange={event => setNewScheduleCron(event.target.value)}
+                                  placeholder="0 9 * * 1-5"
+                                />
+                                <input
+                                  className="input-field"
+                                  value={newScheduleTimezone}
+                                  onChange={event => setNewScheduleTimezone(event.target.value)}
+                                  placeholder="America/New_York"
+                                />
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                <button
+                                  type="button"
+                                  className="openclaw-inline-button"
+                                  onClick={() => void createAutomationScheduleRecord()}
+                                  disabled={automationSaving}
+                                >
+                                  <Plus size={12} />
+                                  Add schedule
+                                </button>
+                                <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                                  Cron format: minute hour day month weekday
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="openclaw-card">
+                          <div className="openclaw-card-header">
+                            <div>
+                              <div className="openclaw-section-label">Background monitors</div>
+                              <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                Poll URLs or host files and raise nudges when they change, match content, or disappear.
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gap: '10px' }}>
+                            {automationMonitors.length === 0 ? (
+                              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                No monitors configured yet.
+                              </div>
+                            ) : (
+                              <div style={{ display: 'grid', gap: '10px' }}>
+                                {automationMonitors.map(monitor => (
+                                  <div key={monitor.id} style={{ display: 'grid', gap: '8px', padding: '12px', borderRadius: '14px', border: '1px solid var(--border-color)', background: 'var(--panel-bg)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                                      <div>
+                                        <div style={{ fontSize: '0.9rem', fontWeight: 700 }}>{monitor.name}</div>
+                                        <div style={{ marginTop: '4px', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                                          {monitor.kind.toUpperCase()} · {monitor.triggerMode} · every {monitor.checkIntervalSeconds}s · next {formatAutomationTimestamp(monitor.nextCheckAt)}
+                                        </div>
+                                      </div>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                        <button
+                                          type="button"
+                                          className={`openclaw-toggle${monitor.enabled ? ' active' : ''}`}
+                                          onClick={() => void toggleAutomationMonitor(monitor)}
+                                          disabled={automationSaving}
+                                        >
+                                          {monitor.enabled ? 'Enabled' : 'Paused'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="openclaw-inline-button"
+                                          onClick={() => void deleteAutomationMonitorRecord(monitor.id)}
+                                          disabled={automationSaving}
+                                        >
+                                          Remove
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                                      Target: {monitor.target}
+                                      {monitor.expectedPattern ? `\nPattern: ${monitor.expectedPattern}` : ''}
+                                      {monitor.lastSummary ? `\nLast summary: ${monitor.lastSummary}` : ''}
+                                    </div>
+                                    {monitor.lastError && (
+                                      <div style={{ fontSize: '0.76rem', color: 'var(--danger)' }}>{monitor.lastError}</div>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            <div style={{ display: 'grid', gap: '10px', paddingTop: '10px', borderTop: '1px solid var(--border-color)' }}>
+                              <div className="openclaw-section-label">Create monitor</div>
+                              <input
+                                className="input-field"
+                                value={newMonitorName}
+                                onChange={event => setNewMonitorName(event.target.value)}
+                                placeholder="Release notes page watcher"
+                              />
+                              <div style={{ display: 'grid', gap: '10px', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+                                <select
+                                  className="input-field"
+                                  value={newMonitorKind}
+                                  onChange={event => setNewMonitorKind(event.target.value === 'file' ? 'file' : 'url')}
+                                >
+                                  <option value="url">URL monitor</option>
+                                  <option value="file">File monitor</option>
+                                </select>
+                                <select
+                                  className="input-field"
+                                  value={newMonitorTriggerMode}
+                                  onChange={event => setNewMonitorTriggerMode(
+                                    event.target.value === 'contains' || event.target.value === 'missing'
+                                      ? event.target.value
+                                      : 'changed'
+                                  )}
+                                >
+                                  <option value="changed">Changed</option>
+                                  <option value="contains">Contains text</option>
+                                  <option value="missing">Missing / unavailable</option>
+                                </select>
+                              </div>
+                              <input
+                                className="input-field"
+                                value={newMonitorTarget}
+                                onChange={event => setNewMonitorTarget(event.target.value)}
+                                placeholder={newMonitorKind === 'url' ? 'https://example.com/feed' : '/home/raza/project/file.txt'}
+                              />
+                              <div style={{ display: 'grid', gap: '10px', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+                                <input
+                                  className="input-field"
+                                  type="number"
+                                  min={30}
+                                  max={86400}
+                                  value={newMonitorIntervalSeconds}
+                                  onChange={event => setNewMonitorIntervalSeconds(Math.max(30, Number(event.target.value) || 30))}
+                                  placeholder="300"
+                                />
+                                <input
+                                  className="input-field"
+                                  value={newMonitorExpectedPattern}
+                                  onChange={event => setNewMonitorExpectedPattern(event.target.value)}
+                                  placeholder={newMonitorTriggerMode === 'contains' ? 'Required text to match' : 'Optional pattern'}
+                                  disabled={newMonitorTriggerMode === 'changed'}
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                className="openclaw-inline-button"
+                                onClick={() => void createAutomationMonitorRecord()}
+                                disabled={automationSaving}
+                              >
+                                <Plus size={12} />
+                                Add monitor
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="openclaw-card">
+                          <div className="openclaw-card-header">
+                            <div>
+                              <div className="openclaw-section-label">Wake-on-event</div>
+                              <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                Create a manual wake event now, or POST to `/api/openclaw/automation/wake-event` from an external trigger.
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gap: '10px' }}>
+                            <input
+                              className="input-field"
+                              value={wakeEventTitle}
+                              onChange={event => setWakeEventTitle(event.target.value)}
+                              placeholder="Wake event title"
+                            />
+                            <textarea
+                              className="input-field"
+                              rows={3}
+                              value={wakeEventMessage}
+                              onChange={event => setWakeEventMessage(event.target.value)}
+                              placeholder="What happened, and what should the agent know?"
+                              style={{ resize: 'vertical' }}
+                            />
+                            <button
+                              type="button"
+                              className="openclaw-inline-button"
+                              onClick={() => void createAutomationWakeEventRecord()}
+                              disabled={automationSaving}
+                            >
+                              Trigger wake event
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="openclaw-card">
+                          <div className="openclaw-card-header">
+                            <div>
+                              <div className="openclaw-section-label">Nudge inbox</div>
+                              <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                                Recent heartbeat check-ins, schedule fires, monitor triggers, and wake events.
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="openclaw-inline-button"
+                              onClick={() => void markAutomationNudgesSeen(automationNudges.map(nudge => nudge.id))}
+                              disabled={automationSaving || automationNudges.length === 0}
+                            >
+                              Mark all seen
+                            </button>
+                          </div>
+                          {automationNudges.length === 0 ? (
+                            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                              No nudges are waiting right now.
+                            </div>
+                          ) : (
+                            <div style={{ display: 'grid', gap: '10px' }}>
+                              {automationNudges.map(nudge => (
+                                <div key={nudge.id} style={{ display: 'grid', gap: '8px', padding: '12px', borderRadius: '14px', border: '1px solid var(--border-color)', background: 'var(--panel-bg)' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+                                    <div>
+                                      <div style={{ fontSize: '0.88rem', fontWeight: 700 }}>{nudge.title}</div>
+                                      <div style={{ marginTop: '4px', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                                        {formatAutomationTimestamp(nudge.createdAt)} · {nudge.kind}
+                                      </div>
+                                    </div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                      {nudge.sessionId && (
+                                        <button
+                                          type="button"
+                                          className="openclaw-inline-button"
+                                          onClick={() => openAutomationNudgeSession(nudge)}
+                                        >
+                                          Open thread
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        className="openclaw-inline-button"
+                                        onClick={() => void dismissAutomationNudge(nudge.id)}
+                                        disabled={automationSaving}
+                                      >
+                                        Dismiss
+                                      </button>
+                                    </div>
+                                  </div>
+                                  <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.8rem', lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+                                    {nudge.message}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="openclaw-card">

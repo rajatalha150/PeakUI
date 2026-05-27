@@ -24,6 +24,11 @@ model User {
   artifacts           CanvasArtifact[]
   tags                Tag[]
   shellAudits         ShellCommandAudit[]
+  automationHeartbeat AutomationHeartbeatConfig?
+  automationSchedules AutomationSchedule[]
+  automationMonitors  AutomationMonitor[]
+  automationNotifications AutomationNotification[]
+  automationEvents    AutomationEvent[]
 
   @@index([role, isActive])
 }
@@ -268,6 +273,102 @@ model ShellCommandAudit {
   @@index([sessionId])
   @@index([status])
   @@index([target])
+}
+
+model AutomationHeartbeatConfig {
+  id                String   @id @default(uuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  enabled           Boolean  @default(false)
+  intervalMinutes   Int      @default(240)
+  staleAfterMinutes Int      @default(180)
+  promptTemplate    String   @default("Review stale WorkSpaces tasks and suggest the single best next action.")
+  nextRunAt         DateTime?
+  lastRunAt         DateTime?
+  lastStatus        String   @default("idle")
+  lastError         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([enabled, nextRunAt])
+}
+
+model AutomationSchedule {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  prompt         String
+  cronExpression String
+  timezone       String   @default("America/New_York")
+  enabled        Boolean  @default(true)
+  nextRunAt      DateTime
+  lastRunAt      DateTime?
+  lastStatus     String   @default("idle")
+  lastError      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([userId, enabled, nextRunAt])
+}
+
+model AutomationMonitor {
+  id                  String   @id @default(uuid())
+  userId              String
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                String
+  kind                String   @default("url") // "url" | "file"
+  target              String
+  enabled             Boolean  @default(true)
+  checkIntervalSeconds Int     @default(300)
+  triggerMode         String   @default("changed") // "changed" | "contains" | "missing"
+  expectedPattern     String?
+  nextCheckAt         DateTime?
+  lastCheckedAt       DateTime?
+  lastStatus          String   @default("idle")
+  lastError           String?
+  lastFingerprint     String?
+  lastSummary         String?
+  lastTriggeredAt     DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([userId, enabled, nextCheckAt])
+}
+
+model AutomationNotification {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind        String   @default("nudge")
+  sourceKind  String?
+  sourceId    String?
+  sessionId   String?
+  title       String
+  message     String
+  createdAt   DateTime @default(now())
+  seenAt      DateTime?
+  dismissedAt DateTime?
+
+  @@index([userId, dismissedAt, createdAt])
+  @@index([sourceKind, sourceId])
+}
+
+model AutomationEvent {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind       String
+  sourceKind String?
+  sourceId   String?
+  title      String
+  message    String
+  details    String?
+  status     String   @default("created")
+  createdAt  DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([sourceKind, sourceId])
 }
 
 enum Role {

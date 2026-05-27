@@ -89,6 +89,17 @@ WorkSpaces includes a collapsible Canvas panel that:
 - **Scaffolded workspace files**: Each workspace gets its own `BOOT.md`, `TOOLS.md`, and `skills/` directory so local conventions and reusable prompts live with the workspace itself.
 - **Prompt-backed startup context**: The selected workspace's `BOOT.md`, `TOOLS.md`, and skill-template summaries are injected into the Open Claw system prompt for that turn.
 
+### Autonomous Scheduling
+
+- **Persistent automation worker**: A Node-side worker starts from `src/instrumentation.ts` and polls automation state every 30 seconds instead of relying on browser-local timers.
+- **Heartbeat check-ins**: Configurable stale-thread review creates proactive server-side nudges when WorkSpaces threads have gone quiet for too long.
+- **Cron schedules**: Users can store recurring prompts with cron expressions + timezone and receive scheduled nudges when they fire.
+- **Background monitors**: URL and file monitors run outside active chat sessions and trigger nudges on change, content match, or disappearance.
+- **Wake events**: Authenticated `POST /api/openclaw/automation/wake-event` lets external triggers raise a WorkSpaces automation nudge immediately.
+- **Nudge inbox**: Automation nudges show inside WorkSpaces, can jump to the linked thread, and are also injected into Open Claw request context on the backend.
+- **Guardrails**: File monitors require the same approved OpenClaw filesystem roots as manual file inspection, and URL monitors reuse the public-HTTP SSRF checks from the browser stack.
+- **Current boundary**: Automation is currently notification-driven. It does not yet run unattended model generations in the background.
+
 ### Tool Execution
 
 - **Effective capability model**: Tool availability is now the intersection of account permission, personal settings, and runtime availability. WorkSpaces no longer advertises shell/filesystem/code/browser/UWAF capabilities that the backend will reject.

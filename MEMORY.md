@@ -63,6 +63,9 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - WorkSpaces now supports multiple named project workspaces. Each workspace scaffolds `BOOT.md`, `TOOLS.md`, and a `skills/` library and can be created/selected from the Workspace controls modal.
 - The selected workspace's boot instructions, tool conventions, and custom skill summaries now flow into the Open Claw system prompt each turn.
 - Code sandbox runs default into the selected workspace when no explicit `workspacePath` is provided, and each workspace can optionally auto-commit detected file changes to its own git repo.
+- WorkSpaces now also exposes autonomous scheduling controls in the same modal: worker status, heartbeat check-ins, cron schedules, file/URL monitors, manual wake events, and a nudge inbox.
+- Automation nudges are server-side, survive browser reloads, and are injected back into later Open Claw task requests as background context.
+- File monitors now require approved filesystem roots, and URL monitors reuse the existing SSRF/public-host validation so automation cannot bypass manual tool guardrails.
 
 ### Host Filesystem & Executor Access
 - `/api/openclaw/filesystem` now has a status `GET` that reports required permissions, mounted host roots, approved read/write roots, readiness warnings, host shell settings, and host executor reachability.

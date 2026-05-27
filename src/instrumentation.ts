@@ -3,6 +3,8 @@ export async function register() {
     console.log('[live-browser] register() called, setting up...')
     const liveBrowser = await import('./lib/live-browser-server')
     liveBrowser.startLiveBrowserServer()
+    const automationWorker = await import('./lib/openclaw-automation-worker')
+    automationWorker.startOpenClawAutomationWorker()
 
     // Find the Next.js HTTP server by searching active handles for a TCP server
     // listening on the Next.js port. We check for handle._server (TCP handle → server)
@@ -53,6 +55,7 @@ export async function register() {
 
     // Graceful shutdown
     const cleanup = async () => {
+      automationWorker.stopOpenClawAutomationWorker()
       await liveBrowser.stopLiveBrowserServer()
       process.exit(0)
     }

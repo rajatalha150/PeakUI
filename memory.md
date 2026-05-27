@@ -195,6 +195,8 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Open Claw now supports multiple named project workspaces per user. Each workspace scaffolds `BOOT.md`, `TOOLS.md`, and a `skills/` library, can be selected from the Workspace controls modal, and injects its boot/tool/skill context into the Open Claw system prompt.
 - Code sandbox runs now default into the selected named workspace when the model does not specify `workspacePath`, so file generation lands in a stable workspace root instead of an anonymous thread-only directory.
 - Each named workspace can optionally auto-initialize a git repo and snapshot detected file changes as an automatic workspace backup.
+- Open Claw now includes persistent autonomous scheduling infrastructure: a Node-side worker polls heartbeat configs, cron schedules, URL monitors, file monitors, and wake events, then creates server-side automation nudges surfaced in WorkSpaces and injected into later task requests.
+- Autonomous file monitors now respect the same approved OpenClaw filesystem roots as manual file inspection, and URL monitors reuse the existing public-HTTP SSRF guardrails instead of becoming a private-network backdoor.
 - **Identity & Persona System** — Agent persona config (name, tone, expertise, boundaries, operating instructions) and user profile (name, role, preferences, context) are persisted per-user in `UserSettings` and injected into every Open Claw system prompt
 - **Persona templates** — Pre-built personas: Developer, Researcher, Writer, Analyst, Product Manager, System Admin, plus a fully customizable Custom persona
 - Persona and user profile are editable in collapsible panels in the Open Claw left workspace rail, with template picker and live summary in the workspace top bar
@@ -440,6 +442,14 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - **Settings host-access presets:** Settings now provides Safe Workspace, Home Read + Workspace Write, and Mounted Host Audit presets that configure shell/filesystem fields together while keeping host shell and writes in `ask-first`.
 - **Model-visible tool failures:** WorkSpaces includes filesystem denial codes and action guidance in the tool result so the agent can explain what setting is missing instead of retrying the same blocked path.
 - **Host executor hardening:** the optional host executor now resolves approved roots and requested working directories through real paths before spawning commands, preventing symlinked cwd bypasses of the approved-root boundary.
+
+### Latest Changes (Autonomous Scheduling)
+- **Persistent worker foundation:** `src/instrumentation.ts` now starts an Open Claw automation worker that ticks every 30 seconds and processes due heartbeats, cron schedules, and monitors.
+- **New automation models/routes:** Prisma now stores heartbeat configs, schedules, monitors, notifications, and event logs; new `GET/POST /api/openclaw/automation` and `POST /api/openclaw/automation/wake-event` routes manage the feature.
+- **Heartbeat, cron, monitor, and wake-event nudges:** stale-thread check-ins, recurring cron prompts, URL/file monitor triggers, and manual wake events all flow into one server-side nudge/notification pipeline.
+- **WorkSpaces automation controls:** the Workspace controls modal now exposes worker status, heartbeat settings, cron schedules, monitors, wake-event creation, and an automation nudge inbox.
+- **Prompt-aware follow-up:** unresolved automation nudges are injected into Open Claw requests as background system context so the agent can react to them naturally on the next turn.
+- **Security audit fixes:** file monitors now require approved filesystem roots and mounted host paths, while URL monitors reuse `assertPublicHttpUrl()` so automation cannot bypass existing filesystem or SSRF guardrails.
 
 ### Latest Changes (Canvas Revision & Recovery Pass)
 - **Durable Canvas revision history:** added `CanvasArtifactRevision` plus revision creation on artifact create, edit, and restore, so the version number now has actual recoverable snapshots behind it.

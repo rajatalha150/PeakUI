@@ -26,6 +26,7 @@ import { trimMessagesToFit, estimateStringTokens } from './message-trim';
 import { normalizeImageMimeType, shouldNormalizeImageForCompatibility } from './file-shared';
 import { convertImageBufferToJpeg } from './image-normalization';
 import { getOpenClawWorkspaceContext } from './openclaw-project-workspaces';
+import { getOpenAutomationNudges } from './openclaw-automation';
 
 const CHAT_HEARTBEAT_INTERVAL_MS = 15000;
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
@@ -722,6 +723,9 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const workspaceContext = surface === 'openclaw'
       ? await getOpenClawWorkspaceContext(userId, workspaceId || undefined)
       : null;
+    const automationNudges = surface === 'openclaw'
+      ? await getOpenAutomationNudges(userId)
+      : [];
 
     const openClawPrompt = surface === 'openclaw'
       ? buildOpenClawSystemPrompt({
@@ -798,6 +802,38 @@ export async function createChatCompletionResponse(req: NextRequest) {
       untrimmedMessages = [{ role: 'system', content: systemPrompt }, ...nonSystemMessages];
     } else {
       untrimmedMessages = [...nonSystemMessages];
+    }
+
+    if (surface === 'openclaw' && automationNudges.length > 0) {
+      const nudgeSummary = automationNudges
+        .slice(0, 5)
+        .map((nudge, index) => {
+          const timestamp = new Date(nudge.createdAt).toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          })
+          return `${index + 1}. [${timestamp}] ${nudge.title}\n${nudge.message}`
+        })
+        .join('\n\n')
+
+      const automationSystemMessage: InternalChatMessage = {
+        role: 'system',
+        content: [
+          'Open Claw automation nudges are pending for this user.',
+          'Treat them as background triggers, reminders, or monitoring signals relevant to the current workspace.',
+          'Use them when they matter to the user’s request. If they are irrelevant, ignore them.',
+          '',
+          nudgeSummary,
+        ].join('\n'),
+      }
+
+      if (systemPrompt) {
+        untrimmedMessages = [untrimmedMessages[0], automationSystemMessage, ...untrimmedMessages.slice(1)]
+      } else {
+        untrimmedMessages = [automationSystemMessage, ...untrimmedMessages]
+      }
     }
 
     // In uncensored mode, inject few-shot priming exchanges and a reinforcement
