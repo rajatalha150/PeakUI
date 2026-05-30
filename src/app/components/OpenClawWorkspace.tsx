@@ -24,6 +24,11 @@ import {
   type OpenClawResponseStyle,
 } from '@/lib/openclaw-agent';
 import {
+  hasPendingContinuation,
+  type SessionAnalytics,
+  type SessionAutoContinueMode,
+} from '@/lib/session-intelligence';
+import {
   applyPersonaTemplate,
   DEFAULT_OPENCLAW_PERSONA,
   DEFAULT_OPENCLAW_USER_PROFILE,
@@ -88,6 +93,18 @@ interface OpenClawSession {
   messages: OpenClawMessage[];
   folderId?: string | null;
   tags?: Array<{ id: string; name: string; color: string }>;
+  summary?: string | null;
+  contextSummary?: string | null;
+  contextSummaryUpdatedAt?: number | null;
+  analytics?: SessionAnalytics | null;
+  autoContinueMode: SessionAutoContinueMode;
+  autoContinueMaxSteps: number;
+  lastAutoContinueAt?: number | null;
+  parentSessionId?: string | null;
+  branchFromMessageId?: string | null;
+  branchLabel?: string | null;
+  branchChildrenCount: number;
+  branchDepth: number;
 }
 
 interface OpenClawWorkspaceRecord {
@@ -264,6 +281,7 @@ interface OpenClawMessage {
     duration: number;
     tps: number;
   };
+  createdAt?: string;
 }
 
 interface OpenClawImageAttachment {
@@ -398,6 +416,13 @@ interface OpenClawSettings {
   openClawAutomationExecutionMaxRunsPerHour: number;
   openClawAutomationExecutionAttachWorkspace: boolean;
   openClawAutomationExecutionAttachMemory: boolean;
+  openClawSessionAutoContinueDefault: SessionAutoContinueMode;
+  openClawSessionAutoContinueMaxSteps: number;
+  openClawSessionSummariesEnabled: boolean;
+  openClawSessionSummaryTargetTokens: number;
+  openClawSessionPreserveTurns: number;
+  openClawSessionAnalyticsEnabled: boolean;
+  openClawSessionBranchingEnabled: boolean;
   ragEnabled: boolean;
   ragTopK: number;
   openClawPersonaTemplate: string;
@@ -696,6 +721,23 @@ function parseOpenClawSettingsResponse(data: Record<string, unknown>): ParsedOpe
       : 6,
     openClawAutomationExecutionAttachWorkspace: data.openClawAutomationExecutionAttachWorkspace !== false,
     openClawAutomationExecutionAttachMemory: data.openClawAutomationExecutionAttachMemory !== false,
+    openClawSessionAutoContinueDefault: data.openClawSessionAutoContinueDefault === 'safe'
+      ? 'safe'
+      : data.openClawSessionAutoContinueDefault === 'ask'
+        ? 'ask'
+        : 'manual',
+    openClawSessionAutoContinueMaxSteps: typeof data.openClawSessionAutoContinueMaxSteps === 'number'
+      ? data.openClawSessionAutoContinueMaxSteps
+      : 3,
+    openClawSessionSummariesEnabled: data.openClawSessionSummariesEnabled !== false,
+    openClawSessionSummaryTargetTokens: typeof data.openClawSessionSummaryTargetTokens === 'number'
+      ? data.openClawSessionSummaryTargetTokens
+      : 6000,
+    openClawSessionPreserveTurns: typeof data.openClawSessionPreserveTurns === 'number'
+      ? data.openClawSessionPreserveTurns
+      : 6,
+    openClawSessionAnalyticsEnabled: data.openClawSessionAnalyticsEnabled !== false,
+    openClawSessionBranchingEnabled: data.openClawSessionBranchingEnabled !== false,
     ragEnabled: data.ragEnabled === true,
     ragTopK: typeof data.ragTopK === 'number' ? data.ragTopK : 8,
     openClawPersonaTemplate: typeof data.openClawPersonaTemplate === 'string' ? data.openClawPersonaTemplate : 'custom',
@@ -1125,6 +1167,8 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
   streamPhase,
   outputsForMessage,
   messageSources,
+  branchingEnabled,
+  onBranchFromMessage,
 }: {
   msg: OpenClawMessage;
   index: number;
@@ -1135,6 +1179,8 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
   streamPhase: UiStreamPhase | null;
   outputsForMessage: ShellOutputEntry[];
   messageSources: MessageSource[];
+  branchingEnabled: boolean;
+  onBranchFromMessage?: (messageId?: string, branchLabel?: string) => void;
 }) {
   const messageContent = typeof msg.content === 'string' ? msg.content : '';
   const messageThinking = typeof msg.thinking === 'string' ? msg.thinking : '';
@@ -1232,6 +1278,26 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
           <span>{msg.meta.duration.toFixed(2)}s</span>
         </div>
       )}
+      {branchingEnabled && msg.role !== 'system' && !msg.hidden && msg.id && !isStreaming && (
+        <div
+          style={{
+            fontSize: '0.74rem',
+            color: 'var(--text-secondary)',
+            marginLeft: msg.role === 'assistant' ? '52px' : '0',
+            display: 'flex',
+            gap: '8px',
+          }}
+        >
+          <button
+            type="button"
+            className="openclaw-inline-button"
+            onClick={() => onBranchFromMessage?.(msg.id, `${msg.role === 'user' ? 'User' : 'Assistant'} turn ${index + 1}`)}
+          >
+            <Copy size={12} />
+            Branch from here
+          </button>
+        </div>
+      )}
       {isStreaming && isLast && liveStats && !msg.meta && (
         <div
           style={{
@@ -1265,6 +1331,7 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
   && prev.streamPhase === next.streamPhase
   && prev.outputsForMessage === next.outputsForMessage
   && prev.messageSources === next.messageSources
+  && prev.branchingEnabled === next.branchingEnabled
 ));
 
 function normalizeExtractedToolRequestName(value: unknown): OpenClawMessage['toolRequest'] {
@@ -1320,7 +1387,25 @@ function normalizeOpenClawMessage(value: unknown): OpenClawMessage | null {
     images,
     attachments,
     meta: raw.meta,
+    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : undefined,
   };
+}
+
+function parseTimestampValue(value: unknown, fallback: number | null = null) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (value && typeof value === 'object' && value instanceof Date) {
+    return value.getTime();
+  }
+
+  if (typeof value === 'string') {
+    const parsed = new Date(value).getTime();
+    return Number.isNaN(parsed) ? fallback : parsed;
+  }
+
+  return fallback;
 }
 
 function normalizeOpenClawSession(value: unknown): OpenClawSession | null {
@@ -1339,7 +1424,7 @@ function normalizeOpenClawSession(value: unknown): OpenClawSession | null {
   return {
     id,
     title: typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : 'WorkSpaces',
-    updatedAt: typeof raw.updatedAt === 'number' && Number.isFinite(raw.updatedAt) ? raw.updatedAt : Date.now(),
+    updatedAt: parseTimestampValue(raw.updatedAt, Date.now()) ?? Date.now(),
     pinned: raw.pinned === true,
     surface: 'openclaw',
     messages,
@@ -1358,6 +1443,18 @@ function normalizeOpenClawSession(value: unknown): OpenClawSession | null {
           }];
         })
       : undefined,
+    summary: typeof raw.summary === 'string' ? raw.summary : raw.summary === null ? null : undefined,
+    contextSummary: typeof raw.contextSummary === 'string' ? raw.contextSummary : raw.contextSummary === null ? null : undefined,
+    contextSummaryUpdatedAt: parseTimestampValue(raw.contextSummaryUpdatedAt, null),
+    analytics: raw.analytics && typeof raw.analytics === 'object' ? raw.analytics as SessionAnalytics : null,
+    autoContinueMode: raw.autoContinueMode === 'safe' ? 'safe' : raw.autoContinueMode === 'ask' ? 'ask' : 'manual',
+    autoContinueMaxSteps: typeof raw.autoContinueMaxSteps === 'number' ? raw.autoContinueMaxSteps : 3,
+    lastAutoContinueAt: parseTimestampValue(raw.lastAutoContinueAt, null),
+    parentSessionId: typeof raw.parentSessionId === 'string' ? raw.parentSessionId : raw.parentSessionId === null ? null : undefined,
+    branchFromMessageId: typeof raw.branchFromMessageId === 'string' ? raw.branchFromMessageId : raw.branchFromMessageId === null ? null : undefined,
+    branchLabel: typeof raw.branchLabel === 'string' ? raw.branchLabel : raw.branchLabel === null ? null : undefined,
+    branchChildrenCount: typeof raw.branchChildrenCount === 'number' ? raw.branchChildrenCount : 0,
+    branchDepth: typeof raw.branchDepth === 'number' ? raw.branchDepth : 0,
   };
 }
 
@@ -1373,6 +1470,16 @@ function sanitizeOpenClawSessions(sessions: unknown): OpenClawSession[] {
   return sessions
     .map(normalizeOpenClawSession)
     .filter((session): session is OpenClawSession => Boolean(session));
+}
+
+function getLatestVisibleAssistantMessage(messages: OpenClawMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === 'assistant' && !message.hidden) {
+      return message;
+    }
+  }
+  return null;
 }
 
 function isAbsoluteUnixPath(value: string) {
@@ -1995,6 +2102,8 @@ export default function OpenClawWorkspace({
   };
 
   const [settings, setSettings] = useState<OpenClawSettings | null>(null);
+  const [draftSessionAutoContinueMode, setDraftSessionAutoContinueMode] = useState<SessionAutoContinueMode>('manual');
+  const [draftSessionAutoContinueMaxSteps, setDraftSessionAutoContinueMaxSteps] = useState(3);
   const [effectiveToolAccess, setEffectiveToolAccess] = useState<EffectiveOpenClawToolAccess | null>(null);
   const [models, setModels] = useState<OpenClawModel[]>([]);
   const [apiKey, setApiKey] = useState('');
@@ -2080,6 +2189,9 @@ export default function OpenClawWorkspace({
   const [headerModeMenuOpen, setHeaderModeMenuOpen] = useState<string | null>(null);
   const [workspaceCapabilitiesOpen, setWorkspaceCapabilitiesOpen] = useState(false);
   const [automationPanelOpen, setAutomationPanelOpen] = useState(false);
+  const [branchCompareOpen, setBranchCompareOpen] = useState(false);
+  const [branchCompareLeftId, setBranchCompareLeftId] = useState('');
+  const [branchCompareRightId, setBranchCompareRightId] = useState('');
   const [rightRailCollapsed, setRightRailCollapsed] = useState(getStoredRightRailCollapsed);
   const [isMobileViewport, setIsMobileViewport] = useState(getIsMobileViewport);
   const [mobileRailOpen, setMobileRailOpen] = useState(false);
@@ -2376,6 +2488,13 @@ export default function OpenClawWorkspace({
     }
     return workspaces[0] ?? null;
   }, [currentWorkspaceId, workspaces]);
+  const currentSession = useMemo(() => {
+    if (!currentSessionId) return null;
+    return sanitizeOpenClawSessions(sessions).find(session => session.id === currentSessionId) ?? null;
+  }, [currentSessionId, sessions]);
+  const effectiveSessionAutoContinueMode = currentSession?.autoContinueMode ?? draftSessionAutoContinueMode;
+  const effectiveSessionAutoContinueMaxSteps = currentSession?.autoContinueMaxSteps ?? draftSessionAutoContinueMaxSteps;
+  const continuationPending = useMemo(() => hasPendingContinuation(chatHistory), [chatHistory]);
   const workspaceSummary = currentWorkspace
     ? `${currentWorkspace.name} · ${currentWorkspace.skillCount} skill${currentWorkspace.skillCount === 1 ? '' : 's'} · ${currentWorkspace.autoGitBackup ? 'Git backup on' : 'Git backup off'}`
     : 'No workspace loaded';
@@ -2412,6 +2531,8 @@ export default function OpenClawWorkspace({
     setBaseUrl(nextSettings.openClawBaseUrl);
     setSelectedModel(nextSettings.openClawModel);
     applyTheme(nextSettings.theme);
+    setDraftSessionAutoContinueMode(nextSettings.openClawSessionAutoContinueDefault);
+    setDraftSessionAutoContinueMaxSteps(nextSettings.openClawSessionAutoContinueMaxSteps);
     if (getStoredRagEnabled() === null) {
       setRagEnabled(nextSettings.ragEnabled);
     }
@@ -2930,6 +3051,8 @@ export default function OpenClawWorkspace({
       setBaseUrl(nextSettings.openClawBaseUrl);
       setSelectedModel(nextSettings.openClawModel);
       applyTheme(nextSettings.theme);
+      setDraftSessionAutoContinueMode(current => currentSessionId ? current : nextSettings.openClawSessionAutoContinueDefault);
+      setDraftSessionAutoContinueMaxSteps(current => currentSessionId ? current : nextSettings.openClawSessionAutoContinueMaxSteps);
       if (getStoredRagEnabled() === null) {
         setRagEnabled(nextSettings.ragEnabled);
       }
@@ -3274,6 +3397,8 @@ export default function OpenClawWorkspace({
         title,
         messages: baseMessages,
         surface: 'openclaw',
+        autoContinueMode: effectiveSessionAutoContinueMode,
+        autoContinueMaxSteps: effectiveSessionAutoContinueMaxSteps,
       }),
     });
 
@@ -3295,6 +3420,57 @@ export default function OpenClawWorkspace({
       return next;
     });
     return session;
+  };
+
+  const updateSessionRecord = (nextSession: OpenClawSession) => {
+    setSessions(prev => {
+      const safePrev = sanitizeOpenClawSessions(prev);
+      const index = safePrev.findIndex(session => session.id === nextSession.id);
+      if (index === -1) return [nextSession, ...safePrev];
+      const next = [...safePrev];
+      next[index] = nextSession;
+      return next;
+    });
+  };
+
+  const persistSessionIntelligence = async (patch: {
+    autoContinueMode?: SessionAutoContinueMode;
+    autoContinueMaxSteps?: number;
+    branchLabel?: string;
+    lastAutoContinueAt?: string;
+  }) => {
+    if (!currentSessionId) {
+      if (patch.autoContinueMode) setDraftSessionAutoContinueMode(patch.autoContinueMode);
+      if (typeof patch.autoContinueMaxSteps === 'number') setDraftSessionAutoContinueMaxSteps(patch.autoContinueMaxSteps);
+      return;
+    }
+
+    const res = await fetch('/api/chats', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: currentSessionId,
+        surface: 'openclaw',
+        ...patch,
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(typeof data.error === 'string' ? data.error : 'Failed to update session intelligence');
+    }
+
+    const normalized = normalizeOpenClawSession(data.session);
+    if (normalized) {
+      updateSessionRecord(normalized);
+    }
+  };
+
+  const persistSessionIntelligenceSafe = (patch: Parameters<typeof persistSessionIntelligence>[0]) => {
+    void persistSessionIntelligence(patch).catch(error => {
+      console.error('Failed to persist session intelligence:', error);
+      setSelectedSessionInfo(error instanceof Error ? error.message : 'Failed to update session intelligence.');
+    });
   };
 
   const handleNewSession = () => {
@@ -3323,6 +3499,9 @@ export default function OpenClawWorkspace({
     setModelControlNote('');
     setSelectedSessionInfo('New WorkSpaces task thread');
     setLastSubmission(null);
+    setBranchCompareOpen(false);
+    setDraftSessionAutoContinueMode(settings?.openClawSessionAutoContinueDefault || 'manual');
+    setDraftSessionAutoContinueMaxSteps(settings?.openClawSessionAutoContinueMaxSteps || 3);
     setTaskStates(current => ({
       ...current,
       [OPENCLAW_DRAFT_TASK_ID]: DEFAULT_OPENCLAW_TASK_STATE,
@@ -4641,6 +4820,63 @@ export default function OpenClawWorkspace({
     setSessionMenuOpen(null);
   };
 
+  const handleBranchFromMessage = async (messageId?: string, branchLabel?: string, sessionIdOverride?: string) => {
+    if (!settings?.openClawSessionBranchingEnabled) {
+      setSelectedSessionInfo('Session branching is disabled in Settings.');
+      return;
+    }
+    const targetSessionId = sessionIdOverride || currentSessionId;
+    if (!targetSessionId) {
+      setSelectedSessionInfo('Save this WorkSpaces thread first before branching it.');
+      return;
+    }
+    if (isStreaming) {
+      setSelectedSessionInfo('Stop the current WorkSpaces run before creating a branch.');
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/chats/${targetSessionId}/branch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messageId,
+          branchLabel,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to create session branch');
+      }
+
+      const branchedSession = normalizeOpenClawSession(data.session);
+      if (!branchedSession) {
+        throw new Error('Failed to normalize branched session');
+      }
+
+      updateSessionRecord(branchedSession);
+      switchSession(branchedSession);
+      setSelectedSessionInfo(`Created branch "${branchedSession.title}".`);
+      setBranchCompareLeftId(branchedSession.id);
+      setBranchCompareRightId(targetSessionId);
+    } catch (error) {
+      console.error('Failed to branch WorkSpaces session:', error);
+      setSelectedSessionInfo(error instanceof Error ? error.message : 'Failed to create WorkSpaces branch.');
+    }
+  };
+
+  const openBranchCompare = (leftId?: string, rightId?: string) => {
+    if (!settings?.openClawSessionBranchingEnabled) {
+      setSelectedSessionInfo('Branch comparison is disabled in Settings.');
+      return;
+    }
+    const nextLeftId = leftId || currentSessionId || '';
+    const nextRightId = rightId || '';
+    setBranchCompareLeftId(nextLeftId);
+    setBranchCompareRightId(nextRightId && nextRightId !== nextLeftId ? nextRightId : '');
+    setBranchCompareOpen(true);
+  };
+
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) return;
     try {
@@ -5242,6 +5478,7 @@ export default function OpenClawWorkspace({
         ...(finalMeta ? { meta: finalMeta } : {}),
         ...(activeSources.length > 0 ? { sources: activeSources } : {}),
         presentation: options.responsePresentation,
+        createdAt: new Date().toISOString(),
       },
       activeSources,
     };
@@ -5274,6 +5511,7 @@ export default function OpenClawWorkspace({
       content: attachmentContext || prompt,
       images: messageImages,
       attachments: messageAttachments,
+      createdAt: new Date().toISOString(),
     };
     const assistantMessageId = randomUUID();
     const baseHistory = [...chatHistory, userMessage];
@@ -5300,7 +5538,7 @@ export default function OpenClawWorkspace({
     });
     setChatHistory([
       ...baseHistory,
-      { id: assistantMessageId, role: 'assistant', content: '' },
+      { id: assistantMessageId, role: 'assistant', content: '', createdAt: new Date().toISOString() },
     ]);
     setCurrentSessionId(chatId);
     setIsStreaming(true);
@@ -5383,6 +5621,7 @@ export default function OpenClawWorkspace({
               id: nextAssistantId,
               role: 'assistant',
               content: '',
+              createdAt: new Date().toISOString(),
               ...(currentSources.length > 0 ? { sources: currentSources } : {}),
             },
           ]);
@@ -5480,6 +5719,7 @@ export default function OpenClawWorkspace({
               ? 'The previous filesystem result for this exact path was already provided. Do not repeat the same request. Use that result to answer the user or request a different path/action only if new information is needed.'
               : 'The previous tool result for this exact request was already provided. Do not repeat the same request. Use that result to answer the user or choose a different next step only if new information is needed.',
             hidden: true,
+            createdAt: new Date().toISOString(),
           };
           sessionHistory = [...sessionHistory, duplicateNotice];
           setChatHistory(prev => [...prev, duplicateNotice]);
@@ -5506,6 +5746,7 @@ export default function OpenClawWorkspace({
               role: 'user',
               content: formatFilesystemToolResult(filesystemResult),
               hidden: true,
+              createdAt: new Date().toISOString(),
             };
             sessionHistory = [...sessionHistory, toolResultMessage];
             setChatHistory(prev => [...prev, toolResultMessage]);
@@ -5517,6 +5758,7 @@ export default function OpenClawWorkspace({
               role: 'user',
               content: `Filesystem operation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Try a different approach or path.`,
               hidden: true,
+              createdAt: new Date().toISOString(),
             };
             sessionHistory = [...sessionHistory, errorMessage];
             setChatHistory(prev => [...prev, errorMessage]);
@@ -5545,6 +5787,7 @@ export default function OpenClawWorkspace({
               role: 'user',
               content: formatWebToolResult(webResult),
               hidden: true,
+              createdAt: new Date().toISOString(),
             };
             sessionHistory = [...sessionHistory, toolResultMessage];
             setChatHistory(prev => [...prev, toolResultMessage]);
@@ -5556,6 +5799,7 @@ export default function OpenClawWorkspace({
               role: 'user',
               content: `Web research failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Try rephrasing your search or proceed without web results.`,
               hidden: true,
+              createdAt: new Date().toISOString(),
             };
             sessionHistory = [...sessionHistory, errorMessage];
             setChatHistory(prev => [...prev, errorMessage]);
@@ -5578,6 +5822,7 @@ export default function OpenClawWorkspace({
               role: 'user',
               content: formatCodeToolResult(codeResult),
               hidden: true,
+              createdAt: new Date().toISOString(),
             };
             sessionHistory = [...sessionHistory, toolResultMessage];
             setChatHistory(prev => [...prev, toolResultMessage]);
@@ -5589,6 +5834,7 @@ export default function OpenClawWorkspace({
               role: 'user',
               content: `Code execution failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. The sandbox may have timed out or run out of resources. Try simplifying the code or breaking it into smaller steps.`,
               hidden: true,
+              createdAt: new Date().toISOString(),
             };
             sessionHistory = [...sessionHistory, errorMessage];
             setChatHistory(prev => [...prev, errorMessage]);
@@ -5614,6 +5860,7 @@ export default function OpenClawWorkspace({
               role: 'user',
               content: formatBrowserToolResult(browserResult),
               hidden: true,
+              createdAt: new Date().toISOString(),
             };
             sessionHistory = [...sessionHistory, toolResultMessage];
             setChatHistory(prev => [...prev, toolResultMessage]);
@@ -5625,6 +5872,7 @@ export default function OpenClawWorkspace({
               role: 'user',
               content: `Browser operation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. The page may be unreachable or the browser session expired. Try a different URL or approach.`,
               hidden: true,
+              createdAt: new Date().toISOString(),
             };
             sessionHistory = [...sessionHistory, errorMessage];
             setChatHistory(prev => [...prev, errorMessage]);
@@ -5654,6 +5902,7 @@ export default function OpenClawWorkspace({
               role: 'user',
               content: formatUwafBrowserToolResult(uwafResult),
               hidden: true,
+              createdAt: new Date().toISOString(),
             };
             sessionHistory = [...sessionHistory, toolResultMessage];
             setChatHistory(prev => [...prev, toolResultMessage]);
@@ -5665,6 +5914,7 @@ export default function OpenClawWorkspace({
               role: 'user',
               content: `Browser operation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. The page may be unreachable, the browser session may have expired, or the Tor proxy may be down. Try a different URL, switch browser mode, or use web research instead.`,
               hidden: true,
+              createdAt: new Date().toISOString(),
             };
             sessionHistory = [...sessionHistory, errorMessage];
             setChatHistory(prev => [...prev, errorMessage]);
@@ -5691,6 +5941,7 @@ export default function OpenClawWorkspace({
               role: 'user',
               content: formatShellToolResult(shellResult),
               hidden: true,
+              createdAt: new Date().toISOString(),
             };
             sessionHistory = [...sessionHistory, toolResultMessage];
             setChatHistory(prev => [...prev, toolResultMessage]);
@@ -5702,6 +5953,7 @@ export default function OpenClawWorkspace({
               role: 'user',
               content: `Shell command failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. The command may have timed out or the execution environment is unavailable. Try a simpler command or check connectivity.`,
               hidden: true,
+              createdAt: new Date().toISOString(),
             };
             sessionHistory = [...sessionHistory, errorMessage];
             setChatHistory(prev => [...prev, errorMessage]);
@@ -5722,6 +5974,7 @@ export default function OpenClawWorkspace({
             role: 'user',
             content: formatFilesystemToolResult(filesystemResult),
             hidden: true,
+            createdAt: new Date().toISOString(),
           };
           sessionHistory = [...sessionHistory, toolResultMessage];
           setChatHistory(prev => [...prev, toolResultMessage]);
@@ -5733,6 +5986,7 @@ export default function OpenClawWorkspace({
             role: 'user',
             content: `Filesystem operation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. The path may not exist or permissions may be insufficient. Try a different path or action.`,
             hidden: true,
+            createdAt: new Date().toISOString(),
           };
           sessionHistory = [...sessionHistory, errorMessage];
           setChatHistory(prev => [...prev, errorMessage]);
@@ -5755,7 +6009,7 @@ export default function OpenClawWorkspace({
 
       const messagesBeforeFinalAssistant = sessionHistory.slice(0, -1);
 
-      await fetch('/api/chat/completed', {
+      const completedResponse = await fetch('/api/chat/completed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -5766,8 +6020,16 @@ export default function OpenClawWorkspace({
           message: finalAssistantMessage,
           messages: messagesBeforeFinalAssistant,
           surface: 'openclaw',
+          autoContinueMode: effectiveSessionAutoContinueMode,
+          autoContinueMaxSteps: effectiveSessionAutoContinueMaxSteps,
+          branchLabel: currentSession?.branchLabel ?? null,
+          lastAutoContinueAt: currentSession?.lastAutoContinueAt
+            ? new Date(currentSession.lastAutoContinueAt).toISOString()
+            : null,
         }),
       });
+      const completedData = await completedResponse.json().catch(() => ({}));
+      const completedSession = normalizeOpenClawSession((completedData as { session?: unknown }).session);
 
       // Generate session summary in the background
       void generateSessionSummary(
@@ -5780,11 +6042,15 @@ export default function OpenClawWorkspace({
       setSessions(prev => {
         const next = sanitizeOpenClawSessions(prev);
         const index = next.findIndex(session => session?.id === sessionRecord.id);
-        const updatedSession: OpenClawSession = {
+        const updatedSession: OpenClawSession = completedSession || {
           ...sessionRecord,
           title: getChatTitle(baseHistory),
           messages: [...messagesBeforeFinalAssistant, finalAssistantMessage!],
           updatedAt: Date.now(),
+          autoContinueMode: effectiveSessionAutoContinueMode,
+          autoContinueMaxSteps: effectiveSessionAutoContinueMaxSteps,
+          branchChildrenCount: currentSession?.branchChildrenCount || 0,
+          branchDepth: currentSession?.branchDepth || 0,
         };
         if (index === -1) return [updatedSession, ...next];
         next[index] = updatedSession;
@@ -5825,23 +6091,22 @@ export default function OpenClawWorkspace({
       setIsStreaming(false);
       abortControllerRef.current = null;
 
-      // Auto-continue: only fire when the model's last response contained a
-      // tool request that wasn't executed (e.g., max rounds reached). This
-      // prevents infinite loops — the tool loop already handles continuation
-      // for executed tools, so auto-continue is only needed when the loop
-      // ended with unfinished work. Capped at 3 consecutive auto-continues.
-      if (agentPreferences.autoContinue && taskState.objective.trim()) {
-        if (finalAssistantMessage?.toolRequest && autoContinueCountRef.current < 3) {
+      if (effectiveSessionAutoContinueMode === 'safe' && taskState.objective.trim()) {
+        if (finalAssistantMessage?.toolRequest && autoContinueCountRef.current < effectiveSessionAutoContinueMaxSteps) {
           autoContinueCountRef.current += 1;
           setAutoContinuePending(true);
+          persistSessionIntelligenceSafe({
+            lastAutoContinueAt: new Date().toISOString(),
+          });
           setTimeout(() => {
             setAutoContinuePending(false);
-            handleSendMessage('continue');
+            void handleSendMessage('continue');
           }, 1500);
         } else {
           autoContinueCountRef.current = 0;
         }
       } else {
+        setAutoContinuePending(false);
         autoContinueCountRef.current = 0;
       }
     }
@@ -5852,6 +6117,33 @@ export default function OpenClawWorkspace({
   const activeStyleOption = OPENCLAW_RESPONSE_STYLE_OPTIONS.find(option => option.id === agentPreferences.responseStyle)
     || OPENCLAW_RESPONSE_STYLE_OPTIONS[1];
   const safeSessions = sanitizeOpenClawSessions(sessions);
+  const sessionMap = new Map(safeSessions.map(session => [session.id, session]));
+  const getBranchRootId = (session: OpenClawSession) => {
+    let cursor: OpenClawSession | undefined = session;
+    const seen = new Set<string>();
+    while (cursor?.parentSessionId) {
+      if (seen.has(cursor.parentSessionId)) break;
+      seen.add(cursor.parentSessionId);
+      const next = sessionMap.get(cursor.parentSessionId);
+      if (!next) break;
+      cursor = next;
+    }
+    return cursor?.id || session.id;
+  };
+  const currentBranchFamily = currentSession
+    ? safeSessions.filter(session => getBranchRootId(session) === getBranchRootId(currentSession))
+    : [];
+  const compareLeftSession = safeSessions.find(session => session.id === (branchCompareLeftId || currentSessionId || '')) ?? null;
+  const compareRightSession = safeSessions.find(session => session.id === branchCompareRightId) ?? null;
+  useEffect(() => {
+    if (!currentSession) return;
+    setBranchCompareLeftId(current => current || currentSession.id);
+    setBranchCompareRightId(current => {
+      if (current && current !== currentSession.id) return current;
+      const sibling = currentBranchFamily.find(session => session.id !== currentSession.id);
+      return sibling?.id || '';
+    });
+  }, [currentSession, currentBranchFamily]);
   const filteredSessions = safeSessions.filter(session => {
     if (selectedFolderId && session.folderId !== selectedFolderId) {
       return false;
@@ -5948,7 +6240,12 @@ export default function OpenClawWorkspace({
     || taskState.doneCriteria.trim()
     || taskState.checklist.length > 0
   );
-  const responseStyleSummary = `${activeStyleOption.label} · ${agentPreferences.askClarifyingQuestionFirst ? 'Clarify first' : 'Assume and move'} · ${agentPreferences.autoContinue ? 'Auto-continue ON' : 'Auto-continue OFF'}`;
+  const autoContinueSummaryLabel = effectiveSessionAutoContinueMode === 'safe'
+    ? `Auto-continue Safe · cap ${effectiveSessionAutoContinueMaxSteps}`
+    : effectiveSessionAutoContinueMode === 'ask'
+      ? 'Auto-continue Ask'
+      : 'Auto-continue Manual';
+  const responseStyleSummary = `${activeStyleOption.label} · ${agentPreferences.askClarifyingQuestionFirst ? 'Clarify first' : 'Assume and move'} · ${autoContinueSummaryLabel}`;
   const taskStateSummary = hasTaskState
     ? `${taskStateFieldCount}/4 fields set${taskState.checklist.length > 0 ? ` · ${taskState.checklist.length} checklist item${taskState.checklist.length === 1 ? '' : 's'}` : ''}`
     : 'No task state captured yet';
@@ -5957,6 +6254,23 @@ export default function OpenClawWorkspace({
     ? (persona.name || 'Default persona')
     : `${persona.name} · ${persona.templateId}`;
   const userProfileSummary = `${userProfile.name || 'Not set'} · ${userProfile.role || 'No role'}`;
+  const currentSessionAnalyticsSummary = currentSession?.analytics
+    ? `${currentSession.analytics.assistantTokens.toLocaleString()} tokens · ${currentSession.analytics.toolCalls} tool call${currentSession.analytics.toolCalls === 1 ? '' : 's'} · ${currentSession.analytics.assistantDurationSeconds.toFixed(1)}s`
+    : 'Analytics pending';
+  const currentContextSummaryStatus = currentSession?.contextSummary
+    ? `Summarized${currentSession.contextSummaryUpdatedAt ? ` · ${formatTimestamp(currentSession.contextSummaryUpdatedAt)}` : ''}`
+    : settings?.openClawSessionSummariesEnabled
+      ? 'Fresh'
+      : 'Disabled';
+  const branchStatusSummary = currentSession
+    ? currentSession.parentSessionId
+      ? `Branch depth ${currentSession.branchDepth} · ${currentSession.branchChildrenCount} child branch${currentSession.branchChildrenCount === 1 ? '' : 'es'}`
+      : currentSession.branchChildrenCount > 0
+        ? `${currentSession.branchChildrenCount} branch${currentSession.branchChildrenCount === 1 ? '' : 'es'}`
+        : 'No branches yet'
+    : settings?.openClawSessionBranchingEnabled
+      ? 'Ready for new branches'
+      : 'Branching disabled';
   const openAutomationNudgeCount = automationNudges.filter(nudge => !nudge.dismissedAt).length;
   const queuedAutomationRunCount = automationRuns.filter(run => run.status === 'queued' || run.status === 'running').length;
   const automationSummary = !automationPermissionGranted
@@ -5991,6 +6305,8 @@ export default function OpenClawWorkspace({
         streamPhase={streamPhase}
         outputsForMessage={outputsForMessage}
         messageSources={messageSources}
+        branchingEnabled={settings?.openClawSessionBranchingEnabled !== false}
+        onBranchFromMessage={handleBranchFromMessage}
       />
     );
   };
@@ -6703,6 +7019,9 @@ export default function OpenClawWorkspace({
             <span className="openclaw-pill">
               {agentPreferences.askClarifyingQuestionFirst ? 'Clarify first' : 'Assume and move'}
             </span>
+            <span className="openclaw-pill">Continue: {effectiveSessionAutoContinueMode}</span>
+            <span className="openclaw-pill">Context: {currentContextSummaryStatus}</span>
+            {settings?.openClawSessionBranchingEnabled && <span className="openclaw-pill">Branches: {branchStatusSummary}</span>}
             {persona.name && <span className="openclaw-pill">{persona.name}</span>}
             {userProfile.name && <span className="openclaw-pill">User: {userProfile.name}</span>}
             {taskState.objective.trim() && <span className="openclaw-pill">Objective set</span>}
@@ -6711,6 +7030,29 @@ export default function OpenClawWorkspace({
             {hasWorkspaceNotes && <span className="openclaw-pill">Notes attached</span>}
             {hasSuccessCriteria && <span className="openclaw-pill">Success criteria attached</span>}
           </div>
+
+          {!isStreaming && continuationPending && (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', padding: '10px 12px', borderRadius: '12px', border: '1px solid var(--accent-border)', background: 'var(--accent-faint)' }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                The last assistant turn stopped with unfinished tool work. Continue this session to let WorkSpaces pick up where it left off.
+              </div>
+              <button
+                type="button"
+                className="openclaw-inline-button"
+                onClick={() => void handleSendMessage('continue')}
+              >
+                <Redo2 size={14} />
+                Continue task
+              </button>
+            </div>
+          )}
+
+          {autoContinuePending && (
+            <div style={{ fontSize: '0.78rem', color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Loader2 size={12} className="animate-spin" />
+              Safe auto-continue is resuming this task.
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
             <button
@@ -7289,6 +7631,18 @@ export default function OpenClawWorkspace({
                                 <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
                                   Updated {formatTimestamp(session.updatedAt)}
                                 </span>
+                                <span style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', alignItems: 'center' }}>
+                                  {(session.branchLabel || session.parentSessionId || session.branchChildrenCount > 0) && (
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--accent-primary)' }}>
+                                      {session.parentSessionId ? `Branch ${session.branchDepth}` : session.branchChildrenCount > 0 ? `${session.branchChildrenCount} branch${session.branchChildrenCount === 1 ? '' : 'es'}` : 'Main thread'}
+                                    </span>
+                                  )}
+                                  {session.analytics && (
+                                    <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                                      {session.analytics.assistantTokens.toLocaleString()} tok · {session.analytics.toolCalls} tool{session.analytics.toolCalls === 1 ? '' : 's'}
+                                    </span>
+                                  )}
+                                </span>
                                 {session.tags && session.tags.length > 0 && (
                                   <span style={{ display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' }}>
                                     {session.tags.slice(0, 3).map(tagItem => (
@@ -7340,6 +7694,12 @@ export default function OpenClawWorkspace({
                               {([
                                 { icon: <Pin size={12} />, label: session.pinned ? 'Unpin' : 'Pin', action: () => void handlePinSession(session.id, session.pinned) },
                                 { icon: <BookOpen size={12} />, label: 'Rename', action: () => { setRenamingSessionId(session.id); setRenameValue(session.title); setSessionMenuOpen(null); } },
+                                ...(settings?.openClawSessionBranchingEnabled
+                                  ? [
+                                      { icon: <Copy size={12} />, label: 'Branch latest state', action: () => { void handleBranchFromMessage(session.messages[session.messages.length - 1]?.id, `${session.title} branch`, session.id); setSessionMenuOpen(null); } },
+                                      { icon: <MessageSquare size={12} />, label: 'Compare branches', action: () => { openBranchCompare(session.id); setSessionMenuOpen(null); } },
+                                    ]
+                                  : []),
                                 { icon: <Copy size={12} />, label: 'Copy to clipboard', action: () => void handleCopySession(session) },
                                 { icon: <Trash2 size={12} />, label: 'Delete', action: () => void handleDeleteSession(session.id), danger: true },
                               ]).map(item => (
@@ -7642,6 +8002,86 @@ export default function OpenClawWorkspace({
               <div className="openclaw-card">
                 <div className="openclaw-card-header">
                   <div>
+                    <div className="openclaw-section-label">Session intelligence</div>
+                    <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      Context memory, continuation behavior, branching, and analytics for the active WorkSpaces thread.
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    {continuationPending && (
+                      <button
+                        type="button"
+                        className="openclaw-inline-button"
+                        onClick={() => void handleSendMessage('continue')}
+                      >
+                        <Redo2 size={14} />
+                        Continue
+                      </button>
+                    )}
+                    {settings?.openClawSessionBranchingEnabled && (
+                      <>
+                        <button
+                          type="button"
+                          className="openclaw-inline-button"
+                          onClick={() => void handleBranchFromMessage(chatHistory[chatHistory.length - 1]?.id, `${currentSession?.title || 'Draft'} branch`)}
+                          disabled={isStreaming || chatHistory.length === 0}
+                        >
+                          <Copy size={14} />
+                          Branch latest
+                        </button>
+                        <button
+                          type="button"
+                          className="openclaw-inline-button"
+                          onClick={() => openBranchCompare()}
+                          disabled={currentBranchFamily.length < 2}
+                        >
+                          <MessageSquare size={14} />
+                          Compare
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gap: '10px' }}>
+                  <div className="openclaw-disclosure-pill-row">
+                    <span className="openclaw-disclosure-pill">{autoContinueSummaryLabel}</span>
+                    <span className="openclaw-disclosure-pill">Context: {currentContextSummaryStatus}</span>
+                    <span className="openclaw-disclosure-pill">Analytics: {settings?.openClawSessionAnalyticsEnabled ? 'On' : 'Off'}</span>
+                    <span className="openclaw-disclosure-pill">{branchStatusSummary}</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+                    <div style={{ padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'var(--panel-bg)' }}>
+                      <div className="openclaw-section-label">Analytics</div>
+                      <div style={{ marginTop: '6px', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                        {currentSessionAnalyticsSummary}
+                      </div>
+                    </div>
+                    <div style={{ padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'var(--panel-bg)' }}>
+                      <div className="openclaw-section-label">Branch family</div>
+                      <div style={{ marginTop: '6px', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                        {currentBranchFamily.length > 0
+                          ? `${currentBranchFamily.length} related thread${currentBranchFamily.length === 1 ? '' : 's'} in this branch family.`
+                          : 'No related branches loaded.'}
+                      </div>
+                    </div>
+                  </div>
+                  {currentSession?.summary && (
+                    <div style={{ padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'var(--panel-bg)', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                      <div className="openclaw-section-label" style={{ marginBottom: '8px' }}>Session summary</div>
+                      {currentSession.summary}
+                    </div>
+                  )}
+                  {currentSession?.contextSummary && (
+                    <div style={{ padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'var(--panel-bg)', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+                      <div className="openclaw-section-label" style={{ marginBottom: '8px' }}>Rolling context summary</div>
+                      {currentSession.contextSummary}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="openclaw-card">
+                <div className="openclaw-card-header">
+                  <div>
                     <div className="openclaw-section-label">Agent mode</div>
                     <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                       {activeAgentMode?.label || 'Plan'} · Persistent per browser
@@ -7709,24 +8149,69 @@ export default function OpenClawWorkspace({
                       >
                         {agentPreferences.askClarifyingQuestionFirst ? 'Clarify first' : 'Assume and move'}
                       </button>
-                      <button
-                        type="button"
-                        className={`openclaw-toggle${agentPreferences.autoContinue ? ' active' : ''}`}
-                        onClick={() => updateAgentPreferences({
-                          autoContinue: !agentPreferences.autoContinue,
-                        })}
-                        title="Automatically continue when the assistant finishes a response"
-                      >
-                        {agentPreferences.autoContinue ? 'Auto-continue ON' : 'Auto-continue OFF'}
-                      </button>
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                      {agentPreferences.autoContinue && (
-                        <>
-                          <Wand2 size={12} />
-                          <span>Agent will keep working until objective is complete</span>
-                        </>
-                      )}
+                    <div style={{ display: 'grid', gap: '10px', marginTop: '10px' }}>
+                      <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                        Session auto-continue
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {[
+                          { value: 'manual' as const, label: 'Manual', desc: 'Never continue automatically' },
+                          { value: 'ask' as const, label: 'Ask', desc: 'Suggest continue when a session stops mid-flow' },
+                          { value: 'safe' as const, label: 'Safe', desc: 'Automatically continue capped unfinished tool flows' },
+                        ].map(option => {
+                          const active = effectiveSessionAutoContinueMode === option.value;
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              className={`openclaw-toggle${active ? ' active' : ''}`}
+                              onClick={() => {
+                                if (!settings) return;
+                                if (!currentSessionId) {
+                                  setDraftSessionAutoContinueMode(option.value);
+                                  return;
+                                }
+                                persistSessionIntelligenceSafe({ autoContinueMode: option.value });
+                              }}
+                              title={option.desc}
+                            >
+                              {option.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                        <Wand2 size={12} />
+                        <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                          {effectiveSessionAutoContinueMode === 'safe'
+                            ? `Safe mode can chain up to ${effectiveSessionAutoContinueMaxSteps} automatic follow-up step${effectiveSessionAutoContinueMaxSteps === 1 ? '' : 's'} before stopping.`
+                            : effectiveSessionAutoContinueMode === 'ask'
+                              ? 'Ask mode raises a continuation prompt when the last assistant turn stopped mid-flow.'
+                              : 'Manual mode never resumes by itself. Use Continue task when you want the agent to pick up again.'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 180px) 92px', gap: '10px', alignItems: 'center' }}>
+                        <label className="openclaw-field-label" htmlFor="openclaw-auto-continue-max-steps" style={{ marginBottom: 0 }}>
+                          Auto-continue step cap
+                        </label>
+                        <input
+                          id="openclaw-auto-continue-max-steps"
+                          className="input-field"
+                          type="number"
+                          min={1}
+                          max={10}
+                          value={effectiveSessionAutoContinueMaxSteps}
+                          onChange={event => {
+                            const nextValue = Math.max(1, Math.min(10, Number(event.target.value) || 1));
+                            if (!currentSessionId) {
+                              setDraftSessionAutoContinueMaxSteps(nextValue);
+                              return;
+                            }
+                            persistSessionIntelligenceSafe({ autoContinueMaxSteps: nextValue });
+                          }}
+                        />
+                      </div>
                     </div>
                     <div className="openclaw-choice-grid">
                       {OPENCLAW_RESPONSE_STYLE_OPTIONS.map(option => {
@@ -9242,6 +9727,152 @@ export default function OpenClawWorkspace({
         </div>
       )}
 
+      {branchCompareOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Compare session branches"
+          onClick={() => setBranchCompareOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1250,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            background: 'rgba(3, 6, 23, 0.66)',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <div
+            onClick={event => event.stopPropagation()}
+            style={{
+              width: 'min(1200px, calc(100vw - 32px))',
+              maxHeight: 'min(88vh, 960px)',
+              overflowY: 'auto',
+              padding: '18px',
+              borderRadius: '18px',
+              border: '1px solid var(--border-color)',
+              background: 'var(--sidebar-bg)',
+              boxShadow: '0 24px 72px rgba(0, 0, 0, 0.42)',
+              display: 'grid',
+              gap: '14px',
+            }}
+          >
+            <div className="openclaw-card" style={{ gap: '12px', position: 'sticky', top: 0, zIndex: 1, background: 'var(--sidebar-bg)' }}>
+              <div className="openclaw-card-header">
+                <div>
+                  <div className="openclaw-section-label">Compare branches</div>
+                  <div style={{ marginTop: '6px', fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                    Compare summaries, analytics, and latest outcomes across related WorkSpaces session branches.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="openclaw-inline-button"
+                  onClick={() => setBranchCompareOpen(false)}
+                >
+                  <X size={14} />
+                  Close
+                </button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px' }}>
+                <div>
+                  <label className="openclaw-field-label" htmlFor="branch-compare-left">Left branch</label>
+                  <select
+                    id="branch-compare-left"
+                    className="input-field"
+                    value={branchCompareLeftId}
+                    onChange={event => setBranchCompareLeftId(event.target.value)}
+                  >
+                    <option value="">Select session</option>
+                    {(currentBranchFamily.length > 0 ? currentBranchFamily : safeSessions).map(session => (
+                      <option key={session.id} value={session.id}>
+                        {session.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="openclaw-field-label" htmlFor="branch-compare-right">Right branch</label>
+                  <select
+                    id="branch-compare-right"
+                    className="input-field"
+                    value={branchCompareRightId}
+                    onChange={event => setBranchCompareRightId(event.target.value)}
+                  >
+                    <option value="">Select session</option>
+                    {(currentBranchFamily.length > 0 ? currentBranchFamily : safeSessions)
+                      .filter(session => session.id !== branchCompareLeftId)
+                      .map(session => (
+                        <option key={session.id} value={session.id}>
+                          {session.title}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px' }}>
+              {[compareLeftSession, compareRightSession].map((session, index) => {
+                const latestAssistant = session ? getLatestVisibleAssistantMessage(session.messages) : null;
+                return (
+                  <div key={index === 0 ? 'left' : 'right'} className="openclaw-card" style={{ gap: '12px' }}>
+                    <div className="openclaw-card-header">
+                      <div>
+                        <div className="openclaw-section-label">{index === 0 ? 'Left branch' : 'Right branch'}</div>
+                        <div style={{ marginTop: '4px', fontSize: '0.94rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {session?.title || 'No session selected'}
+                        </div>
+                        {session && (
+                          <div style={{ marginTop: '6px', fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                            {session.branchLabel || 'Primary thread'} · Updated {formatTimestamp(session.updatedAt)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {session ? (
+                      <div style={{ display: 'grid', gap: '10px' }}>
+                        <div className="openclaw-disclosure-pill-row">
+                          <span className="openclaw-disclosure-pill">{session.autoContinueMode} continue</span>
+                          <span className="openclaw-disclosure-pill">{session.analytics?.assistantTokens.toLocaleString() || 0} tokens</span>
+                          <span className="openclaw-disclosure-pill">{session.analytics?.toolCalls || 0} tools</span>
+                          <span className="openclaw-disclosure-pill">{session.branchChildrenCount} child branches</span>
+                        </div>
+                        {session.summary && (
+                          <div style={{ padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'var(--panel-bg)', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+                            <div className="openclaw-section-label" style={{ marginBottom: '8px' }}>Summary</div>
+                            {session.summary}
+                          </div>
+                        )}
+                        {session.contextSummary && (
+                          <div style={{ padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'var(--panel-bg)', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
+                            <div className="openclaw-section-label" style={{ marginBottom: '8px' }}>Rolling context summary</div>
+                            {session.contextSummary}
+                          </div>
+                        )}
+                        <div style={{ padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'var(--panel-bg)' }}>
+                          <div className="openclaw-section-label" style={{ marginBottom: '8px' }}>Latest assistant outcome</div>
+                          <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                            {latestAssistant?.content || 'No visible assistant response yet.'}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                        Select a session branch to compare.
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Shell command approval modal */}
       <ShellCommandModal
         title={pendingApproval?.title || 'Tool Approval'}
@@ -9252,7 +9883,7 @@ export default function OpenClawWorkspace({
         isOpen={pendingApproval !== null}
         onApprove={handleToolApprove}
         onReject={handleToolReject}
-        autoApproveSeconds={agentPreferences.autoContinue ? 4 : undefined}
+        autoApproveSeconds={effectiveSessionAutoContinueMode === 'safe' ? 4 : undefined}
       />
 
       {/* Shell settings panel */}

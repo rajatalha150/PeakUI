@@ -33,6 +33,12 @@ import {
   normalizeString,
   LEGACY_DEFAULT_SYSTEM_PROMPT,
 } from '@/lib/settings';
+import {
+  normalizeSessionAutoContinueMaxSteps,
+  normalizeSessionAutoContinueMode,
+  normalizeSessionPreserveTurns,
+  normalizeSessionSummaryTargetTokens,
+} from '@/lib/session-intelligence';
 import { buildEffectiveOpenClawToolAccess } from '@/lib/openclaw-tool-access';
 import { normalizeTheme } from '@/lib/theme-options';
 
@@ -84,6 +90,13 @@ interface SettingsBody {
   openClawAutomationExecutionMaxRunsPerHour?: unknown;
   openClawAutomationExecutionAttachWorkspace?: unknown;
   openClawAutomationExecutionAttachMemory?: unknown;
+  openClawSessionAutoContinueDefault?: unknown;
+  openClawSessionAutoContinueMaxSteps?: unknown;
+  openClawSessionSummariesEnabled?: unknown;
+  openClawSessionSummaryTargetTokens?: unknown;
+  openClawSessionPreserveTurns?: unknown;
+  openClawSessionAnalyticsEnabled?: unknown;
+  openClawSessionBranchingEnabled?: unknown;
   ragEnabled?: unknown;
   ragTopK?: unknown;
 }
@@ -185,6 +198,36 @@ export async function POST(req: Request) {
     }
     if (Object.prototype.hasOwnProperty.call(body, 'openClawAutomationExecutionAttachMemory')) {
       data.openClawAutomationExecutionAttachMemory = normalizeBoolean(body.openClawAutomationExecutionAttachMemory);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'openClawSessionAutoContinueDefault')) {
+      data.openClawSessionAutoContinueDefault = normalizeSessionAutoContinueMode(body.openClawSessionAutoContinueDefault);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'openClawSessionAutoContinueMaxSteps')) {
+      data.openClawSessionAutoContinueMaxSteps = normalizeSessionAutoContinueMaxSteps(
+        body.openClawSessionAutoContinueMaxSteps,
+        DEFAULT_SETTINGS.openClawSessionAutoContinueMaxSteps,
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'openClawSessionSummariesEnabled')) {
+      data.openClawSessionSummariesEnabled = normalizeBoolean(body.openClawSessionSummariesEnabled);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'openClawSessionSummaryTargetTokens')) {
+      data.openClawSessionSummaryTargetTokens = normalizeSessionSummaryTargetTokens(
+        body.openClawSessionSummaryTargetTokens,
+        DEFAULT_SETTINGS.openClawSessionSummaryTargetTokens,
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'openClawSessionPreserveTurns')) {
+      data.openClawSessionPreserveTurns = normalizeSessionPreserveTurns(
+        body.openClawSessionPreserveTurns,
+        DEFAULT_SETTINGS.openClawSessionPreserveTurns,
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'openClawSessionAnalyticsEnabled')) {
+      data.openClawSessionAnalyticsEnabled = normalizeBoolean(body.openClawSessionAnalyticsEnabled);
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'openClawSessionBranchingEnabled')) {
+      data.openClawSessionBranchingEnabled = normalizeBoolean(body.openClawSessionBranchingEnabled);
     }
     if (Object.prototype.hasOwnProperty.call(body, 'ragEnabled')) data.ragEnabled = normalizeBoolean(body.ragEnabled);
     if (Object.prototype.hasOwnProperty.call(body, 'ragTopK')) {

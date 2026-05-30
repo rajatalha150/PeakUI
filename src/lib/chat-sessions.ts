@@ -2,6 +2,17 @@ import { prisma } from './prisma';
 import { normalizeResponsePresentation, type ResponsePresentation } from './response-format';
 import { normalizeMessageSources, type MessageSource } from './message-sources';
 import { extractOpenClawToolRequest } from './openclaw-tools';
+import { estimateMessageTokens } from './message-trim';
+import { getUserSettings } from './settings';
+import {
+  buildSessionContextSummary,
+  computeSessionAnalytics,
+  normalizeSessionAnalytics,
+  normalizeSessionAutoContinueMaxSteps,
+  normalizeSessionAutoContinueMode,
+  type SessionAnalytics,
+  type SessionAutoContinueMode,
+} from './session-intelligence';
 
 export type StoredChatRole = 'user' | 'assistant' | 'system';
 export type ChatSessionSurface = 'chat' | 'openclaw';
@@ -18,6 +29,7 @@ export interface StoredChatMessage {
   attachments?: unknown[];
   presentation?: ResponsePresentation;
   meta?: unknown;
+  createdAt?: string;
 }
 
 export interface ChatSessionDto {
@@ -30,6 +42,18 @@ export interface ChatSessionDto {
   updatedAt: Date;
   folderId: string | null;
   tags: { id: string; name: string; color: string }[];
+  summary: string | null;
+  contextSummary: string | null;
+  contextSummaryUpdatedAt: Date | null;
+  analytics: SessionAnalytics | null;
+  autoContinueMode: SessionAutoContinueMode;
+  autoContinueMaxSteps: number;
+  lastAutoContinueAt: Date | null;
+  parentSessionId: string | null;
+  branchFromMessageId: string | null;
+  branchLabel: string | null;
+  branchChildrenCount: number;
+  branchDepth: number;
 }
 
 export interface SaveChatSessionInput {
@@ -39,6 +63,10 @@ export interface SaveChatSessionInput {
   pinned?: boolean;
   surface?: ChatSessionSurface;
   folderId?: string | null;
+  autoContinueMode?: unknown;
+  autoContinueMaxSteps?: unknown;
+  branchLabel?: unknown;
+  lastAutoContinueAt?: unknown;
 }
 
 export interface FinalizeChatSessionInput {
@@ -48,6 +76,16 @@ export interface FinalizeChatSessionInput {
   messages?: unknown;
   title?: string;
   surface?: ChatSessionSurface;
+  autoContinueMode?: unknown;
+  autoContinueMaxSteps?: unknown;
+  branchLabel?: unknown;
+  lastAutoContinueAt?: unknown;
+}
+
+export interface BranchChatSessionInput {
+  sessionId: string;
+  messageId?: string;
+  branchLabel?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -100,6 +138,12 @@ function looksLikeHiddenToolResult(role: StoredChatRole, content: string) {
     || trimmed.startsWith('UWAF browser tool result:');
 }
 
+function normalizeMessageCreatedAt(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+}
+
 export function normalizeStoredChatMessage(raw: unknown): StoredChatMessage | null {
   if (!isRecord(raw)) return null;
 
@@ -119,6 +163,7 @@ export function normalizeStoredChatMessage(raw: unknown): StoredChatMessage | nu
   const images = Array.isArray(raw.images) ? raw.images : undefined;
   const attachments = Array.isArray(raw.attachments) ? raw.attachments : undefined;
   const presentation = normalizeResponsePresentation(raw.presentation);
+  const createdAt = normalizeMessageCreatedAt(raw.createdAt);
   const hasPayload =
     content.trim().length > 0 ||
     Boolean(thinking?.trim()) ||
@@ -140,8 +185,28 @@ export function normalizeStoredChatMessage(raw: unknown): StoredChatMessage | nu
   if (attachments) message.attachments = attachments;
   if (presentation.mode !== 'general') message.presentation = presentation;
   if (meta !== undefined) message.meta = meta;
+  if (createdAt) message.createdAt = createdAt;
 
   return message;
+}
+
+function ensureMessageTimestamps(messages: StoredChatMessage[], fallbackIso: string) {
+  let cursor = new Date(fallbackIso).getTime();
+  return messages.map(message => {
+    if (message.createdAt) {
+      const parsed = new Date(message.createdAt).getTime();
+      if (!Number.isNaN(parsed)) {
+        cursor = parsed;
+        return message;
+      }
+    }
+
+    cursor += 1000;
+    return {
+      ...message,
+      createdAt: new Date(cursor).toISOString(),
+    };
+  });
 }
 
 export function normalizeStoredChatMessages(messages: unknown): StoredChatMessage[] {
@@ -186,17 +251,63 @@ export function deriveChatTitle(messages: StoredChatMessage[]): string {
   return base.substring(0, 30) + (base.length > 30 ? '...' : '');
 }
 
-function toClientSession(session: {
+type SessionRecord = {
   id: string;
   title: string;
   messages: string;
+  summary: string | null;
+  contextSummary: string | null;
+  contextSummaryUpdatedAt: Date | null;
+  analyticsJson: string;
+  autoContinueMode: string;
+  autoContinueMaxSteps: number;
+  lastAutoContinueAt: Date | null;
+  parentSessionId: string | null;
+  branchFromMessageId: string | null;
+  branchLabel: string | null;
   pinned: boolean;
   surface: string;
   createdAt: Date;
   updatedAt: Date;
   folderId: string | null;
   tags: { id: string; name: string; color: string }[];
-}): ChatSessionDto {
+  branchChildrenCount: number;
+};
+
+function computeBranchDepth(sessionId: string, parentById: Map<string, string | null>, cache = new Map<string, number>()): number {
+  if (cache.has(sessionId)) return cache.get(sessionId)!;
+
+  const seen = new Set<string>();
+  let depth = 0;
+  let cursor = parentById.get(sessionId) ?? null;
+
+  while (cursor) {
+    if (cache.has(cursor)) {
+      depth += cache.get(cursor)! + 1;
+      break;
+    }
+    if (seen.has(cursor)) break;
+    seen.add(cursor);
+    depth += 1;
+    cursor = parentById.get(cursor) ?? null;
+  }
+
+  cache.set(sessionId, depth);
+  return depth;
+}
+
+function parseAnalyticsJson(value: string): SessionAnalytics | null {
+  try {
+    return normalizeSessionAnalytics(JSON.parse(value || '{}'));
+  } catch {
+    return null;
+  }
+}
+
+function toClientSession(
+  session: SessionRecord,
+  branchDepth = 0,
+): ChatSessionDto {
   return {
     id: session.id,
     title: session.title,
@@ -207,6 +318,18 @@ function toClientSession(session: {
     messages: parseStoredChatMessages(session.messages),
     folderId: session.folderId,
     tags: session.tags,
+    summary: session.summary,
+    contextSummary: session.contextSummary,
+    contextSummaryUpdatedAt: session.contextSummaryUpdatedAt,
+    analytics: parseAnalyticsJson(session.analyticsJson),
+    autoContinueMode: normalizeSessionAutoContinueMode(session.autoContinueMode),
+    autoContinueMaxSteps: normalizeSessionAutoContinueMaxSteps(session.autoContinueMaxSteps, 3),
+    lastAutoContinueAt: session.lastAutoContinueAt,
+    parentSessionId: session.parentSessionId,
+    branchFromMessageId: session.branchFromMessageId,
+    branchLabel: session.branchLabel,
+    branchChildrenCount: session.branchChildrenCount,
+    branchDepth,
   };
 }
 
@@ -216,18 +339,84 @@ async function getOwnedSession(userId: string, sessionId: string) {
   return session;
 }
 
-function buildSessionData(input: SaveChatSessionInput) {
-  const messages = normalizeStoredChatMessages(input.messages);
+async function buildDerivedSessionState(
+  userId: string,
+  messages: StoredChatMessage[],
+  sessionCreatedAt?: Date | null,
+  sessionUpdatedAt?: Date | null,
+) {
+  const settings = await getUserSettings(userId);
+  const analytics = settings.openClawSessionAnalyticsEnabled
+    ? computeSessionAnalytics(messages, {
+        fallbackCreatedAt: sessionCreatedAt ?? null,
+        fallbackUpdatedAt: sessionUpdatedAt ?? null,
+      })
+    : null;
+  const contextSummary = settings.openClawSessionSummariesEnabled
+    && estimateMessageTokens(messages) >= settings.openClawSessionSummaryTargetTokens
+      ? buildSessionContextSummary(messages, {
+          preserveTurns: settings.openClawSessionPreserveTurns,
+        })
+      : '';
+
+  return {
+    analytics,
+    contextSummary: contextSummary || null,
+    contextSummaryUpdatedAt: contextSummary ? new Date() : null,
+  };
+}
+
+function normalizeLastAutoContinueAt(value: unknown): Date | undefined {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value;
+  if (typeof value !== 'string' || !value.trim()) return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+async function buildSessionData(
+  userId: string,
+  input: SaveChatSessionInput,
+  existing?: {
+    title: string;
+    messages: string;
+    pinned: boolean;
+    surface: string;
+    folderId: string | null;
+    autoContinueMode: string;
+    autoContinueMaxSteps: number;
+    branchLabel: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+) {
+  const fallbackIso = existing?.updatedAt?.toISOString() || new Date().toISOString();
+  const normalizedMessages = ensureMessageTimestamps(normalizeStoredChatMessages(input.messages), fallbackIso);
   const title = typeof input.title === 'string' && input.title.trim()
     ? input.title.trim()
-    : deriveChatTitle(messages);
+    : deriveChatTitle(normalizedMessages);
+  const derived = await buildDerivedSessionState(
+    userId,
+    normalizedMessages,
+    existing?.createdAt ?? null,
+    new Date(),
+  );
 
   return {
     title,
-    messages,
-    pinned: Boolean(input.pinned),
-    surface: normalizeSurface(input.surface),
-    folderId: input.folderId ?? null,
+    messages: normalizedMessages,
+    pinned: Boolean(input.pinned ?? existing?.pinned),
+    surface: normalizeSurface(input.surface ?? existing?.surface),
+    folderId: input.folderId !== undefined ? input.folderId : existing?.folderId ?? null,
+    autoContinueMode: normalizeSessionAutoContinueMode(input.autoContinueMode ?? existing?.autoContinueMode),
+    autoContinueMaxSteps: normalizeSessionAutoContinueMaxSteps(
+      input.autoContinueMaxSteps ?? existing?.autoContinueMaxSteps,
+      3,
+    ),
+    branchLabel: typeof input.branchLabel === 'string'
+      ? input.branchLabel.trim() || null
+      : existing?.branchLabel ?? null,
+    lastAutoContinueAt: normalizeLastAutoContinueAt(input.lastAutoContinueAt),
+    ...derived,
   };
 }
 
@@ -237,25 +426,70 @@ function mergeAssistantMessage(messages: StoredChatMessage[], assistantMessage: 
   if (assistantMessage.id) {
     const indexed = nextMessages.findIndex(message => message?.id === assistantMessage.id);
     if (indexed !== -1) {
-      nextMessages[indexed] = { ...nextMessages[indexed], ...assistantMessage, role: 'assistant' };
+      nextMessages[indexed] = {
+        ...nextMessages[indexed],
+        ...assistantMessage,
+        role: 'assistant',
+        createdAt: nextMessages[indexed].createdAt || assistantMessage.createdAt || new Date().toISOString(),
+      };
       return nextMessages;
     }
   }
 
   const lastMessage = nextMessages[nextMessages.length - 1];
   if (lastMessage?.role === 'assistant' && (!lastMessage.content.trim() || lastMessage.id === assistantMessage.id)) {
-    nextMessages[nextMessages.length - 1] = { ...lastMessage, ...assistantMessage, role: 'assistant' };
+    nextMessages[nextMessages.length - 1] = {
+      ...lastMessage,
+      ...assistantMessage,
+      role: 'assistant',
+      createdAt: lastMessage.createdAt || assistantMessage.createdAt || new Date().toISOString(),
+    };
     return nextMessages;
   }
 
-  nextMessages.push({ ...assistantMessage, role: 'assistant' });
+  nextMessages.push({
+    ...assistantMessage,
+    role: 'assistant',
+    createdAt: assistantMessage.createdAt || new Date().toISOString(),
+  });
   return nextMessages;
+}
+
+function mapSessionRows(rows: Array<{
+  id: string;
+  title: string;
+  messages: string;
+  summary: string | null;
+  contextSummary: string | null;
+  contextSummaryUpdatedAt: Date | null;
+  analyticsJson: string;
+  autoContinueMode: string;
+  autoContinueMaxSteps: number;
+  lastAutoContinueAt: Date | null;
+  parentSessionId: string | null;
+  branchFromMessageId: string | null;
+  branchLabel: string | null;
+  pinned: boolean;
+  surface: string;
+  createdAt: Date;
+  updatedAt: Date;
+  folderId: string | null;
+  tags: Array<{ tag: { id: string; name: string; color: string } }>;
+  _count: { childSessions: number };
+}>): ChatSessionDto[] {
+  const parentById = new Map(rows.map(row => [row.id, row.parentSessionId]));
+  const depthCache = new Map<string, number>();
+  return rows.map(row => toClientSession({
+    ...row,
+    tags: row.tags.map(tag => ({ id: tag.tag.id, name: tag.tag.name, color: tag.tag.color })),
+    branchChildrenCount: row._count.childSessions,
+  }, computeBranchDepth(row.id, parentById, depthCache)));
 }
 
 export async function listChatSessions(userId: string, surface: ChatSessionSurface = 'chat', folderId?: string | null): Promise<ChatSessionDto[]> {
   const sessions = await prisma.chatSession.findMany({
-    where: { 
-      userId, 
+    where: {
+      userId,
       surface,
       ...(folderId !== undefined ? { folderId: folderId || undefined } : {}),
     },
@@ -265,14 +499,30 @@ export async function listChatSessions(userId: string, surface: ChatSessionSurfa
           tag: true,
         },
       },
+      _count: {
+        select: {
+          childSessions: true,
+        },
+      },
     },
     orderBy: [{ pinned: 'desc' }, { updatedAt: 'desc' }],
   });
 
-  return sessions.map(s => toClientSession({
-    ...s,
-    tags: s.tags.map(t => ({ id: t.tag.id, name: t.tag.name, color: t.tag.color })),
-  }));
+  return mapSessionRows(sessions);
+}
+
+export async function getChatSessionById(userId: string, sessionId: string): Promise<ChatSessionDto | null> {
+  const session = await prisma.chatSession.findUnique({
+    where: { id: sessionId },
+    include: {
+      tags: { include: { tag: true } },
+      _count: { select: { childSessions: true } },
+    },
+  });
+
+  if (!session || session.userId !== userId) return null;
+
+  return mapSessionRows([session])[0] ?? null;
 }
 
 export async function upsertChatSession(userId: string, input: SaveChatSessionInput): Promise<{ created: boolean; session: ChatSessionDto }> {
@@ -286,14 +536,18 @@ export async function upsertChatSession(userId: string, input: SaveChatSessionIn
         throw new Error('Unauthorized');
       }
 
-      const payload = buildSessionData({
+      const payload = await buildSessionData(userId, {
         id: requestedId,
         title: input.title ?? existing.title,
         messages: input.messages ?? parseStoredChatMessages(existing.messages),
         pinned: input.pinned ?? existing.pinned,
         surface: input.surface ?? normalizeSurface(existing.surface),
         folderId: input.folderId !== undefined ? input.folderId : existing.folderId,
-      });
+        autoContinueMode: input.autoContinueMode ?? existing.autoContinueMode,
+        autoContinueMaxSteps: input.autoContinueMaxSteps ?? existing.autoContinueMaxSteps,
+        branchLabel: input.branchLabel ?? existing.branchLabel,
+        lastAutoContinueAt: input.lastAutoContinueAt,
+      }, existing);
 
       const updated = await prisma.chatSession.update({
         where: { id: requestedId },
@@ -303,31 +557,26 @@ export async function upsertChatSession(userId: string, input: SaveChatSessionIn
           pinned: payload.pinned,
           surface: payload.surface,
           folderId: payload.folderId,
+          autoContinueMode: payload.autoContinueMode,
+          autoContinueMaxSteps: payload.autoContinueMaxSteps,
+          branchLabel: payload.branchLabel,
+          contextSummary: payload.contextSummary,
+          contextSummaryUpdatedAt: payload.contextSummaryUpdatedAt,
+          analyticsJson: JSON.stringify(payload.analytics ?? {}),
+          ...(payload.lastAutoContinueAt ? { lastAutoContinueAt: payload.lastAutoContinueAt } : {}),
           updatedAt: new Date(),
+        },
+        include: {
+          tags: { include: { tag: true } },
+          _count: { select: { childSessions: true } },
         },
       });
 
-      // Fetch tags for response
-      const tags = await prisma.chatSessionTag.findMany({
-        where: { sessionId: requestedId },
-        include: { tag: true },
-      });
-
-      return { created: false, session: toClientSession({
-        id: updated.id,
-        title: updated.title,
-        messages: updated.messages,
-        pinned: updated.pinned,
-        surface: updated.surface,
-        createdAt: updated.createdAt,
-        updatedAt: updated.updatedAt,
-        folderId: updated.folderId,
-        tags: tags.map(t => ({ id: t.tag.id, name: t.tag.name, color: t.tag.color })),
-      })};
+      return { created: false, session: mapSessionRows([updated])[0]! };
     }
   }
 
-  const payload = buildSessionData(input);
+  const payload = await buildSessionData(userId, input);
   const created = await prisma.chatSession.create({
     data: {
       id: requestedId || undefined,
@@ -337,20 +586,21 @@ export async function upsertChatSession(userId: string, input: SaveChatSessionIn
       pinned: payload.pinned,
       surface: payload.surface,
       folderId: payload.folderId,
+      autoContinueMode: payload.autoContinueMode,
+      autoContinueMaxSteps: payload.autoContinueMaxSteps,
+      branchLabel: payload.branchLabel,
+      contextSummary: payload.contextSummary,
+      contextSummaryUpdatedAt: payload.contextSummaryUpdatedAt,
+      analyticsJson: JSON.stringify(payload.analytics ?? {}),
+      ...(payload.lastAutoContinueAt ? { lastAutoContinueAt: payload.lastAutoContinueAt } : {}),
+    },
+    include: {
+      tags: { include: { tag: true } },
+      _count: { select: { childSessions: true } },
     },
   });
 
-  return { created: true, session: toClientSession({
-    id: created.id,
-    title: created.title,
-    messages: created.messages,
-    pinned: created.pinned,
-    surface: created.surface,
-    createdAt: created.createdAt,
-    updatedAt: created.updatedAt,
-    folderId: created.folderId,
-    tags: [],
-  })};
+  return { created: true, session: mapSessionRows([created])[0]! };
 }
 
 export async function updateChatSession(
@@ -361,14 +611,18 @@ export async function updateChatSession(
   const existing = await getOwnedSession(userId, sessionId);
   if (!existing) return null;
 
-  const payload = buildSessionData({
+  const payload = await buildSessionData(userId, {
     id: sessionId,
     title: input.title ?? existing.title,
     messages: input.messages ?? parseStoredChatMessages(existing.messages),
     pinned: input.pinned ?? existing.pinned,
     surface: input.surface ?? normalizeSurface(existing.surface),
     folderId: input.folderId !== undefined ? input.folderId : existing.folderId,
-  });
+    autoContinueMode: input.autoContinueMode ?? existing.autoContinueMode,
+    autoContinueMaxSteps: input.autoContinueMaxSteps ?? existing.autoContinueMaxSteps,
+    branchLabel: input.branchLabel ?? existing.branchLabel,
+    lastAutoContinueAt: input.lastAutoContinueAt,
+  }, existing);
 
   const updated = await prisma.chatSession.update({
     where: { id: sessionId },
@@ -378,26 +632,22 @@ export async function updateChatSession(
       pinned: payload.pinned,
       surface: payload.surface,
       folderId: payload.folderId,
+      autoContinueMode: payload.autoContinueMode,
+      autoContinueMaxSteps: payload.autoContinueMaxSteps,
+      branchLabel: payload.branchLabel,
+      contextSummary: payload.contextSummary,
+      contextSummaryUpdatedAt: payload.contextSummaryUpdatedAt,
+      analyticsJson: JSON.stringify(payload.analytics ?? {}),
+      ...(payload.lastAutoContinueAt ? { lastAutoContinueAt: payload.lastAutoContinueAt } : {}),
       updatedAt: new Date(),
+    },
+    include: {
+      tags: { include: { tag: true } },
+      _count: { select: { childSessions: true } },
     },
   });
 
-  const tags = await prisma.chatSessionTag.findMany({
-    where: { sessionId },
-    include: { tag: true },
-  });
-
-  return toClientSession({
-    id: updated.id,
-    title: updated.title,
-    messages: updated.messages,
-    pinned: updated.pinned,
-    surface: updated.surface,
-    createdAt: updated.createdAt,
-    updatedAt: updated.updatedAt,
-    folderId: updated.folderId,
-    tags: tags.map(t => ({ id: t.tag.id, name: t.tag.name, color: t.tag.color })),
-  });
+  return mapSessionRows([updated])[0] ?? null;
 }
 
 export async function deleteChatSession(userId: string, sessionId: string): Promise<boolean> {
@@ -417,7 +667,7 @@ export async function deleteChatSessions(
 ): Promise<{ count: number }> {
   const ids = Array.isArray(options.ids)
     ? Array.from(new Set(options.ids.map(id => typeof id === 'string' ? id.trim() : '').filter(Boolean)))
-    : []
+    : [];
 
   if (ids.length > 0) {
     const result = await prisma.chatSession.deleteMany({
@@ -425,8 +675,8 @@ export async function deleteChatSessions(
         userId,
         id: { in: ids },
       },
-    })
-    return { count: result.count }
+    });
+    return { count: result.count };
   }
 
   if (options.surface) {
@@ -435,18 +685,24 @@ export async function deleteChatSessions(
         userId,
         surface: normalizeSurface(options.surface),
       },
-    })
-    return { count: result.count }
+    });
+    return { count: result.count };
   }
 
-  return { count: 0 }
+  return { count: 0 };
 }
 
 export async function finalizeChatSession(
   userId: string,
   input: FinalizeChatSessionInput,
 ): Promise<ChatSessionDto | null> {
-  const existing = await prisma.chatSession.findUnique({ where: { id: input.chatId } });
+  const existing = await prisma.chatSession.findUnique({
+    where: { id: input.chatId },
+    include: {
+      tags: { include: { tag: true } },
+      _count: { select: { childSessions: true } },
+    },
+  });
   if (existing && existing.userId !== userId) return null;
 
   const baseMessages = input.messages !== undefined
@@ -457,6 +713,7 @@ export async function finalizeChatSession(
     ...(isRecord(input.message) ? input.message : {}),
     role: 'assistant',
     id: input.messageId,
+    createdAt: isRecord(input.message) ? input.message.createdAt : undefined,
   });
 
   if (!assistantMessage) return null;
@@ -467,6 +724,28 @@ export async function finalizeChatSession(
     : existing?.title && existing.title !== 'New Chat'
       ? existing.title
       : deriveChatTitle(nextMessages);
+  const derived = await buildDerivedSessionState(
+    userId,
+    nextMessages,
+    existing?.createdAt ?? null,
+    new Date(),
+  );
+  const userSettings = existing ? null : await getUserSettings(userId);
+  const nextAutoContinueMode = normalizeSessionAutoContinueMode(
+    input.autoContinueMode
+    ?? existing?.autoContinueMode
+    ?? userSettings?.openClawSessionAutoContinueDefault,
+  );
+  const nextAutoContinueMaxSteps = normalizeSessionAutoContinueMaxSteps(
+    input.autoContinueMaxSteps
+    ?? existing?.autoContinueMaxSteps
+    ?? userSettings?.openClawSessionAutoContinueMaxSteps,
+    3,
+  );
+  const nextBranchLabel = typeof input.branchLabel === 'string'
+    ? input.branchLabel.trim() || null
+    : existing?.branchLabel ?? null;
+  const nextLastAutoContinueAt = normalizeLastAutoContinueAt(input.lastAutoContinueAt) ?? existing?.lastAutoContinueAt ?? null;
 
   const saved = existing
     ? await prisma.chatSession.update({
@@ -475,7 +754,18 @@ export async function finalizeChatSession(
           title: nextTitle,
           messages: serializeStoredChatMessages(nextMessages),
           surface: normalizeSurface(input.surface ?? existing.surface),
+          autoContinueMode: nextAutoContinueMode,
+          autoContinueMaxSteps: nextAutoContinueMaxSteps,
+          branchLabel: nextBranchLabel,
+          contextSummary: derived.contextSummary,
+          contextSummaryUpdatedAt: derived.contextSummaryUpdatedAt,
+          analyticsJson: JSON.stringify(derived.analytics ?? {}),
+          lastAutoContinueAt: nextLastAutoContinueAt,
           updatedAt: new Date(),
+        },
+        include: {
+          tags: { include: { tag: true } },
+          _count: { select: { childSessions: true } },
         },
       })
     : await prisma.chatSession.create({
@@ -485,23 +775,84 @@ export async function finalizeChatSession(
           title: nextTitle,
           messages: serializeStoredChatMessages(nextMessages),
           surface: normalizeSurface(input.surface),
+          autoContinueMode: nextAutoContinueMode,
+          autoContinueMaxSteps: nextAutoContinueMaxSteps,
+          branchLabel: nextBranchLabel,
+          contextSummary: derived.contextSummary,
+          contextSummaryUpdatedAt: derived.contextSummaryUpdatedAt,
+          analyticsJson: JSON.stringify(derived.analytics ?? {}),
+          lastAutoContinueAt: nextLastAutoContinueAt,
+        },
+        include: {
+          tags: { include: { tag: true } },
+          _count: { select: { childSessions: true } },
         },
       });
 
-  const tags = await prisma.chatSessionTag.findMany({
-    where: { sessionId: saved.id },
-    include: { tag: true },
+  return mapSessionRows([saved])[0] ?? null;
+}
+
+export async function branchChatSession(
+  userId: string,
+  input: BranchChatSessionInput,
+): Promise<ChatSessionDto | null> {
+  const existing = await prisma.chatSession.findUnique({
+    where: { id: input.sessionId },
+    include: {
+      tags: true,
+    },
+  });
+  if (!existing || existing.userId !== userId) return null;
+
+  const sourceMessages = parseStoredChatMessages(existing.messages);
+  const branchIndex = input.messageId
+    ? sourceMessages.findIndex(message => message.id === input.messageId)
+    : sourceMessages.length - 1;
+
+  if (branchIndex < 0) {
+    throw new Error('Branch point message not found');
+  }
+
+  const branchMessages = sourceMessages.slice(0, branchIndex + 1);
+  const derived = await buildDerivedSessionState(
+    userId,
+    branchMessages,
+    existing.createdAt,
+    new Date(),
+  );
+  const branchLabel = input.branchLabel?.trim() || `Branch from ${existing.title}`;
+  const created = await prisma.chatSession.create({
+    data: {
+      userId,
+      title: `${existing.title} · Branch`,
+      messages: serializeStoredChatMessages(branchMessages),
+      summary: existing.summary,
+      contextSummary: derived.contextSummary,
+      contextSummaryUpdatedAt: derived.contextSummaryUpdatedAt,
+      analyticsJson: JSON.stringify(derived.analytics ?? {}),
+      autoContinueMode: normalizeSessionAutoContinueMode(existing.autoContinueMode),
+      autoContinueMaxSteps: normalizeSessionAutoContinueMaxSteps(existing.autoContinueMaxSteps, 3),
+      parentSessionId: existing.id,
+      branchFromMessageId: input.messageId || branchMessages[branchMessages.length - 1]?.id || null,
+      branchLabel,
+      surface: normalizeSurface(existing.surface),
+      folderId: existing.folderId,
+    },
+    include: {
+      tags: { include: { tag: true } },
+      _count: { select: { childSessions: true } },
+    },
   });
 
-  return toClientSession({
-    id: saved.id,
-    title: saved.title,
-    messages: saved.messages,
-    pinned: saved.pinned,
-    surface: saved.surface,
-    createdAt: saved.createdAt,
-    updatedAt: saved.updatedAt,
-    folderId: saved.folderId,
-    tags: tags.map(t => ({ id: t.tag.id, name: t.tag.name, color: t.tag.color })),
-  });
+  if (existing.tags.length > 0) {
+    await prisma.chatSessionTag.createMany({
+      data: existing.tags.map(tag => ({
+        sessionId: created.id,
+        tagId: tag.tagId,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
+  return getChatSessionById(userId, created.id);
 }

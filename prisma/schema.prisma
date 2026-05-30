@@ -91,6 +91,13 @@ model UserSettings {
   openClawAutomationExecutionMaxRunsPerHour Int @default(6)
   openClawAutomationExecutionAttachWorkspace Boolean @default(true)
   openClawAutomationExecutionAttachMemory Boolean @default(true)
+  openClawSessionAutoContinueDefault String @default("manual") // "manual" | "ask" | "safe"
+  openClawSessionAutoContinueMaxSteps Int @default(3)
+  openClawSessionSummariesEnabled Boolean @default(true)
+  openClawSessionSummaryTargetTokens Int @default(6000)
+  openClawSessionPreserveTurns Int @default(6)
+  openClawSessionAnalyticsEnabled Boolean @default(true)
+  openClawSessionBranchingEnabled Boolean @default(true)
   // Knowledge Base RAG Settings
   ragEnabled       Boolean @default(false)
   ragTopK          Int     @default(8)
@@ -98,19 +105,33 @@ model UserSettings {
 }
 
 model ChatSession {
-  id        String   @id @default(uuid())
-  title     String
-  messages  String   // Storing JSON string for simplicity
-  summary   String?  // Auto-generated TL;DR when session ends
-  pinned    Boolean  @default(false)
-  surface   String   @default("chat")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  folderId  String?
-  folder    Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  tags      ChatSessionTag[]
+  id                    String   @id @default(uuid())
+  title                 String
+  messages              String   // Storing JSON string for simplicity
+  summary               String?  // Auto-generated TL;DR when session ends
+  contextSummary        String?
+  contextSummaryUpdatedAt DateTime?
+  analyticsJson         String   @default("{}")
+  autoContinueMode      String   @default("manual") // "manual" | "ask" | "safe"
+  autoContinueMaxSteps  Int      @default(3)
+  lastAutoContinueAt    DateTime?
+  parentSessionId       String?
+  parentSession         ChatSession? @relation("ChatSessionBranches", fields: [parentSessionId], references: [id], onDelete: SetNull)
+  childSessions         ChatSession[] @relation("ChatSessionBranches")
+  branchFromMessageId   String?
+  branchLabel           String?
+  pinned                Boolean  @default(false)
+  surface               String   @default("chat")
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @default(now())
+  userId                String
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folderId              String?
+  folder                Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  tags                  ChatSessionTag[]
+
+  @@index([userId, surface, updatedAt])
+  @@index([userId, parentSessionId])
 }
 
 model Folder {

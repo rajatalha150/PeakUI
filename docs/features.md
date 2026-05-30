@@ -89,6 +89,16 @@ WorkSpaces includes a collapsible Canvas panel that:
 - **Scaffolded workspace files**: Each workspace gets its own `BOOT.md`, `TOOLS.md`, and `skills/` directory so local conventions and reusable prompts live with the workspace itself.
 - **Prompt-backed startup context**: The selected workspace's `BOOT.md`, `TOOLS.md`, and skill-template summaries are injected into the Open Claw system prompt for that turn.
 
+### Session Intelligence
+
+- **Per-session continuation modes**: Each WorkSpaces thread now carries its own `manual`, `ask`, or `safe` continuation mode plus a max-step cap, and the composer shows continuation state inline.
+- **Safe auto-continue**: `safe` mode only auto-follows unfinished tool-driven turns instead of blindly looping on every assistant response.
+- **Rolling context summaries**: Long sessions now preserve older turns as a compressed summary while keeping recent raw turns intact inside the active context window.
+- **Context health feedback**: WorkSpaces surfaces whether a thread is still `Fresh`, getting `Near limit`, already `Summarized`, or fully `Trimmed`.
+- **Branch from any message**: Users can fork a WorkSpaces thread from the latest state or from an individual message without losing tags, folder placement, or branch ancestry.
+- **Branch comparison**: Branch families can be compared side-by-side, including summaries, rolling context, analytics, continuation mode, child-branch count, and latest outcome.
+- **Session analytics**: Each thread now tracks time span, message counts, assistant tokens, average TPS, sources, attachments, images, and tool-call counts by type.
+
 ### Autonomous Scheduling
 
 - **Persistent automation worker**: A Node-side worker starts from `src/instrumentation.ts` and polls automation state every 30 seconds instead of relying on browser-local timers.
@@ -237,9 +247,19 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 - **Provider token**: Stored only in the browser for compatible remote access
 - **Temperature**: Response randomness (0-2)
 - **Context Window**: Max tokens for context (512-32768)
-- **System Prompt**: Custom instructions for the model
+- **Background system instructions**: The stock image-markdown and workspace-behavior guardrails run server-side instead of exposing a misleading shared System Prompt textbox in the primary UI
 - **Exclusive Ollama Switching**: Unload other models before starting selected one
 - **Logout**: Available from the Settings header
+
+### Session Intelligence Settings
+
+- **Default continuation mode**: New WorkSpaces threads default to `manual`, `ask`, or `safe`
+- **Continuation step cap**: Limits how many safe auto-continue hops a thread can take before stopping
+- **Rolling summaries toggle**: Enables or disables long-session summarization for WorkSpaces threads
+- **Summary trigger threshold**: Token threshold where the backend starts compressing older turns
+- **Recent-turn preservation**: Number of recent turns kept as raw transcript before summarization
+- **Session analytics toggle**: Enables or disables per-thread analytics derivation
+- **Branching toggle**: Enables or disables branch + compare workflows in WorkSpaces
 
 ### Appearance
 

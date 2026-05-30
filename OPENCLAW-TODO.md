@@ -123,11 +123,11 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 - [ ] **Agent handoff** — Seamlessly transfer context between agents
 
 ### 9. Session Intelligence
-- [ ] **Auto-continue sessions** — Agent picks up where it left off
-- [ ] **Context window management** — Smart trimming, summarization for long sessions
-- [ ] **Branch conversations** — Fork a session at any message
-- [ ] **Compare branches** — Side-by-side view of different approaches
-- [ ] **Session analytics** — Time spent, tokens used, tools called per session
+- [x] **Auto-continue sessions** — Per-session `manual` / `ask` / `safe` continuation modes with session-level step caps, continue banners, and safe-step auto-follow-up for unfinished tool-driven turns
+- [x] **Context window management** — Rolling context summaries preserve older turns while keeping recent raw turns intact; WorkSpaces now tracks context health (`Fresh`, `Near limit`, `Summarized`, `Trimmed`)
+- [x] **Branch conversations** — Fork any WorkSpaces thread from the latest state or any individual message through `/api/chats/[id]/branch`, preserving task context, tags, and branch ancestry
+- [x] **Compare branches** — Built-in side-by-side branch comparison modal shows summaries, rolling context, continuation mode, analytics, and latest assistant outcome
+- [x] **Session analytics** — Per-session analytics now track message counts, time span, assistant tokens, average TPS, sources, attachments, images, and tool-call counts by type
 
 ### 10. UX Polish
 - [ ] **Resizable right rail** — Drag to resize, not just collapse
@@ -161,7 +161,8 @@ The database was wiped during the Phase 7 Canvas implementation. All prior data 
 12. Tool-capable unattended execution from automation triggers
 
 ### Phase 4 — Advanced
-12. Task decomposition + sub-agent delegation
-13. Canvas artifacts + versioning
-14. Multi-agent teams
-15. Cross-session memory search
+13. Session intelligence ✅ COMPLETE
+14. Task decomposition + sub-agent delegation
+15. Canvas artifacts + versioning
+16. Multi-agent teams
+17. Cross-session memory search

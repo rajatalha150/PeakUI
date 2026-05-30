@@ -16,7 +16,16 @@ export async function POST(req: Request) {
     const pinned = typeof body.pinned === 'boolean' ? body.pinned : undefined;
     const surface = body.surface === 'openclaw' ? 'openclaw' : 'chat';
 
-    const result = await upsertChatSession(userId, { id: sessionId, title, messages, pinned, surface });
+    const result = await upsertChatSession(userId, {
+      id: sessionId,
+      title,
+      messages,
+      pinned,
+      surface,
+      autoContinueMode: body.autoContinueMode,
+      autoContinueMaxSteps: body.autoContinueMaxSteps,
+      branchLabel: body.branchLabel,
+    });
 
     return NextResponse.json({ success: true, session: result.session }, { status: result.created ? 201 : 200 });
   } catch (error) {

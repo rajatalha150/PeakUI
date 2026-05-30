@@ -41,6 +41,10 @@ export async function POST(req: Request) {
       messages: body.messages,
       pinned: typeof body.pinned === 'boolean' ? body.pinned : undefined,
       surface: body.surface === 'openclaw' ? 'openclaw' : 'chat',
+      autoContinueMode: body.autoContinueMode,
+      autoContinueMaxSteps: body.autoContinueMaxSteps,
+      branchLabel: body.branchLabel,
+      lastAutoContinueAt: body.lastAutoContinueAt,
     });
 
     return NextResponse.json({ success: true, session: result.session }, { status: result.created ? 201 : 200 });
@@ -70,6 +74,10 @@ export async function PATCH(req: Request) {
       messages: body.messages,
       surface: body.surface === 'openclaw' ? 'openclaw' : 'chat',
       folderId: body.folderId !== undefined ? (body.folderId === null ? null : body.folderId) : undefined,
+      autoContinueMode: body.autoContinueMode,
+      autoContinueMaxSteps: body.autoContinueMaxSteps,
+      branchLabel: body.branchLabel,
+      lastAutoContinueAt: body.lastAutoContinueAt,
     });
 
     if (!session) {

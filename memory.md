@@ -199,6 +199,9 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Autonomous file monitors now respect the same approved OpenClaw filesystem roots as manual file inspection, and URL monitors reuse the existing public-HTTP SSRF guardrails instead of becoming a private-network backdoor.
 - Autonomous scheduling can now switch from `nudge` delivery to unattended background model execution. Heartbeats, cron schedules, monitors, and wake events can queue durable Ollama-backed runs that post back into WorkSpaces threads with optional workspace and memory context.
 - Unattended execution is intentionally guarded: it is enabled from personal settings, rate-limited per user/hour, recorded in durable run history, and currently limited to local Ollama without interactive tool use.
+- Open Claw now has durable session intelligence: each thread stores rolling context summaries, per-session continuation mode/step caps, analytics, branch ancestry, and branch child counts in `ChatSession`.
+- Long WorkSpaces threads no longer rely on blind trimming. The backend compresses older turns into a summary while preserving recent raw turns, and the workspace UI surfaces context health plus summary state.
+- Users can now branch a WorkSpaces thread from the latest state or any individual message, compare branches side by side, and inspect per-session metrics like tokens, time span, tools used, sources, images, and attachments.
 - **Identity & Persona System** — Agent persona config (name, tone, expertise, boundaries, operating instructions) and user profile (name, role, preferences, context) are persisted per-user in `UserSettings` and injected into every Open Claw system prompt
 - **Persona templates** — Pre-built personas: Developer, Researcher, Writer, Analyst, Product Manager, System Admin, plus a fully customizable Custom persona
 - Persona and user profile are editable in collapsible panels in the Open Claw left workspace rail, with template picker and live summary in the workspace top bar
@@ -430,13 +433,21 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - **Internet mode next:** Consider an optional Phase 2 browser extension/current-tab context flow, but keep the shipped Phase 1 path read-only and citation-first
 - **Phase 2:** Docker Orchestration — spawn/manage containers from Open Claw via `dockerode`
 - **Open Claw UX next:** Continue tightening Ollama health/status affordances around local model startup, loaded models, and recovery actions
+- **Session intelligence next:** Add branch promotion/merge flows, session replay/timeline views, and broader continuation heuristics beyond safe unfinished tool-turn follow-up
 - **RAG (v2 complete):** Server-side RAG now fires automatically alongside web search when enabled. Added hybrid search (RRF combining semantic + keyword), per-request topK control with full access mode (-1 = all chunks), and a UI toggle to enable/disable knowledge base per-chat
 - **Phase 4:** Code Interpreter and VM orchestration
 
 
 ## 💻 Latest Commit Info
-- **Current committed baseline:** `fix: clarify host filesystem access`
-- **Previous committed baseline:** `feat: add recoverable canvas revisions`
+- **Current committed baseline:** `feat: add workspace session intelligence`
+- **Previous committed baseline:** `feat: add unattended automation execution`
+
+### Latest Changes (Session Intelligence)
+- **Rolling context management:** WorkSpaces now computes rolling `contextSummary` state for long sessions, preserves recent raw turns, emits context-health states, and stores the compressed summary back into `ChatSession`.
+- **Per-session continuation policy:** `ChatSession` now stores `autoContinueMode`, `autoContinueMaxSteps`, and `lastAutoContinueAt`, while Settings exposes defaults for new WorkSpaces threads and the workspace controls modal lets users adjust continuation behavior per thread.
+- **Branching workflow:** added `POST /api/chats/[id]/branch` plus client-side actions to branch from the latest state or any individual message while preserving tags, folder placement, branch ancestry, and inherited session context.
+- **Branch comparison UI:** WorkSpaces now includes a side-by-side branch comparison modal showing summaries, rolling context, continuation mode, child-branch counts, analytics, and latest assistant outcome for two selected branches.
+- **Session analytics:** sessions now derive and persist message counts, tool-call counts by type, assistant token totals, average TPS, time span, sources, images, and attachments, and the rail now exposes compact analytics summaries for each thread.
 
 ### Latest Changes (Host Filesystem & Executor Access)
 - **Filesystem denials are now actionable:** `/api/openclaw/filesystem` returns structured `code`, `actionRequired`, and diagnostics instead of a bare 403 for blocked paths.

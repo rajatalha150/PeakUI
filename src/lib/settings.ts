@@ -10,6 +10,13 @@ import {
   type ChatModelProvider,
   type ChatPlatform,
 } from './chat-platforms'
+import {
+  normalizeSessionAutoContinueMaxSteps,
+  normalizeSessionAutoContinueMode,
+  normalizeSessionPreserveTurns,
+  normalizeSessionSummaryTargetTokens,
+  type SessionAutoContinueMode,
+} from './session-intelligence'
 
 export {
   DEFAULT_HUGGING_FACE_BASE_URL,
@@ -83,6 +90,13 @@ export interface AppSettings {
   openClawAutomationExecutionMaxRunsPerHour: number
   openClawAutomationExecutionAttachWorkspace: boolean
   openClawAutomationExecutionAttachMemory: boolean
+  openClawSessionAutoContinueDefault: SessionAutoContinueMode
+  openClawSessionAutoContinueMaxSteps: number
+  openClawSessionSummariesEnabled: boolean
+  openClawSessionSummaryTargetTokens: number
+  openClawSessionPreserveTurns: number
+  openClawSessionAnalyticsEnabled: boolean
+  openClawSessionBranchingEnabled: boolean
   ragEnabled: boolean
   ragTopK: number
 }
@@ -135,6 +149,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
   openClawAutomationExecutionMaxRunsPerHour: 6,
   openClawAutomationExecutionAttachWorkspace: true,
   openClawAutomationExecutionAttachMemory: true,
+  openClawSessionAutoContinueDefault: 'manual',
+  openClawSessionAutoContinueMaxSteps: 3,
+  openClawSessionSummariesEnabled: true,
+  openClawSessionSummaryTargetTokens: 6000,
+  openClawSessionPreserveTurns: 6,
+  openClawSessionAnalyticsEnabled: true,
+  openClawSessionBranchingEnabled: true,
   ragEnabled: false,
   ragTopK: 8,
 }
@@ -379,6 +400,33 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     openClawAutomationExecutionAttachMemory: normalizeBoolean(
       settings?.openClawAutomationExecutionAttachMemory,
       DEFAULT_SETTINGS.openClawAutomationExecutionAttachMemory,
+    ),
+    openClawSessionAutoContinueDefault: normalizeSessionAutoContinueMode(
+      settings?.openClawSessionAutoContinueDefault,
+    ),
+    openClawSessionAutoContinueMaxSteps: normalizeSessionAutoContinueMaxSteps(
+      settings?.openClawSessionAutoContinueMaxSteps,
+      DEFAULT_SETTINGS.openClawSessionAutoContinueMaxSteps,
+    ),
+    openClawSessionSummariesEnabled: normalizeBoolean(
+      settings?.openClawSessionSummariesEnabled,
+      DEFAULT_SETTINGS.openClawSessionSummariesEnabled,
+    ),
+    openClawSessionSummaryTargetTokens: normalizeSessionSummaryTargetTokens(
+      settings?.openClawSessionSummaryTargetTokens,
+      DEFAULT_SETTINGS.openClawSessionSummaryTargetTokens,
+    ),
+    openClawSessionPreserveTurns: normalizeSessionPreserveTurns(
+      settings?.openClawSessionPreserveTurns,
+      DEFAULT_SETTINGS.openClawSessionPreserveTurns,
+    ),
+    openClawSessionAnalyticsEnabled: normalizeBoolean(
+      settings?.openClawSessionAnalyticsEnabled,
+      DEFAULT_SETTINGS.openClawSessionAnalyticsEnabled,
+    ),
+    openClawSessionBranchingEnabled: normalizeBoolean(
+      settings?.openClawSessionBranchingEnabled,
+      DEFAULT_SETTINGS.openClawSessionBranchingEnabled,
     ),
     ragEnabled: normalizeBoolean(settings?.ragEnabled, DEFAULT_SETTINGS.ragEnabled),
     ragTopK: normalizeRagTopK(settings?.ragTopK),

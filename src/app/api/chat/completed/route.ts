@@ -36,6 +36,10 @@ export async function POST(req: Request) {
       messages,
       title,
       surface,
+      autoContinueMode: body.autoContinueMode,
+      autoContinueMaxSteps: body.autoContinueMaxSteps,
+      branchLabel: body.branchLabel,
+      lastAutoContinueAt: body.lastAutoContinueAt,
     });
 
     if (!session) {

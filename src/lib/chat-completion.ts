@@ -27,6 +27,8 @@ import { normalizeImageMimeType, shouldNormalizeImageForCompatibility } from './
 import { convertImageBufferToJpeg } from './image-normalization';
 import { getOpenClawWorkspaceContext } from './openclaw-project-workspaces';
 import { getOpenAutomationNudges } from './openclaw-automation';
+import { getChatSessionById } from './chat-sessions';
+import { applyContextManagement } from './session-intelligence';
 
 const CHAT_HEARTBEAT_INTERVAL_MS = 15000;
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
@@ -726,6 +728,9 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const automationNudges = surface === 'openclaw'
       ? await getOpenAutomationNudges(userId)
       : [];
+    const existingSession = chatId
+      ? await getChatSessionById(userId, chatId).catch(() => null)
+      : null;
 
     const openClawPrompt = surface === 'openclaw'
       ? buildOpenClawSystemPrompt({
@@ -851,8 +856,24 @@ export async function createChatCompletionResponse(req: NextRequest) {
 
     // Trim conversation history to fit within context window
     const systemOverhead = estimateStringTokens(systemPrompt);
-    const trimResult = trimMessagesToFit(untrimmedMessages, settings.contextLength, systemOverhead);
-    const outboundMessages: InternalChatMessage[] = trimResult.messages as InternalChatMessage[];
+    const contextManaged = surface === 'openclaw'
+      ? applyContextManagement(untrimmedMessages, {
+          contextLength: settings.contextLength,
+          systemOverhead,
+          existingSummary: existingSession?.contextSummary || existingSession?.summary || '',
+          summaryEnabled: settings.openClawSessionSummariesEnabled,
+          summaryTargetTokens: settings.openClawSessionSummaryTargetTokens,
+          preserveTurns: settings.openClawSessionPreserveTurns,
+        })
+      : {
+          ...trimMessagesToFit(untrimmedMessages, settings.contextLength, systemOverhead),
+          contextSummary: '',
+          contextHealth: 'fresh' as const,
+          rawTokenEstimate: 0,
+          finalTokenEstimate: 0,
+          summaryUsed: false,
+        };
+    const outboundMessages: InternalChatMessage[] = contextManaged.messages as InternalChatMessage[];
 
     const encoder = new TextEncoder();
     const upstreamAbort = new AbortController();
@@ -899,6 +920,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
             session_id: sessionId || undefined,
             id: assistantMessageId,
             status,
+            ...(surface === 'openclaw' ? { context_health: contextManaged.contextHealth } : {}),
           });
         };
 

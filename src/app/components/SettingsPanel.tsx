@@ -49,6 +49,13 @@ interface UserSettings {
   openClawAutomationExecutionMaxRunsPerHour: number;
   openClawAutomationExecutionAttachWorkspace: boolean;
   openClawAutomationExecutionAttachMemory: boolean;
+  openClawSessionAutoContinueDefault: 'manual' | 'ask' | 'safe';
+  openClawSessionAutoContinueMaxSteps: number;
+  openClawSessionSummariesEnabled: boolean;
+  openClawSessionSummaryTargetTokens: number;
+  openClawSessionPreserveTurns: number;
+  openClawSessionAnalyticsEnabled: boolean;
+  openClawSessionBranchingEnabled: boolean;
   ragModel: string;
   ragMode: string;
   ragEnabled: boolean;
@@ -172,6 +179,13 @@ const INITIAL_SETTINGS: UserSettings = {
   openClawAutomationExecutionMaxRunsPerHour: 6,
   openClawAutomationExecutionAttachWorkspace: true,
   openClawAutomationExecutionAttachMemory: true,
+  openClawSessionAutoContinueDefault: 'manual',
+  openClawSessionAutoContinueMaxSteps: 3,
+  openClawSessionSummariesEnabled: true,
+  openClawSessionSummaryTargetTokens: 6000,
+  openClawSessionPreserveTurns: 6,
+  openClawSessionAnalyticsEnabled: true,
+  openClawSessionBranchingEnabled: true,
   ragModel: 'nomic-embed-text',
   ragMode: 'semantic',
   ragEnabled: false,
@@ -1559,6 +1573,114 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             </Field>
           </>
         )}
+
+        <Field label="Session Auto-Continue Default" help="Default continuation behavior for new WorkSpaces sessions. Manual never resumes automatically, Ask surfaces a continue prompt when the agent stops mid-flow, and Safe resumes only capped tool-follow-up steps.">
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {[
+              { value: 'manual' as const, label: 'Manual', desc: 'No automatic continuation' },
+              { value: 'ask' as const, label: 'Ask', desc: 'Suggest continuation when a task stops mid-flow' },
+              { value: 'safe' as const, label: 'Safe', desc: 'Automatically continue capped safe follow-up steps' },
+            ].map(opt => {
+              const active = settings.openClawSessionAutoContinueDefault === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => update('openClawSessionAutoContinueDefault', opt.value)}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: '10px',
+                    border: `1px solid ${active ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                    background: active ? 'var(--accent-soft)' : 'var(--bg-glass)',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    fontSize: '0.8rem',
+                  }}
+                  title={opt.desc}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+
+        <Field label="Auto-Continue Step Cap" help="Upper bound on chained automatic continuations in one WorkSpaces task flow before the agent stops and hands control back to the user.">
+          <input
+            className="input-field"
+            type="number"
+            min={1}
+            max={10}
+            value={settings.openClawSessionAutoContinueMaxSteps}
+            onChange={e => update('openClawSessionAutoContinueMaxSteps', Math.max(1, Number(e.target.value) || 1))}
+          />
+        </Field>
+
+        <Field label="Long-Session Context Management" help="Control when WorkSpaces compresses older transcript turns into a rolling session summary instead of dropping context blindly.">
+          <div style={{ display: 'grid', gap: '12px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.84rem', color: 'var(--text-primary)' }}>
+              <input
+                type="checkbox"
+                checked={settings.openClawSessionSummariesEnabled}
+                onChange={e => update('openClawSessionSummariesEnabled', e.target.checked)}
+              />
+              Enable rolling context summaries for long WorkSpaces sessions
+            </label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
+              <div>
+                <div style={{ fontSize: '0.78rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>Summary trigger</div>
+                <input
+                  className="input-field"
+                  type="number"
+                  min={2048}
+                  max={64000}
+                  step={256}
+                  value={settings.openClawSessionSummaryTargetTokens}
+                  onChange={e => update('openClawSessionSummaryTargetTokens', Math.max(2048, Number(e.target.value) || 2048))}
+                />
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: '5px', lineHeight: 1.45 }}>
+                  Approximate token threshold before older turns are compressed.
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: '0.78rem', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>Recent turns kept raw</div>
+                <input
+                  className="input-field"
+                  type="number"
+                  min={2}
+                  max={16}
+                  value={settings.openClawSessionPreserveTurns}
+                  onChange={e => update('openClawSessionPreserveTurns', Math.max(2, Number(e.target.value) || 2))}
+                />
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: '5px', lineHeight: 1.45 }}>
+                  Keeps the latest conversation turns verbatim while older turns move into summary memory.
+                </div>
+              </div>
+            </div>
+          </div>
+        </Field>
+
+        <Field label="Session Insights" help="Analytics track time, tokens, and tool activity per WorkSpaces session. Branching enables session forks and side-by-side branch comparison in the workspace UI.">
+          <div style={{ display: 'grid', gap: '10px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.84rem', color: 'var(--text-primary)' }}>
+              <input
+                type="checkbox"
+                checked={settings.openClawSessionAnalyticsEnabled}
+                onChange={e => update('openClawSessionAnalyticsEnabled', e.target.checked)}
+              />
+              Enable per-session analytics
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.84rem', color: 'var(--text-primary)' }}>
+              <input
+                type="checkbox"
+                checked={settings.openClawSessionBranchingEnabled}
+                onChange={e => update('openClawSessionBranchingEnabled', e.target.checked)}
+              />
+              Enable branching and compare workflows
+            </label>
+          </div>
+        </Field>
 
         <Field label="Host Access Presets" help="Presets update the shell and filesystem fields below. They are not saved until you click Save Settings. Keep ask-first enabled for host access unless the workflow is already proven.">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
