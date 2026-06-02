@@ -168,6 +168,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (typeof body.query === 'string' && body.query.trim()) uwafRequest.query = body.query.trim()
+  if (typeof body.providerId === 'string' && body.providerId.trim()) uwafRequest.providerId = body.providerId.trim().toLowerCase()
   if (typeof body.url === 'string' && body.url.trim()) uwafRequest.url = body.url.trim()
   if (typeof body.linkIndex === 'number' && Number.isInteger(body.linkIndex) && body.linkIndex >= 0) uwafRequest.linkIndex = body.linkIndex
   if (typeof body.linkText === 'string' && body.linkText.trim()) uwafRequest.linkText = body.linkText.trim()

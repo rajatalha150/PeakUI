@@ -13,8 +13,11 @@ import { assertPublicHttpUrl } from './openclaw-browser'
 import { recordUwafPageOpenTime } from './uwaf-telemetry'
 import {
   getCuratedStealthEntryPoints,
+  getSearchProviderById,
+  isStealthProviderId,
   listSearchProviders,
   recordSearchProviderOutcome,
+  type UwafSearchAttempt,
   type UwafSearchProvider,
 } from './uwaf-search-providers'
 
@@ -94,6 +97,7 @@ export interface UwafBrowserRequest {
   action: UwafAction
   sessionId: string
   query?: string
+  providerId?: string
   url?: string
   linkIndex?: number
   linkText?: string
@@ -180,6 +184,8 @@ export interface UwafBrowserResult {
   selectorMatched?: boolean
   waitTimedOut?: boolean
   searchEngine?: string
+  searchProviderId?: string
+  searchAttempts?: UwafSearchAttempt[]
   tabs?: UwafBrowserTab[]
   activeTabIndex?: number
   observations?: string[]
@@ -785,6 +791,8 @@ function toResult(
     selectorMatched?: boolean
     waitTimedOut?: boolean
     searchEngine?: string
+    searchProviderId?: string
+    searchAttempts?: UwafSearchAttempt[]
     pendingFormValues?: Record<string, string>
     submitted?: { url: string; method: 'GET' | 'POST'; fieldCount: number }
     batchResults?: UwafBatchResult[]
@@ -825,6 +833,8 @@ function toResult(
     selectorMatched: options.selectorMatched,
     waitTimedOut: options.waitTimedOut,
     searchEngine: options.searchEngine,
+    searchProviderId: options.searchProviderId,
+    searchAttempts: options.searchAttempts,
     pendingFormValues: options.pendingFormValues,
     submitted: options.submitted,
     batchResults: options.batchResults,
@@ -903,8 +913,20 @@ async function executeSearch(
   mode: BrowserMode,
   takeScreenshot: boolean,
   stealthProfile: StealthProfile,
+  preferredProviderId?: string,
 ): Promise<UwafBrowserResult> {
-  const providers = listSearchProviders(mode, query, stealthProfile)
+  if (preferredProviderId) {
+    const knownProvider = getSearchProviderById(mode, preferredProviderId)
+    if (!knownProvider) {
+      const availableProviders = listSearchProviders(mode, query, stealthProfile).map(provider => provider.id).join(', ')
+      const message = mode === 'stealth' && isStealthProviderId(preferredProviderId)
+        ? `Stealth search provider "${preferredProviderId}" is currently not configured in this deployment. Available providers: ${availableProviders || 'none'}.`
+        : `Search provider "${preferredProviderId}" is not available for ${mode} mode. Available providers: ${availableProviders || 'none'}.`
+      throw new Error(message)
+    }
+  }
+
+  const providers = listSearchProviders(mode, query, stealthProfile, preferredProviderId)
   const curatedEntryPoints = mode === 'stealth' ? getCuratedStealthEntryPoints() : []
   const attempts: Array<{
     provider: UwafSearchProvider
@@ -923,7 +945,7 @@ async function executeSearch(
       observations: [
         `Issued a ${provider.label} query for: ${query}`,
         ...(curatedEntryPoints.length > 0 && mode === 'stealth'
-          ? [`Curated stealth entry points available: ${curatedEntryPoints.map(entry => entry.label).join(', ')}`]
+          ? [`Approved stealth search providers: ${providers.map(entry => entry.label).join(', ')}`]
           : []),
       ],
     })
@@ -964,6 +986,15 @@ async function executeSearch(
     })
 
     if (evaluation.success) {
+      const searchAttempts = attempts.map(entry => ({
+        providerId: entry.provider.id,
+        providerLabel: entry.provider.label,
+        success: entry.evaluation.success,
+        resultCount: entry.resultCount,
+        queryMatched: entry.evaluation.queryMatched,
+        failureCode: entry.evaluation.failureCode,
+        failureDetail: entry.evaluation.failureDetail,
+      }))
       return toResult('search', mode, observation, {
         success: true,
         requestedUrl,
@@ -971,6 +1002,8 @@ async function executeSearch(
         queryMatched: evaluation.queryMatched,
         resultCount,
         searchEngine: provider.label,
+        searchProviderId: provider.id,
+        searchAttempts,
       })
     }
   }
@@ -995,6 +1028,16 @@ async function executeSearch(
     failureCode: fallback.evaluation.failureCode,
     failureDetail: fallback.evaluation.failureDetail,
     searchEngine: fallback.provider.label,
+    searchProviderId: fallback.provider.id,
+    searchAttempts: attempts.map(entry => ({
+      providerId: entry.provider.id,
+      providerLabel: entry.provider.label,
+      success: entry.evaluation.success,
+      resultCount: entry.resultCount,
+      queryMatched: entry.evaluation.queryMatched,
+      failureCode: entry.evaluation.failureCode,
+      failureDetail: entry.evaluation.failureDetail,
+    })),
   })
 }
 
@@ -1069,7 +1112,7 @@ export async function runUwafBrowserAction(
   switch (request.action) {
     case 'search': {
       if (!request.query?.trim()) throw new Error('Query is required for the "search" action.')
-      const result = await executeSearch(page, request.query, mode, takeScreenshot, stealthProfile)
+      const result = await executeSearch(page, request.query, mode, takeScreenshot, stealthProfile, request.providerId)
       session.currentPage = {
         url: result.currentUrl,
         title: result.title,

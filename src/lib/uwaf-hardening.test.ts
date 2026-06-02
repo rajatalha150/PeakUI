@@ -5,6 +5,7 @@ import {
   normalizeStealthProfile,
 } from './uwaf-fingerprint'
 import {
+  getStealthProviderCatalog,
   getPreferredSearchProviderLabel,
   getSearchProviderSnapshot,
   listSearchProviders,
@@ -49,6 +50,15 @@ describe('uwaf search provider resiliency', () => {
     const providers = listSearchProviders('stealth', 'latest onion mirrors for press freedom', 'normal')
     expect(providers.length).toBeGreaterThan(1)
     expect(providers[0].kind).toBe('onion')
+  })
+
+  it('limits stealth search to the approved onion-search engine set', () => {
+    const providers = listSearchProviders('stealth', 'palantir dark web chatter', 'normal')
+    const ids = providers.map(provider => provider.id)
+    expect(ids).not.toContain('duckduckgo-lite')
+    expect(ids).not.toContain('startpage')
+    expect(ids).not.toContain('brave-search-stealth')
+    expect(ids.every(id => getStealthProviderCatalog().some(entry => entry.id === id))).toBe(true)
   })
 
   it('degrades a provider after repeated hard failures and adjusts preference', () => {

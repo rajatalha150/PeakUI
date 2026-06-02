@@ -149,7 +149,8 @@ This file tracks targeted improvements for the Unified Web Agent Framework, stea
 
 ### Secrets and configuration
 - [ ] Add validation for all UWAF/Tor/live-browser env vars at startup
-- [ ] Add explicit config docs for stealth-safe defaults and high-capacity deployments
+- [x] Add explicit config docs for stealth-safe defaults and approved env-backed search providers
+- [ ] Add high-capacity deployment guidance for large concurrent live-browser workloads
 
 ## Suggested Priority Order
 
@@ -162,7 +163,7 @@ This file tracks targeted improvements for the Unified Web Agent Framework, stea
 ### Phase B — Stealth Hardening
 5. Tor circuit rotation / identity controls
 6. Better fingerprint diversification
-7. Multi-provider stealth search fallback
+7. Stronger onion-search provider validation, mirrors, and operator overrides
 
 ### Phase C — Scale and Quality
 8. Resource budgeting and concurrency controls

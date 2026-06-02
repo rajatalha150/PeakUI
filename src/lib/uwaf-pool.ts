@@ -11,6 +11,7 @@ import {
   type StealthFingerprint,
   type StealthProfile,
 } from './uwaf-fingerprint'
+import { getStealthProviderLabels } from './uwaf-search-providers'
 
 const TOR_PROXY_URL = process.env.TOR_PROXY_URL || 'socks5://localhost:9050'
 const CHROMIUM_PATH = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium-browser'
@@ -322,16 +323,7 @@ function isValidOnionHostname(hostname: string): boolean {
 }
 
 function buildStealthLandingHtml(profile: StealthProfile): string {
-  const providers = getStealthProfileDefinition(profile).providerIds
-    .map(id => {
-      if (id === 'ahmia') return 'Ahmia'
-      if (id === 'duckduckgo-lite') return 'DuckDuckGo Lite'
-      if (id === 'startpage') return 'Startpage'
-      if (id === 'brave-search') return 'Brave Search'
-      if (id === 'brave-search-stealth') return 'Brave Search'
-      return id
-    })
-    .join(', ')
+  const providers = getStealthProviderLabels(profile).join(', ')
   return `<!doctype html>
 <html lang="en">
   <head>

@@ -13,6 +13,18 @@ interface UwafStatus {
   stealthSearchEngine?: string
   stealthProfile?: 'normal' | 'high'
   onionReady?: boolean
+  stealthSearchProviders?: Array<{
+    id: string
+    label: string
+    degraded: boolean
+    attempts: number
+    successes: number
+  }>
+  stealthCuratedEntryPoints?: Array<{
+    id: string
+    label: string
+    url: string
+  }>
 }
 
 interface UwafNetworkPanelProps {
@@ -190,6 +202,21 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
                   <Globe size={10} />
                   <span>Stealth search: {status.stealthSearchEngine}</span>
+                </div>
+              )}
+              {status.stealthSearchProviders && status.stealthSearchProviders.length > 0 && (
+                <div style={{ marginBottom: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                    <Globe size={10} />
+                    <span>Approved engines</span>
+                  </div>
+                  <div style={{ paddingLeft: 14 }}>
+                    {status.stealthSearchProviders.slice(0, 6).map(provider => (
+                      <div key={provider.id} style={{ opacity: provider.degraded ? 0.7 : 1 }}>
+                        {provider.label}{provider.degraded ? ' (cooldown)' : ''}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
               {status.stealthProfile && (

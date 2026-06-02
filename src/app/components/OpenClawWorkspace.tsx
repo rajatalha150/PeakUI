@@ -962,6 +962,16 @@ interface UwafBrowserToolResultEntry {
   selectorMatched?: boolean;
   waitTimedOut?: boolean;
   searchEngine?: string;
+  searchProviderId?: string;
+  searchAttempts?: Array<{
+    providerId: string;
+    providerLabel: string;
+    success: boolean;
+    resultCount: number;
+    queryMatched?: boolean;
+    failureCode?: string;
+    failureDetail?: string;
+  }>;
   tabs?: Array<{
     index: number;
     url: string;
@@ -1086,9 +1096,10 @@ function describeUwafBrowserRequest(request: OpenClawUwafBrowserToolRequest) {
     ? `Stealth${request.stealthProfile === 'high' ? ' High' : ''}`
     : 'Direct';
   if (request.action === 'search') {
+    const providerLabel = request.providerId?.trim() ? ` via ${request.providerId.trim()}` : '';
     return request.description?.trim()
-      ? `UWAF ${modeLabel} Search: ${request.description.trim()}`
-      : `UWAF ${modeLabel} Search: \`${request.query}\``;
+      ? `UWAF ${modeLabel} Search${providerLabel}: ${request.description.trim()}`
+      : `UWAF ${modeLabel} Search${providerLabel}: \`${request.query}\``;
   }
   if (request.action === 'open') {
     return request.description?.trim()
@@ -1553,7 +1564,7 @@ function getOpenClawToolRequestSignature(request: OpenClawToolRequest) {
 
   if (request.name === 'unified_browser') {
     const uwaf = request.request as OpenClawUwafBrowserToolRequest
-    return `unified_browser:${uwaf.action}:${uwaf.query?.trim() || ''}:${uwaf.url?.trim() || ''}:${uwaf.browserMode || ''}:${uwaf.stealthProfile || ''}:${uwaf.linkIndex ?? ''}:${uwaf.linkText?.trim() || ''}:${uwaf.formIndex ?? ''}:${JSON.stringify(uwaf.values || {})}:${uwaf.mode || ''}:${uwaf.depth ?? ''}:${uwaf.selector?.trim() || ''}:${uwaf.text || ''}:${uwaf.key?.trim() || ''}:${uwaf.tabIndex ?? ''}:${uwaf.timeoutMs ?? ''}:${uwaf.deltaY ?? ''}:${uwaf.optionValue?.trim() || ''}:${uwaf.optionLabel?.trim() || ''}`;
+    return `unified_browser:${uwaf.action}:${uwaf.query?.trim() || ''}:${uwaf.providerId?.trim() || ''}:${uwaf.url?.trim() || ''}:${uwaf.browserMode || ''}:${uwaf.stealthProfile || ''}:${uwaf.linkIndex ?? ''}:${uwaf.linkText?.trim() || ''}:${uwaf.formIndex ?? ''}:${JSON.stringify(uwaf.values || {})}:${uwaf.mode || ''}:${uwaf.depth ?? ''}:${uwaf.selector?.trim() || ''}:${uwaf.text || ''}:${uwaf.key?.trim() || ''}:${uwaf.tabIndex ?? ''}:${uwaf.timeoutMs ?? ''}:${uwaf.deltaY ?? ''}:${uwaf.optionValue?.trim() || ''}:${uwaf.optionLabel?.trim() || ''}`;
   }
 
   return `filesystem:${request.request.action}:${request.request.path.trim()}`;
@@ -1809,6 +1820,12 @@ function formatUwafBrowserToolResult(entry: UwafBrowserToolResultEntry): string 
   ];
 
   if (!entry.success) {
+    if (entry.searchEngine?.trim()) {
+      lines.push(`Search engine: ${entry.searchEngine.trim()}`);
+    }
+    if (entry.searchProviderId?.trim()) {
+      lines.push(`Search provider id: ${entry.searchProviderId.trim()}`);
+    }
     if (entry.failureCode) {
       lines.push(`Failure code: ${entry.failureCode}`);
     }
@@ -1817,6 +1834,15 @@ function formatUwafBrowserToolResult(entry: UwafBrowserToolResultEntry): string 
     }
     if (entry.failureDetail?.trim() && entry.failureDetail.trim() !== entry.error?.trim()) {
       lines.push(`Detail: ${entry.failureDetail.trim()}`);
+    }
+    if (entry.searchAttempts && entry.searchAttempts.length > 0) {
+      lines.push('', 'Provider attempts:');
+      entry.searchAttempts.forEach(attempt => {
+        const status = attempt.success
+          ? `success (${attempt.resultCount} result blocks)`
+          : `failed${attempt.failureCode ? `: ${attempt.failureCode}` : ''}${attempt.resultCount > 0 ? ` (${attempt.resultCount} result blocks)` : ''}`;
+        lines.push(`- ${attempt.providerLabel} [${attempt.providerId}]: ${status}`);
+      });
     }
     if (entry.observations && entry.observations.length > 0) {
       lines.push('', 'Observed issues:');
@@ -1835,6 +1861,9 @@ function formatUwafBrowserToolResult(entry: UwafBrowserToolResultEntry): string 
   }
   if (entry.searchEngine?.trim()) {
     lines.push(`Search engine: ${entry.searchEngine.trim()}`);
+  }
+  if (entry.searchProviderId?.trim()) {
+    lines.push(`Search provider id: ${entry.searchProviderId.trim()}`);
   }
   if (typeof entry.queryMatched === 'boolean') {
     lines.push(`Query matched page: ${entry.queryMatched ? 'yes' : 'no'}`);
@@ -1865,6 +1894,15 @@ function formatUwafBrowserToolResult(entry: UwafBrowserToolResultEntry): string 
   }
   if (entry.loginDetected) {
     lines.push('Login/auth detected: yes');
+  }
+  if (entry.searchAttempts && entry.searchAttempts.length > 0) {
+    lines.push('', 'Provider attempts:');
+    entry.searchAttempts.forEach(attempt => {
+      const status = attempt.success
+        ? `success (${attempt.resultCount} result blocks)`
+        : `failed${attempt.failureCode ? `: ${attempt.failureCode}` : ''}${attempt.resultCount > 0 ? ` (${attempt.resultCount} result blocks)` : ''}`;
+      lines.push(`- ${attempt.providerLabel} [${attempt.providerId}]: ${status}`);
+    });
   }
 
   if (entry.text?.trim()) {
@@ -4484,6 +4522,17 @@ export default function OpenClawWorkspace({
         selectorMatched: typeof data.selectorMatched === 'boolean' ? data.selectorMatched : undefined,
         waitTimedOut: typeof data.waitTimedOut === 'boolean' ? data.waitTimedOut : undefined,
         searchEngine: typeof data.searchEngine === 'string' ? data.searchEngine : undefined,
+        searchProviderId: typeof data.searchProviderId === 'string' ? data.searchProviderId : undefined,
+        searchAttempts: Array.isArray(data.searchAttempts)
+          ? data.searchAttempts.filter((item: unknown): item is NonNullable<UwafBrowserToolResultEntry['searchAttempts']>[number] => {
+              if (!item || typeof item !== 'object') return false;
+              const attempt = item as Record<string, unknown>;
+              return typeof attempt.providerId === 'string'
+                && typeof attempt.providerLabel === 'string'
+                && typeof attempt.success === 'boolean'
+                && typeof attempt.resultCount === 'number';
+            })
+          : [],
         tabs: Array.isArray(data.tabs) ? data.tabs : [],
         activeTabIndex: typeof data.activeTabIndex === 'number' ? data.activeTabIndex : undefined,
         observations: Array.isArray(data.observations)

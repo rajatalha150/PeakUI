@@ -124,7 +124,8 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - Added `normal` and `high` stealth profiles with different Chromium launch flags and fingerprint bias; high profile is used automatically for `.onion`, hidden-service, or research-batch flows and can also be requested explicitly.
 - Stealth init scripts now normalize more browser surfaces: `navigator.userAgentData`, plugins/mime-types, screen/window sizing, media-device exposure, `navigator.connection`, WebGL vendor/renderer, and `doNotTrack`.
 - Stealth preflight now includes cached fingerprint-regression checks against known detector pages in addition to Tor reachability, DNS leak, WebRTC constructor removal, media-capture denial, and UDP/proxy-bypass verification.
-- Stealth search now rotates across multiple providers such as Ahmia, DuckDuckGo Lite, and Startpage, with provider scoring, degradation cooldowns, and curated entry-point metadata exposed through the status route.
+- Stealth search now stays inside the approved onion-search-provider catalog by default: Ahmia, OnionWay, OnionLand, TorDex, Excavator, and optional env-configured engines from that same catalog. Provider scoring, degradation cooldowns, and curated entry-point metadata remain exposed through the status route.
+- Unified-browser parsing now recovers legacy `<unified_browser>` blocks and concatenated JSON payloads into the first valid request instead of dropping the whole browser turn.
 - Tor audit fixes now keep approval/preflight/execution on the same resolved stealth profile, block non-proxy host resolution for stealth Chromium, and avoid duplicate `.onion` pre-navigation checks on successful opens while preserving precise diagnostics on failures.
 
 ### Open Claw Session Management

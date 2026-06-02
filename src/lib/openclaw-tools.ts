@@ -38,6 +38,7 @@ export interface OpenClawBrowserToolRequest {
 export interface OpenClawUwafBrowserToolRequest {
   action: 'search' | 'open' | 'click' | 'type' | 'press' | 'wait_for_selector' | 'scroll' | 'back' | 'forward' | 'new_tab' | 'list_tabs' | 'switch_tab' | 'close_tab' | 'select' | 'hover' | 'extract_table' | 'research_batch' | 'fill' | 'submit' | 'extract' | 'wait_for_user'
   query?: string
+  providerId?: string
   url?: string
   linkIndex?: number
   linkText?: string
@@ -145,17 +146,105 @@ function isStealthProfile(value: unknown): value is 'normal' | 'high' {
 }
 
 const TOOL_BLOCK_PATTERN = /<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser)["']\s*>([\s\S]*?)<\/openclaw_tool>/i
+const LEGACY_UWAF_TOOL_BLOCK_PATTERN = /<unified_browser>\s*([\s\S]*?)<\/unified_browser>/i
+
+function extractFirstJsonObject(raw: string): string | null {
+  const source = raw.trim()
+  const start = source.search(/[\[{]/)
+  if (start < 0) return null
+
+  const opening = source[start]
+  const closing = opening === '{' ? '}' : ']'
+  let depth = 0
+  let inString = false
+  let escaped = false
+
+  for (let index = start; index < source.length; index += 1) {
+    const char = source[index]
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (char === '"') {
+        inString = false
+      }
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+      continue
+    }
+
+    if (char === opening) {
+      depth += 1
+      continue
+    }
+
+    if (char === closing) {
+      depth -= 1
+      if (depth === 0) {
+        return source.slice(start, index + 1)
+      }
+    }
+  }
+
+  return null
+}
+
+function parseToolJson<T>(raw: string): T | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  try {
+    return JSON.parse(trimmed) as T
+  } catch {
+    const fallback = extractFirstJsonObject(trimmed)
+    if (!fallback) return null
+    try {
+      return JSON.parse(fallback) as T
+    } catch {
+      return null
+    }
+  }
+}
+
+function findToolBlock(content: string): { toolName: string; rawBlock: string; rawJson: string } | null {
+  const match = content.match(TOOL_BLOCK_PATTERN)
+  if (match) {
+    return {
+      toolName: match[1],
+      rawBlock: match[0],
+      rawJson: match[2],
+    }
+  }
+
+  const legacyMatch = content.match(LEGACY_UWAF_TOOL_BLOCK_PATTERN)
+  if (legacyMatch) {
+    return {
+      toolName: 'unified_browser',
+      rawBlock: legacyMatch[0],
+      rawJson: legacyMatch[1],
+    }
+  }
+
+  return null
+}
 
 /** Strip all complete and partial <openclaw_tool> tags from content. */
 export function stripAllToolTags(content: string): string {
   // Remove complete tool blocks first
   let cleaned = content.replace(/<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser)["']\s*>[\s\S]*?<\/openclaw_tool>/gi, '')
+  cleaned = cleaned.replace(/<unified_browser>\s*[\s\S]*?<\/unified_browser>/gi, '')
   // Remove partial/incomplete tags (no closing tag)
   cleaned = cleaned.replace(/<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser)["']\s*>[\s\S]*/gi, '')
+  cleaned = cleaned.replace(/<unified_browser>\s*[\s\S]*/gi, '')
   // Remove orphaned opening tags
   cleaned = cleaned.replace(/<openclaw_tool[^>]*>/gi, '')
+  cleaned = cleaned.replace(/<unified_browser>/gi, '')
   // Remove orphaned closing tags
   cleaned = cleaned.replace(/<\/openclaw_tool>/gi, '')
+  cleaned = cleaned.replace(/<\/unified_browser>/gi, '')
   return cleaned.replace(/\n{3,}/g, '\n\n').trim()
 }
 
@@ -188,17 +277,20 @@ export function extractOpenClawToolRequest(content: string): {
   cleanedContent: string
   request?: OpenClawToolRequest
 } {
-  const match = content.match(TOOL_BLOCK_PATTERN)
-  if (!match) {
+  const block = findToolBlock(content)
+  if (!block) {
     return { cleanedContent: stripAllToolTags(content) }
   }
 
-  const cleanedContent = stripAllToolTags(content.replace(match[0], ''))
-  const toolName = match[1]
+  const cleanedContent = stripAllToolTags(content.replace(block.rawBlock, ''))
+  const toolName = block.toolName
 
   try {
     if (toolName === 'web') {
-      const parsed = JSON.parse(match[2].trim()) as Partial<OpenClawWebToolRequest>
+      const parsed = parseToolJson<Partial<OpenClawWebToolRequest>>(block.rawJson)
+      if (!parsed) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
       const query = typeof parsed.query === 'string' ? parsed.query.trim() : ''
       if (!query) {
         return { cleanedContent: stripAllToolTags(content) }
@@ -219,7 +311,10 @@ export function extractOpenClawToolRequest(content: string): {
     }
 
     if (toolName === 'shell') {
-      const parsed = JSON.parse(match[2].trim()) as Partial<OpenClawShellToolRequest>
+      const parsed = parseToolJson<Partial<OpenClawShellToolRequest>>(block.rawJson)
+      if (!parsed) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
       const command = typeof parsed.command === 'string' ? parsed.command.trim() : ''
       if (!command) {
         return { cleanedContent: stripAllToolTags(content) }
@@ -240,7 +335,10 @@ export function extractOpenClawToolRequest(content: string): {
     }
 
     if (toolName === 'code') {
-      const parsed = JSON.parse(match[2].trim()) as Partial<OpenClawCodeToolRequest>
+      const parsed = parseToolJson<Partial<OpenClawCodeToolRequest>>(block.rawJson)
+      if (!parsed) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
       const runtime = parsed.runtime === 'python' || parsed.runtime === 'node'
         ? parsed.runtime
         : null
@@ -276,7 +374,10 @@ export function extractOpenClawToolRequest(content: string): {
     }
 
     if (toolName === 'browser') {
-      const parsed = JSON.parse(match[2].trim()) as Partial<OpenClawBrowserToolRequest>
+      const parsed = parseToolJson<Partial<OpenClawBrowserToolRequest>>(block.rawJson)
+      if (!parsed) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
       const action = isBrowserAction(parsed.action) ? parsed.action : null
 
       if (!action) {
@@ -337,7 +438,10 @@ export function extractOpenClawToolRequest(content: string): {
     }
 
     if (toolName === 'unified_browser') {
-      const parsed = JSON.parse(match[2].trim()) as Partial<OpenClawUwafBrowserToolRequest>
+      const parsed = parseToolJson<Partial<OpenClawUwafBrowserToolRequest>>(block.rawJson)
+      if (!parsed) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
       const action = isUwafAction(parsed.action) ? parsed.action : null
 
       if (!action) {
@@ -353,6 +457,10 @@ export function extractOpenClawToolRequest(content: string): {
 
       if (typeof parsed.query === 'string' && parsed.query.trim()) {
         request.query = parsed.query.trim()
+      }
+
+      if (typeof parsed.providerId === 'string' && /^[a-z0-9-]{2,64}$/i.test(parsed.providerId.trim())) {
+        request.providerId = parsed.providerId.trim().toLowerCase()
       }
 
       if (typeof parsed.url === 'string' && parsed.url.trim()) {
@@ -452,7 +560,10 @@ export function extractOpenClawToolRequest(content: string): {
       }
     }
 
-    const parsed = JSON.parse(match[2].trim()) as Partial<OpenClawFilesystemToolRequest>
+    const parsed = parseToolJson<Partial<OpenClawFilesystemToolRequest>>(block.rawJson)
+    if (!parsed) {
+      return { cleanedContent: stripAllToolTags(content) }
+    }
     const requestedPath = typeof parsed.path === 'string' ? parsed.path.trim() : ''
     const action = isFilesystemAction(parsed.action) ? parsed.action : null
 

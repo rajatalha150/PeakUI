@@ -57,7 +57,7 @@ const STEALTH_PROFILE_DEFINITIONS: Record<StealthProfile, StealthProfileDefiniti
     label: 'Normal stealth',
     description: 'Balanced stealth profile with broader desktop diversity and lower compatibility risk.',
     fingerprintBias: 'balanced',
-    providerIds: ['ahmia', 'duckduckgo-lite', 'startpage', 'brave-search-stealth'],
+    providerIds: ['ahmia', 'onionway', 'onionland', 'tordex', 'excavator', 'tor66', 'torch', 'our-realm', 'torch-by-tordex'],
     launchArgs: [
       '--disable-background-networking',
       '--disable-background-timer-throttling',
@@ -72,7 +72,7 @@ const STEALTH_PROFILE_DEFINITIONS: Record<StealthProfile, StealthProfileDefiniti
     label: 'High stealth',
     description: 'More conservative desktop fingerprints and stricter browser/network behavior for higher-friction targets.',
     fingerprintBias: 'common',
-    providerIds: ['duckduckgo-lite', 'ahmia', 'startpage'],
+    providerIds: ['ahmia', 'onionway', 'onionland', 'tordex'],
     launchArgs: [
       '--disable-background-networking',
       '--disable-background-timer-throttling',

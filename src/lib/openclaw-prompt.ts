@@ -11,6 +11,7 @@ import {
   OPENCLAW_UWAF_BROWSER_TOOL_EXAMPLE,
   OPENCLAW_WEB_TOOL_EXAMPLE,
 } from './openclaw-tools';
+import { listSearchProvidersForPrompt } from './uwaf-search-providers';
 
 export function buildChatInternetToolPrompt(): string {
   return [
@@ -202,6 +203,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
 
   if (uwafBrowserAvailable && context.internetToolEnabled) {
     const modeLabel = uwafBrowserMode === 'stealth' ? 'Stealth (Tor-routed)' : 'Direct (clear web)';
+    const stealthProviderLine = listSearchProvidersForPrompt('stealth');
     lines.push(
       'UNIFIED BROWSER CAPABILITY: You have access to a dual-mode shared browser that the user can watch live and take over when help is needed.',
       `Current default mode: ${modeLabel}.`,
@@ -213,7 +215,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
       'Browser results now include evidence fields such as redirects, search-result counts, anti-bot/login detection, tab state, and recent JS/network failures. Treat those fields as authoritative.',
       `Use this exact format:\n${OPENCLAW_UWAF_BROWSER_TOOL_EXAMPLE}`,
       'Supported unified_browser actions: search, open, click, type, press, wait_for_selector, scroll, back, forward, new_tab, list_tabs, switch_tab, close_tab, select, hover, extract, extract_table, research_batch, fill, submit, wait_for_user.',
-      'search: Search inside the visible shared browser. Direct mode can rotate among clear-web engines; Stealth mode can rotate among stealth-safe providers such as Ahmia, DuckDuckGo Lite, and Startpage so onion discovery and fallback behavior stay resilient.',
+      `search: Search inside the visible shared browser. Direct mode can rotate among clear-web engines. Stealth mode rotates only among the approved onion-search providers configured for this deployment: ${stealthProviderLine || 'Ahmia'}. There is no stealth fallback to general clear-web engines.`,
       'open: Navigate to a URL. Returns page content, links, forms, and tables.',
       'click: Follow a link by index or text from the last opened page.',
       'type: Fill a specific selector directly when form indexing is too weak.',
@@ -228,6 +230,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
       'wait_for_user: Pause for the human to take over the visible browser, solve CAPTCHA/MFA/login/bot checks, then resume after the page is re-observed.',
       'browserMode can be "direct" (default, clear web) or "stealth" (Tor-routed, for .onion and anonymous research).',
       'Optional stealthProfile can be "normal" or "high". Use high only when a stealth search target is unusually bot-sensitive or repeatedly blocks the normal profile.',
+      'Optional providerId can pin a specific approved search engine when you need to retry or compare engines. Use providerId only with a known approved engine id such as "ahmia", "onionway", "onionland", "tordex", or "excavator".',
       'In Stealth mode, .onion pages are allowed and should be opened directly instead of being rewritten to a clear-web mirror.',
       'In Stealth mode, content is sanitized more aggressively to remove trackers, ads, and scripts.',
       'Executable file downloads (.exe, .sh, .bin, etc.) are blocked for security. If you need a binary, explain the risk and request unpacking approval.',
@@ -235,6 +238,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
       'After wait_for_user returns, continue from the updated observed URL, title, links, forms, and page text. Do not assume the verification succeeded unless the observed page shows it.',
       'If a search or interaction returns success=false, a failureCode, queryMatched=false, resultCount=0, navigationChanged=false, or pageChanged=false, treat that as a failed step. Do not convert prior/background knowledge into a claim that the browser verified it.',
       'When browsing for current information, explicitly separate Observed evidence from Inference. If the browser failed, say the browser failed.',
+      'Use exactly one unified_browser request object per tool block. Do not emit multiple JSON objects inside one block.',
     );
   }
 

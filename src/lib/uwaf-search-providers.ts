@@ -1,5 +1,5 @@
 import type { BrowserMode } from './uwaf-pool'
-import type { StealthProfile } from './uwaf-fingerprint'
+import { getStealthProfileDefinition, type StealthProfile } from './uwaf-fingerprint'
 
 export interface UwafSearchProvider {
   id: string
@@ -13,6 +13,16 @@ export interface UwafSearchProvider {
   submitSelectors: string[]
   resultSelectors: string[]
   mirrors?: string[]
+}
+
+export interface UwafSearchAttempt {
+  providerId: string
+  providerLabel: string
+  success: boolean
+  resultCount: number
+  queryMatched?: boolean
+  failureCode?: string
+  failureDetail?: string
 }
 
 export interface UwafCuratedEntryPoint {
@@ -72,6 +82,63 @@ export interface SearchProviderSnapshot {
 
 const SEARCH_DEGRADATION_COOLDOWN_MS = 3 * 60 * 1000
 
+function envUrl(name: string): string | undefined {
+  const value = process.env[name]?.trim()
+  return value && /^https?:\/\//i.test(value) ? value : undefined
+}
+
+function appendSearchPath(baseUrl: string, path: string): string {
+  const trimmedBase = baseUrl.replace(/\/+$/, '')
+  const trimmedPath = path.replace(/^\/+/, '')
+  return `${trimmedBase}/${trimmedPath}`
+}
+
+function createEnvBackedProvider(options: {
+  id: string
+  label: string
+  mode: BrowserMode
+  kind: 'general' | 'onion'
+  priority: number
+  envPrefix: string
+  defaultSearchPath?: string
+  defaultQueryParam?: string
+  inputSelectors: string[]
+  submitSelectors: string[]
+  resultSelectors: string[]
+  mirrors?: string[]
+}): UwafSearchProvider | null {
+  const homeUrl = envUrl(`UWAF_STEALTH_PROVIDER_${options.envPrefix}_HOME_URL`)
+  if (!homeUrl) return null
+
+  const queryUrlTemplate = process.env[`UWAF_STEALTH_PROVIDER_${options.envPrefix}_QUERY_URL`]?.trim()
+  const resultsUrl = (query: string) => {
+    const encoded = encodeURIComponent(query.trim())
+    if (queryUrlTemplate) {
+      return queryUrlTemplate.includes('{query}')
+        ? queryUrlTemplate.replace(/\{query\}/g, encoded)
+        : `${queryUrlTemplate}${encoded}`
+    }
+    const queryParam = options.defaultQueryParam || 'q'
+    const searchUrl = appendSearchPath(homeUrl, options.defaultSearchPath || 'search')
+    const separator = searchUrl.includes('?') ? '&' : '?'
+    return `${searchUrl}${separator}${queryParam}=${encoded}`
+  }
+
+  return {
+    id: options.id,
+    label: options.label,
+    mode: options.mode,
+    kind: options.kind,
+    priority: options.priority,
+    resultsUrl,
+    homeUrl,
+    inputSelectors: options.inputSelectors,
+    submitSelectors: options.submitSelectors,
+    resultSelectors: options.resultSelectors,
+    mirrors: options.mirrors,
+  }
+}
+
 const PROVIDERS: readonly UwafSearchProvider[] = [
   {
     id: 'duckduckgo',
@@ -98,19 +165,6 @@ const PROVIDERS: readonly UwafSearchProvider[] = [
     resultSelectors: ['.snippet', '.result', '[data-type="web"]', '.searchResult'],
   },
   {
-    id: 'duckduckgo-lite',
-    label: 'DuckDuckGo Lite',
-    mode: 'stealth',
-    kind: 'general',
-    priority: 95,
-    resultsUrl: query => `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query.trim())}`,
-    homeUrl: 'https://lite.duckduckgo.com/lite/',
-    inputSelectors: ['input[name="q"]', 'input[type="text"]'],
-    submitSelectors: ['input[type="submit"]', 'button[type="submit"]'],
-    resultSelectors: ['table a[href]', 'a.result-link', 'a[href^="http"]'],
-    mirrors: ['https://duckduckgo.com/'],
-  },
-  {
     id: 'ahmia',
     label: 'Ahmia',
     mode: 'stealth',
@@ -123,29 +177,107 @@ const PROVIDERS: readonly UwafSearchProvider[] = [
     resultSelectors: ['.searchResults li', '.search-results li', '.result', '.search-result', '.results li'],
   },
   {
-    id: 'startpage',
-    label: 'Startpage',
+    id: 'onionway',
+    label: 'OnionWay',
     mode: 'stealth',
-    kind: 'general',
-    priority: 82,
-    resultsUrl: query => `https://www.startpage.com/sp/search?query=${encodeURIComponent(query.trim())}`,
-    homeUrl: 'https://www.startpage.com/',
-    inputSelectors: ['input[name="query"]', 'input[name="q"]', 'input[type="search"]'],
+    kind: 'onion',
+    priority: 96,
+    resultsUrl: query => `https://onionway.com/search.php?s=${encodeURIComponent(query.trim())}`,
+    homeUrl: 'https://onionway.com/',
+    inputSelectors: ['input[name="s"]', 'input[type="search"]', 'input[type="text"]'],
     submitSelectors: ['button[type="submit"]', 'input[type="submit"]'],
-    resultSelectors: ['.w-gl__result', '.result', 'a.result-link', '.main-result'],
+    resultSelectors: ['.search_results .s_result', '.search_results .card', '.search_results .title a', '.search_results a[href]'],
   },
   {
-    id: 'brave-search-stealth',
-    label: 'Brave Search',
+    id: 'onionland',
+    label: 'OnionLand',
     mode: 'stealth',
-    kind: 'general',
-    priority: 68,
-    resultsUrl: query => `https://search.brave.com/search?q=${encodeURIComponent(query.trim())}&source=web`,
-    homeUrl: 'https://search.brave.com/',
-    inputSelectors: ['input[name="q"]', 'input[type="search"]', 'textarea[name="q"]'],
+    kind: 'onion',
+    priority: 93,
+    resultsUrl: query => `https://www.onionland.to/search?q=${encodeURIComponent(query.trim())}`,
+    homeUrl: 'https://www.onionland.to/',
+    inputSelectors: ['input[name="q"]', 'input[type="search"]', 'input[type="text"]'],
     submitSelectors: ['button[type="submit"]', 'input[type="submit"]'],
-    resultSelectors: ['.snippet', '.result', '[data-type="web"]', '.searchResult'],
+    resultSelectors: ['.search-results .result-block', '.search-results .result', '.search-results a[href]', '.tbb-results .result-block'],
   },
+  {
+    id: 'tordex',
+    label: 'TorDex',
+    mode: 'stealth',
+    kind: 'onion',
+    priority: 91,
+    resultsUrl: query => `https://tordex.app/search?q=${encodeURIComponent(query.trim())}`,
+    homeUrl: 'https://tordex.app/',
+    inputSelectors: ['input[name="q"]', 'input[type="search"]', 'input[type="text"]'],
+    submitSelectors: ['button[type="submit"]', 'input[type="submit"]'],
+    resultSelectors: ['.search-results .result-block', '.search-results .result', '.search-results a[href]', '.tbb-results .result-block'],
+  },
+  {
+    id: 'excavator',
+    label: 'Excavator',
+    mode: 'stealth',
+    kind: 'onion',
+    priority: 74,
+    resultsUrl: query => `https://excavatorsearchengine.com/?s=${encodeURIComponent(query.trim())}`,
+    homeUrl: 'https://excavatorsearchengine.com/',
+    inputSelectors: ['input[name="s"]', 'input[type="search"]', 'input[type="text"]'],
+    submitSelectors: ['button[type="submit"]', 'input[type="submit"]'],
+    resultSelectors: ['article', '.search-results article', '.entry-title a', '.post', 'main a[href]'],
+  },
+  ...[
+    createEnvBackedProvider({
+      id: 'tor66',
+      label: 'Tor66',
+      mode: 'stealth',
+      kind: 'onion',
+      priority: 84,
+      envPrefix: 'TOR66',
+      defaultSearchPath: 'search',
+      defaultQueryParam: 'q',
+      inputSelectors: ['input[name="q"]', 'input[type="search"]', 'input[type="text"]'],
+      submitSelectors: ['button[type="submit"]', 'input[type="submit"]'],
+      resultSelectors: ['.search-results .result', '.result', 'a[href]'],
+    }),
+    createEnvBackedProvider({
+      id: 'torch',
+      label: 'Torch',
+      mode: 'stealth',
+      kind: 'onion',
+      priority: 83,
+      envPrefix: 'TORCH',
+      defaultSearchPath: 'search',
+      defaultQueryParam: 'q',
+      inputSelectors: ['input[name="q"]', 'input[type="search"]', 'input[type="text"]'],
+      submitSelectors: ['button[type="submit"]', 'input[type="submit"]'],
+      resultSelectors: ['.search-results .result', '.result', 'a[href]'],
+    }),
+    createEnvBackedProvider({
+      id: 'our-realm',
+      label: 'Our Realm',
+      mode: 'stealth',
+      kind: 'onion',
+      priority: 79,
+      envPrefix: 'OUR_REALM',
+      defaultSearchPath: 'search',
+      defaultQueryParam: 'q',
+      inputSelectors: ['input[name="q"]', 'input[type="search"]', 'input[type="text"]'],
+      submitSelectors: ['button[type="submit"]', 'input[type="submit"]'],
+      resultSelectors: ['.search-results .result', '.result', 'a[href]'],
+    }),
+    createEnvBackedProvider({
+      id: 'torch-by-tordex',
+      label: 'Torch by TorDex',
+      mode: 'stealth',
+      kind: 'onion',
+      priority: 78,
+      envPrefix: 'TORCH_BY_TORDEX',
+      defaultSearchPath: 'search',
+      defaultQueryParam: 'q',
+      inputSelectors: ['input[name="q"]', 'input[type="search"]', 'input[type="text"]'],
+      submitSelectors: ['button[type="submit"]', 'input[type="submit"]'],
+      resultSelectors: ['.search-results .result', '.result', 'a[href]'],
+    }),
+  ].filter((provider): provider is UwafSearchProvider => Boolean(provider)),
 ] as const
 
 const DEFAULT_CURATED_ENTRY_POINTS: readonly UwafCuratedEntryPoint[] = [
@@ -158,19 +290,35 @@ const DEFAULT_CURATED_ENTRY_POINTS: readonly UwafCuratedEntryPoint[] = [
     source: 'built-in',
   },
   {
-    id: 'duckduckgo-lite-home',
-    label: 'DuckDuckGo Lite',
-    url: 'https://lite.duckduckgo.com/lite/',
+    id: 'onionway-home',
+    label: 'OnionWay',
+    url: 'https://onionway.com/',
     mode: 'stealth',
-    tags: ['search', 'general'],
+    tags: ['search', 'onion', 'directory'],
     source: 'built-in',
   },
   {
-    id: 'startpage-home',
-    label: 'Startpage',
-    url: 'https://www.startpage.com/',
+    id: 'onionland-home',
+    label: 'OnionLand',
+    url: 'https://www.onionland.to/',
     mode: 'stealth',
-    tags: ['search', 'general'],
+    tags: ['search', 'onion', 'directory'],
+    source: 'built-in',
+  },
+  {
+    id: 'tordex-home',
+    label: 'TorDex',
+    url: 'https://tordex.app/',
+    mode: 'stealth',
+    tags: ['search', 'onion', 'directory'],
+    source: 'built-in',
+  },
+  {
+    id: 'excavator-home',
+    label: 'Excavator',
+    url: 'https://excavatorsearchengine.com/',
+    mode: 'stealth',
+    tags: ['search', 'onion', 'directory'],
     source: 'built-in',
   },
 ] as const
@@ -261,17 +409,18 @@ export function getCuratedStealthEntryPoints(): UwafCuratedEntryPoint[] {
   return [...DEFAULT_CURATED_ENTRY_POINTS, ...parseEnvEntryPoints()]
 }
 
-export function listSearchProviders(mode: BrowserMode, query: string, profile?: StealthProfile): UwafSearchProvider[] {
-  const profileProviderIds = mode === 'stealth' && profile
-    ? new Set(
-        profile === 'high'
-          ? ['duckduckgo-lite', 'ahmia', 'startpage']
-          : ['ahmia', 'duckduckgo-lite', 'startpage', 'brave-search-stealth'],
-      )
+export function listSearchProviders(
+  mode: BrowserMode,
+  query: string,
+  profile?: StealthProfile,
+  preferredProviderId?: string,
+): UwafSearchProvider[] {
+  const allowedProviderIds = mode === 'stealth' && profile
+    ? new Set(getStealthProfileDefinition(profile).providerIds)
     : null
 
   const providers = getProvidersForMode(mode)
-    .filter(provider => !profileProviderIds || profileProviderIds.has(provider.id))
+    .filter(provider => !allowedProviderIds || allowedProviderIds.has(provider.id))
     .map(provider => ({
       provider,
       score: computeProviderScore(provider, searchState.providerState.get(provider.id), query),
@@ -279,31 +428,74 @@ export function listSearchProviders(mode: BrowserMode, query: string, profile?: 
     .sort((left, right) => right.score - left.score)
     .map(entry => entry.provider)
 
-  return providers
+  if (!preferredProviderId) return providers
+  const exact = providers.find(provider => provider.id === preferredProviderId)
+  if (!exact) return providers
+  return [exact, ...providers.filter(provider => provider.id !== preferredProviderId)]
 }
 
-export function recordSearchProviderOutcome(input: ProviderOutcome): void {
-  const state = ensureProviderState(input.providerId)
-  state.attempts += 1
-  state.totalLatencyMs += Math.max(0, Math.round(input.durationMs))
-  state.lastUsedAt = new Date().toISOString()
+export function getSearchProviderById(mode: BrowserMode, providerId: string): UwafSearchProvider | undefined {
+  return getProvidersForMode(mode).find(provider => provider.id === providerId)
+}
 
-  if (input.success) {
-    state.successes += 1
-    state.consecutiveFailures = 0
-    state.degradedUntil = undefined
-    if (input.useful) state.usefulnessHits += 1
-  } else {
-    state.consecutiveFailures += 1
-    state.lastError = input.error
-    if (state.consecutiveFailures >= 2 || input.antiBotDetected || input.loginDetected) {
-      state.degradedUntil = Date.now() + SEARCH_DEGRADATION_COOLDOWN_MS
-    }
-  }
+export function getSearchProviderLabel(providerId: string): string | undefined {
+  return PROVIDERS.find(provider => provider.id === providerId)?.label
+}
 
-  if (input.antiBotDetected) state.antiBotHits += 1
-  if (input.loginDetected) state.loginHits += 1
-  if ((input.resultCount || 0) === 0) state.zeroResultHits += 1
+export function getStealthProviderLabels(profile?: StealthProfile): string[] {
+  return listSearchProviders('stealth', '', profile).map(provider => provider.label)
+}
+
+export function getStealthProviderIds(profile?: StealthProfile): string[] {
+  return listSearchProviders('stealth', '', profile).map(provider => provider.id)
+}
+
+export function getStealthProviderCatalog(): Array<{ id: string; label: string; active: boolean }> {
+  const activeIds = new Set(getProvidersForMode('stealth').map(provider => provider.id))
+  const catalog = [
+    { id: 'onionway', label: 'OnionWay' },
+    { id: 'tor66', label: 'Tor66' },
+    { id: 'ahmia', label: 'Ahmia' },
+    { id: 'onionland', label: 'OnionLand' },
+    { id: 'torch', label: 'Torch' },
+    { id: 'tordex', label: 'TorDex' },
+    { id: 'our-realm', label: 'Our Realm' },
+    { id: 'torch-by-tordex', label: 'Torch by TorDex' },
+    { id: 'excavator', label: 'Excavator' },
+  ]
+
+  return catalog.map(entry => ({
+    ...entry,
+    active: activeIds.has(entry.id),
+  }))
+}
+
+export function getPreferredStealthProviderId(query: string, profile?: StealthProfile): string | undefined {
+  const [top] = listSearchProviders('stealth', query, profile)
+  return top?.id
+}
+
+export function isStealthProviderId(value: string): boolean {
+  return getStealthProviderCatalog().some(entry => entry.id === value)
+}
+
+export function summarizeSearchAttempts(attempts: readonly UwafSearchAttempt[]): string[] {
+  return attempts.map(attempt => {
+    const outcome = attempt.success
+      ? `success (${attempt.resultCount} result blocks)`
+      : `failed${attempt.failureCode ? `: ${attempt.failureCode}` : ''}${attempt.resultCount > 0 ? ` (${attempt.resultCount} result blocks)` : ''}`
+    return `${attempt.providerLabel}: ${outcome}`
+  })
+}
+
+export function listSearchProvidersForPrompt(mode: BrowserMode, profile?: StealthProfile): string {
+  return listSearchProviders(mode, '', profile)
+    .map(provider => provider.label)
+    .join(', ')
+}
+
+export function getPreferredSearchProviderLabelForPrompt(profile?: StealthProfile): string {
+  return getPreferredSearchProviderLabel('stealth', '', profile)
 }
 
 export function getSearchProviderSnapshot(mode?: BrowserMode): SearchProviderSnapshot[] {
@@ -341,8 +533,30 @@ export function getSearchProviderSnapshot(mode?: BrowserMode): SearchProviderSna
     })
     .sort((left, right) => right.score - left.score)
 }
-
 export function getPreferredSearchProviderLabel(mode: BrowserMode, query: string, profile?: StealthProfile): string {
   const [top] = listSearchProviders(mode, query, profile)
   return top?.label || (mode === 'stealth' ? 'Ahmia' : 'DuckDuckGo')
+}
+export function recordSearchProviderOutcome(input: ProviderOutcome): void {
+  const state = ensureProviderState(input.providerId)
+  state.attempts += 1
+  state.totalLatencyMs += Math.max(0, Math.round(input.durationMs))
+  state.lastUsedAt = new Date().toISOString()
+
+  if (input.success) {
+    state.successes += 1
+    state.consecutiveFailures = 0
+    state.degradedUntil = undefined
+    if (input.useful) state.usefulnessHits += 1
+  } else {
+    state.consecutiveFailures += 1
+    state.lastError = input.error
+    if (state.consecutiveFailures >= 2 || input.antiBotDetected || input.loginDetected) {
+      state.degradedUntil = Date.now() + SEARCH_DEGRADATION_COOLDOWN_MS
+    }
+  }
+
+  if (input.antiBotDetected) state.antiBotHits += 1
+  if (input.loginDetected) state.loginHits += 1
+  if ((input.resultCount || 0) === 0) state.zeroResultHits += 1
 }

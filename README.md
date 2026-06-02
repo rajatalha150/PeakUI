@@ -94,7 +94,8 @@ Filesystem and shell denials return structured diagnostics, so the UI and model 
 - Direct mode uses Playwright Chromium for clear-web research.
 - Stealth mode routes through Tor and fails closed when preflight checks fail.
 - UWAF validates DNS behavior, WebRTC lockdown, Tor exit alignment, `.onion` handling, and proxy-bypass protections.
-- Stealth sessions use broader desktop fingerprints, `normal` and `high` profiles, provider rotation, provider scoring, and anti-bot/search-failure diagnostics.
+- Stealth sessions use broader desktop fingerprints, `normal` and `high` profiles, approved onion-search-engine rotation, provider scoring, and anti-bot/search-failure diagnostics.
+- The built-in stealth search lineup is now onion-search-only by default: Ahmia, OnionWay, OnionLand, TorDex, and Excavator. Optional engines from the same approved catalog can be enabled through env-backed provider URLs.
 - The live browser is a real headed Chromium display over noVNC, so the user and agent share the same browser session.
 
 ### Automation
@@ -216,6 +217,14 @@ More detail: [docs/openclaw-host-executor.md](docs/openclaw-host-executor.md)
 | `OPENCLAW_HOST_EXECUTOR_TOKEN` | Optional | Enables host-side shell executor integration |
 | `OPENCLAW_HOST_WORKSPACE_DIR` | Optional | Host path mounted as the managed workspace |
 | `TOR_PROXY_URL` | Optional | SOCKS proxy for UWAF stealth mode, defaulted by Compose |
+| `UWAF_STEALTH_PROVIDER_TOR66_HOME_URL` | Optional | Enable Tor66 as an env-backed approved stealth provider |
+| `UWAF_STEALTH_PROVIDER_TOR66_QUERY_URL` | Optional | Optional explicit Tor66 query URL, supports `{query}` |
+| `UWAF_STEALTH_PROVIDER_TORCH_HOME_URL` | Optional | Enable Torch as an env-backed approved stealth provider |
+| `UWAF_STEALTH_PROVIDER_TORCH_QUERY_URL` | Optional | Optional explicit Torch query URL, supports `{query}` |
+| `UWAF_STEALTH_PROVIDER_OUR_REALM_HOME_URL` | Optional | Enable Our Realm as an env-backed approved stealth provider |
+| `UWAF_STEALTH_PROVIDER_OUR_REALM_QUERY_URL` | Optional | Optional explicit Our Realm query URL, supports `{query}` |
+| `UWAF_STEALTH_PROVIDER_TORCH_BY_TORDEX_HOME_URL` | Optional | Enable Torch by TorDex as an env-backed approved stealth provider |
+| `UWAF_STEALTH_PROVIDER_TORCH_BY_TORDEX_QUERY_URL` | Optional | Optional explicit Torch by TorDex query URL, supports `{query}` |
 | `BRAVE_API_KEY` | Optional | Brave search backend |
 | `SEARXNG_URL` | Optional | Self-hosted SearXNG backend |
 | `GOOGLE_SEARCH_API_KEY` | Optional | Google Programmable Search backend |
@@ -262,4 +271,3 @@ npx prisma db push --force-reset
 | [OPENCLAW-TODO.md](OPENCLAW-TODO.md) | WorkSpaces roadmap |
 | [RAG-TODO.md](RAG-TODO.md) | Knowledge Base roadmap |
 | [UWAF-NETWORK-TODO.md](UWAF-NETWORK-TODO.md) | Browser/network roadmap |
-
