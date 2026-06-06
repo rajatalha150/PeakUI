@@ -248,7 +248,9 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 - **Compatible provider base URL**: Default router or custom OpenAI-compatible endpoint
 - **Provider token**: Stored only in the browser for compatible remote access
 - **Temperature**: Response randomness (0-2)
-- **Context Window**: Max tokens for context (512-32768)
+- **Use Ollama default temperature**: Local Ollama requests can omit the custom temperature so the selected model uses its own native default
+- **Context Window**: Requested max tokens for local Ollama (512-131072)
+- **Use Ollama default context**: Local Ollama requests can omit `num_ctx` so Ollama chooses the selected model's native default context window
 - **Background system instructions**: The stock image-markdown and workspace-behavior guardrails run server-side instead of exposing a misleading shared System Prompt textbox in the primary UI
 - **Exclusive Ollama Switching**: Unload other models before starting selected one
 - **Logout**: Available from the Settings header

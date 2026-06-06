@@ -74,8 +74,18 @@ async function callOllamaForAutomation(options: {
   model: string
   messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
   temperature: number
+  useModelDefaultTemperature: boolean
   contextLength: number
+  useModelDefaultContext: boolean
 }) {
+  const ollamaOptions: Record<string, number> = {}
+  if (!options.useModelDefaultTemperature) {
+    ollamaOptions.temperature = options.temperature
+  }
+  if (!options.useModelDefaultContext) {
+    ollamaOptions.num_ctx = options.contextLength
+  }
+
   const response = await fetch(`${options.baseUrl}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -83,10 +93,7 @@ async function callOllamaForAutomation(options: {
       model: options.model,
       messages: options.messages,
       stream: false,
-      options: {
-        temperature: options.temperature,
-        num_ctx: options.contextLength,
-      },
+      options: ollamaOptions,
     }),
     signal: AbortSignal.timeout(120000),
   })
@@ -323,7 +330,9 @@ async function executeAutomationRun(runId: string) {
       model: resolvedModel,
       messages,
       temperature: settings.temperature,
+      useModelDefaultTemperature: settings.ollamaUseModelDefaultTemperature,
       contextLength: settings.contextLength,
+      useModelDefaultContext: settings.ollamaUseModelDefaultContext,
     })
 
     await prisma.chatSession.update({

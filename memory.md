@@ -305,6 +305,7 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - **Background system prompt support** — `UserSettings.systemPrompt` still exists for backend compatibility, but the old shared System Prompt textbox is now hidden from the primary Settings UI and the stock image-markdown safety rule is injected server-side in the completion pipeline
 - **Temperature and Context Window** are normalized through `/api/settings` and applied server-side in `/api/chat`
 - **Temperature** slider (0–2) and **Context Window** slider (512–128k)
+- **Ollama default toggles:** Generation settings now include `Use Ollama default temperature` and `Use Ollama default context`, which disable the custom sliders for local Ollama and omit `temperature` / `num_ctx` from local requests so the selected model can use its own native defaults.
 - **RAG mode:** Semantic (embedding model) vs Keyword/BM25 (no model needed), now wired end-to-end
 - **Embedding model selector** with **Test** button (`/api/rag/test-embed`) — deduplicates `:latest` aliases, shows installed/pull-required state, returns embedding dimensions, and now recommends more Ollama embedding models for different speed/quality tradeoffs
 - Ollama connection status indicator (live model count) honors configured/typed host

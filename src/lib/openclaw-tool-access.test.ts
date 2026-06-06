@@ -34,6 +34,17 @@ describe('OpenClaw settings normalization', () => {
     expect(normalized.openClawAutomationExecutionAttachWorkspace).toBe(false)
     expect(normalized.openClawAutomationExecutionAttachMemory).toBe(false)
   })
+
+  it('preserves the legacy implicit Ollama default-context behavior and normalizes new default toggles', () => {
+    const normalized = normalizeAppSettings({
+      contextLength: DEFAULT_SETTINGS.contextLength,
+      ollamaUseModelDefaultContext: undefined,
+      ollamaUseModelDefaultTemperature: 'true',
+    } as never)
+
+    expect(normalized.ollamaUseModelDefaultContext).toBe(true)
+    expect(normalized.ollamaUseModelDefaultTemperature).toBe(true)
+  })
 })
 
 describe('OpenClaw effective tool access', () => {

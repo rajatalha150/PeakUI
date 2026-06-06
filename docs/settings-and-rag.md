@@ -250,6 +250,8 @@ ollama pull all-minilm
 - If Semantic search returns no results after changing models, re-upload or re-index documents with the selected embedding model.
 - If memory pressure appears during generation, reduce Context Window before retrying.
 - If WorkSpaces still fails with a model-memory error, the selected context window is probably larger than the host can fit. The app will auto-fit downward, but lowering the slider manually will make responses start faster.
+- If you enable **Use Ollama default context**, WorkSpaces omits `num_ctx` entirely for local Ollama requests and lets the selected model use its own native default context window.
+- If you enable **Use Ollama default temperature**, WorkSpaces omits the custom temperature entirely for local Ollama requests and lets the selected model use its own native default sampling temperature.
 - If WorkSpaces reports a connection or socket failure to `http://127.0.0.1:11434`, verify the host service with `ollama ps` and `ollama run <model> "hello"`. If terminal requests also hang or reset, restart the Ollama service before debugging the app.
 - If WorkSpaces reports that the Ollama runner crashed or a model stays wedged in load/backoff, use the in-app `Stop model` button or run `ollama stop <model>`, then inspect `journalctl -u ollama` for GPU/runtime details.
 

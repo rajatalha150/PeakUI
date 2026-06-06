@@ -56,7 +56,9 @@ export interface AppSettings {
   ollamaHost: string
   systemPrompt: string
   temperature: number
+  ollamaUseModelDefaultTemperature: boolean
   contextLength: number
+  ollamaUseModelDefaultContext: boolean
   theme: ThemeId
   openClawPersonaTemplate: string
   openClawPersonaName: string
@@ -115,7 +117,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ollamaHost: 'http://127.0.0.1:11434',
   systemPrompt: '',
   temperature: 0.7,
+  ollamaUseModelDefaultTemperature: false,
   contextLength: 16384,
+  ollamaUseModelDefaultContext: true,
   theme: 'aurora',
   openClawPersonaTemplate: 'custom',
   openClawPersonaName: '',
@@ -228,9 +232,23 @@ export function normalizeTemperature(value: unknown): number {
   return Math.round(clampNumber(value, 0, 2, DEFAULT_SETTINGS.temperature) * 10) / 10
 }
 
+export function normalizeOllamaUseModelDefaultTemperature(value: unknown): boolean {
+  return normalizeBoolean(value, DEFAULT_SETTINGS.ollamaUseModelDefaultTemperature)
+}
+
 export function normalizeContextLength(value: unknown): number {
   const clamped = clampNumber(value, MIN_CONTEXT_LENGTH, MAX_CONTEXT_LENGTH, DEFAULT_SETTINGS.contextLength)
   return Math.round(clamped / CONTEXT_STEP) * CONTEXT_STEP
+}
+
+export function normalizeOllamaUseModelDefaultContext(
+  value: unknown,
+  contextLength: number = DEFAULT_SETTINGS.contextLength,
+): boolean {
+  if (value === undefined || value === null) {
+    return contextLength === DEFAULT_SETTINGS.contextLength
+  }
+  return normalizeBoolean(value, DEFAULT_SETTINGS.ollamaUseModelDefaultContext)
 }
 
 export function normalizeString(value: unknown, fallback = ''): string {
@@ -340,7 +358,14 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     ollamaHost: normalizeOllamaHost(settings?.ollamaHost),
     systemPrompt,
     temperature: normalizeTemperature(settings?.temperature),
+    ollamaUseModelDefaultTemperature: normalizeOllamaUseModelDefaultTemperature(
+      settings?.ollamaUseModelDefaultTemperature,
+    ),
     contextLength: normalizeContextLength(settings?.contextLength),
+    ollamaUseModelDefaultContext: normalizeOllamaUseModelDefaultContext(
+      settings?.ollamaUseModelDefaultContext,
+      normalizeContextLength(settings?.contextLength),
+    ),
     theme: normalizeTheme(settings?.theme),
     openClawPersonaTemplate: normalizeString(settings?.openClawPersonaTemplate, DEFAULT_SETTINGS.openClawPersonaTemplate),
     openClawPersonaName: normalizeString(settings?.openClawPersonaName, DEFAULT_SETTINGS.openClawPersonaName),

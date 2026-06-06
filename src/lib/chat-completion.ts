@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentAuth } from '@/lib/request-auth';
 import {
+  type AppSettings,
   DEFAULT_HUGGING_FACE_BASE_URL,
   DEFAULT_SETTINGS,
   getUserSettings,
@@ -328,6 +329,17 @@ function buildContextCandidates(requestedContext: number, preferNativeDefault: b
 
 function formatContextCandidate(candidate: number | null): string {
   return candidate === null ? 'Ollama default context' : `context ${candidate}`;
+}
+
+function buildOllamaOptions(settings: AppSettings, numCtx: number | null): Record<string, number> {
+  const options: Record<string, number> = {}
+  if (!settings.ollamaUseModelDefaultTemperature) {
+    options.temperature = settings.temperature
+  }
+  if (numCtx !== null) {
+    options.num_ctx = numCtx
+  }
+  return options
 }
 
 function normalizeInternetEnabled(value: unknown): boolean {
@@ -947,10 +959,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
                 model: requestedModel,
                 messages: await buildOllamaMessages(messagesForStream),
                 stream: true,
-                options: {
-                  temperature: settings.temperature,
-                  ...(numCtx === null ? {} : { num_ctx: numCtx }),
-                },
+                options: buildOllamaOptions(settings, numCtx),
               }),
               signal: startAbort.signal,
             });
@@ -1067,7 +1076,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
 
             // Match the terminal/Open WebUI local path first: let Ollama choose
             // its own default context unless the user explicitly changed it.
-            const preferNativeContext = settings.contextLength === DEFAULT_SETTINGS.contextLength;
+            const preferNativeContext = settings.ollamaUseModelDefaultContext;
             const contextCandidates = buildContextCandidates(settings.contextLength, preferNativeContext);
 
             for (const numCtx of contextCandidates) {

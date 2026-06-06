@@ -68,6 +68,7 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 - File monitors now require approved filesystem roots, and URL monitors reuse the existing SSRF/public-host validation so automation cannot bypass manual tool guardrails.
 - Autonomous scheduling can now queue unattended Ollama-backed background runs from heartbeat, cron, monitor, and wake-event triggers instead of only creating nudges.
 - Unattended execution is controlled by explicit personal settings for enable/disable, model selection, hourly budget, workspace-context attachment, and memory-context attachment, and recent runs appear in the WorkSpaces automation modal.
+- Local-generation settings now expose `Use Ollama default temperature` and `Use Ollama default context`, which disable the custom sliders for local Ollama and omit `temperature` / `num_ctx` from local requests so the selected model can use its native defaults.
 - WorkSpaces now stores durable session-intelligence state per thread: rolling `contextSummary`, continuation mode/step caps, session analytics, branch ancestry, and child-branch counts all persist in `ChatSession`.
 - Long threads now use rolling summarization instead of blind context trimming, and the WorkSpaces UI surfaces context health plus stored session summary state.
 - Users can branch a thread from the latest state or any individual message, compare two branches side by side, and inspect per-session analytics for tokens, time span, tools, sources, images, and attachments.

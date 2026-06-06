@@ -10,6 +10,8 @@ import {
   normalizeContextLength,
   normalizeHuggingFaceBaseUrl,
   normalizeOllamaHost,
+  normalizeOllamaUseModelDefaultContext,
+  normalizeOllamaUseModelDefaultTemperature,
   normalizeOpenClawBaseUrl,
   normalizeOpenClawAllowedPaths,
   normalizeOpenClawFileAccessMode,
@@ -63,7 +65,9 @@ interface SettingsBody {
   ollamaHost?: unknown;
   systemPrompt?: unknown;
   temperature?: unknown;
+  ollamaUseModelDefaultTemperature?: unknown;
   contextLength?: unknown;
+  ollamaUseModelDefaultContext?: unknown;
   theme?: unknown;
   openClawPersonaTemplate?: unknown;
   openClawPersonaName?: unknown;
@@ -154,7 +158,18 @@ export async function POST(req: Request) {
       data.systemPrompt = systemPrompt.trim() === LEGACY_DEFAULT_SYSTEM_PROMPT ? '' : systemPrompt;
     }
     if (body.temperature !== undefined) data.temperature = normalizeTemperature(body.temperature);
+    if (Object.prototype.hasOwnProperty.call(body, 'ollamaUseModelDefaultTemperature')) {
+      data.ollamaUseModelDefaultTemperature = normalizeOllamaUseModelDefaultTemperature(body.ollamaUseModelDefaultTemperature);
+    }
     if (body.contextLength !== undefined) data.contextLength = normalizeContextLength(body.contextLength);
+    if (Object.prototype.hasOwnProperty.call(body, 'ollamaUseModelDefaultContext')) {
+      data.ollamaUseModelDefaultContext = normalizeOllamaUseModelDefaultContext(
+        body.ollamaUseModelDefaultContext,
+        body.contextLength !== undefined
+          ? normalizeContextLength(body.contextLength)
+          : DEFAULT_SETTINGS.contextLength,
+      );
+    }
     if (body.theme !== undefined) data.theme = normalizeTheme(body.theme);
     if (body.openClawPersonaTemplate !== undefined) data.openClawPersonaTemplate = normalizeString(body.openClawPersonaTemplate);
     if (body.openClawPersonaName !== undefined) data.openClawPersonaName = normalizeString(body.openClawPersonaName);

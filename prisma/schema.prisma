@@ -53,7 +53,9 @@ model UserSettings {
   ollamaHost       String   @default("http://127.0.0.1:11434")
   systemPrompt     String   @default("")
   temperature      Float    @default(0.7)
+  ollamaUseModelDefaultTemperature Boolean @default(false)
   contextLength    Int      @default(4096)
+  ollamaUseModelDefaultContext Boolean @default(false)
   theme            String   @default("aurora")
   // Open Claw Identity & Persona
   openClawPersonaTemplate String @default("custom")

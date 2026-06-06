@@ -548,7 +548,9 @@ interface UserSettings {
   huggingFaceBaseUrl?: string;
   exclusiveOllamaModels?: boolean;
   temperature?: number;
+  ollamaUseModelDefaultTemperature?: boolean;
   contextLength?: number;
+  ollamaUseModelDefaultContext?: boolean;
   systemPrompt?: string;
   ragMode?: string;
   ragModel?: string;

@@ -63,7 +63,9 @@ interface UserSettings {
   ollamaHost: string;
   systemPrompt: string;
   temperature: number;
+  ollamaUseModelDefaultTemperature: boolean;
   contextLength: number;
+  ollamaUseModelDefaultContext: boolean;
   theme: string;
 }
 
@@ -193,7 +195,9 @@ const INITIAL_SETTINGS: UserSettings = {
   ollamaHost: 'http://127.0.0.1:11434',
   systemPrompt: '',
   temperature: 0.7,
+  ollamaUseModelDefaultTemperature: false,
   contextLength: 16384,
+  ollamaUseModelDefaultContext: true,
   theme: 'aurora',
 };
 
@@ -1397,29 +1401,57 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
         )}
 
         <Field label={`Temperature: ${settings.temperature.toFixed(1)}`} help="Controls randomness. Lower = focused and deterministic. Higher = creative and varied. (0.0 – 2.0)">
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+            <input
+              type="checkbox"
+              checked={settings.ollamaUseModelDefaultTemperature}
+              onChange={e => update('ollamaUseModelDefaultTemperature', e.target.checked)}
+            />
+            Use Ollama/model default temperature for local Ollama
+          </label>
           <input
             type="range"
             min="0" max="2" step="0.1"
             value={settings.temperature}
             onChange={e => update('temperature', parseFloat(e.target.value))}
-            style={{ width: '100%', accentColor: 'var(--accent-primary)', cursor: 'pointer' }}
+            disabled={settings.ollamaUseModelDefaultTemperature}
+            style={{ width: '100%', accentColor: 'var(--accent-primary)', cursor: settings.ollamaUseModelDefaultTemperature ? 'not-allowed' : 'pointer', opacity: settings.ollamaUseModelDefaultTemperature ? 0.55 : 1 }}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
             <span>0.0 — Precise</span><span>1.0 — Balanced</span><span>2.0 — Creative</span>
           </div>
+          {settings.ollamaUseModelDefaultTemperature && (
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
+              Local Ollama requests will omit the custom temperature and let the selected model use its native default.
+            </div>
+          )}
         </Field>
 
         <Field label={`Context Window: ${settings.contextLength.toLocaleString()} tokens`} help="Requested maximum for local Ollama. The server applies a safe request cap by default and backs off on memory pressure.">
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+            <input
+              type="checkbox"
+              checked={settings.ollamaUseModelDefaultContext}
+              onChange={e => update('ollamaUseModelDefaultContext', e.target.checked)}
+            />
+            Use Ollama/model default context for local Ollama
+          </label>
           <input
             type="range"
             min="512" max="131072" step="512"
             value={settings.contextLength}
             onChange={e => update('contextLength', parseInt(e.target.value))}
-            style={{ width: '100%', accentColor: 'var(--accent-primary)', cursor: 'pointer' }}
+            disabled={settings.ollamaUseModelDefaultContext}
+            style={{ width: '100%', accentColor: 'var(--accent-primary)', cursor: settings.ollamaUseModelDefaultContext ? 'not-allowed' : 'pointer', opacity: settings.ollamaUseModelDefaultContext ? 0.55 : 1 }}
           />
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
             <span>512</span><span>32k</span><span>128k</span>
           </div>
+          {settings.ollamaUseModelDefaultContext && (
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
+              Local Ollama requests will omit the custom context window and let the selected model use its native default.
+            </div>
+          )}
         </Field>
       </Section>
 

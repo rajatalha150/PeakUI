@@ -152,7 +152,9 @@ Open Settings inside WorkSpaces and set:
 | WorkSpaces provider/model | Pick local Ollama or an OpenAI-compatible provider |
 | Ollama host | Default is `http://127.0.0.1:11434` |
 | Temperature | Response randomness |
+| Use Ollama default temperature | Let the selected local model use its own native default temperature |
 | Context window | Requested max context for local Ollama |
+| Use Ollama default context | Let Ollama choose the selected local model's native context window |
 | Exclusive Ollama switching | Unload other local models before starting the selected one |
 | RAG mode/model | Semantic embeddings or keyword-only retrieval |
 | Tool permissions | Shell, filesystem, code, browser, UWAF, automation |
