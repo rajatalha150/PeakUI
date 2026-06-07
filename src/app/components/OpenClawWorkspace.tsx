@@ -7853,34 +7853,34 @@ export default function OpenClawWorkspace({
                   )}
                 </div>
               </div>
-              <div className="openclaw-card">
-                <button
-                  type="button"
-                  className="openclaw-disclosure-toggle"
-                  onClick={() => setWorkspaceControlsModalOpen(true)}
-                  aria-haspopup="dialog"
-                  aria-expanded={workspaceControlsModalOpen}
-                >
-                  <div className="openclaw-disclosure-summary">
-                    <div>
-                      <div className="openclaw-section-label">Workspace controls</div>
-                      <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                        Agent mode, response style, task state, brief, persona, profile, shell, and capability details.
-                      </div>
-                    </div>
-                    <div className="openclaw-disclosure-pill-row">
-                      <span className="openclaw-disclosure-pill">{activeAgentMode?.label || 'Plan'}</span>
-                      <span className="openclaw-disclosure-pill">{taskStateFieldCount}/4 task fields</span>
-                      <span className="openclaw-disclosure-pill">Workspace: {currentWorkspace?.name || 'None'}</span>
-                      <span className="openclaw-disclosure-pill">Shell: {shellGranted ? (shellEnabled ? 'On' : 'Off') : 'Blocked'}</span>
-                    </div>
-                  </div>
-                  <span className="openclaw-inline-button">
-                    <Settings size={14} />
-                    Open
-                  </span>
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setWorkspaceControlsModalOpen(true)}
+                aria-haspopup="dialog"
+                aria-expanded={workspaceControlsModalOpen}
+                style={{
+                  width: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 10,
+                  padding: '8px 10px',
+                  borderRadius: 10,
+                  border: '1px solid var(--border-color)',
+                  background: 'rgba(255,255,255,0.02)',
+                  color: 'inherit',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                }}
+              >
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, minWidth: 0 }}>
+                  <span className="openclaw-disclosure-pill">{activeAgentMode?.label || 'Plan'}</span>
+                  <span className="openclaw-disclosure-pill">{taskStateFieldCount}/4 fields</span>
+                  <span className="openclaw-disclosure-pill">{currentWorkspace?.name || 'Default Workspace'}</span>
+                  <span className="openclaw-disclosure-pill">Shell: {shellGranted ? (shellEnabled ? 'On' : 'Off') : 'Blocked'}</span>
+                </div>
+                <Settings size={14} color="var(--text-secondary)" style={{ flexShrink: 0 }} />
+              </button>
               {workspaceControlsModalOpen && (
                 <div
                   role="dialog"
