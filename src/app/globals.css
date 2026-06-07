@@ -1499,7 +1499,7 @@ textarea.input-field {
 
 /* OpenClaw shell with rail on the LEFT */
 .openclaw-shell.openclaw-rail-left {
-  grid-template-columns: minmax(240px, 284px) minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
 }
 
 .openclaw-shell.openclaw-rail-left.rail-collapsed {

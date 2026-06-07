@@ -1,6 +1,7 @@
 'use client'
 
-import { Loader, Wifi, WifiOff } from 'lucide-react'
+import { useState } from 'react'
+import { ChevronDown, ChevronUp, Loader, Wifi, WifiOff } from 'lucide-react'
 import { type LiveBrowserConnectionStatus, useLiveBrowserConnection } from './useLiveBrowserConnection'
 
 interface LiveBrowserViewProps {
@@ -25,6 +26,8 @@ export default function LiveBrowserView({
   enabled = true,
   autoResumeMs = 120000,
 }: LiveBrowserViewProps) {
+  const [minimized, setMinimized] = useState(false)
+
   const {
     status,
     interrupted,
@@ -86,10 +89,30 @@ export default function LiveBrowserView({
               {connectionLabel}
             </div>
           )}
+          <button
+            onClick={() => setMinimized(v => !v)}
+            title={minimized ? 'Expand' : 'Minimize'}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 20,
+              height: 20,
+              borderRadius: 4,
+              border: '1px solid var(--border-color)',
+              background: 'transparent',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              padding: 0,
+              transition: 'all 0.15s ease',
+            }}
+          >
+            {minimized ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+          </button>
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: minimized ? 0 : 6 }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px', borderRadius: 4, fontSize: '0.62rem', fontWeight: 600, background: modeBadge.bg, color: modeBadge.color, border: modeBadge.border }}>
           {mode === 'stealth' ? '🛡' : '🌐'} {modeBadge.label}
         </div>
@@ -114,52 +137,56 @@ export default function LiveBrowserView({
         )}
       </div>
 
-      <div
-        style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border-color)', position: 'relative', background: '#111', aspectRatio: '16/9' }}
-        onMouseDown={signalActivity}
-        onWheel={signalActivity}
-        onKeyDown={signalActivity}
-        onTouchStart={signalActivity}
-      >
-        <div
-          ref={setViewportElement}
-          style={{
-            width: '100%',
-            height: '100%',
-            minHeight: 200,
-            background: '#111',
-          }}
-        />
-        {status !== 'live' && (
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.75rem', opacity: 0.8, padding: 12 }}>
+      {!minimized && (
+        <>
+          <div
+            style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border-color)', position: 'relative', background: '#111', aspectRatio: '16/9' }}
+            onMouseDown={signalActivity}
+            onWheel={signalActivity}
+            onKeyDown={signalActivity}
+            onTouchStart={signalActivity}
+          >
+            <div
+              ref={setViewportElement}
+              style={{
+                width: '100%',
+                height: '100%',
+                minHeight: 200,
+                background: '#111',
+              }}
+            />
+            {status !== 'live' && (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.75rem', opacity: 0.8, padding: 12 }}>
+                {statusMessage}
+              </div>
+            )}
+            {status === 'live' && !interrupted && (
+              <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(239, 68, 68, 0.9)', color: '#fff', fontSize: '0.55rem', fontWeight: 700, padding: '2px 5px', borderRadius: 3, display: 'flex', alignItems: 'center', gap: 3 }}>
+                <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#fff', animation: 'blink 1s infinite' }} />
+                AI ACTIVE
+              </div>
+            )}
+            {interrupted && (
+              <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(245, 158, 11, 0.9)', color: '#fff', fontSize: '0.55rem', fontWeight: 700, padding: '2px 5px', borderRadius: 3 }}>
+                YOU HAVE CONTROL
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginTop: 6, fontSize: '0.62rem', color: 'var(--text-secondary)' }}>
             {statusMessage}
           </div>
-        )}
-        {status === 'live' && !interrupted && (
-          <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(239, 68, 68, 0.9)', color: '#fff', fontSize: '0.55rem', fontWeight: 700, padding: '2px 5px', borderRadius: 3, display: 'flex', alignItems: 'center', gap: 3 }}>
-            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#fff', animation: 'blink 1s infinite' }} />
-            AI ACTIVE
-          </div>
-        )}
-        {interrupted && (
-          <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(245, 158, 11, 0.9)', color: '#fff', fontSize: '0.55rem', fontWeight: 700, padding: '2px 5px', borderRadius: 3 }}>
-            YOU HAVE CONTROL
-          </div>
-        )}
-      </div>
 
-      <div style={{ marginTop: 6, fontSize: '0.62rem', color: 'var(--text-secondary)' }}>
-        {statusMessage}
-      </div>
-
-      {resolvedUrl && (
-        <div style={{ marginTop: 4 }}>
-          <div style={{ fontSize: '0.62rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {resolvedTitle && <span style={{ fontWeight: 600 }}>{resolvedTitle}</span>}
-            {resolvedTitle && ' · '}
-            <span style={{ color: 'var(--accent-primary)', opacity: 0.8 }}>{resolvedUrl}</span>
-          </div>
-        </div>
+          {resolvedUrl && (
+            <div style={{ marginTop: 4 }}>
+              <div style={{ fontSize: '0.62rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {resolvedTitle && <span style={{ fontWeight: 600 }}>{resolvedTitle}</span>}
+                {resolvedTitle && ' · '}
+                <span style={{ color: 'var(--accent-primary)', opacity: 0.8 }}>{resolvedUrl}</span>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       <style>{`
