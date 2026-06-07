@@ -7873,12 +7873,9 @@ export default function OpenClawWorkspace({
                   textAlign: 'left',
                 }}
               >
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, minWidth: 0 }}>
-                  <span className="openclaw-disclosure-pill">{activeAgentMode?.label || 'Plan'}</span>
-                  <span className="openclaw-disclosure-pill">{taskStateFieldCount}/4 fields</span>
-                  <span className="openclaw-disclosure-pill">{currentWorkspace?.name || 'Default Workspace'}</span>
-                  <span className="openclaw-disclosure-pill">Shell: {shellGranted ? (shellEnabled ? 'On' : 'Off') : 'Blocked'}</span>
-                </div>
+                <span style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', textWrap: 'nowrap' }}>
+                  Workspace Controls
+                </span>
                 <Settings size={14} color="var(--text-secondary)" style={{ flexShrink: 0 }} />
               </button>
               {workspaceControlsModalOpen && (
