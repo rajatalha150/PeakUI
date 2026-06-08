@@ -7376,16 +7376,14 @@ export default function OpenClawWorkspace({
               if (createMenuOpen) setCreateMenuOpen(false);
             }}>
               <div className="openclaw-card">
-                <div className="openclaw-card-header">
-                  <div>
-                    <div className="openclaw-section-label">Sessions</div>
-                    <div style={{ marginTop: '4px', fontSize: '0.9rem', fontWeight: 700 }}>
-                      {showingAllVisibleSessions
-                        ? `${filteredSessions.length} task threads`
-                        : `${sessionPageStart + 1}-${Math.min(sessionPageStart + visibleSessions.length, filteredSessions.length)} of ${filteredSessions.length} task threads`}
-                    </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+                    <span className="openclaw-section-label">Sessions</span>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                      {filteredSessions.length} threads
+                    </span>
                   </div>
-                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <button
                       type="button"
                       className="btn btn-secondary"
@@ -7395,7 +7393,7 @@ export default function OpenClawWorkspace({
                         setSessionMenuOpen(null);
                         setRenamingSessionId(null);
                       }}
-                      style={{ padding: '8px 10px', borderRadius: '10px' }}
+                      style={{ padding: '6px 8px', borderRadius: '8px', fontSize: '0.72rem' }}
                     >
                       {sessionSelectionMode ? 'Cancel' : 'Select'}
                     </button>
@@ -7407,16 +7405,16 @@ export default function OpenClawWorkspace({
                         setCreateMenuOpen(value => !value);
                         setSessionMenuOpen(null);
                       }}
-                      style={{ padding: '8px 10px', borderRadius: '10px' }}
+                      style={{ padding: '6px 8px', borderRadius: '8px', fontSize: '0.72rem' }}
                     >
-                      <Plus size={14} /> New
+                      <Plus size={12} />
                     </button>
                     {createMenuOpen && (
                       <div
                         onClick={event => event.stopPropagation()}
                         style={{
                           position: 'absolute',
-                          top: '42px',
+                          top: '36px',
                           right: 0,
                           zIndex: 30,
                           minWidth: '180px',
@@ -7468,84 +7466,62 @@ export default function OpenClawWorkspace({
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gap: '12px' }}>
-                  <div style={{ display: 'grid', gap: '10px', padding: '10px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.02)' }}>
-                    <div>
-                      <div className="openclaw-section-label" style={{ marginBottom: '6px' }}>Browse</div>
-                      <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                        Filter task threads by folder or tag without leaving the rail.
-                      </div>
-                    </div>
-                    <div style={{ display: 'grid', gap: '6px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                        <Folder size={12} color="var(--text-secondary)" />
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                          <button
-                            type="button"
-                            onClick={() => setSelectedFolderId(null)}
-                            style={{
-                              padding: '4px 10px',
-                              borderRadius: '999px',
-                              border: selectedFolderId === null ? '1px solid var(--accent-primary)' : '1px solid var(--border-color)',
-                              background: selectedFolderId === null ? 'var(--accent-soft)' : 'transparent',
-                              color: selectedFolderId === null ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                              fontSize: '0.74rem',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            All folders {sessions.length}
-                          </button>
-                          {folders.map(folder => (
-                            <button
-                              key={folder.id}
-                              type="button"
-                              onClick={() => setSelectedFolderId(selectedFolderId === folder.id ? null : folder.id)}
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                padding: '4px 10px',
-                                borderRadius: '999px',
-                                border: selectedFolderId === folder.id ? `1px solid ${folder.color}` : '1px solid var(--border-color)',
-                                background: selectedFolderId === folder.id ? `${folder.color}20` : 'transparent',
-                                color: selectedFolderId === folder.id ? folder.color : 'var(--text-secondary)',
-                                fontSize: '0.74rem',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              <span>{folder.name}</span>
-                              <span>{folderSessionCounts[folder.id] || 0}</span>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
-                        <Tag size={12} color="var(--text-secondary)" />
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                          {tags.length > 0 ? tags.map(tagItem => (
-                            <button
-                              key={tagItem.id}
-                              type="button"
-                              onClick={() => setSelectedTagId(selectedTagId === tagItem.id ? null : tagItem.id)}
-                              style={{
-                                padding: '4px 10px',
-                                borderRadius: '999px',
-                                border: selectedTagId === tagItem.id ? `1px solid ${tagItem.color}` : '1px solid var(--border-color)',
-                                background: selectedTagId === tagItem.id ? `${tagItem.color}20` : 'transparent',
-                                color: selectedTagId === tagItem.id ? tagItem.color : 'var(--text-secondary)',
-                                fontSize: '0.74rem',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              {tagItem.name} {tagSessionCounts[tagItem.id] || 0}
-                            </button>
-                          )) : (
-                            <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>No tags yet</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, paddingTop: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFolderId(null)}
+                    style={{
+                      padding: '3px 8px',
+                      borderRadius: '999px',
+                      border: selectedFolderId === null ? '1px solid var(--accent-primary)' : '1px solid var(--border-color)',
+                      background: selectedFolderId === null ? 'var(--accent-soft)' : 'transparent',
+                      color: selectedFolderId === null ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                      fontSize: '0.68rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    All {sessions.length}
+                  </button>
+                  {folders.map(folder => (
+                    <button
+                      key={folder.id}
+                      type="button"
+                      onClick={() => setSelectedFolderId(selectedFolderId === folder.id ? null : folder.id)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '4px',
+                        padding: '3px 8px',
+                        borderRadius: '999px',
+                        border: selectedFolderId === folder.id ? `1px solid ${folder.color}` : '1px solid var(--border-color)',
+                        background: selectedFolderId === folder.id ? `${folder.color}20` : 'transparent',
+                        color: selectedFolderId === folder.id ? folder.color : 'var(--text-secondary)',
+                        fontSize: '0.68rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Folder size={10} /><span>{folder.name}</span><span>{folderSessionCounts[folder.id] || 0}</span>
+                    </button>
+                  ))}
+                  {tags.map(tagItem => (
+                    <button
+                      key={tagItem.id}
+                      type="button"
+                      onClick={() => setSelectedTagId(selectedTagId === tagItem.id ? null : tagItem.id)}
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: '999px',
+                        border: selectedTagId === tagItem.id ? `1px solid ${tagItem.color}` : '1px solid var(--border-color)',
+                        background: selectedTagId === tagItem.id ? `${tagItem.color}20` : 'transparent',
+                        color: selectedTagId === tagItem.id ? tagItem.color : 'var(--text-secondary)',
+                        fontSize: '0.68rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <Tag size={10} /> {tagItem.name} {tagSessionCounts[tagItem.id] || 0}
+                    </button>
+                  ))}
+                </div>
 
                   {sessionSelectionMode && (
                     <div style={{ display: 'grid', gap: '8px', padding: '10px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.02)' }}>
@@ -7646,7 +7622,7 @@ export default function OpenClawWorkspace({
                                     background: 'transparent',
                                     color: selected ? 'var(--accent-primary)' : 'var(--text-secondary)',
                                     cursor: 'pointer',
-                                    padding: '10px 0 10px 12px',
+                                    padding: '6px 0 6px 10px',
                                   }}
                                   aria-label={selected ? 'Deselect session' : 'Select session'}
                                 >
@@ -7664,7 +7640,7 @@ export default function OpenClawWorkspace({
                                   border: 'none',
                                   background: 'transparent',
                                   color: 'inherit',
-                                  padding: `10px 12px 10px ${sessionSelectionMode ? '4px' : '12px'}`,
+                                  padding: `6px 10px 6px ${sessionSelectionMode ? '4px' : '10px'}`,
                                   cursor: isStreaming ? 'not-allowed' : 'pointer',
                                   opacity: isStreaming ? 0.7 : 1,
                                   textAlign: 'left',
@@ -7717,7 +7693,7 @@ export default function OpenClawWorkspace({
                                   background: 'transparent',
                                   color: 'var(--text-secondary)',
                                   cursor: 'pointer',
-                                  padding: '10px 10px 10px 0',
+                                  padding: '6px 8px 6px 0',
                                 }}
                                 aria-label="Session options"
                               >
@@ -7852,7 +7828,6 @@ export default function OpenClawWorkspace({
                     </div>
                   )}
                 </div>
-              </div>
               <button
                 type="button"
                 onClick={() => setWorkspaceControlsModalOpen(true)}

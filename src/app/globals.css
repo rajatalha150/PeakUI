@@ -941,12 +941,12 @@ textarea.input-field {
 }
 
 .openclaw-card {
-  padding: 12px;
-  border-radius: 14px;
+  padding: 10px;
+  border-radius: 12px;
   border: 1px solid var(--border-color);
   background: rgba(255, 255, 255, 0.03);
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .openclaw-card-header {
