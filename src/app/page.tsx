@@ -2560,6 +2560,7 @@ export default function Home() {
               <div className="section-title" style={{ padding: '8px 12px 4px' }}>
                 {selectedFolderId ? folders.find(f => f.id === selectedFolderId)?.name || 'Folder' : selectedTagId ? tags.find(t => t.id === selectedTagId)?.name || 'Tag' : 'Chats'} ({visibleSessions.length})
               </div>
+              <div className="chat-sidebar-sessions-list">
               {visibleSessions.map(s => (
                 <div
                   key={s.id}
@@ -2725,6 +2726,7 @@ export default function Home() {
                   )}
                 </div>
               ))}
+              </div>
             </>
           )}
 

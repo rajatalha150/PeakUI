@@ -532,6 +532,15 @@ textarea.input-field {
   scrollbar-gutter: stable;
 }
 
+.chat-sidebar-sessions-list {
+  display: block;
+  max-height: 30vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 2px;
+}
+
 .scroll-to-bottom-button {
   position: absolute;
   right: 24px;
@@ -1381,8 +1390,11 @@ textarea.input-field {
 .openclaw-list-scroll {
   display: grid;
   gap: 6px;
-  max-height: none;
-  overflow: visible;
+  max-height: 40vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: 2px;
 }
 
 .openclaw-rail-stat-cluster {
