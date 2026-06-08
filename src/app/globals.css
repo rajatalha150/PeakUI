@@ -537,8 +537,25 @@ textarea.input-field {
   max-height: 30vh;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-  padding-right: 2px;
+  padding-right: 14px;
+  margin-right: -12px;
+}
+
+.chat-sidebar-sessions-list::-webkit-scrollbar {
+  width: 10px;
+}
+
+.chat-sidebar-sessions-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-sidebar-sessions-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+}
+
+.chat-sidebar-sessions-list:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.32);
 }
 
 .scroll-to-bottom-button {
@@ -1393,8 +1410,8 @@ textarea.input-field {
   max-height: 40vh;
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-  padding-right: 2px;
+  padding-right: 14px;
+  margin-right: -12px;
 }
 
 .openclaw-rail-stat-cluster {
