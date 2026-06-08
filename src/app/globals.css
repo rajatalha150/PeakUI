@@ -527,14 +527,16 @@ textarea.input-field {
 .sidebar-scroll-region {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
 }
 
 .chat-sidebar-sessions-list {
   display: block;
-  max-height: 30vh;
+  flex: 1 1 auto;
+  min-height: 120px;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 14px;
@@ -967,7 +969,8 @@ textarea.input-field {
   min-height: 0;
   overflow-y: auto;
   padding: 16px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
@@ -1407,7 +1410,8 @@ textarea.input-field {
 .openclaw-list-scroll {
   display: grid;
   gap: 6px;
-  max-height: 40vh;
+  flex: 1 1 auto;
+  min-height: 120px;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 14px;

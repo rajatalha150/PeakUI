@@ -7375,7 +7375,7 @@ export default function OpenClawWorkspace({
               if (sessionMenuOpen) setSessionMenuOpen(null);
               if (createMenuOpen) setCreateMenuOpen(false);
             }}>
-              <div className="openclaw-card">
+              <div className="openclaw-card openclaw-card-sessions" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
                     <span className="openclaw-section-label">Sessions</span>
