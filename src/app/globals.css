@@ -335,6 +335,11 @@ textarea.input-field {
   overflow: hidden;
 }
 
+.main-content > .openclaw-shell {
+  flex: 1;
+  min-height: 0;
+}
+
 .header {
   height: 64px;
   border-bottom: 1px solid var(--border-color);
@@ -663,6 +668,7 @@ textarea.input-field {
 .openclaw-shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 360px);
+  grid-template-rows: minmax(0, 1fr);
   gap: 16px;
   height: 100%;
   min-height: 0;
@@ -873,6 +879,9 @@ textarea.input-field {
 .openclaw-rail {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
   background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
 }
 
