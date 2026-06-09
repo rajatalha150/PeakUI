@@ -185,6 +185,7 @@ WorkSpaces includes a collapsible Canvas panel that:
 - Knowledge Base uploads can also ingest folder trees from the browser file picker or drag-and-drop. Relative paths are preserved, the uploaded tree stays intact in the index, and large drops are queued in batches so indexing stays responsive.
 - The Knowledge Base dashboard now includes a RAG health panel that shows what indexed successfully, what is still pending, and which files failed with the associated reason.
 - The indexed document list is server-paginated, lets users choose how many rows to show per page, and supports multi-select, select-all, and bulk delete actions.
+- A OneDrive-style folder browser lets users navigate by the original `sourcePath`: breadcrumbs, immediate subfolders, file rows, a folder/files view toggle, sortable columns (name/size/createdAt/indexedAt/kind), and a kind filter. A whole subtree can be deleted in one action.
 - The Knowledge Base dashboard opens from the WorkSpaces workspace rail.
 - Opening it keeps the WorkSpaces session rail visible and swaps only the main content panel.
 - On mobile, Knowledge Base uses the same top-bar/drawer chrome, so the selected WorkSpaces session context stays intact.
@@ -202,6 +203,8 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 - RAG fires alongside web search in both Ollama and OpenAI-compatible paths
 - Results sent as `knowledge_sources` in stream and displayed as source chips
 - "Searching knowledge base..." phase shown during lookup
+- The per-turn RAG state (toggle, search text, citation set) is saved with the chat, so a reopened session restores the same Knowledge Base draft instead of forcing the user to re-enable RAG and retype the query.
+- The chat completion path injects a Knowledge Base tree summary as a system message so the model knows the corpus shape even when no chunks match. When a search runs but returns no context, a "no matching chunks" hint is appended so the model does not appear unaware of the corpus.
 
 ### Use in WorkSpaces
 
