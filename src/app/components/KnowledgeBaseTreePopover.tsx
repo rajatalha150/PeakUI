@@ -21,6 +21,13 @@ interface KnowledgeBaseTreePopoverProps {
   anchorRef?: React.RefObject<HTMLElement | null>;
   /** Width override (defaults to 320px). */
   width?: number;
+  /**
+   * Z-index override. Defaults to 1000. Raise this when the popover is
+   * rendered inside another portaled popover (e.g. the Workspace modes
+   * menu in the Open Claw composer sits at 1400, so the folder popover
+   * needs to be above that to stay visible).
+   */
+  zIndex?: number;
 }
 
 export default function KnowledgeBaseTreePopover({
@@ -31,6 +38,7 @@ export default function KnowledgeBaseTreePopover({
   onRefresh,
   anchorRef,
   width = 320,
+  zIndex = 1000,
 }: KnowledgeBaseTreePopoverProps) {
   const [tree, setTree] = useState<KbFolderNode | null>(null);
   const [loading, setLoading] = useState(false);
@@ -102,7 +110,7 @@ export default function KnowledgeBaseTreePopover({
       anchorRef={anchorRef}
       width={width}
       maxHeight={420}
-      zIndex={1000}
+      zIndex={zIndex}
       side="bottom"
       align="end"
       ariaLabel="Choose a folder"

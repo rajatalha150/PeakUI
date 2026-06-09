@@ -6899,6 +6899,7 @@ export default function OpenClawWorkspace({
                     selectedPath={ragFolderPath}
                     onSelect={(p) => { setRagFolderPath(p); setRagFolderPopoverOpen(false); }}
                     anchorRef={ragFolderButtonRef as React.RefObject<HTMLElement>}
+                    zIndex={1500}
                   />
                 </div>
 
