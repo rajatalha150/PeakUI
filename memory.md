@@ -57,6 +57,11 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 ### Open Claw UI Fixes ✅
 - Fixed the Open Claw model dropdown stacking/hit-area issue by giving the Open Claw header chrome its own higher stacking layer. The full dropdown is now clickable over the chat area instead of only the top exposed strip.
 
+### Reusable Popover Primitive & Dropdown Stacking Fixes ✅
+- Added `src/app/components/Popover.tsx` — a production-grade popover primitive that portals to `<body>`, uses `position: fixed` computed from the anchor's `getBoundingClientRect()`, and escapes every ancestor stacking context. Handles viewport clamping with flip-above fallback, click-outside (with anchor + additional ignore refs), Esc, scroll/resize tracking, `ResizeObserver` on the anchor, ARIA `role`/`aria-label`, optional focus management, and configurable `zIndex` / `width` / `maxHeight` / `side` / `align` / `gap` / `margin` / `closeOnScroll` / `closeOnResize`. Exposes a pure `computePopoverPosition` for unit testing (11 tests in `Popover.test.ts`).
+- Migrated every hand-rolled `position: absolute` dropdown in the app to use the primitive: `KnowledgeBaseTreePopover`, Open Claw composer (model picker, Workspace Modes menu, create menu, session tile menu), and legacy chat (model picker, chat tile menu). The KB folder popover button inside the Workspace Modes menu now sits at z-1500 above the menu (z-1400) so the inner popover floats over the outer menu correctly.
+- New convention: dropdowns/popovers/menus that drop over OTHER content (not just sit next to their button) **must** be rendered via `<Popover>`, not as `position: absolute` children. Ancestors that trap z-index in this app include `.openclaw-main-panel` (`isolation: isolate`), `.main-content` (`overflow: hidden`), `.header` (`z-index: 18`), `.openclaw-main-chrome` (`z-index: 12`), and `.openclaw-mode-toolbar` (`position: relative`). z-index convention: 1000 for popovers, 1100 for previews, 1200 for in-content popovers that sit above modals, 1400+ for nested popovers, 1300+ for modals.
+
 ### Canvas & Artifacts (Phase 7) ✅
 - Agent-generated code and docs now persist beyond the chat via a new `CanvasArtifact` DB model
 - Files in markdown code blocks auto-save to Canvas when user clicks download

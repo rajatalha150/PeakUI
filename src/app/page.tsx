@@ -8,6 +8,8 @@ import {
   Download, FileText, Copy, Folder, Search, X, MoreHorizontal, Menu
 } from 'lucide-react';
 import KnowledgeBase from './components/KnowledgeBase';
+import KnowledgeBaseTreePopover from './components/KnowledgeBaseTreePopover';
+import Popover from './components/Popover';
 import AssistantContent from './components/AssistantContent';
 import SettingsPanel from './components/SettingsPanel';
 import OpenClawWorkspace from './components/OpenClawWorkspace';
@@ -569,6 +571,9 @@ interface ChatSession {
   folderId?: string | null;
   tags?: { id: string; name: string; color: string }[];
   createdAt?: Date;
+  ragEnabled?: boolean;
+  ragQuery?: string | null;
+  ragSources?: MessageSource[];
 }
 
 interface RetryableChatDraft {
@@ -662,6 +667,9 @@ export default function Home() {
   const [ragEnabled, setRagEnabled] = useState(false);
   const [ragContext, setRagContext] = useState<string | null>(null);
   const [ragContextSources, setRagContextSources] = useState<MessageSource[]>([]);
+  const [ragFolderPath, setRagFolderPath] = useState<string | null>(null);
+  const [ragFolderPopoverOpen, setRagFolderPopoverOpen] = useState(false);
+  const ragFolderButtonRef = useRef<HTMLButtonElement>(null);
   const [internetEnabled, setInternetEnabled] = useState(getStoredInternetEnabled);
   const [unrestrictedEnabled, setUnrestrictedEnabled] = useState(() => {
     try { return window.sessionStorage.getItem(UNRESTRICTED_STORAGE) === 'true'; } catch { return false; }
@@ -714,6 +722,8 @@ export default function Home() {
   const [lastSubmittedDraft, setLastSubmittedDraft] = useState<RetryableChatDraft | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const chatMenuButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const modelMenuButtonRef = useRef<HTMLButtonElement>(null);
   
   const abortControllerRef = useRef<AbortController | null>(null);
   const clientSessionIdRef = useRef<string>('');
@@ -944,11 +954,12 @@ export default function Home() {
     messages: ChatMessage[],
     createIfMissing = false,
     persistTitle = false,
+    rag?: { ragEnabled?: boolean; ragQuery?: string | null; ragSources?: MessageSource[] },
   ) => {
     const endpoint = createIfMissing ? '/api/chats/new' : '/api/chats';
     const body = createIfMissing || persistTitle
-      ? { id: sessionId, title, messages }
-      : { id: sessionId, messages };
+      ? { id: sessionId, title, messages, ...(rag ?? {}) }
+      : { id: sessionId, messages, ...(rag ?? {}) };
 
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -1149,6 +1160,11 @@ export default function Home() {
           if (nextSession) {
             setCurrentSessionId(nextSession.id);
             setChatHistory(nextSession.messages);
+            // Restore the RAG draft so reopened chats re-hydrate the "Context attached"
+            // pill and any citations. The user's current ragEnabled toggle is preserved;
+            // toggling it on and sending re-runs the search.
+            setRagContext(nextSession.ragQuery ?? null);
+            setRagContextSources(nextSession.ragSources ?? []);
             loadCanvasArtifacts(nextSession.id);
             return;
           }
@@ -1420,7 +1436,11 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [searchQuery]);
 
-  const switchSession = (id: string | null, messages: ChatMessage[]) => {
+  const switchSession = (
+    id: string | null,
+    messages: ChatMessage[],
+    rag?: { ragQuery?: string | null; ragSources?: MessageSource[] },
+  ) => {
     closeMobileChrome();
     requestScrollReset();
     setCurrentSessionId(id);
@@ -1432,6 +1452,16 @@ export default function Home() {
       setCanvasArtifacts([]);
       setCanvasNextCursor(null);
       setCanvasHasMore(false);
+    }
+    if (rag) {
+      setRagContext(rag.ragQuery ?? null);
+      setRagContextSources(rag.ragSources ?? []);
+    } else if (id) {
+      // No explicit rag payload — clear the draft to avoid leaking the previous
+      // session's context. Sessions loaded from the auto-load useEffect pass rag
+      // explicitly; only the null-id branch and bare numeric ids skip it.
+      setRagContext(null);
+      setRagContextSources([]);
     }
   };
 
@@ -1741,7 +1771,12 @@ export default function Home() {
     }
 
     const userMessage = messageText.trim();
-    const ragSearchText = userMessage || messageAttachments.map(getAttachmentContent).join('\n').slice(0, 2000);
+    const rawRagSearchText = userMessage || messageAttachments.map(getAttachmentContent).join('\n').slice(0, 2000);
+    // When the user picked a folder in the top bar, prepend a `folder:<path>`
+    // directive so parseRagQueryFilters (rag.ts:256) scopes the search.
+    const ragSearchText = ragFolderPath
+      ? `folder:${ragFolderPath} ${rawRagSearchText}`.trim().slice(0, 2000)
+      : rawRagSearchText;
     const responsePresentation = inferResponsePresentation([{
       role: 'user',
       content: userMessage || messageAttachments.map(attachment => attachment.name).join(', ') || ragSearchText,
@@ -1827,28 +1862,10 @@ export default function Home() {
     upsertSessionInState(previewSession);
 
     try {
-      const sessionSavePromise = saveSession(
-        chatId,
-        sessionTitle,
-        baseHistory,
-        isNewSession,
-        isNewSession || !existingTitle || existingTitle === 'New Chat',
-      )
-        .then(savedSession => {
-          upsertSessionInState(savedSession);
-          return savedSession;
-        })
-        .catch(saveError => {
-          console.error('Failed to persist chat session before streaming:', saveError);
-          return null;
-        });
-
-      if (controller.signal.aborted) {
-        return;
-      }
-
-      // If RAG is enabled, inject KB context as prefixed system messages. Internet
-      // mode now runs server-side so the model can search/fetch more than once.
+      // If RAG is enabled, run the KB search FIRST so we can persist the search text
+      // and citation set on the pre-stream save (and re-use the snapshot for the
+      // /api/chat/completed finalize below). Internet mode runs server-side so the
+      // model can search/fetch more than once.
       let augmentedMessages = [...baseHistory];
       const contextMessages: Array<{ role: 'system'; content: string }> = [];
       let activeSources: MessageSource[] = [];
@@ -1887,6 +1904,34 @@ export default function Home() {
       if (contextMessages.length > 0) {
         augmentedMessages = [...contextMessages, ...baseHistory];
       }
+
+      // Single RAG snapshot for both the pre-stream save and the post-stream finalize.
+      const persistedRagEnabled = (ragEnabled && Boolean(ragSearchText.trim())) || Boolean(draftRagContext);
+      const persistedRagQuery = persistedRagEnabled
+        ? (ragEnabled ? ragSearchText : (draftRagContext || userMessage))
+        : null;
+      const persistedRagSources = activeSources.length > 0 ? activeSources : draftRagContextSources;
+
+      const sessionSavePromise = saveSession(
+        chatId,
+        sessionTitle,
+        baseHistory,
+        isNewSession,
+        isNewSession || !existingTitle || existingTitle === 'New Chat',
+        {
+          ragEnabled: persistedRagEnabled,
+          ragQuery: persistedRagQuery,
+          ragSources: persistedRagSources,
+        },
+      )
+        .then(savedSession => {
+          upsertSessionInState(savedSession);
+          return savedSession;
+        })
+        .catch(saveError => {
+          console.error('Failed to persist chat session before streaming:', saveError);
+          return null;
+        });
 
       if (controller.signal.aborted) {
         return;
@@ -2255,6 +2300,9 @@ export default function Home() {
             model: selectedModelName,
             message: completedMessage,
             messages: baseHistory,
+            rag_enabled: persistedRagEnabled,
+            rag_query: persistedRagQuery,
+            rag_sources: persistedRagSources,
           }),
         });
 
@@ -2461,7 +2509,10 @@ export default function Home() {
                       onClick={() => {
                         const fullSession = sessions.find(session => session.id === s.id);
                         if (fullSession) {
-                          switchSession(fullSession.id, fullSession.messages);
+                          switchSession(fullSession.id, fullSession.messages, {
+                            ragQuery: fullSession.ragQuery,
+                            ragSources: fullSession.ragSources,
+                          });
                         }
                         setSearchQuery('');
                         setShowSearch(false);
@@ -2589,7 +2640,10 @@ export default function Home() {
                         style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0, cursor: isStreaming ? 'not-allowed' : 'pointer', opacity: isStreaming ? 0.75 : 1 }}
                         onClick={() => {
                           if (isStreaming) return;
-                          switchSession(s.id, s.messages);
+                          switchSession(s.id, s.messages, {
+                            ragQuery: s.ragQuery,
+                            ragSources: s.ragSources,
+                          });
                         }}
                       >
                         {s.pinned
@@ -2618,6 +2672,7 @@ export default function Home() {
                       )}
                       {/* 3-dot menu trigger */}
                       <button
+                        ref={el => { chatMenuButtonRefs.current[s.id] = el; }}
                         onClick={e => { e.stopPropagation(); setChatMenuOpen(chatMenuOpen === s.id ? null : s.id); }}
                         style={{
                           background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px',
@@ -2631,12 +2686,18 @@ export default function Home() {
 
                       {/* Dropdown */}
                       {chatMenuOpen === s.id && (
-                        <div
-                          onClick={e => e.stopPropagation()}
+                        <Popover
+                          open
+                          onClose={() => setChatMenuOpen(null)}
+                          anchorRef={{ current: chatMenuButtonRefs.current[s.id] }}
+                          width={170}
+                          zIndex={1200}
+                          side="bottom"
+                          align="end"
+                          manageFocus={false}
                           style={{
-                            position: 'absolute', right: '8px', top: '34px', zIndex: 100,
                             background: 'var(--sidebar-bg)', border: '1px solid var(--border-color)',
-                            borderRadius: '10px', padding: '4px', minWidth: '150px',
+                            borderRadius: '10px', padding: '4px',
                             boxShadow: '0 8px 24px rgba(0,0,0,0.4)'
                           }}
                         >
@@ -2720,7 +2781,7 @@ export default function Home() {
                               Create first tag
                             </div>
                           )}
-                        </div>
+                        </Popover>
                       )}
                     </>
                   )}
@@ -3036,6 +3097,7 @@ export default function Home() {
             <button
               type="button"
               className="glass-panel"
+              ref={modelMenuButtonRef}
               onClick={() => setModelMenuOpen(open => !open)}
               disabled={modelsLoading || models.length === 0}
               style={{
@@ -3123,21 +3185,22 @@ export default function Home() {
             </div>
 
             {modelMenuOpen && (
-              <div
+              <Popover
+                open
+                onClose={() => setModelMenuOpen(false)}
+                anchorRef={modelMenuButtonRef}
+                width={Math.min(360, typeof window !== 'undefined' ? window.innerWidth - 48 : 360)}
+                maxHeight={340}
+                zIndex={1200}
+                side="bottom"
+                align="start"
                 className="glass-panel"
                 style={{
-                  position: 'absolute',
-                  top: '48px',
-                  left: 0,
-                  zIndex: 120,
-                  width: 'min(360px, calc(100vw - 48px))',
-                  minWidth: '280px',
-                  maxHeight: '340px',
-                  overflowY: 'auto',
                   padding: '6px',
                   borderRadius: '14px',
                   background: 'var(--bg-surface)',
-                  boxShadow: '0 18px 48px rgba(0,0,0,0.45)'
+                  boxShadow: '0 18px 48px rgba(0,0,0,0.45)',
+                  overflowY: 'auto',
                 }}
               >
                 {models.length === 0 ? (
@@ -3276,7 +3339,7 @@ export default function Home() {
                   })}
                   </>
                 )}
-              </div>
+              </Popover>
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
@@ -3322,6 +3385,46 @@ export default function Home() {
               <span style={{ fontSize: '0.85rem', color: ragEnabled ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>RAG</span>
             </button>
             <HelpHint text="When enabled, each new chat prompt searches the Knowledge Base first and injects matching document context into the request." />
+            <div style={{ position: 'relative' }}>
+              <button
+                ref={ragFolderButtonRef}
+                className={`glass-panel`}
+                disabled={!ragEnabled}
+                title={!ragEnabled ? 'Enable RAG first to scope to a folder' : (ragFolderPath ? `Folder: ${ragFolderPath}` : 'Scope RAG to a folder')}
+                style={{
+                  padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '8px',
+                  cursor: ragEnabled ? 'pointer' : 'not-allowed',
+                  border: ragFolderPath ? '1px solid var(--accent-primary)' : undefined,
+                  background: ragFolderPath ? 'var(--accent-soft)' : undefined,
+                  opacity: ragEnabled ? 1 : 0.5,
+                }}
+                onClick={() => ragEnabled && setRagFolderPopoverOpen(v => !v)}
+              >
+                <Folder size={16} color={ragFolderPath ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
+                <span style={{ fontSize: '0.85rem', color: ragFolderPath ? 'var(--accent-primary)' : 'var(--text-secondary)' }}>
+                  {ragFolderPath
+                    ? `📁 ${ragFolderPath.split('/').pop() || 'root'}`
+                    : 'Folders'}
+                </span>
+                {ragFolderPath && (
+                  <span
+                    role="button"
+                    aria-label="Clear folder"
+                    onClick={(e) => { e.stopPropagation(); setRagFolderPath(null); }}
+                    style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', color: 'var(--text-secondary)', marginLeft: '2px' }}
+                  >
+                    <X size={12} />
+                  </span>
+                )}
+              </button>
+              <KnowledgeBaseTreePopover
+                open={ragFolderPopoverOpen}
+                onClose={() => setRagFolderPopoverOpen(false)}
+                selectedPath={ragFolderPath}
+                onSelect={(p) => { setRagFolderPath(p); setRagFolderPopoverOpen(false); }}
+                anchorRef={ragFolderButtonRef as React.RefObject<HTMLElement>}
+              />
+            </div>
           </div>
         </header>
         )}

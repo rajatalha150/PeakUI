@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useEffect, useState } from 'react';
 import { Folder, FolderOpen, X } from 'lucide-react';
+import Popover from './Popover';
 import type { FlattenedFolder, KbFolderNode } from '@/lib/kb-folders';
 
 interface KnowledgeBaseTreePopoverProps {
@@ -18,7 +18,7 @@ interface KnowledgeBaseTreePopoverProps {
    * bottom of the viewport) and to ignore clicks on the anchor itself
    * when the click-outside handler fires.
    */
-  anchorRef?: React.RefObject<HTMLElement>;
+  anchorRef?: React.RefObject<HTMLElement | null>;
   /** Width override (defaults to 320px). */
   width?: number;
 }
@@ -36,7 +36,6 @@ export default function KnowledgeBaseTreePopover({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [focusIndex, setFocusIndex] = useState<number>(-1);
-  const containerRef = useRef<HTMLDivElement>(null);
 
   // Fetch the tree when the popover opens (or on demand).
   useEffect(() => {
@@ -64,128 +63,51 @@ export default function KnowledgeBaseTreePopover({
     return () => { cancelled = true; };
   }, [open, onRefresh]);
 
-  // Click outside to close.
+  // Reset keyboard focus index whenever the tree (and thus the row count) changes.
   useEffect(() => {
-    if (!open) return;
-    const onMouseDown = (e: MouseEvent) => {
-      const target = e.target as Node | null;
-      if (!target) return;
-      if (containerRef.current?.contains(target)) return;
-      if (anchorRef?.current?.contains(target)) return;
-      onClose();
-    };
-    document.addEventListener('mousedown', onMouseDown);
-    return () => document.removeEventListener('mousedown', onMouseDown);
-  }, [open, onClose, anchorRef]);
+    setFocusIndex(-1);
+  }, [tree]);
 
-  // Esc to close + arrow navigation.
+  if (!anchorRef) return null;
+
+  const flatRows: FlattenedFolder[] = tree ? flattenForPopover(tree) : [];
+
+  // Arrow-key navigation between folder rows. The Popover primitive owns
+  // Esc-to-close; this adds Up/Down/Enter within the row list.
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      } else if (e.key === 'ArrowDown') {
-        e.preventDefault();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
         setFocusIndex(prev => Math.min(prev + 1, flatRows.length - 1));
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
         setFocusIndex(prev => Math.max(prev - 1, 0));
-      } else if (e.key === 'Enter' && focusIndex >= 0 && flatRows[focusIndex]) {
-        e.preventDefault();
+      } else if (event.key === 'Enter' && focusIndex >= 0 && flatRows[focusIndex]) {
+        event.preventDefault();
         onSelect(flatRows[focusIndex]!.path);
         onClose();
       }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, focusIndex]);
-
-  // Anchor-relative fixed positioning. The popover is portaled to <body>, so
-  // it's no longer bounded by the button's ancestor stacking contexts (e.g.
-  // `.openclaw-main-panel { isolation: isolate }` traps a z-index inside it
-  // and lets sibling grid rows paint over the dropdown). Recompute on every
-  // open, on window resize, on any scroll, and if the anchor's box changes
-  // (e.g. the button text grows when a folder is selected and a clear-X
-  // appears).
-  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-  useLayoutEffect(() => {
-    if (!open) {
-      setPosition(null);
-      return;
-    }
-    const compute = () => {
-      const anchor = anchorRef?.current;
-      if (!anchor) return;
-      const rect = anchor.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-      const gap = 6;
-      const margin = 8;
-      // Preferred: right-align with the anchor, drop below it. If the
-      // popover would overflow the bottom, flip above the anchor. Always
-      // clamp horizontally to the viewport.
-      let left = rect.right - width;
-      let top = rect.bottom + gap;
-      const maxLeft = viewportWidth - width - margin;
-      if (left < margin) left = margin;
-      if (left > maxLeft) left = maxLeft;
-      if (top + 420 > viewportHeight - margin) {
-        const flipped = rect.top - gap - 420;
-        if (flipped >= margin) {
-          top = flipped;
-        } else {
-          // Neither below nor above fits fully; pick whichever leaves more
-          // room and let the inner scroll handle the rest.
-          top = Math.max(margin, Math.min(top, viewportHeight - 420 - margin));
-        }
-      }
-      setPosition({ top, left });
-    };
-    compute();
-    const onScroll = () => compute();
-    const onResize = () => compute();
-    window.addEventListener('resize', onResize);
-    window.addEventListener('scroll', onScroll, true);
-    let observer: ResizeObserver | null = null;
-    if (anchorRef?.current && typeof ResizeObserver !== 'undefined') {
-      observer = new ResizeObserver(() => compute());
-      observer.observe(anchorRef.current);
-    }
-    return () => {
-      window.removeEventListener('resize', onResize);
-      window.removeEventListener('scroll', onScroll, true);
-      observer?.disconnect();
-    };
-  }, [open, anchorRef, width, selectedPath]);
-
-  if (!open) return null;
-
-  // Wait for client mount so the portal target (document.body) exists.
-  if (!mounted) return null;
-
-  const flatRows: FlattenedFolder[] = tree ? flattenForPopover(tree) : [];
+  }, [open, focusIndex, flatRows, onSelect, onClose]);
   const hasFolders = flatRows.length > 0;
   const totalFiles = tree?.recursiveFileCount ?? 0;
 
-  // Render the popover into <body> via a portal so it escapes every
-  // ancestor's stacking context (`isolation: isolate`, `overflow: hidden`,
-  // nested grid rows, etc.). Until the first layout pass computes a
-  // position, fall back to a hidden sentinel so the first paint doesn't
-  // flash at (0,0).
-  const popoverStyle: React.CSSProperties = position
-    ? {
-        position: 'fixed',
-        top: `${position.top}px`,
-        left: `${position.left}px`,
-        zIndex: 1000,
-        width: `${width}px`,
-        maxHeight: '420px',
+  return (
+    <Popover
+      open={open}
+      onClose={onClose}
+      anchorRef={anchorRef}
+      width={width}
+      maxHeight={420}
+      zIndex={1000}
+      side="bottom"
+      align="end"
+      ariaLabel="Choose a folder"
+      role="dialog"
+      style={{
         background: 'var(--bg-elevated)',
         border: '1px solid var(--border-color)',
         borderRadius: '12px',
@@ -193,23 +115,7 @@ export default function KnowledgeBaseTreePopover({
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
-      }
-    : {
-        position: 'fixed',
-        top: '-9999px',
-        left: '-9999px',
-        zIndex: 1000,
-        width: `${width}px`,
-        maxHeight: '420px',
-        visibility: 'hidden',
-      };
-
-  return createPortal(
-    <div
-      ref={containerRef}
-      role="dialog"
-      aria-label="Choose a folder"
-      style={popoverStyle}
+      }}
     >
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -305,8 +211,7 @@ export default function KnowledgeBaseTreePopover({
           </button>
         </div>
       )}
-    </div>,
-    document.body,
+    </Popover>
   );
 }
 

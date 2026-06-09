@@ -7,6 +7,8 @@ import { ChatMessageContent, AssistantDownloads, ThinkingBlock } from './ChatMes
 import HelpHint from './HelpHint';
 import SourceChips from './SourceChips';
 import MessageRenderBoundary from './MessageRenderBoundary';
+import KnowledgeBaseTreePopover from './KnowledgeBaseTreePopover';
+import Popover from './Popover';
 import { mergeMessageSources, normalizeMessageSources, type MessageSource } from '@/lib/message-sources';
 import { type ResponsePresentation } from '@/lib/response-format';
 import {
@@ -105,6 +107,9 @@ interface OpenClawSession {
   branchLabel?: string | null;
   branchChildrenCount: number;
   branchDepth: number;
+  ragEnabled?: boolean;
+  ragQuery?: string | null;
+  ragSources?: MessageSource[];
 }
 
 interface OpenClawWorkspaceRecord {
@@ -1466,6 +1471,9 @@ function normalizeOpenClawSession(value: unknown): OpenClawSession | null {
     branchLabel: typeof raw.branchLabel === 'string' ? raw.branchLabel : raw.branchLabel === null ? null : undefined,
     branchChildrenCount: typeof raw.branchChildrenCount === 'number' ? raw.branchChildrenCount : 0,
     branchDepth: typeof raw.branchDepth === 'number' ? raw.branchDepth : 0,
+    ragEnabled: raw.ragEnabled === true,
+    ragQuery: typeof raw.ragQuery === 'string' ? raw.ragQuery : raw.ragQuery === null ? null : undefined,
+    ragSources: Array.isArray(raw.ragSources) ? normalizeMessageSources(raw.ragSources) : undefined,
   };
 }
 
@@ -2191,6 +2199,9 @@ export default function OpenClawWorkspace({
   const [sessionListPage, setSessionListPage] = useState(0);
   const [selectedSessionInfo, setSelectedSessionInfo] = useState<string>('');
   const [ragEnabled, setRagEnabled] = useState(() => getStoredRagEnabled() ?? false);
+  const [ragFolderPath, setRagFolderPath] = useState<string | null>(null);
+  const [ragFolderPopoverOpen, setRagFolderPopoverOpen] = useState(false);
+  const ragFolderButtonRef = useRef<HTMLButtonElement>(null);
   const [internetEnabled, setInternetEnabled] = useState(getStoredInternetEnabled);
   const [uwafBrowserMode, setUwafBrowserMode] = useState<'direct' | 'stealth'>('direct');
   const [unrestrictedEnabled, setUnrestrictedEnabled] = useState(() => {
@@ -2309,6 +2320,10 @@ export default function OpenClawWorkspace({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const headerModeMenuRef = useRef<HTMLDivElement>(null);
+  const modelMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const modesMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const createMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const sessionMenuButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const railCollapsed = rightRailCollapsed && !isMobileViewport;
   const pendingPreviewUrlsRef = useRef<string[]>([]);
 
@@ -2660,6 +2675,10 @@ export default function OpenClawWorkspace({
     if (nextSession) {
       setCurrentSessionId(nextSession.id);
       setChatHistory(sanitizeOpenClawMessages(nextSession.messages || []));
+      // Restore the RAG draft so reopened WorkSpaces threads re-hydrate the
+      // composer with the last search text. The user's current ragEnabled toggle
+      // is preserved; toggling it on and sending re-runs the search.
+      setMessage(nextSession.ragQuery ?? '');
       setCanvasSearchQuery('');
       loadCanvasArtifacts(nextSession.id, { query: '' });
       setSelectedSessionInfo(`${nextSession.title} · updated ${formatTimestamp(nextSession.updatedAt)}`);
@@ -3403,6 +3422,9 @@ export default function OpenClawWorkspace({
     setCanvasSearchQuery('');
     loadCanvasArtifacts(session.id, { query: '' });
     resetComposerDraftState();
+    // Restore the RAG draft after resetComposerDraftState so the saved query
+    // is what the user sees, not a freshly cleared composer.
+    setMessage(session.ragQuery ?? '');
     setLastSubmission(null);
     setSelectedSessionInfo(`${session.title} · updated ${formatTimestamp(session.updatedAt)}`);
     setSessionMenuOpen(null);
@@ -3424,7 +3446,11 @@ export default function OpenClawWorkspace({
     switchSession(session);
   };
 
-  const createSession = async (baseMessages: OpenClawMessage[], sessionId: string) => {
+  const createSession = async (
+    baseMessages: OpenClawMessage[],
+    sessionId: string,
+    rag?: { ragEnabled?: boolean; ragQuery?: string | null; ragSources?: MessageSource[] },
+  ) => {
     const title = getChatTitle(baseMessages);
 
     const res = await fetch('/api/chats/new', {
@@ -3437,6 +3463,7 @@ export default function OpenClawWorkspace({
         surface: 'openclaw',
         autoContinueMode: effectiveSessionAutoContinueMode,
         autoContinueMaxSteps: effectiveSessionAutoContinueMaxSteps,
+        ...(rag ?? {}),
       }),
     });
 
@@ -5553,7 +5580,10 @@ export default function OpenClawWorkspace({
     const contextImages = [...pendingImages];
     const messageAttachments = [...pendingAttachments];
     const attachmentContext = buildAttachmentContext(messageAttachments, contextImages, prompt);
-    const ragQueryText = (attachmentContext || prompt).slice(0, 2000);
+    const rawRagQueryText = (attachmentContext || prompt).slice(0, 2000);
+    const ragQueryText = ragFolderPath
+      ? `folder:${ragFolderPath} ${rawRagQueryText}`.trim().slice(0, 2000)
+      : rawRagQueryText;
     const userMessage: OpenClawMessage = {
       id: randomUUID(),
       role: 'user',
@@ -5612,8 +5642,18 @@ export default function OpenClawWorkspace({
 
     let finalAssistantMessage: OpenClawMessage | null = null;
 
+    // Persist the RAG draft on the pre-stream save so reopened WorkSpaces
+    // threads re-hydrate the composer with the last search text. The actual
+    // citation set is captured below by the /api/chat/completed finalize call
+    // after streaming finishes.
+    const ragSnapshot = {
+      ragEnabled: ragEnabled && Boolean(ragQueryText.trim()),
+      ragQuery: ragEnabled && Boolean(ragQueryText.trim()) ? ragQueryText : null,
+      ragSources: [] as MessageSource[],
+    };
+
     try {
-      const sessionSavePromise = createSession(baseHistory, chatId).catch(error => {
+      const sessionSavePromise = createSession(baseHistory, chatId, ragSnapshot).catch(error => {
         console.error('Failed to persist WorkSpaces session before streaming:', error);
         return null;
       });
@@ -6058,6 +6098,11 @@ export default function OpenClawWorkspace({
 
       const messagesBeforeFinalAssistant = sessionHistory.slice(0, -1);
 
+      // Final RAG snapshot: only round 0 carries RAG on the server
+      // (toolRound === 0 in streamAssistantResponse), and ragQueryText is invariant
+      // across rounds, so the snapshot above plus currentSources covers the
+      // complete set of citations used this turn.
+      const finalizeRagEnabled = ragEnabled && Boolean(ragQueryText.trim());
       const completedResponse = await fetch('/api/chat/completed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -6075,6 +6120,9 @@ export default function OpenClawWorkspace({
           lastAutoContinueAt: currentSession?.lastAutoContinueAt
             ? new Date(currentSession.lastAutoContinueAt).toISOString()
             : null,
+          rag_enabled: finalizeRagEnabled,
+          rag_query: finalizeRagEnabled ? ragQueryText : null,
+          rag_sources: currentSources,
         }),
       });
       const completedData = await completedResponse.json().catch(() => ({}));
@@ -6540,6 +6588,7 @@ export default function OpenClawWorkspace({
         <button
           type="button"
           className="glass-panel"
+          ref={modelMenuButtonRef}
           onClick={() => setModelMenuOpen(open => !open)}
           disabled={modelsLoading || models.length === 0}
           style={{
@@ -6627,21 +6676,22 @@ export default function OpenClawWorkspace({
         </div>
 
         {modelMenuOpen && (
-          <div
+          <Popover
+            open
+            onClose={() => setModelMenuOpen(false)}
+            anchorRef={modelMenuButtonRef}
+            width={Math.min(360, typeof window !== 'undefined' ? window.innerWidth - 48 : 360)}
+            maxHeight={340}
+            zIndex={1200}
+            side="bottom"
+            align="start"
             className="glass-panel"
             style={{
-              position: 'absolute',
-              top: '48px',
-              left: 0,
-              zIndex: 120,
-              width: 'min(360px, calc(100vw - 48px))',
-              minWidth: '280px',
-              maxHeight: '340px',
-              overflowY: 'auto',
               padding: '6px',
               borderRadius: '14px',
               background: 'var(--bg-surface)',
-              boxShadow: '0 18px 48px rgba(0,0,0,0.45)'
+              boxShadow: '0 18px 48px rgba(0,0,0,0.45)',
+              overflowY: 'auto',
             }}
           >
             {models.length === 0 ? (
@@ -6713,7 +6763,7 @@ export default function OpenClawWorkspace({
                 })}
               </>
             )}
-          </div>
+          </Popover>
         )}
       </div>
 
@@ -6722,6 +6772,7 @@ export default function OpenClawWorkspace({
           <button
             type="button"
             className="openclaw-mode-trigger glass-panel"
+            ref={modesMenuButtonRef}
             onClick={() => setHeaderModeMenuOpen(current => current === 'modes' ? null : 'modes')}
             aria-haspopup="menu"
             aria-expanded={headerModeMenuOpen === 'modes'}
@@ -6740,7 +6791,29 @@ export default function OpenClawWorkspace({
             />
           </button>
           {headerModeMenuOpen === 'modes' && (
-            <div className="openclaw-mode-menu glass-panel" role="menu">
+            <Popover
+              open
+              onClose={() => setHeaderModeMenuOpen(null)}
+              anchorRef={modesMenuButtonRef}
+              width={280}
+              maxHeight={500}
+              zIndex={1400}
+              side="bottom"
+              align="end"
+              className="openclaw-mode-menu glass-panel"
+              role="menu"
+              manageFocus={false}
+              style={{
+                padding: '12px',
+                display: 'grid',
+                gap: '12px',
+                position: 'fixed',
+                borderRadius: '16px',
+                border: '1px solid var(--border-color)',
+                background: 'color-mix(in srgb, var(--bg-surface) 92%, black 8%)',
+                boxShadow: '0 24px 54px rgba(0,0,0,0.45)',
+              }}
+            >
               <div className="openclaw-mode-menu-header">
                 <div className="openclaw-mode-menu-title-row">
                   <span className="openclaw-mode-menu-icon">
@@ -6810,6 +6883,41 @@ export default function OpenClawWorkspace({
                   </span>
                   <span>{ragEnabled ? 'On' : 'Off'}</span>
                 </button>
+                <div style={{ position: 'relative' }}>
+                  <button
+                    ref={ragFolderButtonRef}
+                    type="button"
+                    className={`openclaw-mode-action${ragFolderPath ? ' is-active' : ''}`}
+                    disabled={!ragEnabled}
+                    title={!ragEnabled ? 'Enable RAG first to scope to a folder' : (ragFolderPath ? `Folder: ${ragFolderPath}` : 'Scope RAG to a folder')}
+                    onClick={() => ragEnabled && setRagFolderPopoverOpen(v => !v)}
+                    style={{ opacity: ragEnabled ? 1 : 0.5, cursor: ragEnabled ? 'pointer' : 'not-allowed' }}
+                  >
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Folder size={15} color={ragFolderPath ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
+                      {ragFolderPath
+                        ? `📁 ${ragFolderPath.split('/').pop() || 'root'}`
+                        : 'Folders'}
+                    </span>
+                    {ragFolderPath && (
+                      <span
+                        role="button"
+                        aria-label="Clear folder"
+                        onClick={(e) => { e.stopPropagation(); setRagFolderPath(null); }}
+                        style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', color: 'var(--text-secondary)' }}
+                      >
+                        <X size={12} />
+                      </span>
+                    )}
+                  </button>
+                  <KnowledgeBaseTreePopover
+                    open={ragFolderPopoverOpen}
+                    onClose={() => setRagFolderPopoverOpen(false)}
+                    selectedPath={ragFolderPath}
+                    onSelect={(p) => { setRagFolderPath(p); setRagFolderPopoverOpen(false); }}
+                    anchorRef={ragFolderButtonRef as React.RefObject<HTMLElement>}
+                  />
+                </div>
 
                 <button
                   type="button"
@@ -6835,7 +6943,7 @@ export default function OpenClawWorkspace({
                   <span>{uncensoredEnabled ? 'On' : 'Off'}</span>
                 </button>
               </div>
-            </div>
+            </Popover>
           )}
         </div>
       </div>
@@ -7400,6 +7508,7 @@ export default function OpenClawWorkspace({
                     <button
                       type="button"
                       className="btn btn-secondary"
+                      ref={createMenuButtonRef}
                       onClick={event => {
                         event.stopPropagation();
                         setCreateMenuOpen(value => !value);
@@ -7410,14 +7519,16 @@ export default function OpenClawWorkspace({
                       <Plus size={12} />
                     </button>
                     {createMenuOpen && (
-                      <div
-                        onClick={event => event.stopPropagation()}
+                      <Popover
+                        open
+                        onClose={() => setCreateMenuOpen(false)}
+                        anchorRef={createMenuButtonRef}
+                        width={180}
+                        zIndex={1200}
+                        side="bottom"
+                        align="end"
+                        manageFocus={false}
                         style={{
-                          position: 'absolute',
-                          top: '36px',
-                          right: 0,
-                          zIndex: 30,
-                          minWidth: '180px',
                           padding: '6px',
                           borderRadius: '12px',
                           border: '1px solid var(--border-color)',
@@ -7461,7 +7572,7 @@ export default function OpenClawWorkspace({
                         >
                           <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Tag size={12} /> New tag</span>
                         </button>
-                      </div>
+                      </Popover>
                     )}
                   </div>
                 </div>
@@ -7687,6 +7798,7 @@ export default function OpenClawWorkspace({
                               </button>
                               <button
                                 type="button"
+                                ref={el => { sessionMenuButtonRefs.current[session.id] = el; }}
                                 onClick={() => setSessionMenuOpen(session.id === sessionMenuOpen ? null : session.id)}
                                 style={{
                                   border: 'none',
@@ -7702,20 +7814,25 @@ export default function OpenClawWorkspace({
                             </div>
                           )}
                           {sessionMenuOpen === session.id && renamingSessionId !== session.id && (
-                            <div style={{
-                              position: 'absolute',
-                              right: '10px',
-                              top: '34px',
-                              zIndex: 20,
-                              background: 'var(--sidebar-bg)',
-                              border: '1px solid var(--border-color)',
-                              borderRadius: '10px',
-                              padding: '4px',
-                              minWidth: '180px',
-                              maxHeight: '280px',
-                              overflowY: 'auto',
-                              boxShadow: '0 12px 24px rgba(0,0,0,0.35)',
-                            }}>
+                            <Popover
+                              open
+                              onClose={() => setSessionMenuOpen(null)}
+                              anchorRef={{ current: sessionMenuButtonRefs.current[session.id] }}
+                              width={200}
+                              maxHeight={320}
+                              zIndex={1200}
+                              side="bottom"
+                              align="end"
+                              manageFocus={false}
+                              style={{
+                                background: 'var(--sidebar-bg)',
+                                border: '1px solid var(--border-color)',
+                                borderRadius: '10px',
+                                padding: '4px',
+                                boxShadow: '0 12px 24px rgba(0,0,0,0.35)',
+                                overflowY: 'auto',
+                              }}
+                            >
                               {([
                                 { icon: <Pin size={12} />, label: session.pinned ? 'Unpin' : 'Pin', action: () => void handlePinSession(session.id, session.pinned) },
                                 { icon: <BookOpen size={12} />, label: 'Rename', action: () => { setRenamingSessionId(session.id); setRenameValue(session.title); setSessionMenuOpen(null); } },
@@ -7796,7 +7913,7 @@ export default function OpenClawWorkspace({
                                   Create first tag
                                 </div>
                               )}
-                            </div>
+                            </Popover>
                           )}
                         </div>
                       );

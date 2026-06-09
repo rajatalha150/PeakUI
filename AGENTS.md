@@ -26,6 +26,13 @@ This project is actively developed and run on **Windows 11 Pro** (Build 26200 / 
 ## Workspace Rename Note
 The workspace feature previously called "Open Claw" is now displayed as **"WorkSpaces"** in the UI. This is a cosmetic, UI-only change. All internal code, API routes (`/api/openclaw/*`), database fields (`openClaw*` columns), CSS classes (`.openclaw-*`), and system prompts remain unchanged. When editing UI labels, replace "Open Claw" with "WorkSpaces". When editing code, keep the existing identifiers.
 
+## Popovers, Dropdowns, and Menus
+- **Always use `<Popover>` (`src/app/components/Popover.tsx`) for any dropdown/popover/menu that needs to drop over OTHER content** (not just sit next to its button). It portals to `<body>`, uses `position: fixed` with viewport clamping, and escapes ancestor stacking contexts.
+- Do **not** render a popover as a `position: absolute` child of a small button — the first positioned ancestor will trap its z-index. Common trap ancestors in this app: `.openclaw-main-panel` (`isolation: isolate`), `.main-content` (`overflow: hidden`), `.header` (`z-index: 18`), `.openclaw-main-chrome` (`z-index: 12`), `.openclaw-mode-toolbar` (`position: relative`).
+- The primitive takes `open`, `onClose`, `anchorRef`, `children`, plus `width` / `maxHeight` / `zIndex` / `side` / `align` / `gap` / `margin` / `closeOnScroll` / `closeOnResize` / `role` / `ariaLabel` / `manageFocus` props. It handles click-outside (ignoring the anchor + any `additionalIgnoreRefs`), Esc, scroll/resize tracking, and `ResizeObserver` on the anchor automatically.
+- Z-index convention: 1000 for popovers, 1100 for previews, 1200 for in-content popovers above modals, 1400+ for nested popovers (popover inside another popover), 1300+ for modals.
+- Test new positioning math against `Popover.test.ts` patterns. The pure `computePopoverPosition` function is exported for unit tests.
+
 ## Quick Commands (Windows)
 
 ```powershell
