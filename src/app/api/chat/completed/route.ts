@@ -40,6 +40,11 @@ export async function POST(req: Request) {
       autoContinueMaxSteps: body.autoContinueMaxSteps,
       branchLabel: body.branchLabel,
       lastAutoContinueAt: body.lastAutoContinueAt,
+      ragEnabled: typeof body.rag_enabled === 'boolean' ? body.rag_enabled : undefined,
+      ragQuery: typeof body.rag_query === 'string'
+        ? body.rag_query
+        : (body.rag_query === null ? null : undefined),
+      ragSources: Array.isArray(body.rag_sources) ? body.rag_sources : undefined,
     });
 
     if (!session) {

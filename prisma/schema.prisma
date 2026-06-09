@@ -124,6 +124,11 @@ model ChatSession {
   branchLabel           String?
   pinned                Boolean  @default(false)
   surface               String   @default("chat")
+  // Knowledge Base (RAG) draft snapshot — restored when a saved chat is reopened
+  // so the per-turn search text and citation set re-hydrate as a pending draft.
+  ragEnabled            Boolean  @default(false)
+  ragQuery              String?
+  ragSourcesJson        String?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @default(now())
   userId                String

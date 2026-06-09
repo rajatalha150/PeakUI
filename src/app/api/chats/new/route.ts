@@ -25,6 +25,9 @@ export async function POST(req: Request) {
       autoContinueMode: body.autoContinueMode,
       autoContinueMaxSteps: body.autoContinueMaxSteps,
       branchLabel: body.branchLabel,
+      ragEnabled: typeof body.ragEnabled === 'boolean' ? body.ragEnabled : undefined,
+      ragQuery: typeof body.ragQuery === 'string' ? body.ragQuery : (body.ragQuery === null ? null : undefined),
+      ragSources: Array.isArray(body.ragSources) ? body.ragSources : undefined,
     });
 
     return NextResponse.json({ success: true, session: result.session }, { status: result.created ? 201 : 200 });

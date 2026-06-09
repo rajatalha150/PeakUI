@@ -54,6 +54,9 @@ export interface ChatSessionDto {
   branchLabel: string | null;
   branchChildrenCount: number;
   branchDepth: number;
+  ragEnabled: boolean;
+  ragQuery: string | null;
+  ragSources: MessageSource[];
 }
 
 export interface SaveChatSessionInput {
@@ -67,6 +70,9 @@ export interface SaveChatSessionInput {
   autoContinueMaxSteps?: unknown;
   branchLabel?: unknown;
   lastAutoContinueAt?: unknown;
+  ragEnabled?: boolean;
+  ragQuery?: string | null;
+  ragSources?: MessageSource[];
 }
 
 export interface FinalizeChatSessionInput {
@@ -80,6 +86,9 @@ export interface FinalizeChatSessionInput {
   autoContinueMaxSteps?: unknown;
   branchLabel?: unknown;
   lastAutoContinueAt?: unknown;
+  ragEnabled?: boolean;
+  ragQuery?: string | null;
+  ragSources?: MessageSource[];
 }
 
 export interface BranchChatSessionInput {
@@ -228,6 +237,20 @@ export function serializeStoredChatMessages(messages: StoredChatMessage[]): stri
   return JSON.stringify(messages);
 }
 
+export function parseStoredMessageSources(raw: string | null | undefined): MessageSource[] {
+  if (!raw) return [];
+
+  try {
+    return normalizeMessageSources(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+}
+
+export function serializeStoredMessageSources(sources: MessageSource[]): string {
+  return JSON.stringify(normalizeMessageSources(sources));
+}
+
 function describeFirstMessage(message: StoredChatMessage): string {
   const attachmentNames = (message.attachments ?? [])
     .map(attachment => {
@@ -272,6 +295,9 @@ type SessionRecord = {
   folderId: string | null;
   tags: { id: string; name: string; color: string }[];
   branchChildrenCount: number;
+  ragEnabled: boolean;
+  ragQuery: string | null;
+  ragSourcesJson: string | null;
 };
 
 function computeBranchDepth(sessionId: string, parentById: Map<string, string | null>, cache = new Map<string, number>()): number {
@@ -330,6 +356,9 @@ function toClientSession(
     branchLabel: session.branchLabel,
     branchChildrenCount: session.branchChildrenCount,
     branchDepth,
+    ragEnabled: Boolean(session.ragEnabled),
+    ragQuery: session.ragQuery ?? null,
+    ragSources: parseStoredMessageSources(session.ragSourcesJson),
   };
 }
 
@@ -387,6 +416,9 @@ async function buildSessionData(
     branchLabel: string | null;
     createdAt: Date;
     updatedAt: Date;
+    ragEnabled?: boolean;
+    ragQuery?: string | null;
+    ragSourcesJson?: string | null;
   },
 ) {
   const fallbackIso = existing?.updatedAt?.toISOString() || new Date().toISOString();
@@ -400,6 +432,16 @@ async function buildSessionData(
     existing?.createdAt ?? null,
     new Date(),
   );
+
+  const nextRagEnabled = typeof input.ragEnabled === 'boolean'
+    ? input.ragEnabled
+    : (existing?.ragEnabled ?? false);
+  const nextRagQuery = input.ragQuery !== undefined
+    ? (typeof input.ragQuery === 'string' && input.ragQuery.trim() ? input.ragQuery.trim().slice(0, 2000) : null)
+    : (existing?.ragQuery ?? null);
+  const nextRagSources = Array.isArray(input.ragSources)
+    ? normalizeMessageSources(input.ragSources)
+    : (existing ? parseStoredMessageSources(existing.ragSourcesJson) : []);
 
   return {
     title,
@@ -416,6 +458,9 @@ async function buildSessionData(
       ? input.branchLabel.trim() || null
       : existing?.branchLabel ?? null,
     lastAutoContinueAt: normalizeLastAutoContinueAt(input.lastAutoContinueAt),
+    ragEnabled: nextRagEnabled,
+    ragQuery: nextRagEnabled ? nextRagQuery : null,
+    ragSources: nextRagEnabled ? nextRagSources : [],
     ...derived,
   };
 }
@@ -476,6 +521,9 @@ function mapSessionRows(rows: Array<{
   folderId: string | null;
   tags: Array<{ tag: { id: string; name: string; color: string } }>;
   _count: { childSessions: number };
+  ragEnabled?: boolean;
+  ragQuery?: string | null;
+  ragSourcesJson?: string | null;
 }>): ChatSessionDto[] {
   const parentById = new Map(rows.map(row => [row.id, row.parentSessionId]));
   const depthCache = new Map<string, number>();
@@ -483,6 +531,9 @@ function mapSessionRows(rows: Array<{
     ...row,
     tags: row.tags.map(tag => ({ id: tag.tag.id, name: tag.tag.name, color: tag.tag.color })),
     branchChildrenCount: row._count.childSessions,
+    ragEnabled: Boolean(row.ragEnabled),
+    ragQuery: row.ragQuery ?? null,
+    ragSourcesJson: row.ragSourcesJson ?? null,
   }, computeBranchDepth(row.id, parentById, depthCache)));
 }
 
@@ -547,6 +598,9 @@ export async function upsertChatSession(userId: string, input: SaveChatSessionIn
         autoContinueMaxSteps: input.autoContinueMaxSteps ?? existing.autoContinueMaxSteps,
         branchLabel: input.branchLabel ?? existing.branchLabel,
         lastAutoContinueAt: input.lastAutoContinueAt,
+        ragEnabled: input.ragEnabled ?? existing.ragEnabled,
+        ragQuery: input.ragQuery !== undefined ? input.ragQuery : (existing.ragQuery ?? null),
+        ragSources: input.ragSources ?? parseStoredMessageSources(existing.ragSourcesJson),
       }, existing);
 
       const updated = await prisma.chatSession.update({
@@ -563,6 +617,9 @@ export async function upsertChatSession(userId: string, input: SaveChatSessionIn
           contextSummary: payload.contextSummary,
           contextSummaryUpdatedAt: payload.contextSummaryUpdatedAt,
           analyticsJson: JSON.stringify(payload.analytics ?? {}),
+          ragEnabled: payload.ragEnabled,
+          ragQuery: payload.ragQuery,
+          ragSourcesJson: payload.ragSources.length > 0 ? serializeStoredMessageSources(payload.ragSources) : null,
           ...(payload.lastAutoContinueAt ? { lastAutoContinueAt: payload.lastAutoContinueAt } : {}),
           updatedAt: new Date(),
         },
@@ -592,6 +649,9 @@ export async function upsertChatSession(userId: string, input: SaveChatSessionIn
       contextSummary: payload.contextSummary,
       contextSummaryUpdatedAt: payload.contextSummaryUpdatedAt,
       analyticsJson: JSON.stringify(payload.analytics ?? {}),
+      ragEnabled: payload.ragEnabled,
+      ragQuery: payload.ragQuery,
+      ragSourcesJson: payload.ragSources.length > 0 ? serializeStoredMessageSources(payload.ragSources) : null,
       ...(payload.lastAutoContinueAt ? { lastAutoContinueAt: payload.lastAutoContinueAt } : {}),
     },
     include: {
@@ -622,6 +682,9 @@ export async function updateChatSession(
     autoContinueMaxSteps: input.autoContinueMaxSteps ?? existing.autoContinueMaxSteps,
     branchLabel: input.branchLabel ?? existing.branchLabel,
     lastAutoContinueAt: input.lastAutoContinueAt,
+    ragEnabled: input.ragEnabled ?? existing.ragEnabled,
+    ragQuery: input.ragQuery !== undefined ? input.ragQuery : (existing.ragQuery ?? null),
+    ragSources: input.ragSources ?? parseStoredMessageSources(existing.ragSourcesJson),
   }, existing);
 
   const updated = await prisma.chatSession.update({
@@ -638,6 +701,9 @@ export async function updateChatSession(
       contextSummary: payload.contextSummary,
       contextSummaryUpdatedAt: payload.contextSummaryUpdatedAt,
       analyticsJson: JSON.stringify(payload.analytics ?? {}),
+      ragEnabled: payload.ragEnabled,
+      ragQuery: payload.ragQuery,
+      ragSourcesJson: payload.ragSources.length > 0 ? serializeStoredMessageSources(payload.ragSources) : null,
       ...(payload.lastAutoContinueAt ? { lastAutoContinueAt: payload.lastAutoContinueAt } : {}),
       updatedAt: new Date(),
     },
@@ -746,6 +812,20 @@ export async function finalizeChatSession(
     ? input.branchLabel.trim() || null
     : existing?.branchLabel ?? null;
   const nextLastAutoContinueAt = normalizeLastAutoContinueAt(input.lastAutoContinueAt) ?? existing?.lastAutoContinueAt ?? null;
+  const nextRagEnabled = typeof input.ragEnabled === 'boolean'
+    ? input.ragEnabled
+    : (existing?.ragEnabled ?? false);
+  const nextRagQuery = input.ragQuery !== undefined
+    ? (typeof input.ragQuery === 'string' && input.ragQuery.trim() ? input.ragQuery.trim().slice(0, 2000) : null)
+    : (existing?.ragQuery ?? null);
+  const nextRagSources = Array.isArray(input.ragSources)
+    ? normalizeMessageSources(input.ragSources)
+    : parseStoredMessageSources(existing?.ragSourcesJson);
+  const persistedRagSources = nextRagEnabled ? nextRagSources : [];
+  const persistedRagQuery = nextRagEnabled ? nextRagQuery : null;
+  const persistedRagSourcesJson = persistedRagSources.length > 0
+    ? serializeStoredMessageSources(persistedRagSources)
+    : null;
 
   const saved = existing
     ? await prisma.chatSession.update({
@@ -761,6 +841,9 @@ export async function finalizeChatSession(
           contextSummaryUpdatedAt: derived.contextSummaryUpdatedAt,
           analyticsJson: JSON.stringify(derived.analytics ?? {}),
           lastAutoContinueAt: nextLastAutoContinueAt,
+          ragEnabled: nextRagEnabled,
+          ragQuery: persistedRagQuery,
+          ragSourcesJson: persistedRagSourcesJson,
           updatedAt: new Date(),
         },
         include: {
@@ -782,6 +865,9 @@ export async function finalizeChatSession(
           contextSummaryUpdatedAt: derived.contextSummaryUpdatedAt,
           analyticsJson: JSON.stringify(derived.analytics ?? {}),
           lastAutoContinueAt: nextLastAutoContinueAt,
+          ragEnabled: nextRagEnabled,
+          ragQuery: persistedRagQuery,
+          ragSourcesJson: persistedRagSourcesJson,
         },
         include: {
           tags: { include: { tag: true } },
@@ -837,6 +923,9 @@ export async function branchChatSession(
       branchLabel,
       surface: normalizeSurface(existing.surface),
       folderId: existing.folderId,
+      ragEnabled: existing.ragEnabled,
+      ragQuery: existing.ragQuery,
+      ragSourcesJson: existing.ragSourcesJson,
     },
     include: {
       tags: { include: { tag: true } },

@@ -10,6 +10,7 @@ import {
 import { buildEffectiveOpenClawToolAccess } from './openclaw-tool-access';
 import { getErrorMessage, buildKnowledgeBaseContext } from '@/lib/rag';
 import type { RagSearchResult } from '@/lib/rag';
+import { loadTreeSummary } from '@/lib/kb-folders-server';
 import {
   buildResponsePresentationPrompt,
   inferResponsePresentation,
@@ -1019,10 +1020,29 @@ export async function createChatCompletionResponse(req: NextRequest) {
 
               let openAiMessages = outboundMessages
               let knowledgeSources: RagSearchResult[] = []
+              let treeSummaryInjected = false
 
               if (ragEnabled) {
+                // Pre-compute the tree summary so the model knows the corpus shape
+                // even when no chunks match the query.
+                try {
+                  const treeSummary = await loadTreeSummary(userId, {
+                    signal: upstreamAbort.signal,
+                    maxChars: ragTopK === -1 ? 8000 : 2500,
+                  });
+                  if (treeSummary) {
+                    const treeMsg: InternalChatMessage = { role: 'system', content: treeSummary };
+                    const systemMsgCount = openAiMessages.filter(m => m.role === 'system').length;
+                    openAiMessages = [...openAiMessages.slice(0, systemMsgCount), treeMsg, ...openAiMessages.slice(systemMsgCount)];
+                    treeSummaryInjected = true;
+                  }
+                } catch (treeErr) {
+                  // Tree summary is a soft enhancement — never block the chat on it.
+                  console.warn('[chat-completion] tree summary failed:', getErrorMessage(treeErr));
+                }
+
                 emitStatus('knowledge-base');
-                const query = ragQuery || findLatestUserQuery(outboundMessages);
+                const query = ragQuery || findLatestUserQuery(openAiMessages);
                 if (query) {
                   const kbResult = await buildKnowledgeBaseContext(query, userId, {
                     signal: upstreamAbort.signal,
@@ -1030,7 +1050,10 @@ export async function createChatCompletionResponse(req: NextRequest) {
                     keywordTopK: Math.round(ragTopK * 1.5),
                     semanticTopK: Math.round(ragTopK * 1.5),
                   });
-                  if (kbResult.searched && kbResult.sources.length > 0) {
+                  // Inject retrieved KB context whenever a search produced text — even
+                  // if it found 0 sources the model should still see "no matches in
+                  // folder:…" rather than appearing unaware of the corpus.
+                  if (kbResult.context && kbResult.context.trim().length > 0) {
                     const kbSystemMessage: InternalChatMessage = {
                       role: 'system',
                       content: kbResult.context,
@@ -1039,6 +1062,18 @@ export async function createChatCompletionResponse(req: NextRequest) {
                     const systemMsgCount = openAiMessages.filter(m => m.role === 'system').length;
                     openAiMessages = [...openAiMessages.slice(0, systemMsgCount), kbSystemMessage, ...openAiMessages.slice(systemMsgCount)];
                     knowledgeSources = kbResult.sources;
+                  } else if (kbResult.searched) {
+                    // Search was performed but the builder returned no context. Mirror
+                    // a "no results" hint when we have a tree summary so the model
+                    // doesn't get a tree without an accompanying retrieval status.
+                    if (treeSummaryInjected) {
+                      const noHitMsg: InternalChatMessage = {
+                        role: 'system',
+                        content: 'Knowledge Base search returned no matching chunks for this query.',
+                      };
+                      const systemMsgCount = openAiMessages.filter(m => m.role === 'system').length;
+                      openAiMessages = [...openAiMessages.slice(0, systemMsgCount), noHitMsg, ...openAiMessages.slice(systemMsgCount)];
+                    }
                   }
                 }
               }
@@ -1083,10 +1118,26 @@ export async function createChatCompletionResponse(req: NextRequest) {
               try {
                 let messagesForStream = outboundMessages
                 let knowledgeSources: RagSearchResult[] = []
+                let treeSummaryInjected = false
 
                 if (ragEnabled) {
+                  try {
+                    const treeSummary = await loadTreeSummary(userId, {
+                    signal: upstreamAbort.signal,
+                    maxChars: ragTopK === -1 ? 8000 : 2500,
+                  });
+                    if (treeSummary) {
+                      const treeMsg: InternalChatMessage = { role: 'system', content: treeSummary };
+                      const systemMsgCount = messagesForStream.filter(m => m.role === 'system').length;
+                      messagesForStream = [...messagesForStream.slice(0, systemMsgCount), treeMsg, ...messagesForStream.slice(systemMsgCount)];
+                      treeSummaryInjected = true;
+                    }
+                  } catch (treeErr) {
+                    console.warn('[chat-completion] tree summary failed:', getErrorMessage(treeErr));
+                  }
+
                   emitStatus('knowledge-base');
-                  const query = ragQuery || findLatestUserQuery(outboundMessages);
+                  const query = ragQuery || findLatestUserQuery(messagesForStream);
                   if (query) {
                     const kbResult = await buildKnowledgeBaseContext(query, userId, {
                       signal: upstreamAbort.signal,
@@ -1094,15 +1145,21 @@ export async function createChatCompletionResponse(req: NextRequest) {
                       keywordTopK: Math.round(ragTopK * 1.5),
                       semanticTopK: Math.round(ragTopK * 1.5),
                     });
-                    if (kbResult.searched && kbResult.sources.length > 0) {
+                    if (kbResult.context && kbResult.context.trim().length > 0) {
                       const kbSystemMessage: InternalChatMessage = {
                         role: 'system',
                         content: kbResult.context,
                       };
-                      // Insert KB context AFTER the system prompt so models weight it heavily
                       const systemMsgCount = messagesForStream.filter(m => m.role === 'system').length;
                       messagesForStream = [...messagesForStream.slice(0, systemMsgCount), kbSystemMessage, ...messagesForStream.slice(systemMsgCount)];
                       knowledgeSources = kbResult.sources;
+                    } else if (kbResult.searched && treeSummaryInjected) {
+                      const noHitMsg: InternalChatMessage = {
+                        role: 'system',
+                        content: 'Knowledge Base search returned no matching chunks for this query.',
+                      };
+                      const systemMsgCount = messagesForStream.filter(m => m.role === 'system').length;
+                      messagesForStream = [...messagesForStream.slice(0, systemMsgCount), noHitMsg, ...messagesForStream.slice(systemMsgCount)];
                     }
                   }
                 }
