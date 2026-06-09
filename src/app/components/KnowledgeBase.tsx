@@ -1,11 +1,22 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Upload, FileText, Trash2, CheckCircle, AlertCircle, Loader2,
-  Search, Database, MessageSquare, X, ChevronDown, ChevronRight
+  Search, Database, MessageSquare, X, ChevronDown, ChevronRight,
+  Folder, ArrowUpDown, Filter as FilterIcon, Home, File as FileIcon,
 } from 'lucide-react';
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL, type FileKind } from '@/lib/file-shared';
+import {
+  aggregateFolderTree,
+  findFolderInTree,
+  isFolderPrefix,
+  listFolderImmediateChildren,
+  normalizeFolderPath,
+  type FlattenedFolder,
+  type KbFolderDocSummary,
+  type KbFolderNode,
+} from '@/lib/kb-folders';
 
 interface Document {
   id: string;
@@ -266,6 +277,20 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
   const folderInputRef = useRef<HTMLInputElement>(null);
   const selectAllRef = useRef<HTMLInputElement>(null);
 
+  // -- OneDrive-style browser state --
+  const [folderTree, setFolderTree] = useState<KbFolderNode | null>(null);
+  const [browserFolder, setBrowserFolder] = useState<string>('');
+  const [browserView, setBrowserView] = useState<'all' | 'files' | 'folders'>('all');
+  const [browserSort, setBrowserSort] = useState<'name' | 'size' | 'createdAt' | 'indexedAt' | 'kind'>('name');
+  const [browserOrder, setBrowserOrder] = useState<'asc' | 'desc'>('asc');
+  const [browserKind, setBrowserKind] = useState<string>('');
+  const [browserPage, setBrowserPage] = useState(1);
+  const [browserPageInfo, setBrowserPageInfo] = useState<DocumentListPagination | null>(null);
+  const [browserFolders, setBrowserFolders] = useState<KbFolderNode[]>([]);
+  const [browserFiles, setBrowserFiles] = useState<Document[]>([]);
+  const [browserLoading, setBrowserLoading] = useState(false);
+  const [browserTotal, setBrowserTotal] = useState(0);
+
   const fetchDocs = useCallback(async (page = documentPage, pageSize = documentPageSize) => {
     setNowMs(Date.now());
 
@@ -336,12 +361,6 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
   }, [fetchDocs, documentPage, documentPageSize]);
 
   useEffect(() => {
-    if (!folderInputRef.current) return;
-    folderInputRef.current.setAttribute('webkitdirectory', '');
-    folderInputRef.current.setAttribute('directory', '');
-  }, []);
-
-  useEffect(() => {
     setSelectedDocumentIds(current => current.filter(id => documents.some(doc => doc.id === id)));
   }, [documents]);
 
@@ -350,6 +369,77 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
     const selectedOnPage = documents.filter(doc => selectedDocumentIds.includes(doc.id)).length;
     selectAllRef.current.indeterminate = selectedOnPage > 0 && selectedOnPage < documents.length;
   }, [documents, selectedDocumentIds]);
+
+  // -- OneDrive browser: load the folder tree (used for breadcrumbs, popover
+  //    in chat composers, and the immediate-children listing at the current
+  //    level). --
+  const loadFolderTree = useCallback(async () => {
+    try {
+      const res = await fetch('/api/rag/folders?includeFiles=true');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data && data.tree) {
+        setFolderTree(data.tree as KbFolderNode)
+      }
+    } catch (error) {
+      console.error('Failed to load folder tree:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadFolderTree();
+    const id = setInterval(() => { void loadFolderTree(); }, 8000);
+    return () => clearInterval(id);
+  }, [loadFolderTree]);
+
+  // Load the immediate children of `browserFolder` for the current view/sort.
+  const loadCurrentLevel = useCallback(async () => {
+    setBrowserLoading(true);
+    try {
+      const params = new URLSearchParams({
+        folder: browserFolder,
+        view: browserView,
+        sort: browserSort,
+        order: browserOrder,
+        kind: browserKind,
+        page: String(browserPage),
+        pageSize: String(documentPageSize),
+      });
+      const res = await fetch(`/api/rag?${params.toString()}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data?.folders)) {
+        setBrowserFolders(data.folders as KbFolderNode[])
+      } else {
+        setBrowserFolders([])
+      }
+      if (Array.isArray(data?.documents)) {
+        setBrowserFiles(data.documents as Document[])
+      } else {
+        setBrowserFiles([])
+      }
+      if (data?.pagination) {
+        setBrowserPageInfo(data.pagination as DocumentListPagination)
+        setBrowserTotal(data.pagination.total ?? 0)
+      } else {
+        setBrowserPageInfo(null)
+        setBrowserTotal(0)
+      }
+    } catch (error) {
+      console.error('Failed to load browser level:', error);
+    } finally {
+      setBrowserLoading(false)
+    }
+  }, [browserFolder, browserView, browserSort, browserOrder, browserKind, browserPage, documentPageSize])
+
+  useEffect(() => {
+    void loadCurrentLevel();
+  }, [loadCurrentLevel])
+
+  useEffect(() => {
+    // Reset to page 1 whenever the user changes folder / view / sort / order / kind.
+    setBrowserPage(1)
+  }, [browserFolder, browserView, browserSort, browserOrder, browserKind])
 
   const readUploadResponse = async (res: Response): Promise<{ error?: string }> => {
     const contentType = res.headers.get('content-type') || '';
@@ -555,6 +645,72 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
   const handleBulkDelete = async () => {
     await handleDelete(selectedDocumentIds, `${selectedDocumentIds.length} selected document${selectedDocumentIds.length !== 1 ? 's' : ''}`);
   };
+
+  // -- OneDrive browser handlers --
+  const navigateToFolder = (path: string) => {
+    setBrowserFolder(path);
+    setSelectedDocumentIds([]);
+  };
+  const navigateUp = () => {
+    if (browserFolder === '') return;
+    const segments = browserFolder.split('/');
+    segments.pop();
+    setBrowserFolder(segments.join('/'));
+    setSelectedDocumentIds([]);
+  };
+  const handleBrowserSort = (key: typeof browserSort) => {
+    if (key === browserSort) {
+      setBrowserOrder(prev => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setBrowserSort(key);
+      setBrowserOrder('asc');
+    }
+  };
+  const handleBrowserDeleteFolder = async (path: string) => {
+    if (!folderTree) return;
+    const node = findFolderInTree(folderTree, path);
+    if (!node) return;
+    const count = node.recursiveFileCount;
+    if (count === 0) {
+      // Nothing to delete (no files in subtree). The folder rows are derived
+      // from the docs themselves so an empty subtree will already be gone.
+      return;
+    }
+    const label = path === '' ? 'the root level' : `folder "${path}"`;
+    if (!confirm(`Delete ${count} file${count !== 1 ? 's' : ''} in ${label}? This cannot be undone.`)) return;
+    setDocumentActionError(null);
+    try {
+      const res = await fetch('/api/rag', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folder: path }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setDocumentActionError(typeof data?.error === 'string' ? data?.error : 'Folder delete failed.');
+        return;
+      }
+      await loadFolderTree();
+      await loadCurrentLevel();
+    } catch (error) {
+      setDocumentActionError(error instanceof Error ? error.message : 'Folder delete failed.');
+    }
+  };
+  const breadcrumbSegments = useMemo(() => {
+    if (browserFolder === '') return [] as string[];
+    return browserFolder.split('/');
+  }, [browserFolder]);
+  const folderKindOptions = useMemo(() => {
+    const set = new Set<string>();
+    if (folderTree) {
+      const walk = (node: KbFolderNode) => {
+        for (const child of node.children) walk(child);
+      };
+      walk(folderTree);
+    }
+    browserFiles.forEach(f => { if (f.kind) set.add(f.kind); });
+    return Array.from(set).sort();
+  }, [folderTree, browserFiles]);
 
   const handleSearch = async () => {
     if (!searchQuery.trim() || searching) return;
@@ -943,11 +1099,10 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
         onDragOver={e => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
-        onClick={() => !uploading && fileInputRef.current?.click()}
         style={{
           padding: '32px 24px',
           textAlign: 'center',
-          cursor: uploading ? 'wait' : 'pointer',
+          cursor: uploading ? 'wait' : 'default',
           border: `2px dashed ${dragOver ? 'var(--accent-primary)' : 'var(--border-color)'}`,
           borderRadius: '16px',
           background: dragOver ? 'var(--accent-faint)' : 'rgba(255,255,255,0.02)',
@@ -968,6 +1123,9 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
           type="file"
           multiple
           accept="*/*"
+          // @ts-expect-error webkitdirectory is a non-standard boolean attribute; React 19 typings do not include webKitDirectory.
+          webKitDirectory=""
+          directory=""
           style={{ display: 'none' }}
           onChange={e => handleFileSelection(e.target.files)}
         />
@@ -1034,8 +1192,9 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
         </div>
       )}
 
-      {/* Document List */}
-      {totalDocuments > 0 && (
+
+      {/* OneDrive-style Browser */}
+      {(browserFiles.length > 0 || browserFolders.length > 0 || browserTotal > 0 || browserLoading) && (
         <div>
           <div style={{
             display: 'flex',
@@ -1046,7 +1205,12 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
             flexWrap: 'wrap',
           }}>
             <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-secondary)' }}>
-              Documents — {totalDocuments} total · page {currentDocumentPage} of {Math.max(totalPages, 1)}
+              {folderTree && browserFolder === '' && (
+                <span>Knowledge Base — {folderTree.recursiveFileCount} file{folderTree.recursiveFileCount !== 1 ? 's' : ''}</span>
+              )}
+              {folderTree && browserFolder !== '' && (
+                <span>{folderTree.recursiveFileCount} total file{folderTree.recursiveFileCount !== 1 ? 's' : ''}</span>
+              )}
               {ragHealthSummary && (
                 <span style={{ marginLeft: '8px' }}>
                   · {ragHealthSummary.indexed} indexed · {ragHealthSummary.pending} pending · {ragHealthSummary.failed} failed
@@ -1061,7 +1225,7 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
                   value={documentPageSize}
                   onChange={e => {
                     setDocumentPageSize(Number(e.target.value));
-                    setDocumentPage(1);
+                    setBrowserPage(1);
                   }}
                   style={{ minWidth: '90px', padding: '8px 10px' }}
                 >
@@ -1087,13 +1251,8 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
               marginBottom: '12px',
               padding: '12px 14px',
               borderRadius: '10px',
-              background: 'rgba(239,68,68,0.1)',
-              border: '1px solid var(--danger)',
-              color: '#fca5a5',
-              fontSize: '0.85rem',
-              display: 'flex',
-              gap: '10px',
-              alignItems: 'flex-start'
+              background: 'rgba(239,68,68,0.1)', border: '1px solid var(--danger)',
+              color: '#fca5a5', fontSize: '0.85rem', display: 'flex', gap: '10px', alignItems: 'flex-start'
             }}>
               <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
               <div style={{ minWidth: 0 }}>{documentActionError}</div>
@@ -1101,88 +1260,235 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
             </div>
           )}
 
+          {/* Breadcrumb */}
           <div style={{
-            padding: '10px 12px',
-            marginBottom: '8px',
-            borderRadius: '12px',
-            border: '1px solid var(--border-color)',
-            background: 'rgba(255,255,255,0.02)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '12px',
-            flexWrap: 'wrap',
+            display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap',
+            padding: '10px 12px', borderRadius: '10px',
+            border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.03)',
+            marginBottom: '10px',
           }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-              <input
-                ref={selectAllRef}
-                type="checkbox"
-                checked={selectAllChecked}
-                onChange={e => toggleSelectAllVisible(e.target.checked)}
-              />
-              <span>Select all on page</span>
-            </label>
-            <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
-              {selectedOnPageCount > 0 ? `${selectedOnPageCount}/${documents.length} selected on this page` : `${documents.length} files on this page`}
-            </div>
+            <button
+              onClick={() => navigateToFolder('')}
+              style={{
+                background: browserFolder === '' ? 'var(--accent-soft)' : 'transparent',
+                border: 'none', cursor: 'pointer', color: browserFolder === '' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                padding: '4px 8px', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '6px',
+                fontSize: '0.85rem', fontWeight: 500,
+              }}
+              title="Go to Knowledge Base root"
+            >
+              <Home size={14} />
+              Knowledge Base
+            </button>
+            {breadcrumbSegments.map((seg, idx) => {
+              const path = breadcrumbSegments.slice(0, idx + 1).join('/');
+              const isLast = idx === breadcrumbSegments.length - 1;
+              return (
+                <React.Fragment key={path}>
+                  <ChevronRight size={12} color="var(--text-secondary)" />
+                  <button
+                    onClick={() => navigateToFolder(path)}
+                    style={{
+                      background: isLast ? 'var(--accent-soft)' : 'transparent',
+                      border: 'none', cursor: 'pointer', color: isLast ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                      padding: '4px 8px', borderRadius: '6px',
+                      fontSize: '0.85rem', fontWeight: isLast ? 600 : 500,
+                    }}
+                  >
+                    {seg}
+                  </button>
+                </React.Fragment>
+              );
+            })}
+            {browserFolder !== '' && (
+              <button
+                onClick={navigateUp}
+                style={{
+                  marginLeft: 'auto', background: 'transparent', border: '1px solid var(--border-color)',
+                  cursor: 'pointer', color: 'var(--text-secondary)', padding: '4px 10px', borderRadius: '6px',
+                  fontSize: '0.78rem',
+                }}
+                title="Up one level"
+              >
+                ↑ Up
+              </button>
+            )}
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {documents.map(doc => (
-              <div key={doc.id} style={{
-                padding: '12px 16px', borderRadius: '12px',
-                background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-color)',
-                display: 'flex', alignItems: 'flex-start', gap: '12px'
-              }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: 0, cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={selectedDocumentIds.includes(doc.id)}
-                    onChange={e => toggleDocumentSelection(doc.id, e.target.checked)}
-                  />
-                  <FileText size={18} color={doc.status === 'error' ? 'var(--danger)' : 'var(--accent-primary)'} style={{ flexShrink: 0, marginTop: '2px' }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.9rem' }}>
-                      {doc.sourcePath && doc.sourcePath !== doc.filename ? `${doc.filename} · ${doc.sourcePath}` : doc.filename}
-                    </div>
-                    <div style={{ fontSize: '0.73rem', color: 'var(--text-secondary)', display: 'flex', gap: '10px', marginTop: '3px', alignItems: 'center', flexWrap: 'wrap' }}>
-                      <span>{formatSize(doc.size)}</span>
-                      {doc.kind && <span>{doc.kind}</span>}
-                      {doc._count.chunks > 0 && <span>{doc._count.chunks} chunks</span>}
-                      <span>
-                        {doc.ragMode === 'keyword'
-                          ? 'Keyword/BM25'
-                          : `Semantic${doc.embeddingModel ? ` · ${doc.embeddingModel}` : ''}`}
-                      </span>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        {doc.status === 'ready' && <CheckCircle size={12} color="var(--success)" />}
-                        {(doc.status === 'queued' || doc.status === 'processing') && <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
-                        {doc.status === 'error' && <AlertCircle size={12} color="var(--danger)" />}
-                        <span style={{ color: doc.status === 'ready' ? 'var(--success)' : doc.status === 'error' ? 'var(--danger)' : 'inherit' }}>
-                          {getDocumentStatusLabel(doc)}
-                        </span>
-                      </span>
-                      {doc.status === 'error' && doc.errorMessage && (
-                        <span title={doc.errorMessage}>{getShortError(doc.errorMessage)}</span>
-                      )}
-                      {doc.status !== 'error' && doc.errorMessage && (
-                        <span title={doc.errorMessage} style={{ color: '#facc15' }}>{getShortError(doc.errorMessage)}</span>
-                      )}
-                    </div>
+          {/* Toolbar: view, sort, kind */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
+            padding: '8px 10px', borderRadius: '10px',
+            border: '1px solid var(--border-color)', background: 'rgba(255,255,255,0.02)',
+            marginBottom: '10px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', borderRadius: '8px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+              {(['all', 'files', 'folders'] as const).map(v => (
+                <button
+                  key={v}
+                  onClick={() => setBrowserView(v)}
+                  style={{
+                    background: browserView === v ? 'var(--accent-primary)' : 'transparent',
+                    color: browserView === v ? 'white' : 'var(--text-secondary)',
+                    border: 'none', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 500,
+                  }}
+                >{v === 'all' ? 'All' : v === 'files' ? 'Files' : 'Folders'}</button>
+              ))}
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              <ArrowUpDown size={12} />
+              <span>Sort</span>
+              <select
+                className="input-field"
+                value={browserSort}
+                onChange={e => handleBrowserSort(e.target.value as typeof browserSort)}
+                style={{ padding: '4px 8px', fontSize: '0.78rem' }}
+              >
+                <option value="name">Name</option>
+                <option value="size">Size</option>
+                <option value="createdAt">Created</option>
+                <option value="indexedAt">Indexed</option>
+                <option value="kind">Kind</option>
+              </select>
+              <button
+                onClick={() => setBrowserOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+                style={{ background: 'transparent', border: '1px solid var(--border-color)', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: '0.74rem' }}
+                title={`Sort ${browserOrder === 'asc' ? 'descending' : 'ascending'}`}
+              >
+                {browserOrder === 'asc' ? '↑' : '↓'}
+              </button>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              <FilterIcon size={12} />
+              <span>Kind</span>
+              <select
+                className="input-field"
+                value={browserKind}
+                onChange={e => setBrowserKind(e.target.value)}
+                style={{ padding: '4px 8px', fontSize: '0.78rem' }}
+              >
+                <option value="">All</option>
+                {folderKindOptions.map(k => (
+                  <option key={k} value={k}>{k}</option>
+                ))}
+              </select>
+            </label>
+            {browserFolders.length > 0 && (
+              <div style={{ marginLeft: 'auto', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
+                {browserFolders.length} folder{browserFolders.length !== 1 ? 's' : ''}
+                {browserView !== 'folders' && browserTotal > 0 && (
+                  <> · {browserTotal} file{browserTotal !== 1 ? 's' : ''}</>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* List */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {browserView !== 'files' && browserFolders.map(folder => (
+              <div
+                key={folder.path}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '10px',
+                  padding: '10px 14px', borderRadius: '10px',
+                  background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-color)',
+                  cursor: 'pointer', transition: 'background 0.15s',
+                }}
+                onClick={() => navigateToFolder(folder.path)}
+                onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.08)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.04)' }}
+                title={`Open folder ${folder.path}`}
+              >
+                <Folder size={18} color="var(--accent-primary)" style={{ flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 500, fontSize: '0.9rem' }}>
+                    {folder.name}
                   </div>
-                </label>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    {folder.recursiveFileCount} file{folder.recursiveFileCount !== 1 ? 's' : ''} · {formatSize(folder.recursiveSize)}
+                    {folder.directFileCount > 0 && folder.recursiveFileCount > folder.directFileCount && (
+                      <span style={{ marginLeft: '6px' }}>({folder.directFileCount} direct)</span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void handleBrowserDeleteFolder(folder.path);
+                  }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '6px', borderRadius: '6px', opacity: 0.7, flexShrink: 0 }}
+                  title="Delete folder (cascades to all files inside)"
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            ))}
+            {browserView !== 'folders' && browserFiles.map(doc => (
+              <div
+                key={doc.id}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '10px',
+                  padding: '10px 14px', borderRadius: '10px',
+                  background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-color)',
+                  transition: 'background 0.15s',
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.08)' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'rgba(255,255,255,0.04)' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedDocumentIds.includes(doc.id)}
+                  onChange={e => toggleDocumentSelection(doc.id, e.target.checked)}
+                  onClick={e => e.stopPropagation()}
+                />
+                <FileText size={18} color={doc.status === 'error' ? 'var(--danger)' : 'var(--accent-primary)'} style={{ flexShrink: 0 }} />
+                <div
+                  style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}
+                  onClick={() => openDocumentPreview(doc.id)}
+                  title="Click to preview full document"
+                >
+                  <div style={{ fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.9rem' }}>
+                    {doc.filename}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'flex', gap: '10px', marginTop: '2px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span>{formatSize(doc.size)}</span>
+                    {doc.kind && <span>{doc.kind}</span>}
+                    {doc._count.chunks > 0 && <span>{doc._count.chunks} chunks</span>}
+                    <span>
+                      {doc.ragMode === 'keyword'
+                        ? 'Keyword/BM25'
+                        : `Semantic${doc.embeddingModel ? ` · ${doc.embeddingModel}` : ''}`}
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      {doc.status === 'ready' && <CheckCircle size={12} color="var(--success)" />}
+                      {(doc.status === 'queued' || doc.status === 'processing') && <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
+                      {doc.status === 'error' && <AlertCircle size={12} color="var(--danger)" />}
+                      <span style={{ color: doc.status === 'ready' ? 'var(--success)' : doc.status === 'error' ? 'var(--danger)' : 'inherit' }}>
+                        {getDocumentStatusLabel(doc)}
+                      </span>
+                    </span>
+                  </div>
+                </div>
                 <button
                   onClick={() => handleDelete([doc.id], doc.sourcePath && doc.sourcePath !== doc.filename ? `${doc.filename} (${doc.sourcePath})` : doc.filename)}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '6px', borderRadius: '6px', opacity: 0.6, flexShrink: 0 }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: '6px', borderRadius: '6px', opacity: 0.7, flexShrink: 0 }}
                   title="Delete document"
                 >
                   <Trash2 size={15} />
                 </button>
               </div>
             ))}
+            {browserFolders.length === 0 && browserFiles.length === 0 && !browserLoading && (
+              <div style={{ padding: '32px 24px', textAlign: 'center', color: 'var(--text-secondary)', border: '1px dashed var(--border-color)', borderRadius: '12px' }}>
+                <Folder size={28} style={{ marginBottom: '10px', opacity: 0.3 }} />
+                <div style={{ fontWeight: 500, marginBottom: '4px' }}>This folder is empty</div>
+                <div style={{ fontSize: '0.8rem' }}>Drop files here or use the upload buttons above.</div>
+              </div>
+            )}
           </div>
 
-          {totalPages > 1 && (
+          {/* Pagination (files only) */}
+          {browserView !== 'folders' && (browserPageInfo?.totalPages ?? 0) > 1 && (
             <div style={{
               marginTop: '14px',
               display: 'flex',
@@ -1194,12 +1500,12 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
               <button
                 className="btn btn-secondary"
                 style={{ padding: '8px 12px' }}
-                onClick={() => setDocumentPage(current => Math.max(1, current - 1))}
-                disabled={!documentPagination?.hasPreviousPage}
+                onClick={() => setBrowserPage(current => Math.max(1, current - 1))}
+                disabled={!browserPageInfo?.hasPreviousPage}
               >
                 &lt;
               </button>
-              {pageItems.map((item, index) => (
+              {buildPageItems(browserPage ?? 1, browserPageInfo?.totalPages ?? 0).map((item, index) => (
                 item === 'ellipsis' ? (
                   <span key={`ellipsis-${index}`} style={{ color: 'var(--text-secondary)', padding: '0 6px' }}>...</span>
                 ) : (
@@ -1209,11 +1515,11 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
                     style={{
                       padding: '8px 12px',
                       minWidth: '42px',
-                      background: item === currentDocumentPage ? 'var(--accent-primary)' : undefined,
-                      color: item === currentDocumentPage ? 'white' : undefined,
+                      background: item === (browserPage ?? 1) ? 'var(--accent-primary)' : undefined,
+                      color: item === (browserPage ?? 1) ? 'white' : undefined,
                     }}
-                    onClick={() => setDocumentPage(item)}
-                    disabled={item === currentDocumentPage}
+                    onClick={() => setBrowserPage(item)}
+                    disabled={item === (browserPage ?? 1)}
                   >
                     {item}
                   </button>
@@ -1222,8 +1528,8 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
               <button
                 className="btn btn-secondary"
                 style={{ padding: '8px 12px' }}
-                onClick={() => setDocumentPage(current => Math.min(totalPages, current + 1))}
-                disabled={!documentPagination?.hasNextPage}
+                onClick={() => setBrowserPage(current => Math.min(browserPageInfo?.totalPages ?? 1, current + 1))}
+                disabled={!browserPageInfo?.hasNextPage}
               >
                 &gt;
               </button>
@@ -1232,14 +1538,15 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
         </div>
       )}
 
-      {/* Empty State */}
-      {totalDocuments === 0 && !uploading && (
+      {/* Empty State — when the browser has no docs at all */}
+      {!browserLoading && browserFolders.length === 0 && browserFiles.length === 0 && browserTotal === 0 && (
         <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)', border: '1px dashed var(--border-color)', borderRadius: '12px' }}>
           <Database size={36} style={{ marginBottom: '12px', opacity: 0.3 }} />
           <div style={{ fontWeight: 500, marginBottom: '4px' }}>No documents yet</div>
           <div style={{ fontSize: '0.82rem' }}>Upload files above to start building your knowledge base.</div>
         </div>
       )}
+
 
       {/* Search Section — only show when there are ready documents */}
       {hasReadyDocuments && (

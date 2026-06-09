@@ -1,6 +1,8 @@
 import { after, NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
+import type { Document as PrismaDocument } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { getCurrentUserIdWithPermission } from '@/lib/request-auth';
 import { type AppSettings, getUserSettings } from '@/lib/settings';
 import { chunkText, getEmbeddings, getErrorMessage } from '@/lib/rag';
@@ -8,6 +10,15 @@ import { extractFilePayload } from '@/lib/file-extraction';
 import { detectFileKind } from '@/lib/file-shared';
 import { type ExtractedFilePayload, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/file-shared';
 import { markStaleProcessingDocuments } from '@/lib/rag-health';
+import {
+  aggregateFolderTree,
+  findFolderInTree,
+  isFolderPrefix,
+  normalizeFolderPath,
+  type KbFolderNode,
+} from '@/lib/kb-folders';
+
+type Document = PrismaDocument;
 
 const MAX_RAG_TEXT_CHARS = 2_000_000;
 
@@ -28,6 +39,16 @@ interface DocumentsPagination {
   totalPages: number;
   hasPreviousPage: boolean;
   hasNextPage: boolean;
+}
+
+interface FolderRow {
+  name: string;
+  path: string;
+  directFileCount: number;
+  recursiveFileCount: number;
+  directSize: number;
+  recursiveSize: number;
+  depth: number;
 }
 
 interface ProcessDocumentUploadInput {
@@ -271,33 +292,217 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const requestedPage = parsePageParam(url.searchParams.get('page'), 1);
     const pageSize = parsePageSizeParam(url.searchParams.get('pageSize'), DEFAULT_PAGE_SIZE);
-    const total = await prisma.document.count({ where: { userId } });
-    const totalPages = total === 0 ? 0 : Math.ceil(total / pageSize);
-    const page = totalPages === 0 ? 1 : Math.min(requestedPage, totalPages);
-    const skip = (page - 1) * pageSize;
+    const rawFolder = url.searchParams.get('folder');
+    const folder = normalizeFolderPathParam(rawFolder);
+    const viewParam = (url.searchParams.get('view') ?? 'files').toLowerCase();
+    const view: 'all' | 'files' | 'folders' = viewParam === 'all' || viewParam === 'folders' ? viewParam : 'files';
+    const sortParam = (url.searchParams.get('sort') ?? 'createdAt').toLowerCase();
+    const orderParam = (url.searchParams.get('order') ?? 'desc').toLowerCase();
+    const order: 'asc' | 'desc' = orderParam === 'asc' ? 'asc' : 'desc';
+    const kindFilter = (url.searchParams.get('kind') ?? '').trim();
 
-    const documents = await prisma.document.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { chunks: true } } },
-      skip,
-      take: pageSize,
-    });
+    // Build the shared WHERE for "all docs in this folder prefix" (used for
+    // the files fetch + the folder aggregation). When the user wants folders
+    // only and the folder path is non-empty, we still need to fetch the same
+    // set so we can derive the child folders server-side.
+    const folderWhere: Prisma.DocumentWhereInput = folder === ''
+      ? { userId }
+      : {
+          userId,
+          OR: [
+            { sourcePath: folder },
+            { sourcePath: { startsWith: `${folder}/` } },
+          ],
+        };
 
-    const pagination: DocumentsPagination = {
-      page,
-      pageSize,
-      total,
-      totalPages,
-      hasPreviousPage: page > 1 && totalPages > 0,
-      hasNextPage: page < totalPages,
+    const kindWhere: Prisma.DocumentWhereInput = kindFilter ? { kind: kindFilter } : {};
+    const where: Prisma.DocumentWhereInput = {
+      AND: [folderWhere, kindWhere],
     };
 
-    return NextResponse.json({ documents, pagination });
+    // When the caller doesn't ask for the new fields at all, fall through to
+    // the legacy response shape exactly. This preserves backward compat for
+    // every existing client.
+    const hasNewParams = rawFolder !== null
+      || url.searchParams.has('view')
+      || url.searchParams.has('sort')
+      || url.searchParams.has('order')
+      || url.searchParams.has('kind');
+
+    if (!hasNewParams) {
+      const total = await prisma.document.count({ where: { userId } });
+      const totalPages = total === 0 ? 0 : Math.ceil(total / pageSize);
+      const page = totalPages === 0 ? 1 : Math.min(requestedPage, totalPages);
+      const skip = (page - 1) * pageSize;
+
+      const documents = await prisma.document.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        include: { _count: { select: { chunks: true } } },
+        skip,
+        take: pageSize,
+      });
+
+      const pagination: DocumentsPagination = {
+        page,
+        pageSize,
+        total,
+        totalPages,
+        hasPreviousPage: page > 1 && totalPages > 0,
+        hasNextPage: page < totalPages,
+      };
+
+      return NextResponse.json({ documents, pagination });
+    }
+
+    // New path: paginated files + optional folder aggregation.
+    // When view === 'folders', the file fetch is skipped and folder rows are
+    // computed in-memory from the matching document set.
+    let documents: Awaited<ReturnType<typeof fetchFilePage>> = [];
+    let pagination: DocumentsPagination | null = null;
+    let total = 0;
+    let totalPages = 0;
+    let page = 1;
+    let skip = 0;
+
+    if (view !== 'folders') {
+      total = await prisma.document.count({ where });
+      totalPages = total === 0 ? 0 : Math.ceil(total / pageSize);
+      page = totalPages === 0 ? 1 : Math.min(requestedPage, totalPages);
+      skip = (page - 1) * pageSize;
+
+      const orderBy = buildOrderBy(sortParam, order);
+      documents = await fetchFilePage({ where, orderBy, skip, take: pageSize });
+      pagination = {
+        page,
+        pageSize,
+        total,
+        totalPages,
+        hasPreviousPage: page > 1 && totalPages > 0,
+        hasNextPage: page < totalPages,
+      };
+    }
+
+    // Folder aggregation: when view is 'all' or 'folders', compute immediate
+    // children folders at the current path.
+    let folders: FolderRow[] | undefined;
+    if (view !== 'files') {
+      const aggRows = await prisma.document.findMany({
+        where: folderWhere,
+        select: {
+          id: true,
+          filename: true,
+          sourcePath: true,
+          kind: true,
+          size: true,
+          status: true,
+          ragMode: true,
+          createdAt: true,
+          indexedAt: true,
+        },
+      });
+      const summaryDocs = aggRows.map((row) => ({
+        id: row.id,
+        filename: row.filename,
+        sourcePath: row.sourcePath ?? null,
+        kind: row.kind ?? detectFileKind(row.filename, ''),
+        size: typeof row.size === 'number' ? row.size : Number(row.size) || 0,
+        status: row.status,
+        ragMode: row.ragMode ?? null,
+        createdAt: row.createdAt,
+        indexedAt: row.indexedAt ?? null,
+      }));
+      const root = aggregateFolderTree(summaryDocs);
+      const node = findFolderInTree(root, folder);
+      if (node) {
+        const childFolders = view === 'folders'
+          ? node.children
+          : node.children;
+        folders = childFolders
+          .map((child) => ({
+            name: child.name,
+            path: child.path,
+            directFileCount: child.directFileCount,
+            recursiveFileCount: child.recursiveFileCount,
+            directSize: child.directSize,
+            recursiveSize: child.recursiveSize,
+            depth: child.depth,
+          }));
+      } else {
+        folders = [];
+      }
+    }
+
+    return NextResponse.json({
+      documents: view === 'folders' ? [] : documents,
+      folders,
+      pagination: pagination ?? {
+        page: 1,
+        pageSize,
+        total: 0,
+        totalPages: 0,
+        hasPreviousPage: false,
+        hasNextPage: false,
+      },
+      view,
+      currentFolder: folder,
+      sort: sortParam,
+      order,
+    });
   } catch (error) {
     console.error('RAG list error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
+}
+
+function normalizeFolderPathParam(value: string | null): string {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
+    .replace(/\/+$/, '')
+    .replace(/\/+/g, '/')
+    .trim();
+}
+
+function buildOrderBy(sort: string, order: 'asc' | 'desc'): Prisma.DocumentOrderByWithRelationInput | undefined {
+  switch (sort) {
+    case 'name':
+      return { filename: order };
+    case 'size':
+      return { size: order };
+    case 'createdAt':
+      return { createdAt: order };
+    case 'indexedAt':
+      return { indexedAt: order };
+    case 'kind':
+      // Prisma orderBy on `kind` is alphabetical; use the order param directly.
+      return { kind: order };
+    default:
+      return { createdAt: order };
+  }
+}
+
+type FilePageDoc = Prisma.DocumentGetPayload<{ include: { _count: { select: { chunks: true } } } }>
+
+async function fetchFilePage({
+  where,
+  orderBy,
+  skip,
+  take,
+}: {
+  where: Prisma.DocumentWhereInput
+  orderBy: Prisma.DocumentOrderByWithRelationInput | undefined
+  skip: number
+  take: number
+}): Promise<FilePageDoc[]> {
+  return prisma.document.findMany({
+    where,
+    orderBy,
+    include: { _count: { select: { chunks: true } } },
+    skip,
+    take,
+  })
 }
 
 // POST: Upload and process a document
@@ -433,7 +638,11 @@ export async function DELETE(req: Request) {
     const userId = await getCurrentUserIdWithPermission('knowledge.use');
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const payload = await req.json().catch(() => ({})) as { id?: string; ids?: string[] };
+    const payload = await req.json().catch(() => ({})) as {
+      id?: string;
+      ids?: string[];
+      folder?: string;
+    };
     const ids = Array.isArray(payload.ids)
       ? payload.ids
       : typeof payload.id === 'string'
@@ -444,17 +653,43 @@ export async function DELETE(req: Request) {
       .map(id => typeof id === 'string' ? id.trim() : '')
       .filter((id): id is string => Boolean(id));
 
-    if (normalizedIds.length === 0) return NextResponse.json({ error: 'Document ID required' }, { status: 400 });
+    const folder = typeof payload.folder === 'string' ? normalizeFolderPath(payload.folder) : '';
 
-    const deleteResult = await prisma.document.deleteMany({
-      where: { userId, id: { in: normalizedIds } },
-    });
+    if (normalizedIds.length === 0 && folder === '') {
+      return NextResponse.json({ error: 'Document ID or folder path required' }, { status: 400 });
+    }
 
-    if (normalizedIds.length === 1 && deleteResult.count === 0) {
+    // If a folder is specified (with or without explicit ids), we cascade by
+    // selecting every doc whose sourcePath is exactly the folder or starts
+    // with "<folder>/". The ids list can further narrow the delete.
+    let where: Prisma.DocumentWhereInput;
+    let resolvedFolder: string | undefined;
+    if (folder !== '') {
+      where = {
+        userId,
+        OR: [
+          { sourcePath: folder },
+          { sourcePath: { startsWith: `${folder}/` } },
+        ],
+        ...(normalizedIds.length > 0 ? { id: { in: normalizedIds } } : {}),
+      };
+      resolvedFolder = folder;
+    } else {
+      where = { userId, id: { in: normalizedIds } };
+    }
+
+    const deleteResult = await prisma.document.deleteMany({ where });
+
+    if (normalizedIds.length === 1 && !folder && deleteResult.count === 0) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ success: true, deleted: deleteResult.count });
+    return NextResponse.json({
+      success: true,
+      deleted: deleteResult.count,
+      folder: resolvedFolder,
+      ids: normalizedIds,
+    });
   } catch (error) {
     console.error('RAG delete error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
