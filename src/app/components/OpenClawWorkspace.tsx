@@ -2319,7 +2319,6 @@ export default function OpenClawWorkspace({
   const [processingAttachments, setProcessingAttachments] = useState(false);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const headerModeMenuRef = useRef<HTMLDivElement>(null);
   const modelMenuButtonRef = useRef<HTMLButtonElement>(null);
   const modesMenuButtonRef = useRef<HTMLButtonElement>(null);
   const createMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -2430,27 +2429,11 @@ export default function OpenClawWorkspace({
     return () => window.removeEventListener('resize', syncViewport);
   }, []);
 
-  useEffect(() => {
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!headerModeMenuRef.current) return;
-      if (!headerModeMenuRef.current.contains(event.target as Node)) {
-        setHeaderModeMenuOpen(null);
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setHeaderModeMenuOpen(null);
-      }
-    };
-
-    document.addEventListener('mousedown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, []);
+  // Click-outside and Esc handling for the Workspace modes menu is owned by
+  // the <Popover> primitive (it portals the menu to <body>, so a listener on
+  // the original DOM tree can never contain clicks inside the portaled menu).
+  // The stale handler that used to live here closed the menu on every click
+  // inside it, which made the menu feel unresponsive.
 
   const closeMobileChrome = () => {
     setMobileRailOpen(false);
@@ -6767,7 +6750,7 @@ export default function OpenClawWorkspace({
         )}
       </div>
 
-      <div className="openclaw-mode-toolbar" ref={headerModeMenuRef}>
+      <div className="openclaw-mode-toolbar">
         <div className={`openclaw-mode-dropdown is-featured${headerModeMenuOpen === 'modes' ? ' is-open' : ''}${activeModeCount > 0 ? ' is-active tone-danger' : ' tone-accent'}`}>
           <button
             type="button"
