@@ -678,6 +678,15 @@ export async function DELETE(req: Request) {
       where = { userId, id: { in: normalizedIds } };
     }
 
+    // Collect the ids that match before deleting so the client can prune
+    // its in-memory selection list (the bulk-delete UI tracks ids that may
+    // span folders and pages, so it needs the ground truth from the server).
+    const matchingRows = await prisma.document.findMany({
+      where,
+      select: { id: true },
+    });
+    const matchingIds = matchingRows.map(row => row.id);
+
     const deleteResult = await prisma.document.deleteMany({ where });
 
     if (normalizedIds.length === 1 && !folder && deleteResult.count === 0) {
@@ -688,7 +697,7 @@ export async function DELETE(req: Request) {
       success: true,
       deleted: deleteResult.count,
       folder: resolvedFolder,
-      ids: normalizedIds,
+      ids: matchingIds,
     });
   } catch (error) {
     console.error('RAG delete error:', error);

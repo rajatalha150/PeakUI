@@ -275,7 +275,7 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
-  const selectAllRef = useRef<HTMLInputElement>(null);
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
 
   // -- OneDrive-style browser state --
   const [folderTree, setFolderTree] = useState<KbFolderNode | null>(null);
@@ -359,10 +359,6 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
       clearInterval(interval);
     };
   }, [fetchDocs, documentPage, documentPageSize]);
-
-  useEffect(() => {
-    setSelectedDocumentIds(current => current.filter(id => documents.some(doc => doc.id === id)));
-  }, [documents]);
 
   useEffect(() => {
     if (!selectAllRef.current) return;
@@ -616,8 +612,16 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
         return;
       }
 
-      setSelectedDocumentIds(current => current.filter(id => !ids.includes(id)));
-      await fetchDocs(documentPage, documentPageSize);
+      // The server returns the actual deleted ids (it can differ from `ids`
+      // when a folder cascade widens the set or a single id is malformed).
+      const removedIds: string[] = Array.isArray(data?.ids) ? data.ids : ids;
+      const removedSet = new Set(removedIds);
+      setSelectedDocumentIds(current => current.filter(id => !removedSet.has(id)));
+      await Promise.all([
+        fetchDocs(documentPage, documentPageSize),
+        loadCurrentLevel(),
+        loadFolderTree(),
+      ]);
     } catch (error) {
       setDocumentActionError(error instanceof Error ? error.message : 'Delete failed.');
     }
@@ -627,6 +631,12 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
   const selectAllChecked = documents.length > 0 && selectedOnPageCount === documents.length;
   const totalDocuments = documentPagination?.total ?? documents.length;
   const totalPages = documentPagination?.totalPages ?? (documents.length > 0 ? 1 : 0);
+
+  // -- OneDrive browser selection (mirrors the legacy list) --
+  const browserFileIds = browserFiles.map(doc => doc.id);
+  const selectedOnBrowserPage = browserFiles.filter(doc => selectedDocumentIds.includes(doc.id)).length;
+  const selectAllBrowserChecked = browserFileIds.length > 0 && selectedOnBrowserPage === browserFileIds.length;
+  const selectAllBrowserIndeterminate = selectedOnBrowserPage > 0 && selectedOnBrowserPage < browserFileIds.length;
 
   const toggleDocumentSelection = (id: string, checked: boolean) => {
     setSelectedDocumentIds(current => {
@@ -641,6 +651,18 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
   const toggleSelectAllVisible = (checked: boolean) => {
     setSelectedDocumentIds(checked ? documents.map(doc => doc.id) : []);
   };
+
+  const toggleSelectAllBrowser = (checked: boolean) => {
+    setSelectedDocumentIds(checked ? Array.from(new Set([...selectedDocumentIds, ...browserFileIds])) : selectedDocumentIds.filter(id => !browserFileIds.includes(id)));
+  };
+
+  // Drop any selected ids that no longer correspond to a file the user can see
+  // — happens when a folder deletes its subtree or the user changes folder/sort.
+  useEffect(() => {
+    const knownIds = new Set([...documents.map(d => d.id), ...browserFileIds]);
+    setSelectedDocumentIds(current => current.filter(id => knownIds.has(id)));
+  }, [documents, browserFileIds]);
+
 
   const handleBulkDelete = async () => {
     await handleDelete(selectedDocumentIds, `${selectedDocumentIds.length} selected document${selectedDocumentIds.length !== 1 ? 's' : ''}`);
@@ -690,8 +712,15 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
         setDocumentActionError(typeof data?.error === 'string' ? data?.error : 'Folder delete failed.');
         return;
       }
-      await loadFolderTree();
-      await loadCurrentLevel();
+      // Drop any selected ids that just got deleted so the bulk-delete button
+      // doesn't try to act on stale rows. The server returns the actual deleted
+      // ids (a folder cascade can delete more than the visible set, e.g. files
+      // in nested subfolders that the current tree view doesn't render).
+      const removedIds = new Set(Array.isArray(data?.ids) ? data.ids : []);
+      if (removedIds.size > 0) {
+        setSelectedDocumentIds(current => current.filter(id => !removedIds.has(id)));
+      }
+      await Promise.all([loadFolderTree(), loadCurrentLevel()]);
     } catch (error) {
       setDocumentActionError(error instanceof Error ? error.message : 'Folder delete failed.');
     }
@@ -1335,6 +1364,23 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
                 >{v === 'all' ? 'All' : v === 'files' ? 'Files' : 'Folders'}</button>
               ))}
             </div>
+            {browserView !== 'folders' && browserFileIds.length > 0 && (
+              <label
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--text-secondary)', cursor: 'pointer' }}
+                title={`${selectedOnBrowserPage} of ${browserFileIds.length} selected on this page`}
+              >
+                <input
+                  type="checkbox"
+                  ref={el => {
+                    selectAllRef.current = el;
+                    if (el) el.indeterminate = selectAllBrowserIndeterminate;
+                  }}
+                  checked={selectAllBrowserChecked}
+                  onChange={e => toggleSelectAllBrowser(e.target.checked)}
+                />
+                <span>Select all on page ({browserFileIds.length})</span>
+              </label>
+            )}
             <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
               <ArrowUpDown size={12} />
               <span>Sort</span>
