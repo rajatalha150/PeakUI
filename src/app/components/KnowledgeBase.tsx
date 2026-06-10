@@ -1366,8 +1366,16 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
             </div>
             {browserView !== 'folders' && browserFileIds.length > 0 && (
               <label
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--text-secondary)', cursor: 'pointer' }}
-                title={`${selectedOnBrowserPage} of ${browserFileIds.length} selected on this page`}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  padding: '4px 10px', borderRadius: '6px',
+                  border: '1px solid var(--border-color)',
+                  background: selectAllBrowserIndeterminate ? 'var(--accent-soft)' : 'rgba(255,255,255,0.04)',
+                  color: selectAllBrowserIndeterminate || selectAllBrowserChecked ? 'var(--accent-primary)' : 'var(--text-primary)',
+                  fontSize: '0.78rem', fontWeight: 500, cursor: 'pointer',
+                  userSelect: 'none',
+                }}
+                title={`${selectedOnBrowserPage} of ${browserFileIds.length} selected on this page — click to select/deselect all files on the current page`}
               >
                 <input
                   type="checkbox"
@@ -1377,6 +1385,7 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
                   }}
                   checked={selectAllBrowserChecked}
                   onChange={e => toggleSelectAllBrowser(e.target.checked)}
+                  style={{ margin: 0, cursor: 'pointer' }}
                 />
                 <span>Select all on page ({browserFileIds.length})</span>
               </label>
