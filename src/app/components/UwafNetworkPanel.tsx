@@ -3,9 +3,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Globe, Shield, Wifi, WifiOff, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react'
 
+const NETWORK_STATUS_STORAGE_KEY = 'peakui-uwaf-network-status'
+const PENDING_STATUS_RETRY_MS = 2000
+const NETWORK_STATUS_KEEPALIVE_MS = 60 * 1000
+
 interface UwafStatus {
-  directIp: string
-  torReachable: boolean
+  directIp?: string
+  torReachable?: boolean
   torIsReady?: boolean
   torError?: string
   torExitIp?: string
@@ -25,6 +29,10 @@ interface UwafStatus {
     label: string
     url: string
   }>
+  statusLevel?: 'quick' | 'preflight'
+  statusCached?: boolean
+  statusCheckedAt?: string
+  statusRefreshInProgress?: boolean
 }
 
 interface UwafNetworkPanelProps {
@@ -39,27 +47,67 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
   const [error, setError] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState(false)
 
-  const fetchStatus = useCallback(async () => {
-    setLoading(true)
+  const fetchStatus = useCallback(async (level: 'quick' | 'preflight' = 'quick', options?: { force?: boolean; silent?: boolean }) => {
+    if (!options?.silent) setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/openclaw/uwaf-browser/status')
+      const params = new URLSearchParams({ level })
+      if (options?.force) params.set('force', '1')
+      const res = await fetch(`/api/openclaw/uwaf-browser/status?${params.toString()}`)
       if (!res.ok) throw new Error(`Status check failed: ${res.status}`)
       const data = await res.json()
       setStatus(data)
+      window.sessionStorage.setItem(NETWORK_STATUS_STORAGE_KEY, JSON.stringify(data))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to check network status')
     } finally {
-      setLoading(false)
+      if (!options?.silent) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
+    try {
+      const cached = window.sessionStorage.getItem(NETWORK_STATUS_STORAGE_KEY)
+      if (cached) {
+        setStatus(JSON.parse(cached))
+      }
+    } catch {
+      window.sessionStorage.removeItem(NETWORK_STATUS_STORAGE_KEY)
+    }
+
     const timeout = window.setTimeout(() => {
-      void fetchStatus()
+      void fetchStatus('quick')
     }, 0)
-    return () => window.clearTimeout(timeout)
+    const keepAlive = window.setInterval(() => {
+      void fetchStatus('quick', { silent: true })
+    }, NETWORK_STATUS_KEEPALIVE_MS)
+    return () => {
+      window.clearTimeout(timeout)
+      window.clearInterval(keepAlive)
+    }
   }, [fetchStatus])
+
+  useEffect(() => {
+    if (!status?.statusRefreshInProgress && status?.directIp !== 'checking' && status?.torReachable !== undefined) {
+      return
+    }
+
+    const timeout = window.setTimeout(() => {
+      void fetchStatus('quick', { silent: true })
+    }, PENDING_STATUS_RETRY_MS)
+    return () => window.clearTimeout(timeout)
+  }, [fetchStatus, status?.directIp, status?.statusRefreshInProgress, status?.torReachable])
+
+  const handleRefresh = useCallback(() => {
+    void fetchStatus('preflight', { force: true })
+  }, [fetchStatus])
+
+  const formatCheckedAt = (value?: string) => {
+    if (!value) return null
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return null
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
 
   return (
     <div style={{
@@ -94,7 +142,7 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
           </button>
           <button
             type="button"
-            onClick={fetchStatus}
+            onClick={handleRefresh}
             disabled={loading}
             style={{
               background: 'none',
@@ -105,7 +153,7 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
               display: 'flex',
               alignItems: 'center',
             }}
-            title="Refresh status"
+            title="Run full stealth verification"
           >
             <RefreshCw size={12} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
           </button>
@@ -145,7 +193,7 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
             <button
               type="button"
               onClick={() => onModeChange('stealth')}
-              disabled={disabled || (status ? !status.torReachable : false)}
+              disabled={disabled || status?.torReachable === false}
               style={{
                 flex: 1,
                 display: 'flex',
@@ -157,7 +205,7 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
                 border: currentMode === 'stealth' ? '2px solid #a855f7' : '1px solid var(--border-color)',
                 background: currentMode === 'stealth' ? 'rgba(168, 85, 247, 0.1)' : 'transparent',
                 color: currentMode === 'stealth' ? '#a855f7' : 'var(--text-secondary)',
-                cursor: disabled || (status ? !status.torReachable : false) ? 'not-allowed' : 'pointer',
+                cursor: disabled || status?.torReachable === false ? 'not-allowed' : 'pointer',
                 fontSize: '0.72rem',
                 fontWeight: currentMode === 'stealth' ? 600 : 400,
               }}
@@ -177,10 +225,12 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
             <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
                 <Globe size={10} />
-                <span>Direct IP: {status.directIp}</span>
+                <span>Direct IP: {status.directIp && status.directIp !== 'checking' ? status.directIp : 'checking...'}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
-                {status.torReachable ? (
+                {status.torReachable === undefined ? (
+                  <><RefreshCw size={10} style={{ animation: status.statusRefreshInProgress ? 'spin 1s linear infinite' : 'none' }} /><span>Tor: Checking</span></>
+                ) : status.torReachable ? (
                   <><Wifi size={10} style={{ color: '#22c55e' }} /><span>Tor: Online</span></>
                 ) : (
                   <><WifiOff size={10} style={{ color: 'var(--danger, #ef4444)' }} /><span>Tor: Offline</span></>
@@ -229,6 +279,13 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 4 }}>
                   <Shield size={10} style={{ color: status.onionReady ? '#a855f7' : 'var(--danger, #ef4444)' }} />
                   <span>.onion support: {status.onionReady ? 'Ready' : 'Unavailable'}</span>
+                </div>
+              )}
+              {status.statusCheckedAt && (
+                <div style={{ fontSize: '0.62rem', opacity: 0.72, marginBottom: 4 }}>
+                  {status.statusLevel === 'preflight' ? 'Verified' : 'Checked'} {formatCheckedAt(status.statusCheckedAt)}
+                  {status.statusCached ? ' (cached)' : ''}
+                  {status.statusRefreshInProgress ? ' - refreshing...' : ''}
                 </div>
               )}
               {status.torError && (

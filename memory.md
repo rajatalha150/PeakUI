@@ -17,6 +17,11 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 
 ## 🚀 Completed Features
 
+### Network Hub Fast Status & Keepalive ✅
+- Network Hub page load now uses a lightweight `level=quick` UWAF status path with in-process caching instead of running full Tor/DNS/WebRTC/fingerprint preflight on every refresh.
+- Full stealth verification remains available from the Network Hub refresh button through `level=preflight&force=1`, while quick/deep status responses are cached separately to avoid repeated expensive browser launches.
+- The Network Hub UI hydrates from session storage immediately, retries automatically when it receives a temporary checking response, and keeps quick status warm with a lightweight 60-second refresh while mounted.
+
 ### Open Claw-Only App Shell ✅
 - The app now boots directly into the Open Claw workspace instead of restoring the normal chat surface.
 - The normal chat sidebar/top-level surface has been removed from the reachable shell; Open Claw is now the single left-rail navigation model.
