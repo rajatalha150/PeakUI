@@ -29,7 +29,7 @@ interface UwafStatus {
     label: string
     url: string
   }>
-  statusLevel?: 'quick' | 'preflight'
+  statusLevel?: 'cached' | 'quick' | 'preflight'
   statusCached?: boolean
   statusCheckedAt?: string
   statusRefreshInProgress?: boolean
@@ -47,7 +47,7 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
   const [error, setError] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState(false)
 
-  const fetchStatus = useCallback(async (level: 'quick' | 'preflight' = 'quick', options?: { force?: boolean; silent?: boolean }) => {
+  const fetchStatus = useCallback(async (level: 'cached' | 'quick' | 'preflight' = 'quick', options?: { force?: boolean; silent?: boolean }) => {
     if (!options?.silent) setLoading(true)
     setError(null)
     try {
@@ -79,7 +79,7 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
       void fetchStatus('quick')
     }, 0)
     const keepAlive = window.setInterval(() => {
-      void fetchStatus('quick', { silent: true })
+      void fetchStatus('cached', { silent: true })
     }, NETWORK_STATUS_KEEPALIVE_MS)
     return () => {
       window.clearTimeout(timeout)

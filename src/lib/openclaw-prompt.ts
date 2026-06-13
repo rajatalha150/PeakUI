@@ -59,6 +59,7 @@ export interface OpenClawPromptContext {
   codeExecutionEnabled?: boolean;
   browserMode?: 'deny' | 'read-only' | 'ask-first';
   uwafBrowserMode?: 'deny' | 'direct' | 'stealth';
+  uwafRuntimeContext?: string;
 }
 
 export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): string {
@@ -240,6 +241,13 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
       'When browsing for current information, explicitly separate Observed evidence from Inference. If the browser failed, say the browser failed.',
       'Use exactly one unified_browser request object per tool block. Do not emit multiple JSON objects inside one block.',
     );
+
+    if (context.uwafRuntimeContext?.trim()) {
+      lines.push(
+        'UWAF RUNTIME CONTEXT:',
+        context.uwafRuntimeContext.trim(),
+      );
+    }
   }
 
   if (context.persona) {

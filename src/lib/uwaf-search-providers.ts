@@ -391,10 +391,10 @@ function computeProviderScore(provider: UwafSearchProvider, state: ProviderState
   const degraded = Boolean(state?.degradedUntil && state.degradedUntil > now)
 
   let score = provider.priority
-  score += successRate * 40
-  score += usefulnessRate * 25
-  score -= antiBotRate * 35
-  score -= Math.min(avgLatency / 250, 20)
+  score += successRate * 55
+  score += usefulnessRate * 32
+  score -= antiBotRate * 45
+  score -= Math.min(avgLatency / 160, 32)
   if (preferredOnion && provider.kind === 'onion') score += 18
   if (!preferredOnion && provider.kind === 'onion') score -= 8
   if (degraded) score -= 60

@@ -32,6 +32,10 @@ const MAX_WAIT_TIMEOUT_MS = 30_000
 const MAX_SCROLL_DELTA = 5_000
 const MAX_JS_ERRORS = 8
 const MAX_NETWORK_ERRORS = 10
+const MAX_DIRECT_SEARCH_PROVIDER_ATTEMPTS = 2
+const MAX_STEALTH_SEARCH_PROVIDER_ATTEMPTS = 3
+const DIRECT_SEARCH_PROVIDER_TIMEOUT_MS = 18_000
+const STEALTH_SEARCH_PROVIDER_TIMEOUT_MS = 22_000
 
 const LOGIN_PATTERNS = [
   /\blog in\b/i,
@@ -869,7 +873,7 @@ async function navigateToUrl(
   url: string,
   mode: BrowserMode,
   takeScreenshot: boolean,
-  options: { since?: number; observations?: string[]; stealthProfile?: StealthProfile } = {},
+  options: { since?: number; observations?: string[]; stealthProfile?: StealthProfile; timeoutMs?: number } = {},
 ): Promise<PageObservation> {
   const targetUrl = await assertUwafUrlAllowed(url, mode)
   const observations = [...(options.observations || [])]
@@ -886,7 +890,7 @@ async function navigateToUrl(
   const navigationStartedAt = Date.now()
   let response: Awaited<ReturnType<Page['goto']>>
   try {
-    response = await page.goto(targetUrl.href, { timeout: 30_000, waitUntil: 'domcontentloaded' })
+    response = await page.goto(targetUrl.href, { timeout: options.timeoutMs ?? 30_000, waitUntil: 'domcontentloaded' })
   } catch (error) {
     if (isOnionUrl(targetUrl.href)) {
       const onionCheck = await checkOnionResolution(targetUrl.href, options.stealthProfile || getDefaultStealthProfile())
@@ -926,7 +930,15 @@ async function executeSearch(
     }
   }
 
-  const providers = listSearchProviders(mode, query, stealthProfile, preferredProviderId)
+  const maxProviderAttempts = preferredProviderId
+    ? 1
+    : mode === 'stealth'
+      ? MAX_STEALTH_SEARCH_PROVIDER_ATTEMPTS
+      : MAX_DIRECT_SEARCH_PROVIDER_ATTEMPTS
+  const providers = listSearchProviders(mode, query, stealthProfile, preferredProviderId).slice(0, maxProviderAttempts)
+  const providerTimeoutMs = mode === 'stealth'
+    ? STEALTH_SEARCH_PROVIDER_TIMEOUT_MS
+    : DIRECT_SEARCH_PROVIDER_TIMEOUT_MS
   const curatedEntryPoints = mode === 'stealth' ? getCuratedStealthEntryPoints() : []
   const attempts: Array<{
     provider: UwafSearchProvider
@@ -942,6 +954,7 @@ async function executeSearch(
     let observation = await navigateToUrl(page, requestedUrl, mode, takeScreenshot, {
       since: startedAt,
       stealthProfile,
+      timeoutMs: providerTimeoutMs,
       observations: [
         `Issued a ${provider.label} query for: ${query}`,
         ...(curatedEntryPoints.length > 0 && mode === 'stealth'
@@ -1094,14 +1107,6 @@ export async function runUwafBrowserAction(
 
   const mode: BrowserMode = request.browserMode || settings.openClawUwafDefaultMode || 'direct'
   const stealthProfile = resolveStealthProfileForRequest(request, getDefaultStealthProfile())
-
-  if (mode === 'stealth') {
-    const { runStealthPreflight } = await import('./uwaf-pool')
-    const preflight = await runStealthPreflight({ profile: stealthProfile })
-    if (!preflight.ok) {
-      throw new Error(`Stealth preflight failed for ${stealthProfile} profile: ${preflight.error || 'Tor routing could not be verified'}. Direct IP: ${preflight.directIp}. Tor exit IP: ${preflight.torExitIp}.`)
-    }
-  }
 
   const session = getOrCreateSession(userId, request.sessionId, mode, stealthProfile)
   const takeScreenshot = false

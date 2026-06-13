@@ -9,7 +9,7 @@ const QUICK_STATUS_TTL_MS = 5 * 60 * 1000
 const DEEP_STATUS_TTL_MS = 10 * 60 * 1000
 const QUICK_STATUS_STARTUP_BUDGET_MS = 1200
 
-type StatusLevel = 'quick' | 'preflight'
+type StatusLevel = 'cached' | 'quick' | 'preflight'
 
 interface UwafStatusPayload {
   directIp: string
@@ -83,6 +83,25 @@ function pendingQuickStatus(profile: ReturnType<typeof getDefaultStealthProfile>
     statusLevel: 'quick',
     statusCached: false,
     statusRefreshInProgress: true,
+  }
+}
+
+function getCachedStatus(profile: ReturnType<typeof getDefaultStealthProfile>): UwafStatusPayload {
+  const cached = statusCache.deep?.value || statusCache.quick?.value
+  if (cached) {
+    return withFreshCommonFields({ ...cached, statusLevel: 'cached', statusCached: true })
+  }
+
+  return {
+    directIp: 'unknown',
+    stealthProfile: profile,
+    stealthFingerprintRegressionWarnings: [],
+    stealthFingerprintDetectors: [],
+    stealthWarnings: [],
+    ...commonStatusFields(profile),
+    statusLevel: 'cached',
+    statusCached: false,
+    statusCheckedAt: new Date().toISOString(),
   }
 }
 
@@ -217,11 +236,18 @@ export async function GET(request: NextRequest) {
   if ('response' in access) return access.response
 
   const profile = getDefaultStealthProfile()
-  const level = request.nextUrl.searchParams.get('level') === 'preflight' ? 'preflight' : 'quick'
+  const rawLevel = request.nextUrl.searchParams.get('level')
+  const level: StatusLevel = rawLevel === 'preflight'
+    ? 'preflight'
+    : rawLevel === 'cached'
+      ? 'cached'
+      : 'quick'
   const force = request.nextUrl.searchParams.get('force') === '1'
   const status = level === 'preflight'
     ? await getDeepStatus(profile, force)
-    : await getQuickStatus(profile)
+    : level === 'cached'
+      ? getCachedStatus(profile)
+      : await getQuickStatus(profile)
 
   return NextResponse.json(status)
 }
