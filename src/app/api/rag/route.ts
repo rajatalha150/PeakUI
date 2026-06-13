@@ -547,6 +547,9 @@ export async function POST(req: Request) {
       ? sourcePathField.trim()
       : null;
     const documentKind = detectFileKind(file.name, file.type || 'application/octet-stream');
+    const shouldRetainOriginal = (file.type || '').toLowerCase().includes('pdf') || file.name.toLowerCase().endsWith('.pdf');
+    const originalContent = shouldRetainOriginal ? buffer.toString('base64') : null;
+    const originalMimeType = shouldRetainOriginal ? (file.type || 'application/pdf') : null;
 
     const existingDoc = await prisma.document.findFirst({
       where: {
@@ -583,6 +586,8 @@ export async function POST(req: Request) {
             kind: documentKind,
             size: file.size,
             contentHash,
+            originalContent,
+            originalMimeType,
             status: 'queued',
             ragMode: settings.ragMode,
             embeddingModel: settings.ragMode === 'semantic' ? settings.ragModel : null,
@@ -598,6 +603,8 @@ export async function POST(req: Request) {
             kind: documentKind,
             size: file.size,
             contentHash,
+            originalContent,
+            originalMimeType,
             userId,
             status: 'queued',
             ragMode: settings.ragMode,

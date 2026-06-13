@@ -66,6 +66,8 @@ import {
   type OpenClawBrowserToolRequest,
   type OpenClawCodeToolRequest,
   type OpenClawFilesystemToolRequest,
+  type OpenClawPdfDocumentToolRequest,
+  type OpenClawTaxReturnToolRequest,
   type OpenClawToolRequest,
   type OpenClawUwafBrowserToolRequest,
 } from '@/lib/openclaw-tools';
@@ -275,7 +277,7 @@ interface OpenClawMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   hidden?: boolean;
-  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser';
+  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document';
   thinking?: string;
   presentation?: ResponsePresentation;
   sources?: MessageSource[];
@@ -845,6 +847,14 @@ type PendingToolApproval =
   | (PendingToolApprovalBase & {
       kind: 'unified_browser';
       request: OpenClawUwafBrowserToolRequest & { sessionId: string };
+    })
+  | (PendingToolApprovalBase & {
+      kind: 'tax_return';
+      request: OpenClawTaxReturnToolRequest & { sessionId: string; messageId?: string };
+    })
+  | (PendingToolApprovalBase & {
+      kind: 'pdf_document';
+      request: OpenClawPdfDocumentToolRequest & { sessionId: string; messageId?: string };
     });
 
 type ToolApprovalResolution =
@@ -852,7 +862,9 @@ type ToolApprovalResolution =
   | FilesystemToolResultEntry
   | CodeToolResultEntry
   | BrowserToolResultEntry
-  | UwafBrowserToolResultEntry;
+  | UwafBrowserToolResultEntry
+  | TaxReturnToolResultEntry
+  | PdfDocumentToolResultEntry;
 
 interface WebToolResultEntry {
   query: string;
@@ -860,6 +872,35 @@ interface WebToolResultEntry {
   context?: string;
   sources: MessageSource[];
   success: boolean;
+  error?: string;
+}
+
+interface TaxReturnToolResultEntry {
+  action: 'generate_review_pdf' | 'fill_pdf_form';
+  success: boolean;
+  artifact?: {
+    id: string;
+    name: string;
+    mimeType: string;
+    size: number;
+    downloadUrl: string;
+  };
+  filledFields?: string[];
+  warnings?: string[];
+  missingFields?: string[];
+  error?: string;
+}
+
+interface PdfDocumentToolResultEntry {
+  success: boolean;
+  title: string;
+  artifact?: {
+    id: string;
+    name: string;
+    mimeType: string;
+    size: number;
+    downloadUrl: string;
+  };
   error?: string;
 }
 
@@ -1169,6 +1210,20 @@ function describeUwafBrowserRequest(request: OpenClawUwafBrowserToolRequest) {
     : `UWAF ${modeLabel}: ${request.action}`;
 }
 
+function describeTaxReturnRequest(request: OpenClawTaxReturnToolRequest) {
+  if (request.description?.trim()) return `Tax PDF generation: ${request.description.trim()}`;
+  const folder = request.folder?.trim() ? ` from Knowledge Base folder \`${request.folder.trim()}\`` : '';
+  return request.action === 'fill_pdf_form'
+    ? `Filling a tax PDF form${folder}`
+    : `Generating a tax review PDF${folder}`;
+}
+
+function describePdfDocumentRequest(request: OpenClawPdfDocumentToolRequest) {
+  return request.description?.trim()
+    ? `PDF generation: ${request.description.trim()}`
+    : `Generating downloadable PDF: \`${request.filename || request.title}.pdf\``;
+}
+
 function normalizeToolSources(value: unknown): MessageSource[] {
   return normalizeMessageSources(value);
 }
@@ -1351,7 +1406,7 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
 ));
 
 function normalizeExtractedToolRequestName(value: unknown): OpenClawMessage['toolRequest'] {
-  return value === 'shell' || value === 'filesystem' || value === 'web' || value === 'code' || value === 'browser' || value === 'unified_browser'
+  return value === 'shell' || value === 'filesystem' || value === 'web' || value === 'code' || value === 'browser' || value === 'unified_browser' || value === 'tax_return' || value === 'pdf_document'
     ? value
     : undefined;
 }
@@ -1573,6 +1628,16 @@ function getOpenClawToolRequestSignature(request: OpenClawToolRequest) {
   if (request.name === 'unified_browser') {
     const uwaf = request.request as OpenClawUwafBrowserToolRequest
     return `unified_browser:${uwaf.action}:${uwaf.query?.trim() || ''}:${uwaf.providerId?.trim() || ''}:${uwaf.url?.trim() || ''}:${uwaf.browserMode || ''}:${uwaf.stealthProfile || ''}:${uwaf.linkIndex ?? ''}:${uwaf.linkText?.trim() || ''}:${uwaf.formIndex ?? ''}:${JSON.stringify(uwaf.values || {})}:${uwaf.mode || ''}:${uwaf.depth ?? ''}:${uwaf.selector?.trim() || ''}:${uwaf.text || ''}:${uwaf.key?.trim() || ''}:${uwaf.tabIndex ?? ''}:${uwaf.timeoutMs ?? ''}:${uwaf.deltaY ?? ''}:${uwaf.optionValue?.trim() || ''}:${uwaf.optionLabel?.trim() || ''}`;
+  }
+
+  if (request.name === 'tax_return') {
+    const tax = request.request as OpenClawTaxReturnToolRequest
+    return `tax_return:${tax.action}:${tax.folder?.trim() || ''}:${tax.taxYear?.trim() || ''}:${tax.templateDocumentId?.trim() || ''}:${tax.flatten === true ? 'flatten' : ''}`;
+  }
+
+  if (request.name === 'pdf_document') {
+    const pdf = request.request as OpenClawPdfDocumentToolRequest
+    return `pdf_document:${pdf.title.trim()}:${pdf.filename?.trim() || ''}:${pdf.content.trim().slice(0, 2000)}`;
   }
 
   return `filesystem:${request.request.action}:${request.request.path.trim()}`;
@@ -1983,6 +2048,75 @@ function formatUwafBrowserToolResult(entry: UwafBrowserToolResultEntry): string 
   }
 
   lines.push('', 'Use this result to continue the task. Separate observed evidence from inference, and do not claim a search or interaction succeeded unless these browser fields show that it did.');
+  return lines.join('\n');
+}
+
+function formatTaxReturnToolResult(entry: TaxReturnToolResultEntry): string {
+  const lines = [
+    'Tax return PDF tool result:',
+    `Action: ${entry.action}`,
+    `Status: ${entry.success ? 'completed' : 'failed'}`,
+  ];
+
+  if (!entry.success) {
+    if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    lines.push('', 'Use this result to continue the task. Do not claim a PDF was generated if this result failed.');
+    return lines.join('\n');
+  }
+
+  if (entry.artifact) {
+    lines.push(
+      `Artifact: ${entry.artifact.name}`,
+      `Artifact id: ${entry.artifact.id}`,
+      `Download URL: ${entry.artifact.downloadUrl}`,
+      `Mime type: ${entry.artifact.mimeType}`,
+      `Size: ${entry.artifact.size} bytes`,
+    );
+  }
+
+  if (entry.filledFields && entry.filledFields.length > 0) {
+    lines.push('', `Filled form fields: ${entry.filledFields.length}`);
+    entry.filledFields.slice(0, 30).forEach(field => lines.push(`- ${field}`));
+  }
+
+  if (entry.missingFields && entry.missingFields.length > 0) {
+    lines.push('', 'Missing or uncertain fields:');
+    entry.missingFields.forEach(field => lines.push(`- ${field}`));
+  }
+
+  if (entry.warnings && entry.warnings.length > 0) {
+    lines.push('', 'Warnings:');
+    entry.warnings.forEach(warning => lines.push(`- ${warning}`));
+  }
+
+  lines.push('', 'Use this result to present the PDF download link to the user and clearly state any missing fields or review warnings.');
+  return lines.join('\n');
+}
+
+function formatPdfDocumentToolResult(entry: PdfDocumentToolResultEntry): string {
+  const lines = [
+    'PDF document tool result:',
+    `Title: ${entry.title}`,
+    `Status: ${entry.success ? 'completed' : 'failed'}`,
+  ];
+
+  if (!entry.success) {
+    if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    lines.push('', 'Use this result to continue the task. Do not claim a PDF was generated if this result failed.');
+    return lines.join('\n');
+  }
+
+  if (entry.artifact) {
+    lines.push(
+      `Artifact: ${entry.artifact.name}`,
+      `Artifact id: ${entry.artifact.id}`,
+      `Download URL: ${entry.artifact.downloadUrl}`,
+      `Mime type: ${entry.artifact.mimeType}`,
+      `Size: ${entry.artifact.size} bytes`,
+    );
+  }
+
+  lines.push('', 'Use this result to present the PDF download link to the user.');
   return lines.join('\n');
 }
 
@@ -4608,6 +4742,169 @@ export default function OpenClawWorkspace({
     }
   };
 
+  const executeTaxReturnAction = async (
+    request: OpenClawTaxReturnToolRequest & { sessionId: string; messageId?: string },
+  ): Promise<TaxReturnToolResultEntry> => {
+    try {
+      const res = await fetch('/api/openclaw/tax', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          action: request.action,
+          success: false,
+          error: typeof data.error === 'string' ? data.error : 'Tax PDF generation failed',
+        };
+      }
+
+      const artifact = data.artifact && typeof data.artifact === 'object'
+        ? data.artifact as Record<string, unknown>
+        : null;
+      const draft = data.draft && typeof data.draft === 'object'
+        ? data.draft as Record<string, unknown>
+        : {};
+
+      return {
+        action: request.action,
+        success: data.success !== false,
+        artifact: artifact
+          && typeof artifact.id === 'string'
+          && typeof artifact.name === 'string'
+          && typeof artifact.mimeType === 'string'
+          && typeof artifact.size === 'number'
+          && typeof artifact.downloadUrl === 'string'
+          ? {
+              id: artifact.id,
+              name: artifact.name,
+              mimeType: artifact.mimeType,
+              size: artifact.size,
+              downloadUrl: artifact.downloadUrl,
+            }
+          : undefined,
+        filledFields: Array.isArray(data.filledFields) ? data.filledFields.filter((field: unknown): field is string => typeof field === 'string') : [],
+        warnings: Array.isArray(data.warnings) ? data.warnings.filter((warning: unknown): warning is string => typeof warning === 'string') : [],
+        missingFields: Array.isArray(draft.missingFields) ? draft.missingFields.filter((field: unknown): field is string => typeof field === 'string') : [],
+      };
+    } catch (error) {
+      return {
+        action: request.action,
+        success: false,
+        error: error instanceof Error ? error.message : 'Tax PDF generation failed',
+      };
+    }
+  };
+
+  const requestTaxReturnAction = async (
+    request: OpenClawTaxReturnToolRequest,
+    options: { messageId: string; sessionId: string },
+  ): Promise<TaxReturnToolResultEntry> => {
+    const payload = {
+      ...request,
+      sessionId: options.sessionId,
+      messageId: options.messageId,
+      folder: request.folder?.trim() || ragFolderPath || undefined,
+    };
+
+    return await new Promise<TaxReturnToolResultEntry>(resolve => {
+      pendingApprovalResolverRef.current = resolve as (result: ToolApprovalResolution) => void;
+      setPendingApproval({
+        kind: 'tax_return',
+        title: 'Tax PDF Generation Approval',
+        description: describeTaxReturnRequest(payload),
+        previewLabel: 'Tax PDF request',
+        previewContent: truncateApprovalPreview(
+          [
+            `Action: ${payload.action}`,
+            `Folder: ${payload.folder || 'enabled Knowledge Base context'}`,
+            `Tax year: ${payload.taxYear || 'auto-detect'}`,
+            payload.templateDocumentId ? `Template document: ${payload.templateDocumentId}` : null,
+            payload.flatten ? 'Flatten output form: yes' : null,
+            '',
+            'This will read ready Knowledge Base tax documents and create a downloadable PDF artifact.',
+          ].filter(Boolean).join('\n')
+        ),
+        messageId: options.messageId,
+        request: payload,
+      });
+    });
+  };
+
+  const executePdfDocumentAction = async (
+    request: OpenClawPdfDocumentToolRequest & { sessionId: string; messageId?: string },
+  ): Promise<PdfDocumentToolResultEntry> => {
+    try {
+      const res = await fetch('/api/openclaw/pdf-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          title: request.title,
+          success: false,
+          error: typeof data.error === 'string' ? data.error : 'PDF generation failed',
+        };
+      }
+      const artifact = data.artifact && typeof data.artifact === 'object'
+        ? data.artifact as Record<string, unknown>
+        : null;
+      return {
+        title: request.title,
+        success: data.success !== false,
+        artifact: artifact
+          && typeof artifact.id === 'string'
+          && typeof artifact.name === 'string'
+          && typeof artifact.mimeType === 'string'
+          && typeof artifact.size === 'number'
+          && typeof artifact.downloadUrl === 'string'
+          ? {
+              id: artifact.id,
+              name: artifact.name,
+              mimeType: artifact.mimeType,
+              size: artifact.size,
+              downloadUrl: artifact.downloadUrl,
+            }
+          : undefined,
+      };
+    } catch (error) {
+      return {
+        title: request.title,
+        success: false,
+        error: error instanceof Error ? error.message : 'PDF generation failed',
+      };
+    }
+  };
+
+  const requestPdfDocumentAction = async (
+    request: OpenClawPdfDocumentToolRequest,
+    options: { messageId: string; sessionId: string },
+  ): Promise<PdfDocumentToolResultEntry> => {
+    const payload = {
+      ...request,
+      sessionId: options.sessionId,
+      messageId: options.messageId,
+    };
+
+    return await new Promise<PdfDocumentToolResultEntry>(resolve => {
+      pendingApprovalResolverRef.current = resolve as (result: ToolApprovalResolution) => void;
+      setPendingApproval({
+        kind: 'pdf_document',
+        title: 'PDF Generation Approval',
+        description: describePdfDocumentRequest(request),
+        previewLabel: 'PDF content preview',
+        previewContent: truncateApprovalPreview(
+          [`Title: ${request.title}`, `Filename: ${request.filename || `${request.title}.pdf`}`, '', request.content].join('\n')
+        ),
+        messageId: options.messageId,
+        request: payload,
+      });
+    });
+  };
+
   const handleToolApprove = async () => {
     if (!pendingApproval || !pendingApprovalResolverRef.current) return;
     const approval = pendingApproval;
@@ -4646,6 +4943,16 @@ export default function OpenClawWorkspace({
           ...approval.request,
           approvalToken: approval.approvalToken,
         }));
+        return;
+      }
+
+      if (approval.kind === 'tax_return') {
+        resolve(await executeTaxReturnAction(approval.request));
+        return;
+      }
+
+      if (approval.kind === 'pdf_document') {
+        resolve(await executePdfDocumentAction(approval.request));
         return;
       }
 
@@ -4713,6 +5020,24 @@ export default function OpenClawWorkspace({
           success: false,
           error: message,
         } satisfies UwafBrowserToolResultEntry);
+        return;
+      }
+
+      if (approval.kind === 'tax_return') {
+        resolve({
+          action: approval.request.action,
+          success: false,
+          error: message,
+        } satisfies TaxReturnToolResultEntry);
+        return;
+      }
+
+      if (approval.kind === 'pdf_document') {
+        resolve({
+          title: approval.request.title,
+          success: false,
+          error: message,
+        } satisfies PdfDocumentToolResultEntry);
         return;
       }
 
@@ -4791,6 +5116,24 @@ export default function OpenClawWorkspace({
         success: false,
         error: 'UWAF browser action rejected by user',
       } satisfies UwafBrowserToolResultEntry);
+      return;
+    }
+
+    if (approval.kind === 'tax_return') {
+      resolve({
+        action: approval.request.action,
+        success: false,
+        error: 'Tax PDF generation rejected by user',
+      } satisfies TaxReturnToolResultEntry);
+      return;
+    }
+
+    if (approval.kind === 'pdf_document') {
+      resolve({
+        title: approval.request.title,
+        success: false,
+        error: 'PDF generation rejected by user',
+      } satisfies PdfDocumentToolResultEntry);
       return;
     }
 
@@ -5752,7 +6095,11 @@ export default function OpenClawWorkspace({
                         ? describeBrowserRequest(request.request)
                         : request.name === 'unified_browser'
                           ? describeUwafBrowserRequest(request.request)
-                          : describeFilesystemRequest(request.request.action, request.request.path)
+                          : request.name === 'tax_return'
+                            ? describeTaxReturnRequest(request.request)
+                            : request.name === 'pdf_document'
+                              ? describePdfDocumentRequest(request.request)
+                              : describeFilesystemRequest(request.request.action, request.request.path)
               : rawToolTagPresent
                 ? stripAllToolTags(assistantMessage.content)
                 : assistantMessage.content
@@ -5985,6 +6332,82 @@ export default function OpenClawWorkspace({
               id: randomUUID(),
               role: 'user',
               content: `Browser operation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. The page may be unreachable, the browser session may have expired, or the Tor proxy may be down. Try a different URL, switch browser mode, or use web research instead.`,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
+          continue;
+        }
+
+        if (request.name === 'tax_return') {
+          lastToolRequestSignature = effectiveToolSignature;
+          duplicateToolRequestCount = 0;
+          try {
+            setStreamPhase('tool-code');
+            const taxResult = await requestTaxReturnAction(request.request, {
+              messageId: nextAssistantId,
+              sessionId: chatId,
+            });
+            setStreamPhase(null);
+            if (taxResult.success) {
+              void loadCanvasArtifacts(chatId);
+            }
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatTaxReturnToolResult(taxResult),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Tax return tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Tax PDF generation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Ask the user to verify the Knowledge Base folder and source documents, then retry.`,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
+          continue;
+        }
+
+        if (request.name === 'pdf_document') {
+          lastToolRequestSignature = effectiveToolSignature;
+          duplicateToolRequestCount = 0;
+          try {
+            setStreamPhase('tool-code');
+            const pdfResult = await requestPdfDocumentAction(request.request, {
+              messageId: nextAssistantId,
+              sessionId: chatId,
+            });
+            setStreamPhase(null);
+            if (pdfResult.success) {
+              void loadCanvasArtifacts(chatId);
+            }
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatPdfDocumentToolResult(pdfResult),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('PDF document tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `PDF generation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Try simplifying the document content and retry.`,
               hidden: true,
               createdAt: new Date().toISOString(),
             };
@@ -7467,7 +7890,7 @@ export default function OpenClawWorkspace({
               if (sessionMenuOpen) setSessionMenuOpen(null);
               if (createMenuOpen) setCreateMenuOpen(false);
             }}>
-              <div className="openclaw-card openclaw-card-sessions" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div className="openclaw-card openclaw-card-sessions" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
                     <span className="openclaw-section-label">Sessions</span>

@@ -19,6 +19,11 @@ import { recordRenderMetric } from '@/lib/render-metrics'
 import AssistantContent from './AssistantContent'
 import ObjectUrlImage from './ObjectUrlImage'
 
+interface ServerArtifactDownload {
+  name: string
+  url: string
+}
+
 export function downloadBlob(filename: string, blob: Blob) {
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
@@ -45,6 +50,34 @@ export function downloadGeneratedFile(file: GeneratedFile) {
   } catch {
     downloadBlob(`${file.name}.txt`, new Blob([file.content], { type: 'text/plain' }))
   }
+}
+
+export function extractServerArtifactDownloads(content: string): ServerArtifactDownload[] {
+  const downloads: ServerArtifactDownload[] = []
+  const seen = new Set<string>()
+  const pushDownload = (name: string, url: string) => {
+    const cleanUrl = url.trim()
+    if (!cleanUrl || seen.has(cleanUrl)) return
+    seen.add(cleanUrl)
+    const cleanName = (name.trim() || 'download.pdf').replace(/[^\w.\- ()[\]]+/g, '_')
+    downloads.push({
+      name: cleanName.toLowerCase().endsWith('.pdf') ? cleanName : `${cleanName}.pdf`,
+      url: cleanUrl,
+    })
+  }
+
+  const markdownLinkRegex = /\[([^\]]{1,180})\]\((\/api\/canvas\/artifacts\/[^)\s]+\/download)\)/g
+  let match: RegExpExecArray | null
+  while ((match = markdownLinkRegex.exec(content)) !== null && downloads.length < 8) {
+    pushDownload(match[1], match[2])
+  }
+
+  const bareUrlRegex = /(?:^|\s)(\/api\/canvas\/artifacts\/[A-Za-z0-9_-]+\/download)(?=$|\s|[),.])/g
+  while ((match = bareUrlRegex.exec(content)) !== null && downloads.length < 8) {
+    pushDownload(`server-artifact-${downloads.length + 1}.pdf`, match[1])
+  }
+
+  return downloads
 }
 
 export function ThinkingBlock({ content, isStreaming }: { content: string; isStreaming: boolean }) {
@@ -301,12 +334,16 @@ export function AssistantDownloads({
     [content, presentation, showImages]
   )
   const { normalizedContent, generatedFiles, inlineImages } = parsed
+  const serverArtifacts = React.useMemo(
+    () => extractServerArtifactDownloads(normalizedContent),
+    [normalizedContent]
+  )
   const [persistedIds, setPersistedIds] = React.useState<Record<string, string>>({})
   const [savingIds, setSavingIds] = React.useState<Record<string, boolean>>({})
   const [persistedImageIds, setPersistedImageIds] = React.useState<Record<number, string>>({})
   const [saveError, setSaveError] = React.useState<string | null>(null)
 
-  if (!normalizedContent.trim() && generatedFiles.length === 0 && inlineImages.length === 0) return null
+  if (!normalizedContent.trim() && generatedFiles.length === 0 && inlineImages.length === 0 && serverArtifacts.length === 0) return null
 
   const downloadExtension = getResponseDownloadExtension(presentation ?? { mode: 'general' })
   const downloadMimeType = getResponseDownloadMimeType(presentation ?? { mode: 'general' })
@@ -445,6 +482,30 @@ export function AssistantDownloads({
             {savingIds[file.name] ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : persistedIds[file.name] ? <Check size={12} /> : <FileText size={12} />}
             {file.name}{persistedIds[file.name] ? ' (saved)' : ''}
           </button>
+        ))}
+        {serverArtifacts.map(artifact => (
+          <a
+            key={artifact.url}
+            href={artifact.url}
+            download={artifact.name}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '4px 9px',
+              borderRadius: '8px',
+              border: '1px solid var(--accent-border)',
+              background: 'var(--accent-faint)',
+              color: 'var(--accent-primary)',
+              cursor: 'pointer',
+              fontSize: '0.72rem',
+              textDecoration: 'none',
+            }}
+            title="Download generated server artifact"
+          >
+            <FileText size={12} />
+            {artifact.name}
+          </a>
         ))}
       </div>
     </div>

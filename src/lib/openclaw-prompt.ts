@@ -7,7 +7,9 @@ import {
   OPENCLAW_CODE_TOOL_EXAMPLE,
   OPENCLAW_FILESYSTEM_TOOL_EXAMPLE,
   OPENCLAW_FILESYSTEM_WRITE_TOOL_EXAMPLE,
+  OPENCLAW_PDF_DOCUMENT_TOOL_EXAMPLE,
   OPENCLAW_SHELL_TOOL_EXAMPLE,
+  OPENCLAW_TAX_RETURN_TOOL_EXAMPLE,
   OPENCLAW_UWAF_BROWSER_TOOL_EXAMPLE,
   OPENCLAW_WEB_TOOL_EXAMPLE,
 } from './openclaw-tools';
@@ -81,6 +83,8 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
   const workspace = context.workspace;
   const toolLabels = [
     context.internetToolEnabled && !uwafBrowserAvailable ? 'web research' : null,
+    'PDF generation',
+    context.workspace ? 'tax PDF generation' : null,
     context.shellEnabled ? 'shell' : null,
     filesystemAvailable ? 'filesystem' : null,
     filesystemWriteAvailable ? 'filesystem writes' : null,
@@ -119,6 +123,17 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
   if (context.internetToolEnabled && !uwafBrowserAvailable) {
     lines.push(buildChatInternetToolPrompt());
   }
+
+  lines.push(
+    'PDF DOCUMENT CAPABILITY: When the user asks you to create, generate, produce, or return a downloadable PDF, use the pdf_document tool. Do not use shell, filesystem, or code sandbox to generate PDFs unless the user specifically asks to write source code.',
+    'The pdf_document tool turns your provided title and document content into a server-generated PDF Canvas artifact and returns a chat download URL.',
+    `Use this exact format:\n${OPENCLAW_PDF_DOCUMENT_TOOL_EXAMPLE}`,
+    'TAX PDF CAPABILITY: When the user has enabled a Knowledge Base folder containing tax documents and asks for a downloadable tax return PDF, use the tax_return tool.',
+    'The tax_return tool extracts a structured tax packet from ready Knowledge Base documents, saves a server-generated PDF artifact, and returns a download URL for chat.',
+    'Use generate_review_pdf to create a review packet from W-2/1099/supporting documents. Use fill_pdf_form only when the user identifies a fillable PDF template document id from Knowledge Base.',
+    'This workflow creates a review draft with source citations and missing-field warnings. Do not claim it is officially filed, e-filed, or tax-advice complete.',
+    `Use this exact format:\n${OPENCLAW_TAX_RETURN_TOOL_EXAMPLE}`,
+  );
 
   if (context.shellEnabled) {
     lines.push(

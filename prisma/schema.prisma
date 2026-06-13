@@ -182,6 +182,8 @@ model Document {
   kind           String?
   size           Int
   contentHash    String?
+  originalContent String?
+  originalMimeType String?
   status         String          @default("processing")
   ragMode        String          @default("semantic")
   embeddingModel String?

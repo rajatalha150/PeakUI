@@ -261,6 +261,7 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
   const [nowMs, setNowMs] = useState(0);
   const [ragHealth, setRagHealth] = useState<RagHealthSnapshot | null>(null);
   const [ragHealthError, setRagHealthError] = useState<string | null>(null);
+  const [ragHealthExpanded, setRagHealthExpanded] = useState(false);
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({
     filename: '',
     folder: '',
@@ -863,6 +864,13 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
     (ragHealthSummary && (ragHealthSummary.failed > 0 || ragHealthSummary.pending > 0 || ragHealthSummary.warnings > 0)) ||
     ragHealthError
   );
+  const ragHealthPanelOpen = ragHealthHasIssues || ragHealthExpanded;
+  const ragHealthHasDocumentRows = Boolean(
+    (ragHealth?.indexedDocuments.length ?? 0) > 0 ||
+    (ragHealth?.failedDocuments.length ?? 0) > 0 ||
+    (ragHealth?.pendingDocuments.length ?? 0) > 0
+  );
+
   const renderHealthEntry = (entry: RagHealthEntry, tone: 'success' | 'warning' | 'danger' | 'neutral') => {
     const toneTextColor = tone === 'success'
       ? 'var(--success)'
@@ -953,24 +961,35 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
         </p>
       </div>
 
-      <details open={ragHealthHasIssues} style={{
+      <div style={{
         border: '1px solid var(--border-color)',
         borderRadius: '14px',
         background: 'rgba(255,255,255,0.02)',
-        overflow: 'hidden',
+        overflow: 'visible',
+        position: 'relative',
+        zIndex: 1,
       }}>
-        <summary style={{
-          listStyle: 'none',
-          cursor: 'pointer',
-          padding: '14px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '12px',
-        }}>
+        <button
+          type="button"
+          onClick={() => setRagHealthExpanded(open => !open)}
+          aria-expanded={ragHealthPanelOpen}
+          style={{
+            width: '100%',
+            border: 'none',
+            background: 'transparent',
+            color: 'inherit',
+            cursor: 'pointer',
+            padding: '14px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            textAlign: 'left',
+          }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: '0.82rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)' }}>
-              RAG health
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)' }}>
+              <ChevronDown size={14} style={{ transform: ragHealthPanelOpen ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.18s ease' }} />
+              <span>RAG health</span>
             </div>
             <div style={{ marginTop: '4px', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
               {ragHealthSummary
@@ -992,24 +1011,25 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
               {ragHealthSummary?.failed ?? 0} failed
             </span>
           </div>
-        </summary>
-        <div style={{ padding: '0 16px 16px 16px', display: 'grid', gap: '14px' }}>
-          {ragHealthError && (
-            <div style={{
-              padding: '12px 14px',
-              borderRadius: '12px',
-              border: '1px solid var(--danger)',
-              background: 'rgba(239,68,68,0.08)',
-              color: '#fca5a5',
-              fontSize: '0.84rem',
-              lineHeight: 1.6,
-            }}>
-              {ragHealthError}
-            </div>
-          )}
+        </button>
+        {ragHealthPanelOpen && (
+          <div style={{ padding: '0 16px 16px 16px', display: 'grid', gap: '14px' }}>
+            {ragHealthError && (
+              <div style={{
+                padding: '12px 14px',
+                borderRadius: '12px',
+                border: '1px solid var(--danger)',
+                background: 'rgba(239,68,68,0.08)',
+                color: '#fca5a5',
+                fontSize: '0.84rem',
+                lineHeight: 1.6,
+              }}>
+                {ragHealthError}
+              </div>
+            )}
 
           {ragHealthSummary && (
-            <div style={{ display: 'grid', gap: '10px', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+            <div style={{ display: 'grid', gap: '10px', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))' }}>
               {[
                 { label: 'Indexed', value: ragHealthSummary.indexed, accent: 'var(--success)' },
                 { label: 'Full docs', value: ragHealthSummary.fullDocuments, accent: 'var(--accent-primary)' },
@@ -1040,6 +1060,7 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
             </div>
           )}
 
+          {ragHealthHasDocumentRows && (
           <div style={{ display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
             <div style={{ display: 'grid', gap: '8px' }}>
               <div style={{ fontSize: '0.74rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)' }}>
@@ -1095,8 +1116,10 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
               )}
             </div>
           </div>
+          )}
         </div>
-      </details>
+        )}
+      </div>
 
       {/* How it works banner */}
       <div style={{

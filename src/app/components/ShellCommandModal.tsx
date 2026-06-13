@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react'
-import { CheckCircle, FilePenLine, Globe, Shield, Terminal, XCircle } from 'lucide-react'
+import { CheckCircle, FilePenLine, FileText, Globe, Shield, Terminal, XCircle } from 'lucide-react'
 
 interface ShellCommandModalProps {
   title: string
   description?: string
   previewLabel: string
   previewContent: string
-  toolKind: 'shell' | 'filesystem' | 'code' | 'browser' | 'unified_browser'
+  toolKind: 'shell' | 'filesystem' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document'
   onApprove: () => void
   onReject: () => void
   isOpen: boolean
@@ -17,6 +17,7 @@ function renderToolIcon(toolKind: ShellCommandModalProps['toolKind']) {
   if (toolKind === 'filesystem') return <FilePenLine size={24} style={{ color: 'var(--accent-primary)' }} />
   if (toolKind === 'browser') return <Globe size={24} style={{ color: 'var(--accent-primary)' }} />
   if (toolKind === 'unified_browser') return <Shield size={24} style={{ color: 'var(--accent-uwaf, var(--accent-primary))' }} />
+  if (toolKind === 'tax_return' || toolKind === 'pdf_document') return <FileText size={24} style={{ color: 'var(--accent-primary)' }} />
   if (toolKind === 'code') return <Terminal size={24} style={{ color: 'var(--accent-primary)' }} />
   return <Terminal size={24} style={{ color: 'var(--accent-primary)' }} />
 }

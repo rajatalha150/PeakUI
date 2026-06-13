@@ -1409,9 +1409,11 @@ textarea.input-field {
 
 .openclaw-list-scroll {
   display: grid;
+  align-content: start;
   gap: 6px;
-  flex: 1 1 auto;
-  min-height: 120px;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(360px, 46vh);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 14px;
