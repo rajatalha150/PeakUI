@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState, useDeferredValue, useCallback, memo } from 'react';
 import { randomUUID } from '@/lib/uuid';
-import { Activity, AlertCircle, BookOpen, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Cpu, Database, Download, FileText, Folder, Globe, ListTodo, Loader2, Menu, MessageSquare, MoreHorizontal, Paperclip, Pin, Plus, Redo2, RefreshCw, Send, Server, Shield, Square, Tag, Trash2, Wand2, Wifi, WifiOff, X } from 'lucide-react';
+import { Activity, AlertCircle, BookOpen, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Cpu, Database, Download, FileText, Folder, Globe, ListTodo, Loader2, Menu, MessageSquare, MoreHorizontal, Paperclip, Pin, Plus, Redo2, RefreshCw, Send, Server, Shield, Square, Star, Tag, Trash2, Wand2, Wifi, WifiOff, X } from 'lucide-react';
 import { ChatMessageContent, AssistantDownloads, ThinkingBlock } from './ChatMessageContent';
 import HelpHint from './HelpHint';
 import SourceChips from './SourceChips';
@@ -84,6 +84,7 @@ const MOBILE_BREAKPOINT = 960;
 const HUMAN_BROWSER_ASSIST_TIMEOUT_MS = 10 * 60 * 1000;
 const SESSION_PAGE_SIZE = 15;
 const OPENCLAW_CANVAS_MINIMIZED_STORAGE = 'peakui-openclaw-canvas-minimized';
+const OPENCLAW_MODEL_FAVORITES_STORAGE = 'peakui-openclaw-model-favorites';
 const IMAGE_ATTACHMENT_MODE_OPTIONS: Array<{ value: ImageAttachmentMode; label: string }> = [
   { value: 'vision-only', label: 'Vision only' },
   { value: 'vision+ocr', label: 'Vision + OCR' },
@@ -2373,6 +2374,15 @@ export default function OpenClawWorkspace({
   const [streamPhase, setStreamPhase] = useState<UiStreamPhase | null>(null);
   const [liveStats, setLiveStats] = useState<{ tps: number; tokens: number } | null>(null);
   const [selectedModel, setSelectedModel] = useState('');
+  const [favoriteModels, setFavoriteModels] = useState<string[]>(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(OPENCLAW_MODEL_FAVORITES_STORAGE) || '[]');
+      return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
   const [provider, setProvider] = useState<OpenClawProvider>('ollama');
   const [baseUrl, setBaseUrl] = useState('');
   const [configSaving, setConfigSaving] = useState(false);
@@ -2546,6 +2556,14 @@ export default function OpenClawWorkspace({
       // Ignore storage errors; minimizing is only a UI preference.
     }
   }, [canvasMinimized]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(OPENCLAW_MODEL_FAVORITES_STORAGE, JSON.stringify(favoriteModels));
+    } catch {
+      // Ignore storage errors; favorites are a local UI preference.
+    }
+  }, [favoriteModels]);
 
   const {
     handleScroll: handleChatScroll,
@@ -3597,6 +3615,17 @@ export default function OpenClawWorkspace({
     } catch {
       // Ignore inline selection persistence errors; footer surfaces failures.
     }
+  };
+
+  const getModelFavoriteKey = (modelName: string, modelProvider = provider) => `${modelProvider}:${modelName}`;
+
+  const toggleFavoriteModel = (event: React.MouseEvent, modelName: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const key = getModelFavoriteKey(modelName);
+    setFavoriteModels(current => current.includes(key)
+      ? current.filter(entry => entry !== key)
+      : [...current, key]);
   };
 
   const refreshModels = async () => {
@@ -6931,6 +6960,19 @@ export default function OpenClawWorkspace({
       ? 'Select a model'
       : 'No models found');
   const selectedModelIsOllama = provider === 'ollama';
+  const sortedModels = useMemo(() => {
+    const favoriteSet = new Set(favoriteModels);
+    return models
+      .map((model, index) => ({
+        model,
+        index,
+        favorite: favoriteSet.has(getModelFavoriteKey(model.name, provider)),
+      }))
+      .sort((left, right) => {
+        if (left.favorite !== right.favorite) return left.favorite ? -1 : 1;
+        return left.index - right.index;
+      });
+  }, [models, favoriteModels, provider]);
   const healthStatusLabel = ollamaHealthLoading
     ? 'Checking Ollama'
     : ollamaHealth?.status === 'online'
@@ -7122,18 +7164,47 @@ export default function OpenClawWorkspace({
                 <div className="mobile-topbar-dropdown-section">
                   {selectedModelIsOllama ? 'Installed Ollama Models' : 'Provider Models'}
                 </div>
-                {models.map(model => {
+                {sortedModels.map(({ model, favorite }) => {
                   const active = model.name === selectedModel;
+                  const favoriteLabel = favorite ? `Remove ${model.name} from favorites` : `Favorite ${model.name}`;
                   return (
-                    <button
+                    <div
                       key={model.name}
-                      type="button"
+                      role="button"
+                      tabIndex={0}
                       className={`mobile-topbar-menu-item${active ? ' is-active' : ''}`}
                       onClick={() => void selectOpenClawModel(model.name)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          void selectOpenClawModel(model.name);
+                        }
+                      }}
                     >
-                      <span>{model.name}</span>
+                      <button
+                        type="button"
+                        onClick={(event) => toggleFavoriteModel(event, model.name)}
+                        aria-label={favoriteLabel}
+                        title={favoriteLabel}
+                        style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 7,
+                          border: 'none',
+                          background: favorite ? 'rgba(245, 158, 11, 0.16)' : 'transparent',
+                          color: favorite ? '#f59e0b' : 'var(--text-secondary)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Star size={14} fill={favorite ? 'currentColor' : 'none'} />
+                      </button>
+                      <span style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{model.name}</span>
                       <span>{active ? 'Selected' : 'Available'}</span>
-                    </button>
+                    </div>
                   );
                 })}
               </>
@@ -7364,13 +7435,21 @@ export default function OpenClawWorkspace({
                 }}>
                   {selectedModelIsOllama ? 'Installed Ollama Models' : 'Provider Models'}
                 </div>
-                {models.map(model => {
+                {sortedModels.map(({ model, favorite }) => {
                   const active = model.name === selectedModel;
+                  const favoriteLabel = favorite ? `Remove ${model.name} from favorites` : `Favorite ${model.name}`;
                   return (
-                    <button
+                    <div
                       key={model.name}
-                      type="button"
+                      role="button"
+                      tabIndex={0}
                       onClick={() => void selectOpenClawModel(model.name)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          void selectOpenClawModel(model.name);
+                        }
+                      }}
                       style={{
                         width: '100%',
                         display: 'flex',
@@ -7388,6 +7467,27 @@ export default function OpenClawWorkspace({
                       onMouseEnter={e => { if (!active) e.currentTarget.style.background = 'var(--surface-hover)'; }}
                       onMouseLeave={e => { if (!active) e.currentTarget.style.background = 'transparent'; }}
                     >
+                      <button
+                        type="button"
+                        onClick={(event) => toggleFavoriteModel(event, model.name)}
+                        aria-label={favoriteLabel}
+                        title={favoriteLabel}
+                        style={{
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '8px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          background: favorite ? 'rgba(245, 158, 11, 0.16)' : 'var(--bg-glass)',
+                          border: favorite ? '1px solid rgba(245, 158, 11, 0.45)' : '1px solid var(--border-color)',
+                          color: favorite ? '#f59e0b' : 'var(--text-secondary)',
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                        }}
+                      >
+                        <Star size={14} fill={favorite ? 'currentColor' : 'none'} />
+                      </button>
                       <div style={{
                         width: '28px',
                         height: '28px',
@@ -7409,7 +7509,7 @@ export default function OpenClawWorkspace({
                           {selectedModelIsOllama ? 'Local Ollama model' : 'External provider model'}
                         </div>
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </>
