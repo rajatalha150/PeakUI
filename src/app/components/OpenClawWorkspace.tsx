@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState, useDeferredValue, useCallback, memo } from 'react';
 import { randomUUID } from '@/lib/uuid';
-import { Activity, AlertCircle, BookOpen, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, Cpu, Database, Download, FileText, Folder, Globe, ListTodo, Loader2, Menu, MessageSquare, MoreHorizontal, Paperclip, Pin, Plus, Redo2, RefreshCw, Send, Server, Shield, Square, Tag, Trash2, Wand2, Wifi, WifiOff, X } from 'lucide-react';
+import { Activity, AlertCircle, BookOpen, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Cpu, Database, Download, FileText, Folder, Globe, ListTodo, Loader2, Menu, MessageSquare, MoreHorizontal, Paperclip, Pin, Plus, Redo2, RefreshCw, Send, Server, Shield, Square, Tag, Trash2, Wand2, Wifi, WifiOff, X } from 'lucide-react';
 import { ChatMessageContent, AssistantDownloads, ThinkingBlock } from './ChatMessageContent';
 import HelpHint from './HelpHint';
 import SourceChips from './SourceChips';
@@ -82,6 +82,7 @@ type ImageAttachmentMode = 'vision-only' | 'vision+ocr' | 'ocr-only';
 const MOBILE_BREAKPOINT = 960;
 const HUMAN_BROWSER_ASSIST_TIMEOUT_MS = 10 * 60 * 1000;
 const SESSION_PAGE_SIZE = 15;
+const OPENCLAW_CANVAS_MINIMIZED_STORAGE = 'peakui-openclaw-canvas-minimized';
 const IMAGE_ATTACHMENT_MODE_OPTIONS: Array<{ value: ImageAttachmentMode; label: string }> = [
   { value: 'vision-only', label: 'Vision only' },
   { value: 'vision+ocr', label: 'Vision + OCR' },
@@ -2447,6 +2448,14 @@ export default function OpenClawWorkspace({
   const [canvasSearchQuery, setCanvasSearchQuery] = useState('');
   const [canvasLoading, setCanvasLoading] = useState(false);
   const [canvasError, setCanvasError] = useState<string | null>(null);
+  const [canvasMinimized, setCanvasMinimized] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem(OPENCLAW_CANVAS_MINIMIZED_STORAGE) === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingApprovalResolverRef = useRef<((result: ToolApprovalResolution) => void) | null>(null);
@@ -2468,6 +2477,14 @@ export default function OpenClawWorkspace({
   useEffect(() => {
     browserInterruptedRef.current = browserInterrupted;
   }, [browserInterrupted]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(OPENCLAW_CANVAS_MINIMIZED_STORAGE, canvasMinimized ? 'true' : 'false');
+    } catch {
+      // Ignore storage errors; minimizing is only a UI preference.
+    }
+  }, [canvasMinimized]);
 
   const {
     handleScroll: handleChatScroll,
@@ -10002,104 +10019,128 @@ export default function OpenClawWorkspace({
           </div>
             <div className="openclaw-card">
                 <div className="openclaw-card-header">
-                  <div className="openclaw-section-label">Canvas</div>
-                  <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{canvasArtifacts.length} artifact{canvasArtifacts.length !== 1 ? 's' : ''}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                    <div className="openclaw-section-label">Canvas</div>
+                    <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>{canvasArtifacts.length} artifact{canvasArtifacts.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCanvasMinimized(prev => !prev)}
+                    title={canvasMinimized ? 'Expand Canvas' : 'Minimize Canvas'}
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: 6,
+                      border: '1px solid var(--border-color)',
+                      background: 'var(--bg-secondary)',
+                      color: 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {canvasMinimized ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+                  </button>
                 </div>
-                <CanvasPanel
-                  key={currentSessionId ?? 'draft-canvas'}
-                  artifacts={canvasArtifacts}
-                  onUpdate={async (id, content, name) => {
-                    try {
-                      const res = await fetch(`/api/canvas/artifacts/${id}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ content, name })
-                      });
-                      if (res.ok) {
-                        const data = await res.json();
-                        setCanvasArtifacts(prev => prev.flatMap(a => {
-                          if (!a) return [];
-                          return [a.id === id ? data.artifact : a];
-                        }));
+                {!canvasMinimized && (
+                  <CanvasPanel
+                    key={currentSessionId ?? 'draft-canvas'}
+                    artifacts={canvasArtifacts}
+                    onUpdate={async (id, content, name) => {
+                      try {
+                        const res = await fetch(`/api/canvas/artifacts/${id}`, {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ content, name })
+                        });
+                        if (res.ok) {
+                          const data = await res.json();
+                          setCanvasArtifacts(prev => prev.flatMap(a => {
+                            if (!a) return [];
+                            return [a.id === id ? data.artifact : a];
+                          }));
+                          return data.artifact;
+                        }
+                        const data = await res.json().catch(() => ({}));
+                        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to update artifact');
+                      } catch (error) {
+                        console.error("Failed to update artifact:", error);
+                        throw error;
+                      }
+                    }}
+                    onDelete={async (id) => {
+                      await deleteArtifactById(id);
+                    }}
+                    onDownload={(artifact) => {
+                      const blob = new Blob([artifact.content || ''], { type: artifact.mimeType });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = artifact.name;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                    onFetchContent={async (id) => {
+                      try {
+                        const res = await fetch(`/api/canvas/artifacts/${id}`);
+                        if (res.ok) {
+                          const data = await res.json();
+                          return data.artifact;
+                        }
+                      } catch (error) {
+                        console.error("Failed to fetch artifact content:", error);
+                      }
+                      return null;
+                    }}
+                    onFetchRevisions={async (id) => {
+                      try {
+                        const res = await fetch(`/api/canvas/artifacts/${id}/revisions?includeContent=1`);
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                          throw new Error(typeof data.error === 'string' ? data.error : 'Failed to fetch artifact revisions');
+                        }
+                        return Array.isArray(data.revisions) ? data.revisions as CanvasArtifactRevisionRecord[] : [];
+                      } catch (error) {
+                        console.error("Failed to fetch artifact revisions:", error);
+                        throw error;
+                      }
+                    }}
+                    onRestoreRevision={async (id, version) => {
+                      try {
+                        const res = await fetch(`/api/canvas/artifacts/${id}/revisions`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ version }),
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok) {
+                          throw new Error(typeof data.error === 'string' ? data.error : 'Failed to restore artifact revision');
+                        }
+                        setCanvasArtifacts(prev => prev.map(a => a?.id === id ? data.artifact : a));
                         return data.artifact;
+                      } catch (error) {
+                        console.error("Failed to restore artifact revision:", error);
+                        throw error;
                       }
-                      const data = await res.json().catch(() => ({}));
-                      throw new Error(typeof data.error === 'string' ? data.error : 'Failed to update artifact');
-                    } catch (error) {
-                      console.error("Failed to update artifact:", error);
-                      throw error;
-                    }
-                  }}
-                  onDelete={async (id) => {
-                    await deleteArtifactById(id);
-                  }}
-                  onDownload={(artifact) => {
-                    const blob = new Blob([artifact.content || ''], { type: artifact.mimeType });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = artifact.name;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  }}
-                  onFetchContent={async (id) => {
-                    try {
-                      const res = await fetch(`/api/canvas/artifacts/${id}`);
-                      if (res.ok) {
-                        const data = await res.json();
-                        return data.artifact;
-                      }
-                    } catch (error) {
-                      console.error("Failed to fetch artifact content:", error);
-                    }
-                    return null;
-                  }}
-                  onFetchRevisions={async (id) => {
-                    try {
-                      const res = await fetch(`/api/canvas/artifacts/${id}/revisions?includeContent=1`);
-                      const data = await res.json().catch(() => ({}));
-                      if (!res.ok) {
-                        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to fetch artifact revisions');
-                      }
-                      return Array.isArray(data.revisions) ? data.revisions as CanvasArtifactRevisionRecord[] : [];
-                    } catch (error) {
-                      console.error("Failed to fetch artifact revisions:", error);
-                      throw error;
-                    }
-                  }}
-                  onRestoreRevision={async (id, version) => {
-                    try {
-                      const res = await fetch(`/api/canvas/artifacts/${id}/revisions`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ version }),
-                      });
-                      const data = await res.json().catch(() => ({}));
-                      if (!res.ok) {
-                        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to restore artifact revision');
-                      }
-                      setCanvasArtifacts(prev => prev.map(a => a?.id === id ? data.artifact : a));
-                      return data.artifact;
-                    } catch (error) {
-                      console.error("Failed to restore artifact revision:", error);
-                      throw error;
-                    }
-                  }}
-                  onLoadMore={() => {
-                    if (!currentSessionId || !canvasNextCursor) return;
-                    void loadCanvasArtifacts(currentSessionId, { append: true, cursor: canvasNextCursor });
-                  }}
-                  onSearch={(query) => {
-                    setCanvasSearchQuery(query);
-                    if (!currentSessionId) return;
-                    void loadCanvasArtifacts(currentSessionId, { query });
-                  }}
-                  hasMore={canvasHasMore}
-                  loading={canvasLoading}
-                  error={canvasError}
-                  searchQuery={canvasSearchQuery}
-                  totalCount={canvasTotalCount}
-                />
+                    }}
+                    onLoadMore={() => {
+                      if (!currentSessionId || !canvasNextCursor) return;
+                      void loadCanvasArtifacts(currentSessionId, { append: true, cursor: canvasNextCursor });
+                    }}
+                    onSearch={(query) => {
+                      setCanvasSearchQuery(query);
+                      if (!currentSessionId) return;
+                      void loadCanvasArtifacts(currentSessionId, { query });
+                    }}
+                    hasMore={canvasHasMore}
+                    loading={canvasLoading}
+                    error={canvasError}
+                    searchQuery={canvasSearchQuery}
+                    totalCount={canvasTotalCount}
+                  />
+                )}
             </div>
 
             {/* UWAF Network Hub Panel */}
