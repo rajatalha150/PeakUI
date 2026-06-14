@@ -1637,7 +1637,12 @@ function getOpenClawToolRequestSignature(request: OpenClawToolRequest) {
 
   if (request.name === 'pdf_document') {
     const pdf = request.request as OpenClawPdfDocumentToolRequest
-    return `pdf_document:${pdf.title.trim()}:${pdf.filename?.trim() || ''}:${pdf.content.trim().slice(0, 2000)}`;
+    return `pdf_document:${pdf.title.trim()}:${pdf.filename?.trim() || ''}:${pdf.template || ''}:${(pdf.content || '').trim().slice(0, 2000)}:${JSON.stringify({
+      sections: pdf.sections,
+      fields: pdf.fields,
+      tables: pdf.tables,
+      callouts: pdf.callouts,
+    }).slice(0, 2000)}`;
   }
 
   return `filesystem:${request.request.action}:${request.request.path.trim()}`;
@@ -4897,7 +4902,23 @@ export default function OpenClawWorkspace({
         description: describePdfDocumentRequest(request),
         previewLabel: 'PDF content preview',
         previewContent: truncateApprovalPreview(
-          [`Title: ${request.title}`, `Filename: ${request.filename || `${request.title}.pdf`}`, '', request.content].join('\n')
+          [
+            `Title: ${request.title}`,
+            `Filename: ${request.filename || `${request.title}.pdf`}`,
+            request.template ? `Template: ${request.template}` : null,
+            request.subtitle ? `Subtitle: ${request.subtitle}` : null,
+            request.sections?.length ? `Sections: ${request.sections.length}` : null,
+            request.tables?.length ? `Tables: ${request.tables.length}` : null,
+            request.fields?.length ? `Fields: ${request.fields.length}` : null,
+            request.callouts?.length ? `Callouts: ${request.callouts.length}` : null,
+            '',
+            request.content || JSON.stringify({
+              sections: request.sections,
+              tables: request.tables,
+              fields: request.fields,
+              callouts: request.callouts,
+            }, null, 2),
+          ].filter(Boolean).join('\n')
         ),
         messageId: options.messageId,
         request: payload,

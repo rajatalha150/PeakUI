@@ -30,6 +30,7 @@ import {
   isCodeArtifact,
   isImageArtifact,
   isMarkdownArtifact,
+  isPdfArtifact,
   isTableArtifact,
 } from '@/lib/canvas-artifacts'
 import {
@@ -133,6 +134,7 @@ function buildRevisionComparison(left?: CanvasArtifactRevisionRecord, right?: Ca
 
 function getArtifactIcon(artifact: CanvasArtifactRecord) {
   if (isImageArtifact(artifact)) return <ImageIcon size={14} />
+  if (isPdfArtifact(artifact)) return <FileText size={14} />
   if (isMarkdownArtifact(artifact)) return <FileText size={14} />
   if (isTableArtifact(artifact)) return <FileSpreadsheet size={14} />
   if (artifact.kind === 'data' || artifact.mimeType === 'application/json') return <FileJson size={14} />

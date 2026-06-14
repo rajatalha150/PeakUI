@@ -8,10 +8,12 @@ export type ArtifactPresentationType =
   | 'slides'
   | 'memo'
   | 'data'
+  | 'pdf'
   | 'file'
 
 export type ArtifactPreviewKind =
   | 'file'
+  | 'pdf'
   | 'markdown'
   | 'image'
   | 'code'
@@ -84,6 +86,7 @@ function buildBundleName(name: string, role: string | null): string | null {
 function inferPresentationType(name: string, mimeType: string, kind: string, content: string, extension: string): ArtifactPresentationType {
   const lowerName = name.toLowerCase()
   const trimmed = content.trim()
+  if (mimeType === 'application/pdf' || extension === 'pdf' || kind === 'pdf') return 'pdf'
   if (mimeType.startsWith('image/')) {
     if (lowerName.includes('diagram')) return 'diagram'
     if (lowerName.includes('chart') || lowerName.includes('graph')) return 'chart'
@@ -106,6 +109,7 @@ function inferPresentationType(name: string, mimeType: string, kind: string, con
 }
 
 function inferPreviewKind(presentationType: ArtifactPresentationType, mimeType: string, extension: string, kind: string): ArtifactPreviewKind {
+  if (presentationType === 'pdf' || mimeType === 'application/pdf' || extension === 'pdf' || kind === 'pdf') return 'pdf'
   if (mimeType.startsWith('image/')) return 'image'
   if (presentationType === 'table') return 'table'
   if (presentationType === 'chart') return 'chart'
@@ -120,6 +124,7 @@ function inferPreviewKind(presentationType: ArtifactPresentationType, mimeType: 
 function summarizeContent(content: string, previewKind: ArtifactPreviewKind): string | null {
   const trimmed = content.trim()
   if (!trimmed) return null
+  if (previewKind === 'pdf') return 'Generated PDF document'
   if (previewKind === 'image') return null
   const firstHeading = trimmed.match(/^#*\s*([^\n]{8,120})/m)?.[1]?.trim()
   if (firstHeading) return firstHeading.slice(0, 120)
@@ -201,6 +206,7 @@ export function extractImageDimensions(base64Data: string, mimeType: string): { 
 
 function inferExportTargets(presentationType: ArtifactPresentationType, previewKind: ArtifactPreviewKind): ArtifactExportTarget[] {
   if (previewKind === 'image') return ['report']
+  if (previewKind === 'pdf' || presentationType === 'pdf') return ['report']
   if (presentationType === 'code') return ['dev-handoff', 'report']
   if (presentationType === 'report' || presentationType === 'slides' || presentationType === 'memo') return ['memo', 'report']
   if (presentationType === 'table' || presentationType === 'chart' || presentationType === 'data') return ['report', 'dev-handoff']

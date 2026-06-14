@@ -1,0 +1,291 @@
+import React from 'react'
+import { Document, Page, StyleSheet, Text, View, renderToBuffer } from '@react-pdf/renderer'
+import type { NormalizedPdfDocument, PdfDocumentField, PdfDocumentTable } from './document-schema'
+
+const styles = StyleSheet.create({
+  page: {
+    padding: 42,
+    fontSize: 10,
+    fontFamily: 'Helvetica',
+    color: '#111827',
+    lineHeight: 1.45,
+  },
+  header: {
+    marginBottom: 20,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#d1d5db',
+  },
+  eyebrow: {
+    fontSize: 8,
+    color: '#4f46e5',
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+    marginBottom: 5,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: 700,
+    marginBottom: 6,
+  },
+  subtitle: {
+    fontSize: 10,
+    color: '#4b5563',
+  },
+  section: {
+    marginBottom: 15,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: 700,
+    marginBottom: 7,
+  },
+  paragraph: {
+    marginBottom: 7,
+  },
+  bulletRow: {
+    flexDirection: 'row',
+    marginBottom: 4,
+  },
+  bullet: {
+    width: 12,
+    color: '#4f46e5',
+  },
+  bulletText: {
+    flexGrow: 1,
+  },
+  fieldGrid: {
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 6,
+  },
+  fieldRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  fieldLabel: {
+    width: 150,
+    padding: 7,
+    color: '#4b5563',
+    backgroundColor: '#f9fafb',
+    fontWeight: 700,
+  },
+  fieldValue: {
+    flexGrow: 1,
+    padding: 7,
+  },
+  tableTitle: {
+    fontSize: 11,
+    fontWeight: 700,
+    marginBottom: 5,
+  },
+  table: {
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  tableHeader: {
+    flexGrow: 1,
+    flexBasis: 0,
+    padding: 6,
+    fontSize: 8,
+    fontWeight: 700,
+    color: '#374151',
+    backgroundColor: '#f3f4f6',
+  },
+  tableCell: {
+    flexGrow: 1,
+    flexBasis: 0,
+    padding: 6,
+    fontSize: 8,
+  },
+  callout: {
+    marginBottom: 10,
+    padding: 9,
+    borderLeftWidth: 3,
+    borderLeftColor: '#4f46e5',
+    backgroundColor: '#eef2ff',
+  },
+  calloutWarning: {
+    borderLeftColor: '#d97706',
+    backgroundColor: '#fffbeb',
+  },
+  calloutSuccess: {
+    borderLeftColor: '#059669',
+    backgroundColor: '#ecfdf5',
+  },
+  calloutTitle: {
+    fontWeight: 700,
+    marginBottom: 3,
+  },
+  footer: {
+    position: 'absolute',
+    left: 42,
+    right: 42,
+    bottom: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    color: '#6b7280',
+    fontSize: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    paddingTop: 7,
+  },
+})
+
+function templateLabel(template: NormalizedPdfDocument['template']) {
+  return template === 'form' ? 'Form'
+    : template === 'checklist' ? 'Checklist'
+      : template === 'invoice' ? 'Invoice'
+        : template === 'letter' ? 'Letter'
+          : template === 'memo' ? 'Memo'
+            : 'Report'
+}
+
+function splitParagraphs(content: string): string[] {
+  return content
+    .replace(/\r\n/g, '\n')
+    .split(/\n{2,}/)
+    .map(part => part.trim())
+    .filter(Boolean)
+}
+
+function renderFieldGrid(fields: PdfDocumentField[], keyPrefix: string) {
+  if (fields.length === 0) return null
+  return (
+    <View style={styles.fieldGrid}>
+      {fields.map((field, index) => (
+        <View key={`${keyPrefix}-field-${index}`} style={styles.fieldRow}>
+          <Text style={styles.fieldLabel}>{field.label}</Text>
+          <Text style={styles.fieldValue}>{field.value}</Text>
+        </View>
+      ))}
+    </View>
+  )
+}
+
+function tableCellValue(row: Record<string, string> | string[], column: string, index: number): string {
+  if (Array.isArray(row)) return row[index] ?? ''
+  return row[column] ?? ''
+}
+
+function renderTable(table: PdfDocumentTable, index: number) {
+  return (
+    <View key={`table-${index}`} style={styles.section} wrap={false}>
+      {table.title ? <Text style={styles.tableTitle}>{table.title}</Text> : null}
+      <View style={styles.table}>
+        <View style={styles.tableRow}>
+          {table.columns.map(column => <Text key={column} style={styles.tableHeader}>{column}</Text>)}
+        </View>
+        {table.rows.map((row, rowIndex) => (
+          <View key={`row-${rowIndex}`} style={styles.tableRow}>
+            {table.columns.map((column, columnIndex) => (
+              <Text key={`${rowIndex}-${column}`} style={styles.tableCell}>
+                {tableCellValue(row, column, columnIndex)}
+              </Text>
+            ))}
+          </View>
+        ))}
+      </View>
+    </View>
+  )
+}
+
+function calloutStyle(tone: string | undefined) {
+  if (tone === 'warning') return [styles.callout, styles.calloutWarning]
+  if (tone === 'success') return [styles.callout, styles.calloutSuccess]
+  return styles.callout
+}
+
+function GeneratedPdfDocument({ document }: { document: NormalizedPdfDocument }) {
+  const footer = document.metadata.footer || 'Generated by PeakUI'
+  return (
+    <Document
+      title={document.title}
+      author={document.metadata.author || 'PeakUI'}
+      subject={document.metadata.subject || document.subtitle || document.title}
+    >
+      <Page size="LETTER" style={styles.page}>
+        <View style={styles.header}>
+          <Text style={styles.eyebrow}>{templateLabel(document.template)}</Text>
+          <Text style={styles.title}>{document.title}</Text>
+          {document.subtitle ? <Text style={styles.subtitle}>{document.subtitle}</Text> : null}
+        </View>
+
+        {document.callouts.map((callout, index) => (
+          <View
+            key={`callout-${index}`}
+            style={calloutStyle(callout.tone)}
+          >
+            {callout.title ? <Text style={styles.calloutTitle}>{callout.title}</Text> : null}
+            <Text>{callout.text}</Text>
+          </View>
+        ))}
+
+        {renderFieldGrid(document.fields, 'root')}
+        {document.tables.map(renderTable)}
+
+        {document.sections.map((section, index) => (
+          <View key={`section-${index}`} style={styles.section}>
+            {section.heading ? <Text style={styles.sectionTitle}>{section.heading}</Text> : null}
+            {section.callouts?.map((callout, calloutIndex) => (
+              <View
+                key={`section-callout-${calloutIndex}`}
+                style={calloutStyle(callout.tone)}
+              >
+                {callout.title ? <Text style={styles.calloutTitle}>{callout.title}</Text> : null}
+                <Text>{callout.text}</Text>
+              </View>
+            ))}
+            {section.body ? splitParagraphs(section.body).map((paragraph, paragraphIndex) => (
+              <Text key={`paragraph-${paragraphIndex}`} style={styles.paragraph}>{paragraph}</Text>
+            )) : null}
+            {section.bullets?.map((bullet, bulletIndex) => (
+              <View key={`bullet-${bulletIndex}`} style={styles.bulletRow}>
+                <Text style={styles.bullet}>•</Text>
+                <Text style={styles.bulletText}>{bullet}</Text>
+              </View>
+            ))}
+            {section.fields ? renderFieldGrid(section.fields, `section-${index}`) : null}
+            {section.tables?.map((table, tableIndex) => renderTable(table, Number(`${index}${tableIndex}`)))}
+          </View>
+        ))}
+
+        {document.content ? (
+          <View style={styles.section}>
+            {splitParagraphs(document.content).map((paragraph, index) => {
+              const heading = /^(#{1,3})\s+(.+)$/.exec(paragraph)
+              if (heading) return <Text key={`content-${index}`} style={styles.sectionTitle}>{heading[2]}</Text>
+              const bulletLines = paragraph.split('\n').filter(line => /^[-*]\s+/.test(line.trim()))
+              if (bulletLines.length > 0 && bulletLines.length === paragraph.split('\n').filter(Boolean).length) {
+                return bulletLines.map((line, bulletIndex) => (
+                  <View key={`content-${index}-${bulletIndex}`} style={styles.bulletRow}>
+                    <Text style={styles.bullet}>•</Text>
+                    <Text style={styles.bulletText}>{line.replace(/^[-*]\s+/, '')}</Text>
+                  </View>
+                ))
+              }
+              return <Text key={`content-${index}`} style={styles.paragraph}>{paragraph.replace(/^#{1,3}\s+/, '')}</Text>
+            })}
+          </View>
+        ) : null}
+
+        <View style={styles.footer} fixed>
+          <Text>{footer}</Text>
+          <Text render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`} />
+        </View>
+      </Page>
+    </Document>
+  )
+}
+
+export async function renderRichDocumentPdf(document: NormalizedPdfDocument): Promise<Buffer> {
+  return Buffer.from(await renderToBuffer(<GeneratedPdfDocument document={document} />))
+}

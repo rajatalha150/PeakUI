@@ -9,6 +9,7 @@ import {
   isCodeArtifact,
   isImageArtifact,
   isMarkdownArtifact,
+  isPdfArtifact,
   isTableArtifact,
 } from '@/lib/canvas-artifacts'
 import {
@@ -202,6 +203,40 @@ export default function ArtifactPreviewContent({
             style={{ maxWidth: '100%', maxHeight: expanded ? 'none' : `${IMAGE_PREVIEW_MAX_HEIGHT}px`, borderRadius: '6px' }}
           />
         </div>
+      </MetricRender>
+    )
+  }
+
+  if (isPdfArtifact(artifact)) {
+    if (!expanded || !renderFullContent) {
+      return (
+        <div style={{
+          border: '1px solid var(--border-color)',
+          borderRadius: '8px',
+          padding: '12px',
+          background: 'var(--bg-secondary)',
+          color: 'var(--text-secondary)',
+          fontSize: '0.78rem',
+        }}>
+          PDF document · {artifact.previewSummary || artifact.name}
+          {largeContent ? '\n\n[load full preview to render the PDF]' : ''}
+        </div>
+      )
+    }
+
+    return (
+      <MetricRender name="artifact-preview:pdf" detail={{ artifactId: artifact.id }}>
+        <iframe
+          title={artifact.name}
+          src={`data:application/pdf;base64,${content.replace(/\s+/g, '')}`}
+          style={{
+            width: '100%',
+            minHeight: '520px',
+            border: '1px solid var(--border-color)',
+            borderRadius: '8px',
+            background: 'var(--bg-secondary)',
+          }}
+        />
       </MetricRender>
     )
   }

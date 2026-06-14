@@ -27,4 +27,26 @@ describe('openclaw tool parsing', () => {
     expect(stripAllToolTags(`Before\n${modern}\nAfter`)).toBe('Before\n\nAfter')
     expect(stripAllToolTags(`Before\n${legacy}\nAfter`)).toBe('Before\n\nAfter')
   })
+
+  it('parses structured pdf_document requests without markdown content', () => {
+    const input = [
+      '<openclaw_tool name="pdf_document">',
+      JSON.stringify({
+        title: 'Project Report',
+        filename: 'project-report.pdf',
+        template: 'report',
+        sections: [{ heading: 'Summary', body: 'A structured report.' }],
+        tables: [{ title: 'Budget', columns: ['Item', 'Amount'], rows: [{ Item: 'Hosting', Amount: '$299' }] }],
+      }),
+      '</openclaw_tool>',
+    ].join('\n')
+
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request?.name).toBe('pdf_document')
+    if (extracted.request?.name !== 'pdf_document') throw new Error('Expected pdf_document request')
+    expect(extracted.request.request.content).toBeUndefined()
+    expect(extracted.request.request.template).toBe('report')
+    expect(extracted.request.request.sections?.[0]?.heading).toBe('Summary')
+    expect(extracted.request.request.tables?.[0]?.columns).toEqual(['Item', 'Amount'])
+  })
 })

@@ -89,6 +89,7 @@ WorkSpaces includes a collapsible Canvas panel that:
 - **Multi-workspace selector**: The same controls modal now lets users create and switch between named project workspaces without leaving the active WorkSpaces thread.
 - **Scaffolded workspace files**: Each workspace gets its own `BOOT.md`, `TOOLS.md`, and `skills/` directory so local conventions and reusable prompts live with the workspace itself.
 - **Prompt-backed startup context**: The selected workspace's `BOOT.md`, `TOOLS.md`, and skill-template summaries are injected into the Open Claw system prompt for that turn.
+- **Capability inventory**: Native and future tool capabilities are described through a shared inventory so the AI can choose the right app tool for day-to-day tasks. MCP is documented as a future curated extension path for helping the AI learn new approved skills. See [WorkSpaces Capability Inventory](capability-inventory.md).
 
 ### Session Intelligence
 
@@ -126,7 +127,7 @@ WorkSpaces includes a collapsible Canvas panel that:
 - **Filesystem read**: List, read, and stat files inside approved host paths
 - **Filesystem write**: Write, append, and create directories inside approved writable roots with approval support
 - **Code execution sandbox**: Run short Python or Node scripts in a managed workspace-scoped sandbox with timeouts, output limits, and generated-file reporting. This now has its own `openclaw.code` account permission instead of piggybacking only on general WorkSpaces access.
-- **PDF document generation**: The `pdf_document` tool creates downloadable server-side PDF Canvas artifacts for any report, summary, form-style output, or sample document request. WorkSpaces should use this tool instead of shell/filesystem/code sandbox when the user asks for a PDF file. See [PDF Document Workflow](pdf-document-workflow.md).
+- **PDF document generation**: The `pdf_document` tool creates polished downloadable server-side PDF Canvas artifacts for reports, summaries, letters, checklists, invoices, form-style output, or sample document requests. WorkSpaces should use this tool instead of shell/filesystem/code sandbox when the user asks for a PDF file. See [PDF Document Workflow](pdf-document-workflow.md).
 - **Tax PDF generation**: The `tax_return` tool creates downloadable tax review PDFs from enabled Knowledge Base folders and can best-effort fill uploaded AcroForm PDF templates. It reuses the same generic PDF artifact pipeline. See [Tax PDF Workflow](tax-pdf-workflow.md).
 - **Browser control**: Open public pages, inspect links/forms, stage fills, submit with approval, and extract content
 - **UWAF browser (Unified Web Agent Framework)**: Dual-mode browser engine supporting Direct (Clear Web) and Stealth (Tor-routed Dark Web) research modes

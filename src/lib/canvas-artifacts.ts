@@ -83,6 +83,13 @@ export function isImageArtifact(artifact: Pick<CanvasArtifactRecord, 'mimeType'>
   return artifact.mimeType.startsWith('image/')
 }
 
+export function isPdfArtifact(artifact: Pick<CanvasArtifactRecord, 'mimeType' | 'extension' | 'kind' | 'previewKind'>): boolean {
+  return artifact.previewKind === 'pdf'
+    || artifact.mimeType === 'application/pdf'
+    || artifact.extension === 'pdf'
+    || artifact.kind === 'pdf'
+}
+
 export function isMarkdownArtifact(artifact: Pick<CanvasArtifactRecord, 'mimeType' | 'extension' | 'previewKind'>): boolean {
   return artifact.previewKind === 'markdown'
     || artifact.mimeType === 'text/markdown'
@@ -104,6 +111,7 @@ export function isChartArtifact(artifact: Pick<CanvasArtifactRecord, 'previewKin
 
 export function inferArtifactKind(name: string, mimeType: string): string {
   if (mimeType.startsWith('image/')) return 'diagram'
+  if (mimeType === 'application/pdf') return 'pdf'
   if (mimeType === 'text/markdown') return 'markdown'
   const ext = name.split('.').pop()?.toLowerCase()
   if (['json', 'csv', 'tsv', 'xml', 'yaml', 'yml'].includes(ext || '')) return 'data'
