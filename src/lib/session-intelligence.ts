@@ -8,7 +8,7 @@ export interface SessionMessageLike {
   role: 'user' | 'assistant' | 'system';
   content?: string;
   hidden?: boolean;
-  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document';
+  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document';
   thinking?: string;
   images?: unknown[];
   attachments?: unknown[];
@@ -176,7 +176,7 @@ export function normalizeSessionAnalytics(raw: unknown): SessionAnalytics | null
   const toolCallsByTypeValue = isRecord(raw.toolCallsByType) ? raw.toolCallsByType : {};
   const toolCallsByType: SessionAnalytics['toolCallsByType'] = {};
 
-  for (const key of ['shell', 'filesystem', 'web', 'code', 'browser', 'unified_browser', 'tax_return', 'pdf_document'] as const) {
+  for (const key of ['shell', 'filesystem', 'web', 'code', 'browser', 'unified_browser', 'tax_return', 'pdf_document', 'workbook_document'] as const) {
     if (typeof toolCallsByTypeValue[key] === 'number') {
       toolCallsByType[key] = toolCallsByTypeValue[key] as number;
     }

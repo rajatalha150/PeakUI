@@ -70,6 +70,7 @@ import {
   type OpenClawTaxReturnToolRequest,
   type OpenClawToolRequest,
   type OpenClawUwafBrowserToolRequest,
+  type OpenClawWorkbookDocumentToolRequest,
 } from '@/lib/openclaw-tools';
 import UwafNetworkPanel from './UwafNetworkPanel';
 import LiveBrowserView from './LiveBrowserView';
@@ -278,7 +279,7 @@ interface OpenClawMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   hidden?: boolean;
-  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document';
+  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document';
   thinking?: string;
   presentation?: ResponsePresentation;
   sources?: MessageSource[];
@@ -856,6 +857,10 @@ type PendingToolApproval =
   | (PendingToolApprovalBase & {
       kind: 'pdf_document';
       request: OpenClawPdfDocumentToolRequest & { sessionId: string; messageId?: string };
+    })
+  | (PendingToolApprovalBase & {
+      kind: 'workbook_document';
+      request: OpenClawWorkbookDocumentToolRequest & { sessionId: string; messageId?: string };
     });
 
 type ToolApprovalResolution =
@@ -865,7 +870,8 @@ type ToolApprovalResolution =
   | BrowserToolResultEntry
   | UwafBrowserToolResultEntry
   | TaxReturnToolResultEntry
-  | PdfDocumentToolResultEntry;
+  | PdfDocumentToolResultEntry
+  | WorkbookDocumentToolResultEntry;
 
 interface WebToolResultEntry {
   query: string;
@@ -893,6 +899,19 @@ interface TaxReturnToolResultEntry {
 }
 
 interface PdfDocumentToolResultEntry {
+  success: boolean;
+  title: string;
+  artifact?: {
+    id: string;
+    name: string;
+    mimeType: string;
+    size: number;
+    downloadUrl: string;
+  };
+  error?: string;
+}
+
+interface WorkbookDocumentToolResultEntry {
   success: boolean;
   title: string;
   artifact?: {
@@ -1225,6 +1244,12 @@ function describePdfDocumentRequest(request: OpenClawPdfDocumentToolRequest) {
     : `Generating downloadable PDF: \`${request.filename || request.title}.pdf\``;
 }
 
+function describeWorkbookDocumentRequest(request: OpenClawWorkbookDocumentToolRequest) {
+  return request.description?.trim()
+    ? `Excel workbook generation: ${request.description.trim()}`
+    : `Generating downloadable Excel workbook: \`${request.filename || request.title}.xlsx\``;
+}
+
 function normalizeToolSources(value: unknown): MessageSource[] {
   return normalizeMessageSources(value);
 }
@@ -1407,7 +1432,7 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
 ));
 
 function normalizeExtractedToolRequestName(value: unknown): OpenClawMessage['toolRequest'] {
-  return value === 'shell' || value === 'filesystem' || value === 'web' || value === 'code' || value === 'browser' || value === 'unified_browser' || value === 'tax_return' || value === 'pdf_document'
+  return value === 'shell' || value === 'filesystem' || value === 'web' || value === 'code' || value === 'browser' || value === 'unified_browser' || value === 'tax_return' || value === 'pdf_document' || value === 'workbook_document'
     ? value
     : undefined;
 }
@@ -1644,6 +1669,14 @@ function getOpenClawToolRequestSignature(request: OpenClawToolRequest) {
       tables: pdf.tables,
       callouts: pdf.callouts,
     }).slice(0, 2000)}`;
+  }
+
+  if (request.name === 'workbook_document') {
+    const workbook = request.request as OpenClawWorkbookDocumentToolRequest
+    return `workbook_document:${workbook.title.trim()}:${workbook.filename?.trim() || ''}:${workbook.template || ''}:${JSON.stringify({
+      sheets: workbook.sheets,
+      metadata: workbook.metadata,
+    }).slice(0, 6000)}`;
   }
 
   return `filesystem:${request.request.action}:${request.request.path.trim()}`;
@@ -2123,6 +2156,33 @@ function formatPdfDocumentToolResult(entry: PdfDocumentToolResultEntry): string 
   }
 
   lines.push('', 'Use this result to present the PDF download link first. Keep the user-facing response concise and do not restate the full PDF contents in markdown unless the user explicitly asks for an inline summary.');
+  return lines.join('\n');
+}
+
+function formatWorkbookDocumentToolResult(entry: WorkbookDocumentToolResultEntry): string {
+  const lines = [
+    'Excel workbook tool result:',
+    `Title: ${entry.title}`,
+    `Status: ${entry.success ? 'completed' : 'failed'}`,
+  ];
+
+  if (!entry.success) {
+    if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    lines.push('', 'Use this result to continue the task. Do not claim a workbook was generated if this result failed.');
+    return lines.join('\n');
+  }
+
+  if (entry.artifact) {
+    lines.push(
+      `Artifact: ${entry.artifact.name}`,
+      `Artifact id: ${entry.artifact.id}`,
+      `Download URL: ${entry.artifact.downloadUrl}`,
+      `Mime type: ${entry.artifact.mimeType}`,
+      `Size: ${entry.artifact.size} bytes`,
+    );
+  }
+
+  lines.push('', 'Use this result to present the Excel workbook download link first. Keep the user-facing response concise and do not restate spreadsheet rows as markdown unless the user explicitly asks for an inline summary.');
   return lines.join('\n');
 }
 
@@ -4943,6 +5003,89 @@ export default function OpenClawWorkspace({
     });
   };
 
+  const executeWorkbookDocumentAction = async (
+    request: OpenClawWorkbookDocumentToolRequest & { sessionId: string; messageId?: string },
+  ): Promise<WorkbookDocumentToolResultEntry> => {
+    try {
+      const res = await fetch('/api/openclaw/workbook-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          title: request.title,
+          success: false,
+          error: typeof data.error === 'string' ? data.error : 'Excel workbook generation failed',
+        };
+      }
+      const artifact = data.artifact && typeof data.artifact === 'object'
+        ? data.artifact as Record<string, unknown>
+        : null;
+      return {
+        title: request.title,
+        success: data.success !== false,
+        artifact: artifact
+          && typeof artifact.id === 'string'
+          && typeof artifact.name === 'string'
+          && typeof artifact.mimeType === 'string'
+          && typeof artifact.size === 'number'
+          && typeof artifact.downloadUrl === 'string'
+          ? {
+              id: artifact.id,
+              name: artifact.name,
+              mimeType: artifact.mimeType,
+              size: artifact.size,
+              downloadUrl: artifact.downloadUrl,
+            }
+          : undefined,
+      };
+    } catch (error) {
+      return {
+        title: request.title,
+        success: false,
+        error: error instanceof Error ? error.message : 'Excel workbook generation failed',
+      };
+    }
+  };
+
+  const requestWorkbookDocumentAction = async (
+    request: OpenClawWorkbookDocumentToolRequest,
+    options: { messageId: string; sessionId: string },
+  ): Promise<WorkbookDocumentToolResultEntry> => {
+    const payload = {
+      ...request,
+      sessionId: options.sessionId,
+      messageId: options.messageId,
+    };
+
+    return await new Promise<WorkbookDocumentToolResultEntry>(resolve => {
+      pendingApprovalResolverRef.current = resolve as (result: ToolApprovalResolution) => void;
+      setPendingApproval({
+        kind: 'workbook_document',
+        title: 'Excel Workbook Generation Approval',
+        description: describeWorkbookDocumentRequest(request),
+        previewLabel: 'Workbook structure preview',
+        previewContent: truncateApprovalPreview(
+          [
+            `Title: ${request.title}`,
+            `Filename: ${request.filename || `${request.title}.xlsx`}`,
+            request.template ? `Template: ${request.template}` : null,
+            request.sheets?.length ? `Sheets: ${request.sheets.length}` : null,
+            '',
+            JSON.stringify({
+              sheets: request.sheets,
+              metadata: request.metadata,
+            }, null, 2),
+          ].filter(Boolean).join('\n')
+        ),
+        messageId: options.messageId,
+        request: payload,
+      });
+    });
+  };
+
   const handleToolApprove = async () => {
     if (!pendingApproval || !pendingApprovalResolverRef.current) return;
     const approval = pendingApproval;
@@ -4991,6 +5134,11 @@ export default function OpenClawWorkspace({
 
       if (approval.kind === 'pdf_document') {
         resolve(await executePdfDocumentAction(approval.request));
+        return;
+      }
+
+      if (approval.kind === 'workbook_document') {
+        resolve(await executeWorkbookDocumentAction(approval.request));
         return;
       }
 
@@ -5076,6 +5224,15 @@ export default function OpenClawWorkspace({
           success: false,
           error: message,
         } satisfies PdfDocumentToolResultEntry);
+        return;
+      }
+
+      if (approval.kind === 'workbook_document') {
+        resolve({
+          title: approval.request.title,
+          success: false,
+          error: message,
+        } satisfies WorkbookDocumentToolResultEntry);
         return;
       }
 
@@ -5172,6 +5329,15 @@ export default function OpenClawWorkspace({
         success: false,
         error: 'PDF generation rejected by user',
       } satisfies PdfDocumentToolResultEntry);
+      return;
+    }
+
+    if (approval.kind === 'workbook_document') {
+      resolve({
+        title: approval.request.title,
+        success: false,
+        error: 'Excel workbook generation rejected by user',
+      } satisfies WorkbookDocumentToolResultEntry);
       return;
     }
 
@@ -6137,7 +6303,9 @@ export default function OpenClawWorkspace({
                             ? describeTaxReturnRequest(request.request)
                             : request.name === 'pdf_document'
                               ? describePdfDocumentRequest(request.request)
-                              : describeFilesystemRequest(request.request.action, request.request.path)
+                              : request.name === 'workbook_document'
+                                ? describeWorkbookDocumentRequest(request.request)
+                                : describeFilesystemRequest(request.request.action, request.request.path)
               : rawToolTagPresent
                 ? stripAllToolTags(assistantMessage.content)
                 : assistantMessage.content
@@ -6446,6 +6614,44 @@ export default function OpenClawWorkspace({
               id: randomUUID(),
               role: 'user',
               content: `PDF generation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Try simplifying the document content and retry.`,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
+          continue;
+        }
+
+        if (request.name === 'workbook_document') {
+          lastToolRequestSignature = effectiveToolSignature;
+          duplicateToolRequestCount = 0;
+          try {
+            setStreamPhase('tool-code');
+            const workbookResult = await requestWorkbookDocumentAction(request.request, {
+              messageId: nextAssistantId,
+              sessionId: chatId,
+            });
+            setStreamPhase(null);
+            if (workbookResult.success) {
+              void loadCanvasArtifacts(chatId);
+            }
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatWorkbookDocumentToolResult(workbookResult),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Excel workbook tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Excel workbook generation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Try simplifying the workbook structure and retry.`,
               hidden: true,
               createdAt: new Date().toISOString(),
             };

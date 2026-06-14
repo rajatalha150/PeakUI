@@ -5,6 +5,7 @@ import type {
   PdfDocumentTable,
   PdfDocumentTemplate,
 } from './pdf/document-schema'
+import type { WorkbookDocumentInput } from './workbook/workbook-schema'
 
 export interface OpenClawShellToolRequest {
   command: string
@@ -94,6 +95,8 @@ export interface OpenClawPdfDocumentToolRequest {
   }
 }
 
+export interface OpenClawWorkbookDocumentToolRequest extends WorkbookDocumentInput {}
+
 export type OpenClawToolRequest =
   | {
       name: 'web'
@@ -126,6 +129,10 @@ export type OpenClawToolRequest =
   | {
       name: 'pdf_document'
       request: OpenClawPdfDocumentToolRequest
+    }
+  | {
+      name: 'workbook_document'
+      request: OpenClawWorkbookDocumentToolRequest
     }
 
 export const OPENCLAW_WEB_TOOL_EXAMPLE = `<openclaw_tool name="web">
@@ -164,6 +171,10 @@ export const OPENCLAW_PDF_DOCUMENT_TOOL_EXAMPLE = `<openclaw_tool name="pdf_docu
 {"title":"Project Report","filename":"project-report.pdf","template":"report","subtitle":"Prepared by PeakUI","sections":[{"heading":"Executive Summary","body":"This PDF uses structured sections instead of plain markdown."},{"heading":"Next Steps","bullets":["Review the draft","Download the PDF","Request revisions if needed"]}],"tables":[{"title":"Budget","columns":["Item","Amount"],"rows":[{"Item":"Hosting","Amount":"$299"},{"Item":"Support","Amount":"$500"}]}],"description":"Create a polished downloadable project report PDF"}
 </openclaw_tool>`
 
+export const OPENCLAW_WORKBOOK_DOCUMENT_TOOL_EXAMPLE = `<openclaw_tool name="workbook_document">
+{"title":"Weekly Services Invoice Workbook","filename":"weekly-services-invoice.xlsx","template":"invoice","sheets":[{"name":"Invoice","title":"Invoice","subtitle":"JLJ IV Enterprises","columns":[{"header":"Date","type":"date"},{"header":"Description","type":"text"},{"header":"Hours","type":"number"},{"header":"Rate","type":"currency"},{"header":"Amount","type":"currency"}],"rows":[{"Date":"2026-06-08","Description":"Professional Services","Hours":8,"Rate":45,"Amount":360},{"Date":"2026-06-09","Description":"Professional Services","Hours":8,"Rate":45,"Amount":360}],"tables":[{"title":"Summary","columns":[{"header":"Metric","type":"text"},{"header":"Value","type":"currency"}],"rows":[{"Metric":"Total Due","Value":720}]}],"notes":["Payment terms: Net 14 days"],"freezeHeader":true,"autoFilter":true}],"metadata":{"creator":"PeakUI","currency":"USD"},"description":"Create a polished Excel invoice workbook"}
+</openclaw_tool>`
+
 function isUwafAction(value: unknown): value is OpenClawUwafBrowserToolRequest['action'] {
   return value === 'search'
     || value === 'open'
@@ -200,7 +211,7 @@ function isPdfDocumentTemplate(value: unknown): value is PdfDocumentTemplate {
   return value === 'report' || value === 'memo' || value === 'letter' || value === 'invoice' || value === 'checklist' || value === 'form'
 }
 
-const TOOL_BLOCK_PATTERN = /<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser|tax_return|pdf_document)["']\s*>([\s\S]*?)<\/openclaw_tool>/i
+const TOOL_BLOCK_PATTERN = /<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser|tax_return|pdf_document|workbook_document)["']\s*>([\s\S]*?)<\/openclaw_tool>/i
 const LEGACY_UWAF_TOOL_BLOCK_PATTERN = /<unified_browser>\s*([\s\S]*?)<\/unified_browser>/i
 
 function extractFirstJsonObject(raw: string): string | null {
@@ -289,10 +300,10 @@ function findToolBlock(content: string): { toolName: string; rawBlock: string; r
 /** Strip all complete and partial <openclaw_tool> tags from content. */
 export function stripAllToolTags(content: string): string {
   // Remove complete tool blocks first
-  let cleaned = content.replace(/<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser|tax_return|pdf_document)["']\s*>[\s\S]*?<\/openclaw_tool>/gi, '')
+  let cleaned = content.replace(/<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser|tax_return|pdf_document|workbook_document)["']\s*>[\s\S]*?<\/openclaw_tool>/gi, '')
   cleaned = cleaned.replace(/<unified_browser>\s*[\s\S]*?<\/unified_browser>/gi, '')
   // Remove partial/incomplete tags (no closing tag)
-  cleaned = cleaned.replace(/<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser|tax_return|pdf_document)["']\s*>[\s\S]*/gi, '')
+  cleaned = cleaned.replace(/<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser|tax_return|pdf_document|workbook_document)["']\s*>[\s\S]*/gi, '')
   cleaned = cleaned.replace(/<unified_browser>\s*[\s\S]*/gi, '')
   // Remove orphaned opening tags
   cleaned = cleaned.replace(/<openclaw_tool[^>]*>/gi, '')
@@ -701,6 +712,38 @@ export function extractOpenClawToolRequest(content: string): {
         request: {
           name: 'pdf_document',
           request,
+        },
+      }
+    }
+
+    if (toolName === 'workbook_document') {
+      const parsed = parseToolJson<Partial<OpenClawWorkbookDocumentToolRequest>>(block.rawJson)
+      if (!parsed) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+
+      const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
+      const sheets = Array.isArray(parsed.sheets) ? parsed.sheets.slice(0, 20) : []
+      if (!title || sheets.length === 0) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+
+      return {
+        cleanedContent,
+        request: {
+          name: 'workbook_document',
+          request: {
+            title: title.slice(0, 160),
+            filename: typeof parsed.filename === 'string' && parsed.filename.trim()
+              ? parsed.filename.trim().slice(0, 180)
+              : undefined,
+            description: typeof parsed.description === 'string' && parsed.description.trim()
+              ? parsed.description.trim()
+              : undefined,
+            template: parsed.template,
+            sheets,
+            metadata: parsed.metadata && typeof parsed.metadata === 'object' ? parsed.metadata : undefined,
+          },
         },
       }
     }

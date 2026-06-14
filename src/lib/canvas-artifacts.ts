@@ -105,6 +105,16 @@ export function isTableArtifact(artifact: Pick<CanvasArtifactRecord, 'previewKin
   return artifact.previewKind === 'table' || artifact.presentationType === 'table'
 }
 
+export function isWorkbookArtifact(artifact: Pick<CanvasArtifactRecord, 'mimeType' | 'extension' | 'kind' | 'presentationType'>): boolean {
+  return artifact.presentationType === 'workbook'
+    || artifact.mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    || artifact.mimeType === 'application/vnd.ms-excel'
+    || artifact.extension === 'xlsx'
+    || artifact.extension === 'xlsm'
+    || artifact.extension === 'xls'
+    || artifact.kind === 'workbook'
+}
+
 export function isChartArtifact(artifact: Pick<CanvasArtifactRecord, 'previewKind' | 'presentationType'>): boolean {
   return artifact.previewKind === 'chart' || artifact.presentationType === 'chart'
 }
@@ -112,8 +122,10 @@ export function isChartArtifact(artifact: Pick<CanvasArtifactRecord, 'previewKin
 export function inferArtifactKind(name: string, mimeType: string): string {
   if (mimeType.startsWith('image/')) return 'diagram'
   if (mimeType === 'application/pdf') return 'pdf'
+  if (mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || mimeType === 'application/vnd.ms-excel') return 'workbook'
   if (mimeType === 'text/markdown') return 'markdown'
   const ext = name.split('.').pop()?.toLowerCase()
+  if (['xlsx', 'xlsm', 'xls'].includes(ext || '')) return 'workbook'
   if (['json', 'csv', 'tsv', 'xml', 'yaml', 'yml'].includes(ext || '')) return 'data'
   return 'file'
 }

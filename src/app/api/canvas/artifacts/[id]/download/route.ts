@@ -9,7 +9,13 @@ function sanitizeDownloadName(name: string): string {
 }
 
 function decodeArtifactContent(content: string, mimeType: string): Buffer {
-  if (mimeType === 'application/pdf' || mimeType.startsWith('image/') || mimeType === 'application/zip') {
+  if (
+    mimeType === 'application/pdf'
+    || mimeType.startsWith('image/')
+    || mimeType === 'application/zip'
+    || mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    || mimeType === 'application/vnd.ms-excel'
+  ) {
     return Buffer.from(content.replace(/\s+/g, ''), 'base64')
   }
   return Buffer.from(content, 'utf8')

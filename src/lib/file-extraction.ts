@@ -1,4 +1,5 @@
 import { parseOffice } from 'officeparser'
+import ExcelJS from 'exceljs'
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -287,6 +288,48 @@ async function extractOfficeText(buffer: Buffer): Promise<string> {
   })
 
   return typeof ast?.toText === 'function' ? ast.toText() : ''
+}
+
+async function extractWorkbookText(buffer: Buffer): Promise<string> {
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0])
+  const parts: string[] = []
+
+  workbook.worksheets.slice(0, 20).forEach(worksheet => {
+    const lines: string[] = []
+    lines.push(`Sheet: ${worksheet.name}`)
+    const maxRows = Math.min(worksheet.actualRowCount || worksheet.rowCount, 200)
+    const maxCols = Math.min(worksheet.actualColumnCount || worksheet.columnCount, 30)
+
+    for (let rowNumber = 1; rowNumber <= maxRows; rowNumber += 1) {
+      const row = worksheet.getRow(rowNumber)
+      const values: string[] = []
+      for (let colNumber = 1; colNumber <= maxCols; colNumber += 1) {
+        const cell = row.getCell(colNumber)
+        if (cell.value === null || cell.value === undefined) {
+          values.push('')
+          continue
+        }
+        if (typeof cell.value === 'object' && 'formula' in cell.value) {
+          const formulaValue = cell.value as { formula?: string; result?: unknown }
+          values.push(formulaValue.result !== undefined ? `${formulaValue.result} (= ${formulaValue.formula})` : `= ${formulaValue.formula}`)
+          continue
+        }
+        if (typeof cell.value === 'object' && 'text' in cell.value) {
+          values.push(String((cell.value as { text?: unknown }).text ?? ''))
+          continue
+        }
+        values.push(String(cell.value))
+      }
+      if (values.some(value => value.trim())) {
+        lines.push(values.join('\t').replace(/\t+$/g, ''))
+      }
+    }
+
+    parts.push(lines.join('\n'))
+  })
+
+  return normalizeExtractedText(parts.join('\n\n'))
 }
 
 function decodeRtfHexEscapes(value: string): string {
@@ -689,6 +732,23 @@ async function extractFilePayloadInternal(options: ExtractFileOptions, context: 
       modelInput: 'metadata-only',
       statusMessage: 'Could not extract searchable text from this PDF.',
     })
+  }
+
+  if (extension === 'xlsx' || extension === 'xlsm') {
+    try {
+      const text = await extractWorkbookText(options.buffer)
+      return makePayload(options, {
+        kind: 'document',
+        text,
+        extractionStatus: text.trim() ? 'extracted' : 'unsupported',
+        modelInput: text.trim() ? 'extracted-text' : 'metadata-only',
+        statusMessage: text.trim()
+          ? 'Extracted workbook sheets, rows, and formulas for model context.'
+          : 'No extractable workbook rows were found.',
+      })
+    } catch (error) {
+      console.warn('Excel workbook extraction failed, falling back to office parser:', error)
+    }
   }
 
   if (isOfficeLikeExtension(extension)) {

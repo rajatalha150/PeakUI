@@ -49,4 +49,31 @@ describe('openclaw tool parsing', () => {
     expect(extracted.request.request.sections?.[0]?.heading).toBe('Summary')
     expect(extracted.request.request.tables?.[0]?.columns).toEqual(['Item', 'Amount'])
   })
+
+  it('parses structured workbook_document requests', () => {
+    const input = [
+      '<openclaw_tool name="workbook_document">',
+      JSON.stringify({
+        title: 'Project Budget',
+        filename: 'project-budget.xlsx',
+        template: 'budget',
+        sheets: [{
+          name: 'Budget',
+          columns: [
+            { header: 'Category', type: 'text' },
+            { header: 'Amount', type: 'currency' },
+          ],
+          rows: [{ Category: 'Hosting', Amount: 299 }],
+        }],
+      }),
+      '</openclaw_tool>',
+    ].join('\n')
+
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request?.name).toBe('workbook_document')
+    if (extracted.request?.name !== 'workbook_document') throw new Error('Expected workbook_document request')
+    expect(extracted.request.request.template).toBe('budget')
+    expect(extracted.request.request.sheets?.[0]?.name).toBe('Budget')
+    expect(extracted.request.request.sheets?.[0]?.rows?.[0]).toEqual({ Category: 'Hosting', Amount: 299 })
+  })
 })

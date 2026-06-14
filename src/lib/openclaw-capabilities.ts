@@ -1,6 +1,7 @@
 import {
   OPENCLAW_PDF_DOCUMENT_TOOL_EXAMPLE,
   OPENCLAW_TAX_RETURN_TOOL_EXAMPLE,
+  OPENCLAW_WORKBOOK_DOCUMENT_TOOL_EXAMPLE,
 } from './openclaw-tools'
 
 export type OpenClawCapabilityAdapter = 'native' | 'http' | 'mcp'
@@ -47,12 +48,25 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
     example: OPENCLAW_TAX_RETURN_TOOL_EXAMPLE,
   },
   {
+    id: 'workbook-document',
+    label: 'Excel workbook generation',
+    adapter: 'native',
+    toolName: 'workbook_document',
+    promptLines: [
+      'EXCEL WORKBOOK CAPABILITY: When the user asks to create, generate, produce, return, or download Excel, XLSX, spreadsheet, workbook, budget, invoice workbook, timesheet, ledger, tracker, inventory, schedule, or multi-sheet analysis output, use the workbook_document tool.',
+      'The workbook_document tool creates a real downloadable XLSX Canvas artifact. Do not answer workbook requests with markdown tables or use shell/code sandbox unless the user specifically asks to write source code.',
+      'PROFESSIONAL WORKBOOK RULE: Treat workbooks as structured spreadsheet deliverables. Use sheets for separate topics, columns with types for data, rows for records, tables for summaries, notes for assumptions, and formulas/totals for calculations.',
+      'For financial, invoice, budget, timesheet, ledger, and inventory workbooks: format currency, dates, numbers, totals, filters, and frozen headers. Keep chat responses download-first and concise after the tool succeeds.',
+    ],
+    example: OPENCLAW_WORKBOOK_DOCUMENT_TOOL_EXAMPLE,
+  },
+  {
     id: 'mcp-skill-inventory',
     label: 'MCP skill inventory',
     adapter: 'mcp',
     future: true,
     promptLines: [
-      'FUTURE MCP SKILL INVENTORY: PeakUI will use curated MCP adapters to help the AI discover and learn new day-to-day skills such as document conversion, template rendering, PDF manipulation, spreadsheets, and business workflows.',
+      'FUTURE MCP SKILL INVENTORY: PeakUI will use curated MCP adapters to help the AI discover and learn new day-to-day skills such as document conversion, template rendering, PDF manipulation, spreadsheets, workbooks, and business workflows.',
       'Until MCP adapters are explicitly enabled and approved, use native PeakUI tools only. Do not claim access to external MCP servers.',
     ],
   },

@@ -4,13 +4,14 @@ PeakUI uses a local WorkSpaces capability inventory to describe which tools the 
 
 ## Why It Exists
 
-Tool guidance used to be written directly into the WorkSpaces prompt. As PeakUI adds more services, that becomes hard to maintain and easy for the AI to miss. The capability inventory defines reusable abilities such as PDF generation and tax PDF generation in one place, then renders the relevant guidance into the prompt.
+Tool guidance used to be written directly into the WorkSpaces prompt. As PeakUI adds more services, that becomes hard to maintain and easy for the AI to miss. The capability inventory defines reusable abilities such as PDF generation, Excel workbook generation, and tax PDF generation in one place, then renders the relevant guidance into the prompt.
 
 This makes it easier for the AI to choose the right tool for day-to-day requests without falling back to shell, filesystem, or code sandbox when a safer app-native tool exists.
 
 ## Current Native Capabilities
 
 - `pdf_document`: Creates downloadable PDF Canvas artifacts for reports, memos, letters, checklists, invoices, forms, and general document drafts.
+- `workbook_document`: Creates downloadable Excel XLSX Canvas artifacts for spreadsheets, budgets, invoice workbooks, timesheets, ledgers, trackers, inventories, schedules, and multi-sheet analysis.
 - `tax_return`: Creates tax review PDFs and can fill uploaded AcroForm PDF templates from Knowledge Base tax documents.
 
 ## MCP Direction
