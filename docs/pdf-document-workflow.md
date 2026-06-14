@@ -16,6 +16,13 @@ Use `pdf_document` when the user asks the AI to create, generate, produce, or re
 
 Do not use shell, filesystem, or the code sandbox for normal PDF generation unless the user explicitly asks to write source code or save files in a workspace path.
 
+## Professional Document Rules
+
+- Treat PDFs as designed documents, not markdown transcripts.
+- Prefer `fields` for label/value facts, `tables` for line items or comparisons, `callouts` for notes and warnings, and short `sections` for narrative prose.
+- Avoid markdown tables, horizontal rules, decorative markdown, and duplicated facts inside section bodies.
+- After generation succeeds, present the download link first and keep the chat response concise unless the user asks for an inline summary.
+
 ## Tool Contract
 
 ```xml

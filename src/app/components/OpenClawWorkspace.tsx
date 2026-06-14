@@ -2121,7 +2121,7 @@ function formatPdfDocumentToolResult(entry: PdfDocumentToolResultEntry): string 
     );
   }
 
-  lines.push('', 'Use this result to present the PDF download link to the user.');
+  lines.push('', 'Use this result to present the PDF download link first. Keep the user-facing response concise and do not restate the full PDF contents in markdown unless the user explicitly asks for an inline summary.');
   return lines.join('\n');
 }
 

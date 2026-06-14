@@ -25,7 +25,10 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
     promptLines: [
       'PDF DOCUMENT CAPABILITY: When the user asks you to create, generate, produce, or return a downloadable PDF, use the pdf_document tool. Do not use shell, filesystem, or code sandbox to generate PDFs unless the user specifically asks to write source code.',
       'The pdf_document tool accepts either markdown-like content or structured sections, fields, tables, and callouts, then creates a polished server-generated PDF Canvas artifact and chat download URL.',
-      'Prefer structured sections/tables/fields for reports, memos, letters, checklists, invoices, and form-like drafts instead of putting everything into one markdown string.',
+      'PROFESSIONAL DOCUMENT RULE: Treat PDFs as designed documents, not markdown transcripts. Prefer structured sections, fields, tables, and callouts over putting everything into one markdown string.',
+      'For invoices, receipts, estimates, contracts, resumes, letters, reports, checklists, and forms: put metadata and label/value facts in fields, line items in tables, warnings/notes in callouts, and only short narrative prose in section body.',
+      'Avoid markdown tables, horizontal rules, decorative markdown, and long copied summaries inside section body. Do not duplicate the same facts in both body text and tables.',
+      'After a PDF tool succeeds, keep the user-facing answer download-first and concise. Do not restate the whole document in markdown unless the user asks for an inline summary.',
     ],
     example: OPENCLAW_PDF_DOCUMENT_TOOL_EXAMPLE,
   },
