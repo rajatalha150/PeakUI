@@ -2402,6 +2402,7 @@ export default function OpenClawWorkspace({
   const [ragFolderPath, setRagFolderPath] = useState<string | null>(null);
   const [ragFolderPopoverOpen, setRagFolderPopoverOpen] = useState(false);
   const ragFolderButtonRef = useRef<HTMLButtonElement>(null);
+  const ragFolderPopoverRef = useRef<HTMLDivElement>(null);
   const [internetEnabled, setInternetEnabled] = useState(getStoredInternetEnabled);
   const [uwafBrowserMode, setUwafBrowserMode] = useState<'direct' | 'stealth'>('direct');
   const [unrestrictedEnabled, setUnrestrictedEnabled] = useState(() => {
@@ -7443,8 +7444,12 @@ export default function OpenClawWorkspace({
           {headerModeMenuOpen === 'modes' && (
             <Popover
               open
-              onClose={() => setHeaderModeMenuOpen(null)}
+              onClose={() => {
+                setHeaderModeMenuOpen(null);
+                setRagFolderPopoverOpen(false);
+              }}
               anchorRef={modesMenuButtonRef}
+              additionalIgnoreRefs={[ragFolderPopoverRef]}
               width={280}
               maxHeight={500}
               zIndex={1400}
@@ -7566,6 +7571,8 @@ export default function OpenClawWorkspace({
                     selectedPath={ragFolderPath}
                     onSelect={(p) => { setRagFolderPath(p); setRagFolderPopoverOpen(false); }}
                     anchorRef={ragFolderButtonRef as React.RefObject<HTMLElement>}
+                    popoverRef={ragFolderPopoverRef}
+                    maxHeight={320}
                     zIndex={1500}
                   />
                 </div>

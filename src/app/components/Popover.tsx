@@ -110,6 +110,8 @@ export interface PopoverProps {
   children: React.ReactNode;
   /** CSS class for the popover root (positioning is applied separately). */
   className?: string;
+  /** Optional external ref to the portaled root, useful for nested popovers. */
+  rootRef?: React.RefObject<HTMLDivElement | null>;
   /** Inline style merged AFTER the positioning styles. Use for content styling, not positioning. */
   style?: React.CSSProperties;
   /** Preferred width in px. The popover is also clamped to the viewport. */
@@ -187,6 +189,7 @@ export default function Popover({
   additionalIgnoreRefs,
   children,
   className,
+  rootRef,
   style,
   width = 320,
   maxHeight = 420,
@@ -358,7 +361,12 @@ export default function Popover({
 
   return createPortal(
     <div
-      ref={containerRef}
+      ref={(node) => {
+        containerRef.current = node;
+        if (rootRef) {
+          (rootRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+        }
+      }}
       role={role}
       aria-label={ariaLabel}
       data-popover-root

@@ -21,6 +21,10 @@ interface KnowledgeBaseTreePopoverProps {
   anchorRef?: React.RefObject<HTMLElement | null>;
   /** Width override (defaults to 320px). */
   width?: number;
+  /** Max-height override (defaults to 420px). */
+  maxHeight?: number;
+  /** External root ref so a parent popover can ignore clicks inside this child. */
+  popoverRef?: React.RefObject<HTMLDivElement | null>;
   /**
    * Z-index override. Defaults to 1000. Raise this when the popover is
    * rendered inside another portaled popover (e.g. the Workspace modes
@@ -38,7 +42,9 @@ export default function KnowledgeBaseTreePopover({
   onRefresh,
   anchorRef,
   width = 320,
+  maxHeight = 420,
   zIndex = 1000,
+  popoverRef,
 }: KnowledgeBaseTreePopoverProps) {
   const [tree, setTree] = useState<KbFolderNode | null>(null);
   const [loading, setLoading] = useState(false);
@@ -108,21 +114,24 @@ export default function KnowledgeBaseTreePopover({
       open={open}
       onClose={onClose}
       anchorRef={anchorRef}
+      rootRef={popoverRef}
       width={width}
-      maxHeight={420}
+      maxHeight={maxHeight}
       zIndex={zIndex}
       side="bottom"
       align="end"
       ariaLabel="Choose a folder"
       role="dialog"
       style={{
-        background: 'var(--bg-elevated)',
+        background: 'color-mix(in srgb, var(--bg-base) 98%, black 2%)',
+        backdropFilter: 'none',
         border: '1px solid var(--border-color)',
         borderRadius: '12px',
-        boxShadow: '0 18px 40px rgba(0,0,0,0.45)',
+        boxShadow: '0 24px 60px rgba(0,0,0,0.58)',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
+        color: 'var(--text-primary)',
       }}
     >
       <div style={{
