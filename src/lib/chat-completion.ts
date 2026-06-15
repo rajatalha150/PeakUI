@@ -44,6 +44,9 @@ const DEFAULT_OLLAMA_CONTEXT_LENGTH = 16384;
 const MIN_CONTEXT_LENGTH = 512;
 const OLLAMA_CONTEXT_CAP_ENV = 'PEAKUI_OLLAMA_CONTEXT_CAP';
 const OLLAMA_START_TIMEOUT_MS = 60000;
+const OLLAMA_SHORT_CHAT_FALLBACK_MAX_TOKENS = 1;
+const OLLAMA_SHORT_CHAT_FALLBACK_MAX_CHARS = 32;
+const OLLAMA_SHORT_CHAT_FALLBACK_MAX_DURATION_NS = 50_000_000;
 
 const IMAGE_INSTRUCTIONS = 'For image requests, include actual image URLs using markdown syntax: ![description](https://...). Search for real URLs from reliable sources and render images inline.';
 const IMAGE_MARKDOWN_SAFETY_INSTRUCTIONS = "Include images with markdown syntax ![alt](https://...) only when you have a real, verified HTTPS URL. If you don't know the actual URL, describe the image in text instead.";
@@ -268,6 +271,24 @@ async function buildOllamaMessages(messages: InternalChatMessage[]): Promise<Oll
       images,
     };
   }));
+}
+
+function buildOllamaGeneratePrompt(messages: InternalChatMessage[]): string {
+  const parts: string[] = [];
+
+  for (const message of messages) {
+    const content = message.content?.trim();
+    if (!content) continue;
+    const label = message.role === 'system'
+      ? 'System'
+      : message.role === 'assistant'
+        ? 'Assistant'
+        : 'User';
+    parts.push(`${label}:\n${content}`);
+  }
+
+  parts.push('Assistant:');
+  return parts.join('\n\n');
 }
 
 function normalizeMessages(messages: unknown): InternalChatMessage[] {
@@ -977,6 +998,82 @@ export async function createChatCompletionResponse(req: NextRequest) {
 
         emitStatus(heartbeatStatus);
 
+        const streamOllamaGenerateFallback = async (numCtx: number | null, messagesForStream: InternalChatMessage[]) => {
+          const fallbackRes = await fetch(`${baseUrl}/api/generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: requestedModel,
+              prompt: buildOllamaGeneratePrompt(messagesForStream),
+              stream: true,
+              options: buildOllamaOptions(settings, numCtx),
+            }),
+            signal: upstreamAbort.signal,
+          });
+
+          if (!fallbackRes.ok) {
+            const text = await fallbackRes.text();
+            throw new UpstreamHttpError({
+              provider: 'ollama',
+              status: fallbackRes.status,
+              baseUrl,
+              model: requestedModel,
+              body: text,
+              fallback: 'Ollama generate fallback error',
+            });
+          }
+
+          if (!fallbackRes.body) {
+            throw new Error('Ollama generate fallback did not return a response body');
+          }
+
+          const reader = fallbackRes.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          const emitFallbackLine = (line: string) => {
+            let parsed: {
+              response?: unknown;
+              done?: unknown;
+              eval_count?: unknown;
+              eval_duration?: unknown;
+            } | null = null;
+
+            try {
+              parsed = JSON.parse(line);
+            } catch {
+              return;
+            }
+
+            if (!parsed) return;
+            const content = typeof parsed.response === 'string' ? parsed.response : '';
+            controller.enqueue(encoder.encode(`${JSON.stringify({
+              ...(content ? { message: { role: 'assistant', content } } : {}),
+              done: parsed.done === true,
+              ...(typeof parsed.eval_count === 'number' ? { eval_count: parsed.eval_count } : {}),
+              ...(typeof parsed.eval_duration === 'number' ? { eval_duration: parsed.eval_duration } : {}),
+            })}\n`));
+          };
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            let newlineIndex = buffer.indexOf('\n');
+            while (newlineIndex !== -1) {
+              const line = buffer.slice(0, newlineIndex).trim();
+              buffer = buffer.slice(newlineIndex + 1);
+              if (line) emitFallbackLine(line);
+              newlineIndex = buffer.indexOf('\n');
+            }
+          }
+
+          buffer += decoder.decode();
+          const finalLine = buffer.trim();
+          if (finalLine) emitFallbackLine(finalLine);
+        };
+
         const streamOllamaResponse = async (numCtx: number | null, messagesForStream: InternalChatMessage[]) => {
           let startTimedOut = false;
           const startAbort = new AbortController();
@@ -1031,11 +1128,103 @@ export async function createChatCompletionResponse(req: NextRequest) {
           emitStatus('streaming');
 
           const reader = ollamaRes.body.getReader();
+          const decoder = new TextDecoder();
+          const bufferedChatLines: string[] = [];
+          let chatBuffer = '';
+          let bufferedContent = '';
+          let flushedChat = false;
+
+          const flushBufferedChatLines = () => {
+            if (flushedChat) return;
+            flushedChat = true;
+            for (const line of bufferedChatLines) {
+              controller.enqueue(encoder.encode(`${line}\n`));
+            }
+            bufferedChatLines.length = 0;
+          };
+
+          const shouldFallbackFromShortChat = (frame: Record<string, unknown>) => {
+            if (frame.done !== true) return false;
+            const evalCount = typeof frame.eval_count === 'number' ? frame.eval_count : null;
+            const evalDuration = typeof frame.eval_duration === 'number' ? frame.eval_duration : null;
+            const compactContent = bufferedContent.trim();
+            if (!compactContent || compactContent.length > OLLAMA_SHORT_CHAT_FALLBACK_MAX_CHARS) return false;
+
+            const looksTokenLimited = evalCount !== null
+              && evalCount <= OLLAMA_SHORT_CHAT_FALLBACK_MAX_TOKENS
+              && (evalDuration === null || evalDuration <= OLLAMA_SHORT_CHAT_FALLBACK_MAX_DURATION_NS);
+            const looksInstantSingleWord = evalCount === null
+              && compactContent.split(/\s+/).filter(Boolean).length <= OLLAMA_SHORT_CHAT_FALLBACK_MAX_TOKENS;
+
+            return looksTokenLimited || looksInstantSingleWord;
+          };
+
+          const handleChatLine = async (line: string) => {
+            if (flushedChat) {
+              controller.enqueue(encoder.encode(`${line}\n`));
+              return false;
+            }
+
+            let parsed: Record<string, unknown>;
+            try {
+              parsed = JSON.parse(line) as Record<string, unknown>;
+            } catch {
+              flushBufferedChatLines();
+              controller.enqueue(encoder.encode(`${line}\n`));
+              return false;
+            }
+
+            bufferedChatLines.push(line);
+            const message = parsed.message && typeof parsed.message === 'object'
+              ? parsed.message as Record<string, unknown>
+              : null;
+            if (typeof message?.content === 'string') {
+              bufferedContent += message.content;
+            }
+
+            if (parsed.done === true) {
+              if (shouldFallbackFromShortChat(parsed)) {
+                console.warn(`[chat-completion] Ollama /api/chat returned a suspiciously short response for ${requestedModel}; retrying with /api/generate fallback.`);
+                await streamOllamaGenerateFallback(numCtx, messagesForStream);
+                return true;
+              }
+
+              flushBufferedChatLines();
+              return false;
+            }
+
+            if (bufferedContent.trim().length > OLLAMA_SHORT_CHAT_FALLBACK_MAX_CHARS) {
+              flushBufferedChatLines();
+            }
+
+            return false;
+          };
+
           while (true) {
             const { value, done } = await reader.read();
             if (done) break;
-            if (value) controller.enqueue(value);
+            if (!value) continue;
+
+            chatBuffer += decoder.decode(value, { stream: true });
+            let newlineIndex = chatBuffer.indexOf('\n');
+            while (newlineIndex !== -1) {
+              const line = chatBuffer.slice(0, newlineIndex).trim();
+              chatBuffer = chatBuffer.slice(newlineIndex + 1);
+              if (line) {
+                const usedFallback = await handleChatLine(line);
+                if (usedFallback) return;
+              }
+              newlineIndex = chatBuffer.indexOf('\n');
+            }
           }
+
+          chatBuffer += decoder.decode();
+          const finalLine = chatBuffer.trim();
+          if (finalLine) {
+            const usedFallback = await handleChatLine(finalLine);
+            if (usedFallback) return;
+          }
+          flushBufferedChatLines();
         };
 
         heartbeatTimer = setInterval(() => {
