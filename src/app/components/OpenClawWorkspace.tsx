@@ -291,9 +291,12 @@ interface OpenClawMessage {
     tokens: number;
     duration: number;
     tps: number;
+    timings?: OpenClawLatencyTimings;
   };
   createdAt?: string;
 }
+
+type OpenClawLatencyTimings = Record<string, string | number | boolean | null>;
 
 interface OpenClawImageAttachment {
   name: string;
@@ -405,6 +408,8 @@ interface OpenClawSettings {
   openClawModel: string;
   openClawBaseUrl: string;
   ollamaHost: string;
+  modelKeepAlive: boolean;
+  ollamaKeepAlive: string;
   theme: string;
   shellExecutionTarget: 'container' | 'host';
   shellExecutionMode: string;
@@ -700,6 +705,8 @@ function parseOpenClawSettingsResponse(data: Record<string, unknown>): ParsedOpe
     openClawModel: typeof data.openClawModel === 'string' ? data.openClawModel : '',
     openClawBaseUrl: typeof data.openClawBaseUrl === 'string' ? data.openClawBaseUrl : '',
     ollamaHost: typeof data.ollamaHost === 'string' ? data.ollamaHost : 'http://127.0.0.1:11434',
+    modelKeepAlive: data.modelKeepAlive !== false,
+    ollamaKeepAlive: typeof data.ollamaKeepAlive === 'string' && data.ollamaKeepAlive.trim() ? data.ollamaKeepAlive : '30m',
     theme: typeof data.theme === 'string' ? data.theme : 'aurora',
     shellExecutionTarget: data.shellExecutionTarget === 'host' ? 'host' : 'container',
     shellExecutionMode: typeof data.shellExecutionMode === 'string' ? data.shellExecutionMode : 'ask-first',
@@ -1088,6 +1095,7 @@ type OpenClawStreamFrame = {
   done?: unknown;
   eval_count?: number;
   eval_duration?: number;
+  timings?: unknown;
 };
 
 const OPENCLAW_API_KEY_STORAGE = 'peakui-openclaw-api-key';
@@ -1280,6 +1288,46 @@ function normalizeToolSources(value: unknown): MessageSource[] {
   return normalizeMessageSources(value);
 }
 
+function normalizeLatencyTimings(value: unknown): OpenClawLatencyTimings | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const normalized: OpenClawLatencyTimings = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (typeof raw === 'string' || typeof raw === 'number' || typeof raw === 'boolean' || raw === null) {
+      normalized[key] = raw;
+    }
+  }
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+function formatTimingSeconds(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? `${(value / 1000).toFixed(value >= 10000 ? 1 : 2)}s` : '';
+}
+
+function formatLatencySummary(timings?: OpenClawLatencyTimings) {
+  if (!timings) return '';
+  const parts = [
+    ['Prep', timings.server_prepare_ms],
+    ['Headers', timings.upstream_headers_ms],
+    ['First text', timings.first_content_ms],
+    ['Load', timings.load_duration_ms],
+    ['Prompt eval', timings.prompt_eval_duration_ms],
+  ]
+    .map(([label, value]) => {
+      const formatted = formatTimingSeconds(value);
+      return formatted ? `${label} ${formatted}` : '';
+    })
+    .filter(Boolean);
+
+  return parts.join(' · ');
+}
+
+function formatLoadedUntil(value?: string) {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
 const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
   msg,
   index,
@@ -1308,6 +1356,7 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
   const messageContent = typeof msg.content === 'string' ? msg.content : '';
   const messageThinking = typeof msg.thinking === 'string' ? msg.thinking : '';
   const isToolBridgeMessage = msg.role === 'assistant' && (Boolean(msg.toolRequest) || outputsForMessage.length > 0);
+  const latencySummary = formatLatencySummary(msg.meta?.timings);
 
   return (
     <div
@@ -1393,12 +1442,14 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
             color: 'var(--text-secondary)',
             marginLeft: msg.role === 'assistant' ? '52px' : '0',
             display: 'flex',
+            flexWrap: 'wrap',
             gap: '12px',
           }}
         >
           <span><Activity size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />{msg.meta.tps.toFixed(1)} tok/s</span>
           <span>{msg.meta.tokens} tokens</span>
           <span>{msg.meta.duration.toFixed(2)}s</span>
+          {latencySummary && <span>{latencySummary}</span>}
         </div>
       )}
       {branchingEnabled && msg.role !== 'system' && !msg.hidden && msg.id && !isStreaming && (
@@ -3351,8 +3402,12 @@ export default function OpenClawWorkspace({
         installedModelCount: 0,
         loadedModelCount: 0,
         loadedModels: [],
+        loadedModelDetails: [],
         selectedModel: modelName,
         selectedModelLoaded: false,
+        selectedModelExpiresAt: '',
+        modelKeepAlive: settings?.modelKeepAlive,
+        ollamaKeepAlive: settings?.ollamaKeepAlive,
         error: error instanceof Error ? error.message : 'Failed to inspect Ollama health',
         checkedAt: Date.now(),
       });
@@ -6130,6 +6185,7 @@ export default function OpenClawWorkspace({
     let assistantThinking = '';
     let ocWasInsideToolTag = false;
     let finalMeta: OpenClawMessage['meta'] | undefined;
+    let latestTimings: OpenClawLatencyTimings | undefined;
 
     if (activeSources.length > 0) {
       updateChatMessage(options.assistantMessageId, current => ({
@@ -6212,6 +6268,18 @@ export default function OpenClawWorkspace({
         setStreamPhase(data.status);
       }
 
+      const frameTimings = normalizeLatencyTimings(data.timings);
+      if (frameTimings) {
+        latestTimings = frameTimings;
+        if (finalMeta) {
+          finalMeta = { ...finalMeta, timings: latestTimings };
+          updateChatMessage(options.assistantMessageId, current => ({
+            ...current,
+            meta: finalMeta,
+          }));
+        }
+      }
+
       if (Array.isArray(data.sources)) {
         activeSources = mergeMessageSources(activeSources, normalizeToolSources(data.sources));
         scheduleUpdate(options.assistantMessageId, { sources: activeSources });
@@ -6251,11 +6319,13 @@ export default function OpenClawWorkspace({
         }
       }
 
-      if (data.done && data.eval_count && data.eval_duration) {
-        const tokens = data.eval_count;
-        const durationSec = data.eval_duration / 1e9;
-        const tps = tokens / durationSec;
-        finalMeta = { tokens, duration: durationSec, tps };
+      if (data.done) {
+        const tokens = typeof data.eval_count === 'number' ? data.eval_count : tokenCountRef.current;
+        const durationSec = typeof data.eval_duration === 'number'
+          ? data.eval_duration / 1e9
+          : Math.max((Date.now() - startTimeRef.current) / 1000, 0.001);
+        const tps = tokens > 0 ? tokens / durationSec : 0;
+        finalMeta = { tokens, duration: durationSec, tps, timings: latestTimings };
         updateChatMessage(options.assistantMessageId, current => ({
           ...current,
           meta: finalMeta,
@@ -7189,11 +7259,15 @@ export default function OpenClawWorkspace({
         return left.index - right.index;
       });
   }, [models, favoriteModels, provider]);
+  const selectedModelLoadedUntil = formatLoadedUntil(ollamaHealth?.selectedModelExpiresAt);
+  const keepAliveLabel = ollamaHealth?.modelKeepAlive
+    ? `Keep alive ${ollamaHealth.ollamaKeepAlive || '30m'}`
+    : 'Keep alive off';
   const healthStatusLabel = ollamaHealthLoading
     ? 'Checking Ollama'
     : ollamaHealth?.status === 'online'
       ? ollamaHealth.selectedModelLoaded
-        ? 'Selected model loaded'
+        ? `Selected model loaded${selectedModelLoadedUntil ? ` until ${selectedModelLoadedUntil}` : ''}`
         : ollamaHealth.loadedModelCount > 0
           ? `${ollamaHealth.loadedModelCount} other model${ollamaHealth.loadedModelCount === 1 ? '' : 's'} loaded`
           : 'Ollama online'
@@ -7206,7 +7280,7 @@ export default function OpenClawWorkspace({
       ? 'var(--warning)'
       : 'var(--danger)';
   const runtimeMetaLabel = ollamaHealth?.online
-    ? `${ollamaHealth.version || 'Ollama'} · ${ollamaHealth.installedModelCount} installed · ${ollamaHealth.loadedModelCount} loaded`
+    ? `${ollamaHealth.version || 'Ollama'} · ${ollamaHealth.installedModelCount} installed · ${ollamaHealth.loadedModelCount} loaded · ${keepAliveLabel}`
     : ollamaHealth?.error || 'Waiting for Ollama health...';
   const collapsedRailFooterLabel = provider === 'ollama' ? 'Local' : 'Cloud';
   const collapsedRailFooterTone = provider === 'ollama'
@@ -7961,9 +8035,7 @@ export default function OpenClawWorkspace({
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}
                   title={ollamaHealth?.online && ollamaHealth.loadedModels.length > 0 ? 'Loaded: ' + ollamaHealth.loadedModels.join(', ') : undefined}>
-                  {ollamaHealth?.online
-                    ? (ollamaHealth.version || 'Ollama') + ' ' + String.fromCharCode(183) + ' ' + ollamaHealth.installedModelCount + ' installed ' + String.fromCharCode(183) + ' ' + ollamaHealth.loadedModelCount + ' loaded'
-                    : ollamaHealth?.error || 'Waiting for Ollama health...'}
+                  {runtimeMetaLabel}
                 </div>
               </div>
 

@@ -13,7 +13,7 @@ interface OllamaTagsResponse {
 }
 
 interface OllamaPsResponse {
-  models?: Array<{ name?: unknown; model?: unknown }>
+  models?: Array<{ name?: unknown; model?: unknown; expires_at?: unknown; context_length?: unknown }>
 }
 
 function normalizeName(value: unknown): string {
@@ -55,11 +55,19 @@ export async function GET(req: NextRequest) {
       ? tagsData.models.map(model => normalizeName(model?.name)).filter(Boolean)
       : []
     const psError = 'error' in psResult ? psResult.error : null
-    const loadedModels = !psError && 'data' in psResult && Array.isArray(psResult.data.models)
+    const loadedModelDetails = !psError && 'data' in psResult && Array.isArray(psResult.data.models)
       ? psResult.data.models
-        .map(model => normalizeName(model?.name ?? model?.model))
-        .filter((name, index, values) => Boolean(name) && values.indexOf(name) === index)
+        .map(model => ({
+          name: normalizeName(model?.name ?? model?.model),
+          expiresAt: typeof model?.expires_at === 'string' ? model.expires_at : '',
+          contextLength: typeof model?.context_length === 'number' ? model.context_length : null,
+        }))
+        .filter((model, index, values) => Boolean(model.name) && values.findIndex(entry => entry.name === model.name) === index)
       : []
+    const loadedModels = loadedModelDetails.map(model => model.name)
+    const selectedModelDetail = Boolean(selectedModel)
+      ? loadedModelDetails.find(model => isSameOllamaModel(model.name, selectedModel))
+      : undefined
 
     return NextResponse.json({
       ok: !psError,
@@ -70,8 +78,12 @@ export async function GET(req: NextRequest) {
       installedModelCount: installedModels.length,
       loadedModelCount: loadedModels.length,
       loadedModels,
+      loadedModelDetails,
       selectedModel,
-      selectedModelLoaded: Boolean(selectedModel) && loadedModels.some(model => isSameOllamaModel(model, selectedModel)),
+      selectedModelLoaded: Boolean(selectedModelDetail),
+      selectedModelExpiresAt: selectedModelDetail?.expiresAt || '',
+      modelKeepAlive: settings.modelKeepAlive,
+      ollamaKeepAlive: settings.ollamaKeepAlive,
       error: psError instanceof Error ? psError.message : '',
       checkedAt: Date.now(),
     })
@@ -85,8 +97,12 @@ export async function GET(req: NextRequest) {
       installedModelCount: 0,
       loadedModelCount: 0,
       loadedModels: [],
+      loadedModelDetails: [],
       selectedModel,
       selectedModelLoaded: false,
+      selectedModelExpiresAt: '',
+      modelKeepAlive: settings.modelKeepAlive,
+      ollamaKeepAlive: settings.ollamaKeepAlive,
       error: getErrorMessage(error, 'Failed to contact Ollama. Is the local service running?'),
       checkedAt: Date.now(),
     })

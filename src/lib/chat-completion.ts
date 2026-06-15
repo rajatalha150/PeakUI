@@ -24,7 +24,7 @@ import { unloadOtherOllamaModels } from '@/lib/ollama-control';
 import { getHostExecutorStatus } from './openclaw-host-executor';
 import type { ServerStreamStatus } from '@/lib/stream-status';
 import { isHuggingFaceRouterUrl } from './chat-platforms';
-import { trimMessagesToFit, estimateStringTokens } from './message-trim';
+import { trimMessagesToFit, estimateMessageTokens, estimateStringTokens } from './message-trim';
 import { normalizeImageMimeType, shouldNormalizeImageForCompatibility } from './file-shared';
 import { convertImageBufferToJpeg } from './image-normalization';
 import { getOpenClawWorkspaceContext } from './openclaw-project-workspaces';
@@ -404,6 +404,14 @@ function buildOllamaKeepAlive(settings: AppSettings): string | undefined {
   return settings.modelKeepAlive ? settings.ollamaKeepAlive : undefined
 }
 
+function roundTimingMs(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : null
+}
+
+function durationSince(start: number | null | undefined, end = performance.now()): number | null {
+  return typeof start === 'number' ? roundTimingMs(end - start) : null
+}
+
 function normalizeInternetEnabled(value: unknown): boolean {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value !== 0;
@@ -576,7 +584,12 @@ async function streamOpenAICompatibleResponse(options: {
   temperature: number;
   signal: AbortSignal;
   emit: (payload: Record<string, unknown>) => void;
+  onRequestStart?: () => void;
+  onHeaders?: () => void;
+  onFrame?: () => void;
+  onContent?: () => void;
 }) {
+  options.onRequestStart?.();
   const response = await fetch(`${options.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -595,6 +608,7 @@ async function streamOpenAICompatibleResponse(options: {
     }),
     signal: options.signal,
   });
+  options.onHeaders?.();
 
   if (!response.ok) {
     const text = await response.text();
@@ -612,6 +626,7 @@ async function streamOpenAICompatibleResponse(options: {
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
+    options.onFrame?.();
 
     buffer += decoder.decode(value, { stream: true });
     let newlineIndex = buffer.indexOf('\n');
@@ -659,6 +674,7 @@ async function streamOpenAICompatibleResponse(options: {
           }
 
           if (content) {
+            options.onContent?.();
             options.emit({ message: { content } });
           }
 
@@ -712,11 +728,14 @@ async function streamOpenAICompatibleResponse(options: {
 
 export async function createChatCompletionResponse(req: NextRequest) {
   try {
+    const requestStartedAt = performance.now();
     const auth = await getCurrentAuth();
     if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     const userId = auth.user.id;
 
+    const settingsStartedAt = performance.now();
     const settings = await getUserSettings(userId);
+    const settingsLoadedAt = performance.now();
     const body = await req.json() as IncomingChatBody;
     const requestedModel = typeof body.model === 'string' ? body.model.trim() : '';
     const messages = normalizeMessages(body.messages);
@@ -785,6 +804,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
       context: settings.openClawUserProfileContext,
     } : undefined;
 
+    const workspacePrepStartedAt = performance.now();
     const effectiveToolAccess = buildEffectiveOpenClawToolAccess(settings, auth.permissions);
     const hostExecutorStatus = surface === 'openclaw'
       && effectiveToolAccess.shellEnabled
@@ -805,8 +825,10 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const existingSession = chatId
       ? await getChatSessionById(userId, chatId).catch(() => null)
       : null;
+    const workspacePrepEndedAt = performance.now();
     const effectiveUwafBrowserMode = internetToolEnabled ? effectiveToolAccess.uwafBrowserMode : 'deny';
 
+    const promptBuildStartedAt = performance.now();
     const openClawPrompt = surface === 'openclaw'
       ? buildOpenClawSystemPrompt({
           provider: provider === 'openai-compatible' ? 'openai-compatible' : 'ollama',
@@ -860,24 +882,25 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const UNCENSORED_INSTRUCTIONS = [...UNCENSORED_BASE_INSTRUCTIONS, uncensoredToolClause].join(' ');
 
     const systemPromptParts = uncensored
-      ? [UNCENSORED_INSTRUCTIONS, PERSISTENT_INSTRUCTIONS, dateTimeInstruction, IMAGE_MARKDOWN_SAFETY_INSTRUCTIONS, openClawPrompt, chatInternetPrompt]
+      ? [UNCENSORED_INSTRUCTIONS, PERSISTENT_INSTRUCTIONS, IMAGE_MARKDOWN_SAFETY_INSTRUCTIONS, openClawPrompt, chatInternetPrompt, dateTimeInstruction]
       : unrestricted
-      ? [PERSISTENT_INSTRUCTIONS, dateTimeInstruction, IMAGE_MARKDOWN_SAFETY_INSTRUCTIONS, openClawPrompt, chatInternetPrompt]
+      ? [PERSISTENT_INSTRUCTIONS, IMAGE_MARKDOWN_SAFETY_INSTRUCTIONS, openClawPrompt, chatInternetPrompt, dateTimeInstruction]
       : [
           PERSISTENT_INSTRUCTIONS,
-          dateTimeInstruction,
           IMAGE_MARKDOWN_SAFETY_INSTRUCTIONS,
           ...(surface === 'chat' ? [IMAGE_INSTRUCTIONS] : []),
           settings.systemPrompt.trim(),
           openClawPrompt,
           chatInternetPrompt,
           presentationPrompt,
+          dateTimeInstruction,
           ...messages
             .filter(message => message.role === 'system')
             .map(message => message.content?.trim() || ''),
         ].filter(Boolean);
 
     const systemPrompt = systemPromptParts.join('\n\n');
+    const promptBuiltAt = performance.now();
     let untrimmedMessages: InternalChatMessage[];
     if (systemPrompt) {
       untrimmedMessages = [{ role: 'system', content: systemPrompt }, ...nonSystemMessages];
@@ -931,6 +954,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
     }
 
     // Trim conversation history to fit within context window
+    const contextManagementStartedAt = performance.now();
     const systemOverhead = estimateStringTokens(systemPrompt);
     const contextManaged = surface === 'openclaw'
       ? applyContextManagement(untrimmedMessages, {
@@ -950,6 +974,37 @@ export async function createChatCompletionResponse(req: NextRequest) {
           summaryUsed: false,
         };
     const outboundMessages: InternalChatMessage[] = contextManaged.messages as InternalChatMessage[];
+    const responseReadyAt = performance.now();
+    let upstreamStartedAt: number | null = null;
+    let upstreamHeadersAt: number | null = null;
+    let firstUpstreamFrameAt: number | null = null;
+    let firstContentAt: number | null = null;
+    let upstreamKind: 'ollama-chat' | 'ollama-generate-fallback' | 'openai-compatible' | null = null;
+    const outboundTokenEstimate = estimateMessageTokens(outboundMessages);
+    const activeKeepAlive = provider === 'ollama' ? buildOllamaKeepAlive(settings) : undefined;
+    const buildLatencyTimings = (stage: string, extra: Record<string, unknown> = {}) => ({
+      stage,
+      provider,
+      model: requestedModel,
+      surface,
+      keep_alive_enabled: Boolean(activeKeepAlive),
+      keep_alive: activeKeepAlive || null,
+      server_prepare_ms: durationSince(requestStartedAt, responseReadyAt),
+      settings_ms: durationSince(settingsStartedAt, settingsLoadedAt),
+      workspace_context_ms: durationSince(workspacePrepStartedAt, workspacePrepEndedAt),
+      prompt_build_ms: durationSince(promptBuildStartedAt, promptBuiltAt),
+      context_management_ms: durationSince(contextManagementStartedAt, responseReadyAt),
+      upstream_kind: upstreamKind,
+      upstream_headers_ms: upstreamHeadersAt === null ? null : durationSince(upstreamStartedAt, upstreamHeadersAt),
+      first_upstream_frame_ms: firstUpstreamFrameAt === null ? null : durationSince(upstreamStartedAt, firstUpstreamFrameAt),
+      first_content_ms: firstContentAt === null ? null : durationSince(upstreamStartedAt, firstContentAt),
+      system_prompt_chars: systemPrompt.length,
+      outbound_messages: outboundMessages.length,
+      outbound_token_estimate: outboundTokenEstimate,
+      context_health: surface === 'openclaw' ? contextManaged.contextHealth : null,
+      summary_used: surface === 'openclaw' ? contextManaged.summaryUsed : false,
+      ...extra,
+    });
 
     const encoder = new TextEncoder();
     const upstreamAbort = new AbortController();
@@ -1001,8 +1056,14 @@ export async function createChatCompletionResponse(req: NextRequest) {
         };
 
         emitStatus(heartbeatStatus);
+        sendJsonLine({ timings: buildLatencyTimings('server-prepared') });
 
         const streamOllamaGenerateFallback = async (numCtx: number | null, messagesForStream: InternalChatMessage[]) => {
+          upstreamKind = 'ollama-generate-fallback';
+          upstreamStartedAt = performance.now();
+          upstreamHeadersAt = null;
+          firstUpstreamFrameAt = null;
+          firstContentAt = null;
           const fallbackRes = await fetch(`${baseUrl}/api/generate`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1015,6 +1076,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
             }),
             signal: upstreamAbort.signal,
           });
+          upstreamHeadersAt = performance.now();
 
           if (!fallbackRes.ok) {
             const text = await fallbackRes.text();
@@ -1037,6 +1099,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
           let buffer = '';
 
           const emitFallbackLine = (line: string) => {
+            if (firstUpstreamFrameAt === null) firstUpstreamFrameAt = performance.now();
             let parsed: {
               response?: unknown;
               done?: unknown;
@@ -1052,11 +1115,18 @@ export async function createChatCompletionResponse(req: NextRequest) {
 
             if (!parsed) return;
             const content = typeof parsed.response === 'string' ? parsed.response : '';
+            if (content && firstContentAt === null) firstContentAt = performance.now();
             controller.enqueue(encoder.encode(`${JSON.stringify({
               ...(content ? { message: { role: 'assistant', content } } : {}),
               done: parsed.done === true,
               ...(typeof parsed.eval_count === 'number' ? { eval_count: parsed.eval_count } : {}),
               ...(typeof parsed.eval_duration === 'number' ? { eval_duration: parsed.eval_duration } : {}),
+              ...(parsed.done === true ? {
+                timings: buildLatencyTimings('ollama-generate-done', {
+                  eval_count: typeof parsed.eval_count === 'number' ? parsed.eval_count : null,
+                  eval_duration_ms: typeof parsed.eval_duration === 'number' ? roundTimingMs(parsed.eval_duration / 1e6) : null,
+                }),
+              } : {}),
             })}\n`));
           };
 
@@ -1093,6 +1163,11 @@ export async function createChatCompletionResponse(req: NextRequest) {
           try {
             emitStatus('starting-model');
             upstreamAbort.signal.addEventListener('abort', abortStart, { once: true });
+            upstreamKind = 'ollama-chat';
+            upstreamStartedAt = performance.now();
+            upstreamHeadersAt = null;
+            firstUpstreamFrameAt = null;
+            firstContentAt = null;
             ollamaRes = await fetch(`${baseUrl}/api/chat`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -1105,6 +1180,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
               }),
               signal: startAbort.signal,
             });
+            upstreamHeadersAt = performance.now();
           } catch (error) {
             if (startTimedOut && !upstreamAbort.signal.aborted) {
               throw new Error(`Ollama did not start streaming within ${Math.round(OLLAMA_START_TIMEOUT_MS / 1000)} seconds with ${formatContextCandidate(numCtx)}. Restart Ollama or lower the context/model load pressure.`);
@@ -1166,8 +1242,25 @@ export async function createChatCompletionResponse(req: NextRequest) {
           };
 
           const handleChatLine = async (line: string) => {
+            if (firstUpstreamFrameAt === null) firstUpstreamFrameAt = performance.now();
             if (flushedChat) {
               controller.enqueue(encoder.encode(`${line}\n`));
+              try {
+                const parsed = JSON.parse(line) as Record<string, unknown>;
+                if (parsed.done === true) {
+                  sendJsonLine({
+                    timings: buildLatencyTimings('ollama-chat-done', {
+                      load_duration_ms: typeof parsed.load_duration === 'number' ? roundTimingMs(parsed.load_duration / 1e6) : null,
+                      prompt_eval_duration_ms: typeof parsed.prompt_eval_duration === 'number' ? roundTimingMs(parsed.prompt_eval_duration / 1e6) : null,
+                      prompt_eval_count: typeof parsed.prompt_eval_count === 'number' ? parsed.prompt_eval_count : null,
+                      eval_duration_ms: typeof parsed.eval_duration === 'number' ? roundTimingMs(parsed.eval_duration / 1e6) : null,
+                      eval_count: typeof parsed.eval_count === 'number' ? parsed.eval_count : null,
+                    }),
+                  });
+                }
+              } catch {
+                // Ignore timing parse failures after content has already flushed.
+              }
               return false;
             }
 
@@ -1185,6 +1278,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
               ? parsed.message as Record<string, unknown>
               : null;
             if (typeof message?.content === 'string') {
+              if (message.content && firstContentAt === null) firstContentAt = performance.now();
               bufferedContent += message.content;
             }
 
@@ -1196,6 +1290,15 @@ export async function createChatCompletionResponse(req: NextRequest) {
               }
 
               flushBufferedChatLines();
+              sendJsonLine({
+                timings: buildLatencyTimings('ollama-chat-done', {
+                  load_duration_ms: typeof parsed.load_duration === 'number' ? roundTimingMs(parsed.load_duration / 1e6) : null,
+                  prompt_eval_duration_ms: typeof parsed.prompt_eval_duration === 'number' ? roundTimingMs(parsed.prompt_eval_duration / 1e6) : null,
+                  prompt_eval_count: typeof parsed.prompt_eval_count === 'number' ? parsed.prompt_eval_count : null,
+                  eval_duration_ms: typeof parsed.eval_duration === 'number' ? roundTimingMs(parsed.eval_duration / 1e6) : null,
+                  eval_count: typeof parsed.eval_count === 'number' ? parsed.eval_count : null,
+                }),
+              });
               return false;
             }
 
@@ -1316,6 +1419,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
               }
 
               emitStatus('streaming');
+              upstreamKind = 'openai-compatible';
 
               await streamOpenAICompatibleResponse({
                 baseUrl,
@@ -1329,8 +1433,24 @@ export async function createChatCompletionResponse(req: NextRequest) {
                   chat_id: chatId || undefined,
                   session_id: sessionId || undefined,
                   id: assistantMessageId,
+                  ...(payload.done === true ? { timings: buildLatencyTimings('openai-compatible-done') } : {}),
                   ...payload,
                 }),
+                onRequestStart: () => {
+                  upstreamStartedAt = performance.now();
+                  upstreamHeadersAt = null;
+                  firstUpstreamFrameAt = null;
+                  firstContentAt = null;
+                },
+                onHeaders: () => {
+                  upstreamHeadersAt = performance.now();
+                },
+                onFrame: () => {
+                  if (firstUpstreamFrameAt === null) firstUpstreamFrameAt = performance.now();
+                },
+                onContent: () => {
+                  if (firstContentAt === null) firstContentAt = performance.now();
+                },
               });
 
               finish();

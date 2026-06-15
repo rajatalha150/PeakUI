@@ -123,6 +123,15 @@ export async function GET() {
     }
 
     const normalized = normalizeAppSettings(settings)
+    if (settings.modelKeepAlive === false && !settings.ollamaKeepAlive?.trim() && normalized.modelKeepAlive) {
+      await prisma.userSettings.update({
+        where: { userId: auth.user.id },
+        data: {
+          modelKeepAlive: normalized.modelKeepAlive,
+          ollamaKeepAlive: normalized.ollamaKeepAlive,
+        },
+      });
+    }
     return NextResponse.json({
       ...normalized,
       permissions: auth.permissions,

@@ -9,8 +9,16 @@ export interface OllamaHealthSummary {
   installedModelCount: number
   loadedModelCount: number
   loadedModels: string[]
+  loadedModelDetails?: Array<{
+    name: string
+    expiresAt: string
+    contextLength?: number | null
+  }>
   selectedModel: string
   selectedModelLoaded: boolean
+  selectedModelExpiresAt?: string
+  modelKeepAlive?: boolean
+  ollamaKeepAlive?: string
   error: string
   checkedAt: number
 }
