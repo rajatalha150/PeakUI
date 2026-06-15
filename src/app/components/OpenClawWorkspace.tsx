@@ -7419,7 +7419,7 @@ export default function OpenClawWorkspace({
                         <Star size={14} fill={favorite ? 'currentColor' : 'none'} />
                       </button>
                       <span style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{model.name}</span>
-                      <span>{active ? 'Selected' : 'Available'}</span>
+                      {(active || favorite) && <span>{active ? 'Selected' : 'Favorite'}</span>}
                     </div>
                   );
                 })}

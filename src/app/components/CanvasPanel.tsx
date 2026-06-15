@@ -157,6 +157,20 @@ function getArtifactTypeLabel(artifact: CanvasArtifactRecord) {
   return artifact.presentationType || artifact.kind || 'File'
 }
 
+function usePhoneViewport() {
+  const [isPhone, setIsPhone] = React.useState(false)
+
+  React.useEffect(() => {
+    const query = window.matchMedia('(max-width: 560px)')
+    const sync = () => setIsPhone(query.matches)
+    sync()
+    query.addEventListener('change', sync)
+    return () => query.removeEventListener('change', sync)
+  }, [])
+
+  return isPhone
+}
+
 function createCanvasRows(artifacts: CanvasArtifactRecord[], collapsedBundleIds: Set<string>): CanvasRow[] {
   const groups = new Map<string, CanvasArtifactRecord[]>()
   const singles: CanvasArtifactRecord[] = []
@@ -513,6 +527,7 @@ function CompactArtifactRow({
   onPreview,
   copied,
   error,
+  compact = false,
 }: {
   artifact: CanvasArtifactRecord
   onCopy: () => void
@@ -521,12 +536,14 @@ function CompactArtifactRow({
   onPreview: () => void
   copied: boolean
   error: string | null
+  compact?: boolean
 }) {
   return (
     <div
       style={{
-        display: 'flex',
-        alignItems: 'center',
+        display: compact ? 'grid' : 'flex',
+        gridTemplateColumns: compact ? 'auto minmax(0, 1fr)' : undefined,
+        alignItems: compact ? 'start' : 'center',
         gap: '8px',
         minHeight: '44px',
         padding: '7px 8px',
@@ -535,7 +552,7 @@ function CompactArtifactRow({
         background: 'var(--bg-secondary)',
       }}
     >
-      <span style={{ color: 'var(--accent-primary)', flexShrink: 0 }}>{getArtifactIcon(artifact)}</span>
+      <span style={{ color: 'var(--accent-primary)', flexShrink: 0, paddingTop: compact ? 2 : 0 }}>{getArtifactIcon(artifact)}</span>
       <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: '2px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
           <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -551,18 +568,32 @@ function CompactArtifactRow({
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
-        <button type="button" onClick={onCopy} style={{ ...actionButtonStyle, width: 28, height: 28, padding: 0, justifyContent: 'center' }} title="Copy artifact content" aria-label={`Copy ${artifact.name}`}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: compact ? '6px' : '4px',
+          flexShrink: 0,
+          gridColumn: compact ? '1 / -1' : undefined,
+          justifyContent: compact ? 'space-between' : undefined,
+          minWidth: 0,
+        }}
+      >
+        <button type="button" onClick={onCopy} style={{ ...actionButtonStyle, width: compact ? 'auto' : 28, minWidth: 28, height: 28, padding: compact ? '0 8px' : 0, justifyContent: 'center', flex: compact ? 1 : undefined }} title="Copy artifact content" aria-label={`Copy ${artifact.name}`}>
           {copied ? <Check size={12} /> : <Copy size={12} />}
+          {compact && <span>{copied ? 'Copied' : 'Copy'}</span>}
         </button>
-        <button type="button" onClick={onDownload} style={{ ...actionButtonStyle, width: 28, height: 28, padding: 0, justifyContent: 'center' }} title="Download" aria-label={`Download ${artifact.name}`}>
+        <button type="button" onClick={onDownload} style={{ ...actionButtonStyle, width: compact ? 'auto' : 28, minWidth: 28, height: 28, padding: compact ? '0 8px' : 0, justifyContent: 'center', flex: compact ? 1 : undefined }} title="Download" aria-label={`Download ${artifact.name}`}>
           <Download size={12} />
+          {compact && <span>Save</span>}
         </button>
-        <button type="button" onClick={onPreview} style={{ ...actionButtonStyle, width: 28, height: 28, padding: 0, justifyContent: 'center' }} title="Preview" aria-label={`Preview ${artifact.name}`}>
+        <button type="button" onClick={onPreview} style={{ ...actionButtonStyle, width: compact ? 'auto' : 28, minWidth: 28, height: 28, padding: compact ? '0 8px' : 0, justifyContent: 'center', flex: compact ? 1 : undefined }} title="Preview" aria-label={`Preview ${artifact.name}`}>
           <Eye size={12} />
+          {compact && <span>Preview</span>}
         </button>
-        <button type="button" onClick={onDelete} style={{ ...actionButtonStyle, width: 28, height: 28, padding: 0, justifyContent: 'center', color: 'var(--danger)' }} title="Delete" aria-label={`Delete ${artifact.name}`}>
+        <button type="button" onClick={onDelete} style={{ ...actionButtonStyle, width: compact ? 'auto' : 28, minWidth: 28, height: 28, padding: compact ? '0 8px' : 0, justifyContent: 'center', color: 'var(--danger)', flex: compact ? 1 : undefined }} title="Delete" aria-label={`Delete ${artifact.name}`}>
           <Trash2 size={12} />
+          {compact && <span>Delete</span>}
         </button>
       </div>
     </div>
@@ -586,6 +617,15 @@ function ArtifactPreviewModal({
 }) {
   const content = artifact.content || ''
   const isOfficeDoc = isWorkbookArtifact(artifact) || isWordArtifact(artifact)
+  const isPhone = usePhoneViewport()
+
+  React.useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [onClose])
 
   return (
     <div
@@ -599,9 +639,9 @@ function ArtifactPreviewModal({
         background: 'rgba(2, 6, 12, 0.76)',
         backdropFilter: 'blur(10px)',
         display: 'flex',
-        alignItems: 'center',
+        alignItems: isPhone ? 'stretch' : 'center',
         justifyContent: 'center',
-        padding: '24px',
+        padding: isPhone ? '8px' : '24px',
       }}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
@@ -609,18 +649,18 @@ function ArtifactPreviewModal({
     >
       <div
         style={{
-          width: 'min(960px, 96vw)',
-          maxHeight: '88vh',
+          width: isPhone ? 'calc(100vw - 16px)' : 'min(960px, 96vw)',
+          maxHeight: isPhone ? 'calc(100dvh - 16px)' : '88vh',
           display: 'flex',
           flexDirection: 'column',
           border: '1px solid var(--border-color)',
-          borderRadius: '16px',
+          borderRadius: isPhone ? '12px' : '16px',
           background: 'var(--bg-base)',
           boxShadow: '0 30px 90px rgba(0,0,0,0.55)',
           overflow: 'hidden',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px', borderBottom: '1px solid var(--border-color)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: isPhone ? '10px' : '12px 14px', borderBottom: '1px solid var(--border-color)', flexWrap: isPhone ? 'wrap' : 'nowrap' }}>
           <span style={{ color: 'var(--accent-primary)', flexShrink: 0 }}>{getArtifactIcon(artifact)}</span>
           <div style={{ minWidth: 0, flex: 1 }}>
             <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -630,15 +670,15 @@ function ArtifactPreviewModal({
               {getArtifactTypeLabel(artifact)} · {formatBytes(artifact.size)} · v{artifact.version}
             </div>
           </div>
-          <button type="button" onClick={onCopy} style={{ ...actionButtonStyle, color: copied ? '#10b981' : undefined }}>
+          <button type="button" onClick={onCopy} style={{ ...actionButtonStyle, color: copied ? '#10b981' : undefined, flex: isPhone ? '1 1 42%' : undefined, justifyContent: 'center' }}>
             {copied ? <Check size={12} /> : <Copy size={12} />}
             {copied ? 'Copied' : 'Copy'}
           </button>
-          <button type="button" onClick={onDownload} style={actionButtonStyle}>
+          <button type="button" onClick={onDownload} style={{ ...actionButtonStyle, flex: isPhone ? '1 1 42%' : undefined, justifyContent: 'center' }}>
             <Download size={12} />
             Download
           </button>
-          <button type="button" onClick={onDelete} style={{ ...actionButtonStyle, color: 'var(--danger)' }}>
+          <button type="button" onClick={onDelete} style={{ ...actionButtonStyle, color: 'var(--danger)', flex: isPhone ? '1 1 42%' : undefined, justifyContent: 'center' }}>
             <Trash2 size={12} />
             Delete
           </button>
@@ -647,7 +687,7 @@ function ArtifactPreviewModal({
           </button>
         </div>
 
-        <div style={{ padding: '14px', overflow: 'auto', flex: 1, minHeight: 0 }}>
+        <div style={{ padding: isPhone ? '10px' : '14px', overflow: 'auto', flex: 1, minHeight: 0, WebkitOverflowScrolling: 'touch' }}>
           {isOfficeDoc ? (
             <div style={{ display: 'grid', gap: '12px', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '16px', background: 'var(--bg-secondary)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -719,6 +759,7 @@ export default function CanvasPanel({
   const [searchDraft, setSearchDraft] = React.useState(searchQuery)
   const [previewArtifactId, setPreviewArtifactId] = React.useState<string | null>(null)
   const listScrollRef = React.useRef<HTMLDivElement>(null)
+  const isPhone = usePhoneViewport()
 
   const rows = React.useMemo(() => createCanvasRows(artifacts, collapsedBundleIds), [artifacts, collapsedBundleIds])
   const previewArtifact = previewArtifactId
@@ -1008,23 +1049,23 @@ export default function CanvasPanel({
   if (artifacts.length === 0 && !searchQuery && !error && !loading) return null
 
   return (
-    <div style={{ display: 'grid', gap: '10px' }}>
-      <form onSubmit={submitSearch} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+    <div style={{ display: 'grid', gap: '10px', minWidth: 0 }}>
+      <form onSubmit={submitSearch} style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: isPhone ? 'wrap' : 'nowrap' }}>
         <input
           type="search"
           value={searchDraft}
           onChange={(event) => setSearchDraft(event.target.value)}
           placeholder="Search artifacts"
-          style={{ ...inputStyle, flex: 1 }}
+          style={{ ...inputStyle, flex: isPhone ? '1 0 100%' : 1 }}
         />
-        <button type="submit" style={actionButtonStyle} disabled={loading}>
+        <button type="submit" style={{ ...actionButtonStyle, flex: isPhone ? 1 : undefined, justifyContent: 'center' }} disabled={loading}>
           {loading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Search size={12} />}
           Search
         </button>
         {searchQuery && (
           <button
             type="button"
-            style={actionButtonStyle}
+            style={{ ...actionButtonStyle, flex: isPhone ? 1 : undefined, justifyContent: 'center' }}
             onClick={() => {
               setSearchDraft('')
               void onSearch?.('')
@@ -1058,6 +1099,7 @@ export default function CanvasPanel({
             overflowY: 'auto',
             paddingRight: '2px',
             minHeight: 0,
+            WebkitOverflowScrolling: 'touch',
           }}
         >
           <VirtualizedList
@@ -1070,14 +1112,14 @@ export default function CanvasPanel({
         if (row.type === 'bundle') {
           return (
             <div style={{ paddingBottom: '8px', paddingTop: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.76rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.76rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', flexWrap: isPhone ? 'wrap' : 'nowrap' }}>
                 <button type="button" onClick={() => toggleBundle(row.id)} style={{ ...actionButtonStyle, textTransform: 'none', letterSpacing: 0 }}>
                   {row.collapsed ? <ChevronDown size={11} /> : <ChevronUp size={11} />}
                   <Layers size={11} />
                 </button>
-                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.label}</span>
+                <span style={{ flex: '1 1 120px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.label}</span>
                 <span style={{ opacity: 0.7 }}>{row.count} item{row.count === 1 ? '' : 's'}</span>
-                <button type="button" onClick={() => void downloadBundle(row.label, row.artifacts)} style={{ ...actionButtonStyle, textTransform: 'none', letterSpacing: 0 }}>
+                <button type="button" onClick={() => void downloadBundle(row.label, row.artifacts)} style={{ ...actionButtonStyle, textTransform: 'none', letterSpacing: 0, flex: isPhone ? '1 1 120px' : undefined, justifyContent: 'center' }}>
                   <Download size={11} />
                   Bundle
                 </button>
@@ -1101,6 +1143,7 @@ export default function CanvasPanel({
               onPreview={() => void openPreview(artifact)}
               copied={copiedIds.has(artifact.id)}
               error={errors[artifact.id] ?? null}
+              compact={isPhone}
             />
           </div>
         )

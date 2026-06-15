@@ -1786,6 +1786,80 @@ textarea.input-field {
     grid-template-columns: auto minmax(0, 1fr);
   }
 }
+
+@media (max-width: 560px) {
+  .mobile-topbar {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .mobile-topbar-button {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+  }
+
+  .mobile-topbar-pill {
+    max-width: calc(100vw - 104px);
+    min-height: 38px;
+    padding: 0 10px;
+  }
+
+  .mobile-topbar-pill-label {
+    font-size: 0.8rem;
+  }
+
+  .mobile-topbar-dropdown {
+    width: min(94vw, 360px);
+    max-height: min(68dvh, 460px);
+    border-radius: 14px;
+  }
+
+  .mobile-topbar-dropdown-right {
+    width: min(86vw, 300px);
+  }
+
+  .mobile-topbar-menu-item {
+    min-height: 40px;
+    padding: 9px 10px;
+    gap: 8px;
+    font-size: 0.8rem;
+  }
+
+  .openclaw-shell.openclaw-rail-left > .openclaw-rail,
+  .openclaw-shell.openclaw-rail-left > .openclaw-rail.is-collapsed {
+    width: min(94vw, 360px);
+  }
+
+  .openclaw-rail-header,
+  .openclaw-rail-scroll {
+    padding: 12px;
+  }
+
+  .openclaw-card {
+    padding: 9px;
+  }
+
+  .openclaw-card-header {
+    gap: 8px;
+  }
+
+  .shell-command-modal-overlay {
+    padding: 8px;
+    align-items: stretch !important;
+  }
+
+  .shell-command-modal {
+    width: 100% !important;
+    max-height: calc(100dvh - 16px);
+    overflow: auto;
+    padding: 16px !important;
+  }
+
+  .shell-command-modal > div:last-child {
+    flex-direction: column;
+  }
+}
 .artifact-badge {
   display: inline-flex;
   align-items: center;
