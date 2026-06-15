@@ -548,6 +548,8 @@ interface UserSettings {
   chatModel?: string;
   chatModelProvider?: ChatModelProvider;
   huggingFaceBaseUrl?: string;
+  modelKeepAlive?: boolean;
+  ollamaKeepAlive?: string;
   exclusiveOllamaModels?: boolean;
   temperature?: number;
   ollamaUseModelDefaultTemperature?: boolean;

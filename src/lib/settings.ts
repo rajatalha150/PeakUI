@@ -47,6 +47,8 @@ export interface AppSettings {
   chatModel: string
   chatModelProvider: ChatModelProvider
   huggingFaceBaseUrl: string
+  modelKeepAlive: boolean
+  ollamaKeepAlive: string
   exclusiveOllamaModels: boolean
   openClawProvider: OpenClawProvider
   openClawModel: string
@@ -108,6 +110,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   chatModel: '',
   chatModelProvider: 'ollama',
   huggingFaceBaseUrl: DEFAULT_HUGGING_FACE_BASE_URL,
+  modelKeepAlive: true,
+  ollamaKeepAlive: '30m',
   exclusiveOllamaModels: false,
   openClawProvider: 'ollama',
   openClawModel: '',
@@ -236,6 +240,23 @@ export function normalizeOllamaUseModelDefaultTemperature(value: unknown): boole
   return normalizeBoolean(value, DEFAULT_SETTINGS.ollamaUseModelDefaultTemperature)
 }
 
+export function normalizeOllamaKeepAlive(value: unknown): string {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  if (raw === '0') return '0'
+  if (!raw) return DEFAULT_SETTINGS.ollamaKeepAlive
+  if (/^[1-9]\d*(ms|s|m|h)$/.test(raw)) return raw
+  return DEFAULT_SETTINGS.ollamaKeepAlive
+}
+
+export function normalizeModelKeepAlive(value: unknown, keepAliveValue?: unknown): boolean {
+  const normalizedKeepAlive = typeof keepAliveValue === 'string' ? keepAliveValue.trim().toLowerCase() : ''
+  if (normalizedKeepAlive === '0') return false
+  // Older rows stored false/empty after the keep-alive UI was removed. Treat
+  // that legacy shape as the new default so existing users get terminal-like behavior.
+  if (value === false && !normalizedKeepAlive) return DEFAULT_SETTINGS.modelKeepAlive
+  return normalizeBoolean(value, DEFAULT_SETTINGS.modelKeepAlive)
+}
+
 export function normalizeContextLength(value: unknown): number {
   const clamped = clampNumber(value, MIN_CONTEXT_LENGTH, MAX_CONTEXT_LENGTH, DEFAULT_SETTINGS.contextLength)
   return Math.round(clamped / CONTEXT_STEP) * CONTEXT_STEP
@@ -349,6 +370,8 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     chatModel: typeof settings?.chatModel === 'string' ? settings.chatModel.trim() : DEFAULT_SETTINGS.chatModel,
     chatModelProvider: normalizeChatModelProvider(settings?.chatModelProvider),
     huggingFaceBaseUrl: normalizeHuggingFaceBaseUrl(settings?.huggingFaceBaseUrl),
+    modelKeepAlive: normalizeModelKeepAlive(settings?.modelKeepAlive, settings?.ollamaKeepAlive),
+    ollamaKeepAlive: normalizeOllamaKeepAlive(settings?.ollamaKeepAlive),
     exclusiveOllamaModels: normalizeBoolean(settings?.exclusiveOllamaModels, DEFAULT_SETTINGS.exclusiveOllamaModels),
     openClawProvider: normalizeOpenClawProvider(settings?.openClawProvider),
     openClawModel: typeof settings?.openClawModel === 'string' ? settings.openClawModel.trim() : DEFAULT_SETTINGS.openClawModel,

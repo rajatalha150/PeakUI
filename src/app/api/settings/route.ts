@@ -10,6 +10,7 @@ import {
   normalizeContextLength,
   normalizeHuggingFaceBaseUrl,
   normalizeOllamaHost,
+  normalizeOllamaKeepAlive,
   normalizeOllamaUseModelDefaultContext,
   normalizeOllamaUseModelDefaultTemperature,
   normalizeOpenClawBaseUrl,
@@ -49,6 +50,8 @@ interface SettingsBody {
   chatModel?: unknown;
   chatModelProvider?: unknown;
   huggingFaceBaseUrl?: unknown;
+  modelKeepAlive?: unknown;
+  ollamaKeepAlive?: unknown;
   exclusiveOllamaModels?: unknown;
   openClawProvider?: unknown;
   openClawModel?: unknown;
@@ -145,6 +148,15 @@ export async function POST(req: Request) {
     if (body.chatModel !== undefined) data.chatModel = String(body.chatModel);
     if (body.chatModelProvider !== undefined) data.chatModelProvider = normalizeChatModelProvider(body.chatModelProvider);
     if (body.huggingFaceBaseUrl !== undefined) data.huggingFaceBaseUrl = normalizeHuggingFaceBaseUrl(body.huggingFaceBaseUrl);
+    if (Object.prototype.hasOwnProperty.call(body, 'modelKeepAlive')) {
+      const enabled = normalizeBoolean(body.modelKeepAlive, DEFAULT_SETTINGS.modelKeepAlive);
+      data.modelKeepAlive = enabled;
+      if (!enabled) data.ollamaKeepAlive = '0';
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'ollamaKeepAlive') && data.modelKeepAlive !== false) {
+      const keepAlive = normalizeOllamaKeepAlive(body.ollamaKeepAlive);
+      data.ollamaKeepAlive = keepAlive === '0' ? DEFAULT_SETTINGS.ollamaKeepAlive : keepAlive;
+    }
     if (body.exclusiveOllamaModels !== undefined) data.exclusiveOllamaModels = normalizeBoolean(body.exclusiveOllamaModels);
     if (body.openClawProvider !== undefined) data.openClawProvider = normalizeOpenClawProvider(body.openClawProvider);
     if (body.openClawModel !== undefined) data.openClawModel = String(body.openClawModel);

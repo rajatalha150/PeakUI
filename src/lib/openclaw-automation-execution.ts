@@ -77,6 +77,7 @@ async function callOllamaForAutomation(options: {
   useModelDefaultTemperature: boolean
   contextLength: number
   useModelDefaultContext: boolean
+  keepAlive?: string
 }) {
   const ollamaOptions: Record<string, number> = {}
   if (!options.useModelDefaultTemperature) {
@@ -93,6 +94,7 @@ async function callOllamaForAutomation(options: {
       model: options.model,
       messages: options.messages,
       stream: false,
+      ...(options.keepAlive ? { keep_alive: options.keepAlive } : {}),
       options: ollamaOptions,
     }),
     signal: AbortSignal.timeout(120000),
@@ -333,6 +335,7 @@ async function executeAutomationRun(runId: string) {
       useModelDefaultTemperature: settings.ollamaUseModelDefaultTemperature,
       contextLength: settings.contextLength,
       useModelDefaultContext: settings.ollamaUseModelDefaultContext,
+      keepAlive: settings.modelKeepAlive ? settings.ollamaKeepAlive : undefined,
     })
 
     await prisma.chatSession.update({

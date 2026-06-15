@@ -400,6 +400,10 @@ function buildOllamaOptions(settings: AppSettings, numCtx: number | null): Recor
   return options
 }
 
+function buildOllamaKeepAlive(settings: AppSettings): string | undefined {
+  return settings.modelKeepAlive ? settings.ollamaKeepAlive : undefined
+}
+
 function normalizeInternetEnabled(value: unknown): boolean {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value !== 0;
@@ -1006,6 +1010,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
               model: requestedModel,
               prompt: buildOllamaGeneratePrompt(messagesForStream),
               stream: true,
+              ...(buildOllamaKeepAlive(settings) ? { keep_alive: buildOllamaKeepAlive(settings) } : {}),
               options: buildOllamaOptions(settings, numCtx),
             }),
             signal: upstreamAbort.signal,
@@ -1095,6 +1100,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
                 model: requestedModel,
                 messages: await buildOllamaMessages(messagesForStream),
                 stream: true,
+                ...(buildOllamaKeepAlive(settings) ? { keep_alive: buildOllamaKeepAlive(settings) } : {}),
                 options: buildOllamaOptions(settings, numCtx),
               }),
               signal: startAbort.signal,

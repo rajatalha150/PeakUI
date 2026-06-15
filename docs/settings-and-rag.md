@@ -24,9 +24,10 @@ WorkSpaces is the primary app shell. Generation settings are saved per user in `
 
 ### Local Model Lifecycle
 
-- PeakUI no longer sends request-level `keep_alive` overrides for local-provider WorkSpaces or Ollama embedding requests.
-- The app also no longer issues background model warmup requests.
-- Ollama's own default lifecycle and queueing behavior now control when local models stay resident or unload.
+- PeakUI sends Ollama request-level `keep_alive` for WorkSpaces chat requests so Ollama-backed local models and Ollama-hosted cloud model names stay resident between turns, similar to the feel of an interactive `ollama run` terminal session.
+- The default keep-alive window is `30m`. Settings -> Generation exposes quick values (`5m`, `30m`, `1h`, `2h`) plus a custom duration field using Ollama-style duration strings such as `10m` or `1h`.
+- Users can disable PeakUI keep-alive when memory is tight. In that mode, Ollama's own default lifecycle and queueing behavior control when models stay resident or unload.
+- PeakUI still does not issue background model warmup prompts.
 - WorkSpaces exposes a `Stop model` button next to its local-model controls.
 - That button unloads the currently selected local model through an authenticated app route so the next request starts from a fresh load.
 - WorkSpaces reports startup phases separately so pre-stream delays are not all mislabeled as model warmup. Depending on the request, the user may see `Searching knowledge base...`, `Researching web...`, `Unloading other models...`, `Starting model...`, `Connecting to model...`, or `Generating...`.

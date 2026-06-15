@@ -23,6 +23,8 @@ interface UserSettings {
   chatModel: string;
   chatModelProvider: 'ollama' | 'huggingface';
   huggingFaceBaseUrl: string;
+  modelKeepAlive: boolean;
+  ollamaKeepAlive: string;
   exclusiveOllamaModels: boolean;
   openClawProvider: string;
   openClawModel: string;
@@ -155,6 +157,8 @@ const INITIAL_SETTINGS: UserSettings = {
   chatModel: '',
   chatModelProvider: 'ollama',
   huggingFaceBaseUrl: DEFAULT_HUGGING_FACE_BASE_URL,
+  modelKeepAlive: true,
+  ollamaKeepAlive: '30m',
   exclusiveOllamaModels: false,
   openClawProvider: 'ollama',
   openClawModel: '',
@@ -1280,24 +1284,96 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
         <Field
           label={
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-              Local Model Lifecycle
-              <HelpHint text="PeakUI now leaves model loading and unload timing to Ollama itself. Use the Stop model button in WorkSpaces when you want to force a clean reload." />
+              Model Keep Alive
+              <HelpHint text="Keeps Ollama-backed models resident after each WorkSpaces response, matching the responsive feel of an interactive terminal session. This applies to local Ollama models and Ollama-hosted cloud model names." />
             </span>
           }
-          help="Local-provider WorkSpaces no longer overrides Ollama keep-alive or prewarms models in the background."
+          help="When enabled, PeakUI sends Ollama's request-level keep_alive value on WorkSpaces chat requests and fallback generate requests."
         >
           <div style={{
             padding: '12px 14px',
             borderRadius: '12px',
             border: '1px solid var(--border-color)',
             background: 'var(--bg-glass)',
+            display: 'grid',
+            gap: '12px',
           }}>
-            <div style={{ fontWeight: 700, fontSize: '0.92rem', marginBottom: '6px' }}>
-              Native Ollama behavior
-            </div>
-            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
-              PeakUI no longer sends request-level <code>keep_alive</code> values or background warmup prompts for local-provider WorkSpaces. If a model gets wedged, use the header-level <strong>Stop model</strong> control to unload it and let the next request start cleanly.
-            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const enabled = !settings.modelKeepAlive;
+                update('modelKeepAlive', enabled);
+                if (enabled && settings.ollamaKeepAlive === '0') update('ollamaKeepAlive', '30m');
+              }}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                borderRadius: '10px',
+                border: `1px solid ${settings.modelKeepAlive ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                background: settings.modelKeepAlive ? 'var(--accent-soft)' : 'transparent',
+                color: 'var(--text-primary)',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '12px',
+                textAlign: 'left',
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>
+                  {settings.modelKeepAlive ? 'Keep models warm after responses' : 'Let Ollama unload on its default schedule'}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 3, lineHeight: 1.45 }}>
+                  {settings.modelKeepAlive
+                    ? `PeakUI asks Ollama to keep the selected model loaded for ${settings.ollamaKeepAlive || '30m'} after each response.`
+                    : 'Useful when memory is tight, but repeated turns may cold-load the model again.'}
+                </div>
+              </div>
+              <span style={{ color: settings.modelKeepAlive ? 'var(--accent-primary)' : 'var(--text-secondary)', fontWeight: 700 }}>
+                {settings.modelKeepAlive ? 'On' : 'Off'}
+              </span>
+            </button>
+
+            {settings.modelKeepAlive && (
+              <div style={{ display: 'grid', gap: '8px' }}>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  Longer windows feel more like `ollama run` because the model remains resident between prompts. Use the header <strong>Stop model</strong> button when you want to unload it immediately.
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(78px, 1fr))', gap: '8px' }}>
+                  {['5m', '30m', '1h', '2h'].map(duration => (
+                    <button
+                      key={duration}
+                      type="button"
+                      onClick={() => update('ollamaKeepAlive', duration)}
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: '10px',
+                        border: `1px solid ${settings.ollamaKeepAlive === duration ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                        background: settings.ollamaKeepAlive === duration ? 'var(--accent-soft)' : 'transparent',
+                        color: settings.ollamaKeepAlive === duration ? 'var(--accent-primary)' : 'var(--text-primary)',
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                        fontWeight: 700,
+                      }}
+                    >
+                      {duration}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  className="input-field"
+                  value={settings.ollamaKeepAlive}
+                  onChange={event => update('ollamaKeepAlive', event.target.value)}
+                  placeholder="30m"
+                  style={{ width: '100%' }}
+                />
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
+                  Accepted format: a positive number followed by `ms`, `s`, `m`, or `h`.
+                </div>
+              </div>
+            )}
           </div>
         </Field>
 
