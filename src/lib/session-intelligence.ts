@@ -8,7 +8,7 @@ export interface SessionMessageLike {
   role: 'user' | 'assistant' | 'system';
   content?: string;
   hidden?: boolean;
-  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document';
+  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document';
   thinking?: string;
   images?: unknown[];
   attachments?: unknown[];
@@ -101,6 +101,12 @@ function summarizeToolResult(message: SessionMessageLike) {
   if (content.startsWith('PDF document tool result:')) {
     return `Tool result (PDF document): ${summarizeText(content.slice('PDF document tool result:'.length), 220)}`;
   }
+  if (content.startsWith('Excel workbook tool result:')) {
+    return `Tool result (Excel workbook): ${summarizeText(content.slice('Excel workbook tool result:'.length), 220)}`;
+  }
+  if (content.startsWith('Word document tool result:')) {
+    return `Tool result (Word document): ${summarizeText(content.slice('Word document tool result:'.length), 220)}`;
+  }
 
   return content ? `Hidden result: ${summarizeText(content, 220)}` : '';
 }
@@ -176,7 +182,7 @@ export function normalizeSessionAnalytics(raw: unknown): SessionAnalytics | null
   const toolCallsByTypeValue = isRecord(raw.toolCallsByType) ? raw.toolCallsByType : {};
   const toolCallsByType: SessionAnalytics['toolCallsByType'] = {};
 
-  for (const key of ['shell', 'filesystem', 'web', 'code', 'browser', 'unified_browser', 'tax_return', 'pdf_document', 'workbook_document'] as const) {
+  for (const key of ['shell', 'filesystem', 'web', 'code', 'browser', 'unified_browser', 'tax_return', 'pdf_document', 'workbook_document', 'word_document'] as const) {
     if (typeof toolCallsByTypeValue[key] === 'number') {
       toolCallsByType[key] = toolCallsByTypeValue[key] as number;
     }

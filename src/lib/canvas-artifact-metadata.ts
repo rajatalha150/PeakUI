@@ -10,6 +10,7 @@ export type ArtifactPresentationType =
   | 'data'
   | 'pdf'
   | 'workbook'
+  | 'word'
   | 'file'
 
 export type ArtifactPreviewKind =
@@ -46,6 +47,7 @@ const CODE_EXTENSIONS = new Set([
 
 const TABLE_EXTENSIONS = new Set(['csv', 'tsv'])
 const WORKBOOK_EXTENSIONS = new Set(['xlsx', 'xlsm', 'xls'])
+const WORD_EXTENSIONS = new Set(['docx', 'doc'])
 const DATA_EXTENSIONS = new Set(['json', 'yaml', 'yml', 'xml'])
 const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown'])
 
@@ -95,6 +97,12 @@ function inferPresentationType(name: string, mimeType: string, kind: string, con
     || mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     || mimeType === 'application/vnd.ms-excel'
   ) return 'workbook'
+  if (
+    kind === 'word'
+    || WORD_EXTENSIONS.has(extension)
+    || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    || mimeType === 'application/msword'
+  ) return 'word'
   if (mimeType.startsWith('image/')) {
     if (lowerName.includes('diagram')) return 'diagram'
     if (lowerName.includes('chart') || lowerName.includes('graph')) return 'chart'
@@ -119,6 +127,7 @@ function inferPresentationType(name: string, mimeType: string, kind: string, con
 function inferPreviewKind(presentationType: ArtifactPresentationType, mimeType: string, extension: string, kind: string): ArtifactPreviewKind {
   if (presentationType === 'pdf' || mimeType === 'application/pdf' || extension === 'pdf' || kind === 'pdf') return 'pdf'
   if (presentationType === 'workbook' || WORKBOOK_EXTENSIONS.has(extension) || kind === 'workbook') return 'file'
+  if (presentationType === 'word' || WORD_EXTENSIONS.has(extension) || kind === 'word') return 'file'
   if (mimeType.startsWith('image/')) return 'image'
   if (presentationType === 'table') return 'table'
   if (presentationType === 'chart') return 'chart'
@@ -217,6 +226,7 @@ function inferExportTargets(presentationType: ArtifactPresentationType, previewK
   if (previewKind === 'image') return ['report']
   if (previewKind === 'pdf' || presentationType === 'pdf') return ['report']
   if (presentationType === 'workbook') return ['report', 'dev-handoff']
+  if (presentationType === 'word') return ['memo', 'report']
   if (presentationType === 'code') return ['dev-handoff', 'report']
   if (presentationType === 'report' || presentationType === 'slides' || presentationType === 'memo') return ['memo', 'report']
   if (presentationType === 'table' || presentationType === 'chart' || presentationType === 'data') return ['report', 'dev-handoff']

@@ -39,8 +39,8 @@
 ### v0.6.0 - Canvas & Artifacts ✅
 - CanvasArtifact DB model for persistent artifact storage
 - CanvasArtifactRevision history for durable edit/restore snapshots
-- Visual artifact cards with code syntax highlighting
-- Markdown and image file preview
+- Compact artifact rows with Copy, Download, Preview, and Delete controls
+- Modal previews for PDF, markdown, code, image, table, Word, Excel, and other Canvas artifacts
 - Artifact versioning, revision restore, lightweight compare, lineage navigation, and edit-in-place
 - Search, cursor paging, collapsible bundles, and bundle-level export/delete controls
 - Canvas panels in both WorkSpaces and main chat

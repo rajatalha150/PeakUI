@@ -555,9 +555,19 @@ export async function POST(req: Request) {
       || lowerMime.includes('excel')
       || lowerName.endsWith('.xlsx')
       || lowerName.endsWith('.xlsm')
-      || lowerName.endsWith('.xls');
+      || lowerName.endsWith('.xls')
+      || lowerMime.includes('wordprocessingml')
+      || lowerMime.includes('msword')
+      || lowerName.endsWith('.docx')
+      || lowerName.endsWith('.doc');
     const originalContent = shouldRetainOriginal ? buffer.toString('base64') : null;
-    const originalMimeType = shouldRetainOriginal ? (file.type || (lowerName.endsWith('.pdf') ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')) : null;
+    const originalMimeType = shouldRetainOriginal
+      ? (file.type || (lowerName.endsWith('.pdf')
+        ? 'application/pdf'
+        : lowerName.endsWith('.docx') || lowerName.endsWith('.doc')
+          ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+          : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'))
+      : null;
 
     const existingDoc = await prisma.document.findFirst({
       where: {

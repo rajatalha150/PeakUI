@@ -12,7 +12,7 @@ The UI label is **WorkSpaces**. The internal implementation still uses `openclaw
 | Local models | Ollama-first generation with health checks, model stop, exclusive switching, and context backoff |
 | Remote providers | OpenAI-compatible endpoints, including Hugging Face router, TGI, vLLM, and SGLang-style servers |
 | Knowledge Base | PostgreSQL-backed document index with semantic, keyword, hybrid RRF, source chips, and full-access mode |
-| Canvas | Persistent artifacts, bundles, revisions, lineage, search, restore, and exports |
+| Canvas | Compact artifact rows, modal previews, downloads, bundles, revisions, lineage, search, restore, and exports |
 | Tools | Shell, filesystem, code sandbox, public browser, and UWAF Direct/Stealth browser with approval gates |
 | Automation | Heartbeats, cron tasks, monitors, wake events, nudges, and guarded unattended local Ollama runs |
 | Session intelligence | Rolling summaries, context health, auto-continue modes, branches, branch compare, and analytics |
@@ -71,6 +71,8 @@ PostgreSQL
 
 - Persists generated artifacts per session.
 - Supports code, markdown, images, tables, charts, reports, diagrams, slides, and generic files.
+- Shows each artifact as a compact single-row item with Copy, Download, Preview, and Delete controls.
+- Opens PDF, image, text/code/markdown/table, Word, Excel, and other artifact previews in a modal instead of expanding large cards in the rail.
 - Stores revision snapshots on create, edit, and restore.
 - Supports artifact search, cursor paging, lineage, bundle export/delete, history restore, and lightweight revision comparison.
 - Uses lazy preview rendering and size thresholds so large artifacts do not render eagerly.

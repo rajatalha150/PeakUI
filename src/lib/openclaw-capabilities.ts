@@ -2,6 +2,7 @@ import {
   OPENCLAW_PDF_DOCUMENT_TOOL_EXAMPLE,
   OPENCLAW_TAX_RETURN_TOOL_EXAMPLE,
   OPENCLAW_WORKBOOK_DOCUMENT_TOOL_EXAMPLE,
+  OPENCLAW_WORD_DOCUMENT_TOOL_EXAMPLE,
 } from './openclaw-tools'
 
 export type OpenClawCapabilityAdapter = 'native' | 'http' | 'mcp'
@@ -61,12 +62,25 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
     example: OPENCLAW_WORKBOOK_DOCUMENT_TOOL_EXAMPLE,
   },
   {
+    id: 'word-document',
+    label: 'Word document generation',
+    adapter: 'native',
+    toolName: 'word_document',
+    promptLines: [
+      'WORD DOCUMENT CAPABILITY: When the user asks to create, generate, produce, return, or download a Word document, DOCX, proposal, contract, resume, letter, memo, report, policy, checklist, or form-style business document, use the word_document tool.',
+      'The word_document tool creates a real downloadable DOCX Canvas artifact. Do not answer Word document requests with markdown or use shell/code sandbox unless the user specifically asks to write source code.',
+      'PROFESSIONAL WORD DOCUMENT RULE: Treat Word documents as designed business deliverables. Use fields for document metadata, sections for prose, bullets/numbered lists for steps, tables for structured comparisons or pricing, and callouts for notes, warnings, and next steps.',
+      'For proposals, contracts, reports, resumes, memos, letters, policies, and forms: keep the chat response download-first and concise after the tool succeeds. Do not restate the whole document in markdown unless asked.',
+    ],
+    example: OPENCLAW_WORD_DOCUMENT_TOOL_EXAMPLE,
+  },
+  {
     id: 'mcp-skill-inventory',
     label: 'MCP skill inventory',
     adapter: 'mcp',
     future: true,
     promptLines: [
-      'FUTURE MCP SKILL INVENTORY: PeakUI will use curated MCP adapters to help the AI discover and learn new day-to-day skills such as document conversion, template rendering, PDF manipulation, spreadsheets, workbooks, and business workflows.',
+      'FUTURE MCP SKILL INVENTORY: PeakUI will use curated MCP adapters to help the AI discover and learn new day-to-day skills such as document conversion, template rendering, PDF manipulation, Word documents, spreadsheets, workbooks, and business workflows.',
       'Until MCP adapters are explicitly enabled and approved, use native PeakUI tools only. Do not claim access to external MCP servers.',
     ],
   },

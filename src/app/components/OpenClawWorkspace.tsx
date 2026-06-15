@@ -71,6 +71,7 @@ import {
   type OpenClawToolRequest,
   type OpenClawUwafBrowserToolRequest,
   type OpenClawWorkbookDocumentToolRequest,
+  type OpenClawWordDocumentToolRequest,
 } from '@/lib/openclaw-tools';
 import UwafNetworkPanel from './UwafNetworkPanel';
 import LiveBrowserView from './LiveBrowserView';
@@ -280,7 +281,7 @@ interface OpenClawMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   hidden?: boolean;
-  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document';
+  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document';
   thinking?: string;
   presentation?: ResponsePresentation;
   sources?: MessageSource[];
@@ -862,6 +863,10 @@ type PendingToolApproval =
   | (PendingToolApprovalBase & {
       kind: 'workbook_document';
       request: OpenClawWorkbookDocumentToolRequest & { sessionId: string; messageId?: string };
+    })
+  | (PendingToolApprovalBase & {
+      kind: 'word_document';
+      request: OpenClawWordDocumentToolRequest & { sessionId: string; messageId?: string };
     });
 
 type ToolApprovalResolution =
@@ -872,7 +877,8 @@ type ToolApprovalResolution =
   | UwafBrowserToolResultEntry
   | TaxReturnToolResultEntry
   | PdfDocumentToolResultEntry
-  | WorkbookDocumentToolResultEntry;
+  | WorkbookDocumentToolResultEntry
+  | WordDocumentToolResultEntry;
 
 interface WebToolResultEntry {
   query: string;
@@ -913,6 +919,19 @@ interface PdfDocumentToolResultEntry {
 }
 
 interface WorkbookDocumentToolResultEntry {
+  success: boolean;
+  title: string;
+  artifact?: {
+    id: string;
+    name: string;
+    mimeType: string;
+    size: number;
+    downloadUrl: string;
+  };
+  error?: string;
+}
+
+interface WordDocumentToolResultEntry {
   success: boolean;
   title: string;
   artifact?: {
@@ -1251,6 +1270,12 @@ function describeWorkbookDocumentRequest(request: OpenClawWorkbookDocumentToolRe
     : `Generating downloadable Excel workbook: \`${request.filename || request.title}.xlsx\``;
 }
 
+function describeWordDocumentRequest(request: OpenClawWordDocumentToolRequest) {
+  return request.description?.trim()
+    ? `Word document generation: ${request.description.trim()}`
+    : `Generating downloadable Word document: \`${request.filename || request.title}.docx\``;
+}
+
 function normalizeToolSources(value: unknown): MessageSource[] {
   return normalizeMessageSources(value);
 }
@@ -1433,7 +1458,7 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
 ));
 
 function normalizeExtractedToolRequestName(value: unknown): OpenClawMessage['toolRequest'] {
-  return value === 'shell' || value === 'filesystem' || value === 'web' || value === 'code' || value === 'browser' || value === 'unified_browser' || value === 'tax_return' || value === 'pdf_document' || value === 'workbook_document'
+  return value === 'shell' || value === 'filesystem' || value === 'web' || value === 'code' || value === 'browser' || value === 'unified_browser' || value === 'tax_return' || value === 'pdf_document' || value === 'workbook_document' || value === 'word_document'
     ? value
     : undefined;
 }
@@ -1677,6 +1702,17 @@ function getOpenClawToolRequestSignature(request: OpenClawToolRequest) {
     return `workbook_document:${workbook.title.trim()}:${workbook.filename?.trim() || ''}:${workbook.template || ''}:${JSON.stringify({
       sheets: workbook.sheets,
       metadata: workbook.metadata,
+    }).slice(0, 6000)}`;
+  }
+
+  if (request.name === 'word_document') {
+    const word = request.request as OpenClawWordDocumentToolRequest
+    return `word_document:${word.title.trim()}:${word.filename?.trim() || ''}:${word.template || ''}:${(word.content || '').trim().slice(0, 2000)}:${JSON.stringify({
+      sections: word.sections,
+      fields: word.fields,
+      tables: word.tables,
+      callouts: word.callouts,
+      metadata: word.metadata,
     }).slice(0, 6000)}`;
   }
 
@@ -2184,6 +2220,33 @@ function formatWorkbookDocumentToolResult(entry: WorkbookDocumentToolResultEntry
   }
 
   lines.push('', 'Use this result to present the Excel workbook download link first. Keep the user-facing response concise and do not restate spreadsheet rows as markdown unless the user explicitly asks for an inline summary.');
+  return lines.join('\n');
+}
+
+function formatWordDocumentToolResult(entry: WordDocumentToolResultEntry): string {
+  const lines = [
+    'Word document tool result:',
+    `Title: ${entry.title}`,
+    `Status: ${entry.success ? 'completed' : 'failed'}`,
+  ];
+
+  if (!entry.success) {
+    if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    lines.push('', 'Use this result to continue the task. Do not claim a Word document was generated if this result failed.');
+    return lines.join('\n');
+  }
+
+  if (entry.artifact) {
+    lines.push(
+      `Artifact: ${entry.artifact.name}`,
+      `Artifact id: ${entry.artifact.id}`,
+      `Download URL: ${entry.artifact.downloadUrl}`,
+      `Mime type: ${entry.artifact.mimeType}`,
+      `Size: ${entry.artifact.size} bytes`,
+    );
+  }
+
+  lines.push('', 'Use this result to present the Word document download link first. Keep the user-facing response concise and do not restate the full document in markdown unless the user explicitly asks for an inline summary.');
   return lines.join('\n');
 }
 
@@ -5116,6 +5179,96 @@ export default function OpenClawWorkspace({
     });
   };
 
+  const executeWordDocumentAction = async (
+    request: OpenClawWordDocumentToolRequest & { sessionId: string; messageId?: string },
+  ): Promise<WordDocumentToolResultEntry> => {
+    try {
+      const res = await fetch('/api/openclaw/word-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          title: request.title,
+          success: false,
+          error: typeof data.error === 'string' ? data.error : 'Word document generation failed',
+        };
+      }
+      const artifact = data.artifact && typeof data.artifact === 'object'
+        ? data.artifact as Record<string, unknown>
+        : null;
+      return {
+        title: request.title,
+        success: data.success !== false,
+        artifact: artifact
+          && typeof artifact.id === 'string'
+          && typeof artifact.name === 'string'
+          && typeof artifact.mimeType === 'string'
+          && typeof artifact.size === 'number'
+          && typeof artifact.downloadUrl === 'string'
+          ? {
+              id: artifact.id,
+              name: artifact.name,
+              mimeType: artifact.mimeType,
+              size: artifact.size,
+              downloadUrl: artifact.downloadUrl,
+            }
+          : undefined,
+      };
+    } catch (error) {
+      return {
+        title: request.title,
+        success: false,
+        error: error instanceof Error ? error.message : 'Word document generation failed',
+      };
+    }
+  };
+
+  const requestWordDocumentAction = async (
+    request: OpenClawWordDocumentToolRequest,
+    options: { messageId: string; sessionId: string },
+  ): Promise<WordDocumentToolResultEntry> => {
+    const payload = {
+      ...request,
+      sessionId: options.sessionId,
+      messageId: options.messageId,
+    };
+
+    return await new Promise<WordDocumentToolResultEntry>(resolve => {
+      pendingApprovalResolverRef.current = resolve as (result: ToolApprovalResolution) => void;
+      setPendingApproval({
+        kind: 'word_document',
+        title: 'Word Document Generation Approval',
+        description: describeWordDocumentRequest(request),
+        previewLabel: 'Word document structure preview',
+        previewContent: truncateApprovalPreview(
+          [
+            `Title: ${request.title}`,
+            `Filename: ${request.filename || `${request.title}.docx`}`,
+            request.template ? `Template: ${request.template}` : null,
+            request.subtitle ? `Subtitle: ${request.subtitle}` : null,
+            request.sections?.length ? `Sections: ${request.sections.length}` : null,
+            request.tables?.length ? `Tables: ${request.tables.length}` : null,
+            request.fields?.length ? `Fields: ${request.fields.length}` : null,
+            request.callouts?.length ? `Callouts: ${request.callouts.length}` : null,
+            '',
+            request.content || JSON.stringify({
+              sections: request.sections,
+              tables: request.tables,
+              fields: request.fields,
+              callouts: request.callouts,
+              metadata: request.metadata,
+            }, null, 2),
+          ].filter(Boolean).join('\n')
+        ),
+        messageId: options.messageId,
+        request: payload,
+      });
+    });
+  };
+
   const handleToolApprove = async () => {
     if (!pendingApproval || !pendingApprovalResolverRef.current) return;
     const approval = pendingApproval;
@@ -5169,6 +5322,11 @@ export default function OpenClawWorkspace({
 
       if (approval.kind === 'workbook_document') {
         resolve(await executeWorkbookDocumentAction(approval.request));
+        return;
+      }
+
+      if (approval.kind === 'word_document') {
+        resolve(await executeWordDocumentAction(approval.request));
         return;
       }
 
@@ -5263,6 +5421,15 @@ export default function OpenClawWorkspace({
           success: false,
           error: message,
         } satisfies WorkbookDocumentToolResultEntry);
+        return;
+      }
+
+      if (approval.kind === 'word_document') {
+        resolve({
+          title: approval.request.title,
+          success: false,
+          error: message,
+        } satisfies WordDocumentToolResultEntry);
         return;
       }
 
@@ -5368,6 +5535,15 @@ export default function OpenClawWorkspace({
         success: false,
         error: 'Excel workbook generation rejected by user',
       } satisfies WorkbookDocumentToolResultEntry);
+      return;
+    }
+
+    if (approval.kind === 'word_document') {
+      resolve({
+        title: approval.request.title,
+        success: false,
+        error: 'Word document generation rejected by user',
+      } satisfies WordDocumentToolResultEntry);
       return;
     }
 
@@ -6335,7 +6511,9 @@ export default function OpenClawWorkspace({
                               ? describePdfDocumentRequest(request.request)
                               : request.name === 'workbook_document'
                                 ? describeWorkbookDocumentRequest(request.request)
-                                : describeFilesystemRequest(request.request.action, request.request.path)
+                                : request.name === 'word_document'
+                                  ? describeWordDocumentRequest(request.request)
+                                  : describeFilesystemRequest(request.request.action, request.request.path)
               : rawToolTagPresent
                 ? stripAllToolTags(assistantMessage.content)
                 : assistantMessage.content
@@ -6682,6 +6860,44 @@ export default function OpenClawWorkspace({
               id: randomUUID(),
               role: 'user',
               content: `Excel workbook generation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Try simplifying the workbook structure and retry.`,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
+          continue;
+        }
+
+        if (request.name === 'word_document') {
+          lastToolRequestSignature = effectiveToolSignature;
+          duplicateToolRequestCount = 0;
+          try {
+            setStreamPhase('tool-code');
+            const wordResult = await requestWordDocumentAction(request.request, {
+              messageId: nextAssistantId,
+              sessionId: chatId,
+            });
+            setStreamPhase(null);
+            if (wordResult.success) {
+              void loadCanvasArtifacts(chatId);
+            }
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatWordDocumentToolResult(wordResult),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Word document tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Word document generation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Try simplifying the document structure and retry.`,
               hidden: true,
               createdAt: new Date().toISOString(),
             };

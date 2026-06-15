@@ -15,6 +15,8 @@ function decodeArtifactContent(content: string, mimeType: string): Buffer {
     || mimeType === 'application/zip'
     || mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     || mimeType === 'application/vnd.ms-excel'
+    || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    || mimeType === 'application/msword'
   ) {
     return Buffer.from(content.replace(/\s+/g, ''), 'base64')
   }

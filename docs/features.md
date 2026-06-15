@@ -59,9 +59,10 @@ WorkSpaces uses the shared file and image attachment system:
 ### Canvas Panel
 
 WorkSpaces includes a collapsible Canvas panel that:
-- Displays generated artifacts as visual cards
-- Supports code, markdown, and image file types
-- Allows inline editing of content
+- Displays generated artifacts as compact single-row items so generated files do not consume the full side rail
+- Provides Copy, Download, Preview, and Delete controls on each artifact row
+- Opens artifact previews in a modal for PDFs, images, markdown, code, tables, generated Word documents, Excel workbooks, and other Canvas files
+- Keeps the artifact list in a bounded scroll area so long Canvas sessions remain navigable
 - Enables single artifact downloads plus bundle-level JSON export/delete actions
 - Persists artifacts via the CanvasArtifact model and stores durable CanvasArtifactRevision snapshots on create, edit, and restore
 - Supports revision history, restore, lightweight revision comparison, lineage links, search, and cursor paging so large Canvas sessions are recoverable and navigable
@@ -129,6 +130,7 @@ WorkSpaces includes a collapsible Canvas panel that:
 - **Code execution sandbox**: Run short Python or Node scripts in a managed workspace-scoped sandbox with timeouts, output limits, and generated-file reporting. This now has its own `openclaw.code` account permission instead of piggybacking only on general WorkSpaces access.
 - **PDF document generation**: The `pdf_document` tool creates polished downloadable server-side PDF Canvas artifacts for reports, summaries, letters, checklists, invoices, form-style output, or sample document requests. WorkSpaces should use this tool instead of shell/filesystem/code sandbox when the user asks for a PDF file. See [PDF Document Workflow](pdf-document-workflow.md).
 - **Excel workbook generation**: The `workbook_document` tool creates real downloadable XLSX Canvas artifacts for spreadsheets, budgets, invoices, timesheets, ledgers, trackers, inventories, schedules, and multi-sheet analysis. WorkSpaces should use this tool instead of markdown tables or code sandbox when the user asks for an Excel file. See [Excel Workbook Workflow](workbook-document-workflow.md).
+- **Word document generation**: The `word_document` tool creates real downloadable DOCX Canvas artifacts for proposals, contracts, resumes, letters, memos, reports, policies, checklists, and form-style business documents. WorkSpaces should use this tool instead of markdown or code sandbox when the user asks for a Word file. See [Word Document Workflow](word-document-workflow.md).
 - **Tax PDF generation**: The `tax_return` tool creates downloadable tax review PDFs from enabled Knowledge Base folders and can best-effort fill uploaded AcroForm PDF templates. It reuses the same generic PDF artifact pipeline. See [Tax PDF Workflow](tax-pdf-workflow.md).
 - **Browser control**: Open public pages, inspect links/forms, stage fills, submit with approval, and extract content
 - **UWAF browser (Unified Web Agent Framework)**: Dual-mode browser engine supporting Direct (Clear Web) and Stealth (Tor-routed Dark Web) research modes

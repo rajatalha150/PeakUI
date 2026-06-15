@@ -76,4 +76,29 @@ describe('openclaw tool parsing', () => {
     expect(extracted.request.request.sheets?.[0]?.name).toBe('Budget')
     expect(extracted.request.request.sheets?.[0]?.rows?.[0]).toEqual({ Category: 'Hosting', Amount: 299 })
   })
+
+  it('parses structured word_document requests', () => {
+    const input = [
+      '<openclaw_tool name="word_document">',
+      JSON.stringify({
+        title: 'Services Proposal',
+        filename: 'services-proposal.docx',
+        template: 'proposal',
+        sections: [{
+          heading: 'Summary',
+          body: 'A structured proposal.',
+          bullets: ['Scope', 'Timeline'],
+        }],
+        tables: [{ title: 'Pricing', columns: ['Item', 'Amount'], rows: [{ Item: 'Implementation', Amount: '$4,500' }] }],
+      }),
+      '</openclaw_tool>',
+    ].join('\n')
+
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request?.name).toBe('word_document')
+    if (extracted.request?.name !== 'word_document') throw new Error('Expected word_document request')
+    expect(extracted.request.request.template).toBe('proposal')
+    expect(extracted.request.request.sections?.[0]?.heading).toBe('Summary')
+    expect(extracted.request.request.tables?.[0]?.columns).toEqual(['Item', 'Amount'])
+  })
 })

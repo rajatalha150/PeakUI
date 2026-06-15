@@ -8,6 +8,7 @@ import {
   Copy,
   Download,
   Edit2,
+  Eye,
   FileJson,
   FileSpreadsheet,
   FileText,
@@ -32,6 +33,8 @@ import {
   isMarkdownArtifact,
   isPdfArtifact,
   isTableArtifact,
+  isWorkbookArtifact,
+  isWordArtifact,
 } from '@/lib/canvas-artifacts'
 import {
   artifactSupportsTextEditing,
@@ -135,10 +138,23 @@ function buildRevisionComparison(left?: CanvasArtifactRevisionRecord, right?: Ca
 function getArtifactIcon(artifact: CanvasArtifactRecord) {
   if (isImageArtifact(artifact)) return <ImageIcon size={14} />
   if (isPdfArtifact(artifact)) return <FileText size={14} />
+  if (isWorkbookArtifact(artifact)) return <FileSpreadsheet size={14} />
+  if (isWordArtifact(artifact)) return <FileText size={14} />
   if (isMarkdownArtifact(artifact)) return <FileText size={14} />
   if (isTableArtifact(artifact)) return <FileSpreadsheet size={14} />
   if (artifact.kind === 'data' || artifact.mimeType === 'application/json') return <FileJson size={14} />
   return <FileText size={14} />
+}
+
+function getArtifactTypeLabel(artifact: CanvasArtifactRecord) {
+  if (isPdfArtifact(artifact)) return 'PDF'
+  if (isWorkbookArtifact(artifact)) return 'Excel'
+  if (isWordArtifact(artifact)) return 'Word'
+  if (isImageArtifact(artifact)) return 'Image'
+  if (isMarkdownArtifact(artifact)) return 'Markdown'
+  if (isTableArtifact(artifact)) return 'Table'
+  if (isCodeArtifact(artifact)) return 'Code'
+  return artifact.presentationType || artifact.kind || 'File'
 }
 
 function createCanvasRows(artifacts: CanvasArtifactRecord[], collapsedBundleIds: Set<string>): CanvasRow[] {
@@ -489,6 +505,185 @@ function ArtifactCard({
   )
 }
 
+function CompactArtifactRow({
+  artifact,
+  onCopy,
+  onDownload,
+  onDelete,
+  onPreview,
+  copied,
+  error,
+}: {
+  artifact: CanvasArtifactRecord
+  onCopy: () => void
+  onDownload: () => void
+  onDelete: () => void
+  onPreview: () => void
+  copied: boolean
+  error: string | null
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        minHeight: '44px',
+        padding: '7px 8px',
+        border: '1px solid var(--border-color)',
+        borderRadius: '10px',
+        background: 'var(--bg-secondary)',
+      }}
+    >
+      <span style={{ color: 'var(--accent-primary)', flexShrink: 0 }}>{getArtifactIcon(artifact)}</span>
+      <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: '2px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {artifact.name}
+          </span>
+          <span className="artifact-badge" style={{ flexShrink: 0 }}>{getArtifactTypeLabel(artifact)}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, fontSize: '0.68rem', color: error ? 'var(--danger)' : 'var(--text-secondary)' }}>
+          <span>{formatBytes(artifact.size)}</span>
+          <span>v{artifact.version}</span>
+          {artifact.bundleRole && <span>{artifact.bundleRole}</span>}
+          {error && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{error}</span>}
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+        <button type="button" onClick={onCopy} style={{ ...actionButtonStyle, width: 28, height: 28, padding: 0, justifyContent: 'center' }} title="Copy artifact content" aria-label={`Copy ${artifact.name}`}>
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+        </button>
+        <button type="button" onClick={onDownload} style={{ ...actionButtonStyle, width: 28, height: 28, padding: 0, justifyContent: 'center' }} title="Download" aria-label={`Download ${artifact.name}`}>
+          <Download size={12} />
+        </button>
+        <button type="button" onClick={onPreview} style={{ ...actionButtonStyle, width: 28, height: 28, padding: 0, justifyContent: 'center' }} title="Preview" aria-label={`Preview ${artifact.name}`}>
+          <Eye size={12} />
+        </button>
+        <button type="button" onClick={onDelete} style={{ ...actionButtonStyle, width: 28, height: 28, padding: 0, justifyContent: 'center', color: 'var(--danger)' }} title="Delete" aria-label={`Delete ${artifact.name}`}>
+          <Trash2 size={12} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function ArtifactPreviewModal({
+  artifact,
+  onClose,
+  onCopy,
+  onDownload,
+  onDelete,
+  copied,
+}: {
+  artifact: CanvasArtifactRecord
+  onClose: () => void
+  onCopy: () => void
+  onDownload: () => void
+  onDelete: () => void
+  copied: boolean
+}) {
+  const content = artifact.content || ''
+  const isOfficeDoc = isWorkbookArtifact(artifact) || isWordArtifact(artifact)
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Preview ${artifact.name}`}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1350,
+        background: 'rgba(2, 6, 12, 0.76)',
+        backdropFilter: 'blur(10px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '24px',
+      }}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
+      <div
+        style={{
+          width: 'min(960px, 96vw)',
+          maxHeight: '88vh',
+          display: 'flex',
+          flexDirection: 'column',
+          border: '1px solid var(--border-color)',
+          borderRadius: '16px',
+          background: 'var(--bg-base)',
+          boxShadow: '0 30px 90px rgba(0,0,0,0.55)',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 14px', borderBottom: '1px solid var(--border-color)' }}>
+          <span style={{ color: 'var(--accent-primary)', flexShrink: 0 }}>{getArtifactIcon(artifact)}</span>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {artifact.name}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+              {getArtifactTypeLabel(artifact)} · {formatBytes(artifact.size)} · v{artifact.version}
+            </div>
+          </div>
+          <button type="button" onClick={onCopy} style={{ ...actionButtonStyle, color: copied ? '#10b981' : undefined }}>
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+          <button type="button" onClick={onDownload} style={actionButtonStyle}>
+            <Download size={12} />
+            Download
+          </button>
+          <button type="button" onClick={onDelete} style={{ ...actionButtonStyle, color: 'var(--danger)' }}>
+            <Trash2 size={12} />
+            Delete
+          </button>
+          <button type="button" onClick={onClose} style={{ ...actionButtonStyle, width: 30, height: 30, padding: 0, justifyContent: 'center' }} aria-label="Close preview">
+            <X size={14} />
+          </button>
+        </div>
+
+        <div style={{ padding: '14px', overflow: 'auto', flex: 1, minHeight: 0 }}>
+          {isOfficeDoc ? (
+            <div style={{ display: 'grid', gap: '12px', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '16px', background: 'var(--bg-secondary)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ color: 'var(--accent-primary)' }}>{getArtifactIcon(artifact)}</span>
+                <div>
+                  <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{getArtifactTypeLabel(artifact)} document</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    Browser-native inline preview is limited for generated Office files. Download to open the full formatted document.
+                  </div>
+                </div>
+              </div>
+              {artifact.previewSummary && (
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{artifact.previewSummary}</div>
+              )}
+              <button type="button" onClick={onDownload} style={{ ...actionButtonStyle, width: 'fit-content' }}>
+                <Download size={12} />
+                Download {artifact.extension?.toUpperCase() || 'file'}
+              </button>
+            </div>
+          ) : (
+            <ArtifactPreviewContent
+              artifact={artifact}
+              content={content}
+              expanded
+              renderFullContent
+              editing={false}
+              editContent={content}
+              onContentChange={() => undefined}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function CanvasPanel({
   artifacts,
   onUpdate,
@@ -522,8 +717,13 @@ export default function CanvasPanel({
   const [revisionErrors, setRevisionErrors] = React.useState<Record<string, string | null>>({})
   const [compareMap, setCompareMap] = React.useState<Record<string, { left?: number; right?: number }>>({})
   const [searchDraft, setSearchDraft] = React.useState(searchQuery)
+  const [previewArtifactId, setPreviewArtifactId] = React.useState<string | null>(null)
+  const listScrollRef = React.useRef<HTMLDivElement>(null)
 
   const rows = React.useMemo(() => createCanvasRows(artifacts, collapsedBundleIds), [artifacts, collapsedBundleIds])
+  const previewArtifact = previewArtifactId
+    ? (fullContentMap[previewArtifactId] ?? artifacts.find(artifact => artifact.id === previewArtifactId) ?? null)
+    : null
 
   const loadFullArtifact = React.useCallback(async (artifact: CanvasArtifactRecord) => {
     if (fullContentMap[artifact.id]) return fullContentMap[artifact.id]
@@ -640,6 +840,11 @@ export default function CanvasPanel({
     onDownload({ ...artifact, ...(full ?? {}), content: full?.content ?? artifact.content })
   }, [loadFullArtifact, onDownload])
 
+  const openPreview = React.useCallback(async (artifact: CanvasArtifactRecord) => {
+    setPreviewArtifactId(artifact.id)
+    await loadFullArtifact(artifact)
+  }, [loadFullArtifact])
+
   const handleDelete = React.useCallback(async (id: string) => {
     try {
       await onDelete(id)
@@ -668,6 +873,7 @@ export default function CanvasPanel({
         delete next[id]
         return next
       })
+      setPreviewArtifactId(current => current === id ? null : current)
     } catch {
       setErrors(prev => ({ ...prev, [id]: 'Failed to delete artifact' }))
     }
@@ -845,17 +1051,22 @@ export default function CanvasPanel({
           No Canvas artifacts match this view.
         </div>
       ) : (
-        <VirtualizedList
-          items={rows}
-          getItemKey={(row) => row.type === 'bundle' ? `bundle-${row.id}` : row.artifact.id}
-          estimateItemHeight={(row) => {
-            if (row.type === 'bundle') return 52
-            if (isImageArtifact(row.artifact)) return 380
-            if (isMarkdownArtifact(row.artifact)) return 340
-            return 360
+        <div
+          ref={listScrollRef}
+          style={{
+            maxHeight: 'min(52vh, 620px)',
+            overflowY: 'auto',
+            paddingRight: '2px',
+            minHeight: 0,
           }}
-          overscanPx={1200}
-          renderItem={(row) => {
+        >
+          <VirtualizedList
+            items={rows}
+            scrollContainerRef={listScrollRef}
+            getItemKey={(row) => row.type === 'bundle' ? `bundle-${row.id}` : row.artifact.id}
+            estimateItemHeight={(row) => row.type === 'bundle' ? 52 : 58}
+            overscanPx={600}
+            renderItem={(row) => {
         if (row.type === 'bundle') {
           return (
             <div style={{ paddingBottom: '8px', paddingTop: '8px' }}>
@@ -879,55 +1090,24 @@ export default function CanvasPanel({
         }
 
         const artifact = fullContentMap[row.artifact.id] ?? row.artifact
-        const content = artifact.content ?? ''
-        const largeContent = isLargeArtifactContent(content)
-        const renderFullContent = !largeContent || fullPreviewIds.has(artifact.id)
 
         return (
-          <div style={{ paddingBottom: '8px' }}>
-            <ArtifactCard
+          <div style={{ paddingBottom: '7px' }}>
+            <CompactArtifactRow
               artifact={artifact}
-              expanded={expandedIds.has(artifact.id)}
-              editing={editingIds.has(artifact.id)}
-              renderFullContent={renderFullContent}
-              editContent={editContentMap[artifact.id] ?? content}
-              editName={editNameMap[artifact.id] ?? artifact.name}
-              onToggleExpand={() => toggleExpand(row.artifact)}
-              onLoadFullPreview={() => setFullPreviewIds(prev => new Set(prev).add(artifact.id))}
-              onRetryLoad={() => void loadFullArtifact(artifact)}
-              onStartEdit={() => startEdit(artifact)}
-              onCancelEdit={() => cancelEdit(artifact.id)}
-              onSaveEdit={() => saveEdit(artifact.id)}
-              onContentChange={(nextContent) => setEditContentMap(prev => ({ ...prev, [artifact.id]: nextContent }))}
-              onNameChange={(nextName) => setEditNameMap(prev => ({ ...prev, [artifact.id]: nextName }))}
               onCopy={() => handleCopy(artifact)}
               onDownload={() => void handleDownload(artifact)}
               onDelete={() => handleDelete(artifact.id)}
-              onExport={(target) => void handleExport(artifact, target)}
-              onToggleHistory={() => void toggleHistory(artifact)}
-              onRestoreRevision={(version) => restoreRevision(artifact, version)}
-              onSelectCompareRevision={(side, version) => setCompareMap(prev => ({
-                ...prev,
-                [artifact.id]: { ...prev[artifact.id], [side]: version },
-              }))}
-              onOpenRelated={openRelatedArtifact}
+              onPreview={() => void openPreview(artifact)}
               copied={copiedIds.has(artifact.id)}
-              saving={savingIds.has(artifact.id)}
-              restoring={restoringIds.has(artifact.id)}
-              historyAvailable={Boolean(onFetchRevisions)}
               error={errors[artifact.id] ?? null}
-              historyOpen={historyOpenIds.has(artifact.id)}
-              revisions={revisionsMap[artifact.id] ?? null}
-              revisionsLoading={revisionLoadingIds.has(artifact.id)}
-              revisionsError={revisionErrors[artifact.id] ?? null}
-              compareLeftVersion={compareMap[artifact.id]?.left}
-              compareRightVersion={compareMap[artifact.id]?.right}
             />
           </div>
         )
       }}
-          style={{ display: 'block' }}
-        />
+            style={{ display: 'block' }}
+          />
+        </div>
       )}
 
       {(hasMore || loading || totalCount !== null) && (
@@ -940,6 +1120,17 @@ export default function CanvasPanel({
             </button>
           )}
         </div>
+      )}
+
+      {previewArtifact && (
+        <ArtifactPreviewModal
+          artifact={previewArtifact}
+          onClose={() => setPreviewArtifactId(null)}
+          onCopy={() => handleCopy(previewArtifact)}
+          onDownload={() => void handleDownload(previewArtifact)}
+          onDelete={() => handleDelete(previewArtifact.id)}
+          copied={copiedIds.has(previewArtifact.id)}
+        />
       )}
     </div>
   )
