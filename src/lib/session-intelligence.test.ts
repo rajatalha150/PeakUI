@@ -5,7 +5,9 @@ import {
   computeSessionAnalytics,
   filterRelevantCrossSessionMemory,
   hasPendingContinuation,
+  isContinuationWorkspacePrompt,
   isCrossSessionMemoryRelevant,
+  isLowSignalWorkspacePrompt,
 } from './session-intelligence'
 import { trimMessagesToFit } from './message-trim'
 
@@ -67,6 +69,31 @@ describe('session intelligence', () => {
 
     expect(result.summaryUsed).toBe(true)
     expect(result.contextSummary).toContain('tax packet workflow')
+  })
+
+  it('does not promote greetings into the thread objective', () => {
+    const messages = [
+      { role: 'user' as const, content: 'hello', createdAt: '2026-05-30T10:00:00.000Z' },
+      { role: 'assistant' as const, content: 'Hello, what would you like to work on?', createdAt: '2026-05-30T10:00:01.000Z' },
+      { role: 'user' as const, content: 'analyze pltr for me check current options flow', createdAt: '2026-05-30T10:00:02.000Z' },
+      { role: 'assistant' as const, content: 'Best next action: open WhaleStream for latest PLTR options flow.', createdAt: '2026-05-30T10:00:03.000Z' },
+      { role: 'user' as const, content: 'go ahead', createdAt: '2026-05-30T10:00:04.000Z' },
+    ]
+
+    const result = applyContextManagement(messages, {
+      contextLength: 8192,
+      systemOverhead: 500,
+      existingSummary: '## Objective\n- hello',
+      summaryEnabled: true,
+      summaryTargetTokens: 6000,
+      preserveTurns: 2,
+    })
+
+    expect(isLowSignalWorkspacePrompt('hello')).toBe(true)
+    expect(isContinuationWorkspacePrompt('go ahead')).toBe(true)
+    expect(result.contextSummary).not.toContain('- hello')
+    expect(result.messages.some(message => message.content?.includes('analyze pltr'))).toBe(true)
+    expect(result.messages.some(message => message.content?.includes('go ahead'))).toBe(true)
   })
 
   it('keeps older decisions in structured working memory', () => {

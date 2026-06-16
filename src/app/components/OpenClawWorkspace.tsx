@@ -27,6 +27,7 @@ import {
 } from '@/lib/openclaw-agent';
 import {
   hasPendingContinuation,
+  isLowSignalWorkspacePrompt,
   type SessionAnalytics,
   type SessionAutoContinueMode,
 } from '@/lib/session-intelligence';
@@ -6410,11 +6411,19 @@ export default function OpenClawWorkspace({
     }
 
     const chatId = currentSessionId ?? randomUUID();
+    const existingObjective = taskState.objective.trim();
+    const promptIsLowSignal = isLowSignalWorkspacePrompt(prompt);
+    const objectiveIsLowSignal = isLowSignalWorkspacePrompt(existingObjective);
+    const effectiveObjective = existingObjective && !objectiveIsLowSignal
+      ? existingObjective
+      : promptIsLowSignal
+        ? ''
+        : prompt;
     const effectiveTaskState = {
       ...taskState,
-      objective: taskState.objective.trim() || prompt,
-      currentStatus: taskState.currentStatus.trim() || 'Task captured. Waiting for the next workspace update.',
-      nextStep: taskState.nextStep.trim() || 'Review the assistant output and update the pinned checklist.',
+      objective: effectiveObjective,
+      currentStatus: taskState.currentStatus.trim() || (effectiveObjective ? 'Task captured. Waiting for the next workspace update.' : ''),
+      nextStep: taskState.nextStep.trim() || (effectiveObjective ? 'Review the assistant output and update the pinned checklist.' : ''),
     };
     const messageImages = pendingImages.filter(image => image.attachmentMode !== 'ocr-only');
     const contextImages = [...pendingImages];

@@ -97,6 +97,45 @@ function summarizeText(text: string, maxLength: number) {
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
+function normalizeShortPrompt(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function isLowSignalWorkspacePrompt(text: string): boolean {
+  const normalized = normalizeShortPrompt(text);
+  if (!normalized) return true;
+
+  const greetings = new Set([
+    'hi',
+    'hello',
+    'hey',
+    'yo',
+    'sup',
+    'test',
+    'testing',
+    'thanks',
+    'thank you',
+    'ok',
+    'okay',
+    'cool',
+  ]);
+  if (greetings.has(normalized)) return true;
+
+  const words = normalized.split(' ').filter(Boolean);
+  return words.length <= 3 && words.every(word => greetings.has(word));
+}
+
+export function isContinuationWorkspacePrompt(text: string): boolean {
+  const normalized = normalizeShortPrompt(text);
+  if (!normalized) return false;
+
+  return /^(?:go ahead|proceed|continue|keep going|go on|do it|please do|yes|yeah|yep|retry|try again|open it|check it|that one|sounds good|lets do it|let s do it)$/.test(normalized);
+}
+
 function createEmptyWorkingMemory(): WorkingMemory {
   return {
     objective: [],
@@ -190,6 +229,7 @@ function normalizeMemoryLine(value: string): string {
 function pushMemory(memory: WorkingMemory, key: WorkingMemorySectionKey, value: string, limit = MAX_MEMORY_ITEMS_PER_SECTION) {
   const clean = normalizeMemoryLine(value);
   if (!clean) return;
+  if (key === 'objective' && isLowSignalWorkspacePrompt(clean)) return;
 
   memory[key] = uniqueLines([clean, ...memory[key]]).slice(0, limit);
 }
@@ -259,7 +299,7 @@ function classifyUserMessage(content: string, memory: WorkingMemory, options: { 
   const text = summarizeText(content, 500);
   if (!text) return;
 
-  if (options.isFirstUser && memory.objective.length === 0) {
+  if (options.isFirstUser && memory.objective.length === 0 && !isLowSignalWorkspacePrompt(text) && !isContinuationWorkspacePrompt(text)) {
     pushMemory(memory, 'objective', text, 1);
   }
 
@@ -318,6 +358,11 @@ function serializeWorkingMemory(memory: WorkingMemory): string {
   return serialized.length <= MAX_SUMMARY_CHARS
     ? serialized
     : serialized.slice(0, MAX_SUMMARY_CHARS).trimEnd();
+}
+
+function sanitizeWorkingMemorySummary(existingSummary: string): string {
+  const memory = parseExistingWorkingMemory(existingSummary);
+  return serializeWorkingMemory(memory);
 }
 
 export function normalizeSessionAutoContinueMode(value: unknown): SessionAutoContinueMode {
@@ -512,10 +557,11 @@ export function buildSessionContextSummary(
     preserveTurns?: number;
   } = {},
 ) {
+  const existingSummary = sanitizeWorkingMemorySummary(options.existingSummary || '');
   const preserveTurns = normalizeSessionPreserveTurns(options.preserveTurns, 6);
   const nonSystem = messages.filter(message => message.role !== 'system');
   if (nonSystem.length <= preserveTurns * 2) {
-    return '';
+    return existingSummary;
   }
 
   const firstUserIndex = nonSystem.findIndex(message => message.role === 'user');
@@ -523,10 +569,10 @@ export function buildSessionContextSummary(
   const recentStart = Math.max(summaryStart, nonSystem.length - preserveTurns * 2);
   const summaryCandidates = nonSystem.slice(summaryStart, recentStart);
   if (summaryCandidates.length === 0) {
-    return options.existingSummary?.trim() || '';
+    return existingSummary;
   }
 
-  const memory = parseExistingWorkingMemory(options.existingSummary || '');
+  const memory = parseExistingWorkingMemory(existingSummary);
   const firstUserIndexInCandidates = summaryCandidates.findIndex(message => message.role === 'user');
 
   for (const message of messages) {
@@ -568,6 +614,7 @@ export function applyContextManagement<TMessage extends SessionMessageLike>(
     preserveTurns: number;
   },
 ): ContextManagementResult<TMessage> {
+  const existingSummary = sanitizeWorkingMemorySummary(options.existingSummary || '');
   const rawTokenEstimate = estimateMessageTokens(messages);
   const nearLimitThreshold = Math.floor(options.contextLength * 0.75);
   const nonSystemCount = messages.filter(message => message.role !== 'system').length;
@@ -576,10 +623,10 @@ export function applyContextManagement<TMessage extends SessionMessageLike>(
     && (rawTokenEstimate >= options.summaryTargetTokens || hasOlderTurnsOutsideRawWindow);
   const contextSummary = shouldSummarize
     ? buildSessionContextSummary(messages, {
-        existingSummary: options.existingSummary,
+        existingSummary,
         preserveTurns: options.preserveTurns,
       })
-    : options.existingSummary?.trim() || '';
+    : existingSummary;
 
   let messagesWithSummary = messages;
 

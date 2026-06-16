@@ -30,7 +30,7 @@ import { convertImageBufferToJpeg } from './image-normalization';
 import { getOpenClawWorkspaceContext } from './openclaw-project-workspaces';
 import { getOpenAutomationNudges } from './openclaw-automation';
 import { getChatSessionById } from './chat-sessions';
-import { applyContextManagement, filterRelevantCrossSessionMemory } from './session-intelligence';
+import { applyContextManagement, filterRelevantCrossSessionMemory, isContinuationWorkspacePrompt } from './session-intelligence';
 import { getUwafMetricsSnapshot } from './uwaf-telemetry';
 import {
   getPreferredSearchProviderLabel,
@@ -873,8 +873,12 @@ export async function createChatCompletionResponse(req: NextRequest) {
     // Current date/time so the model stays grounded in the present
     const now = new Date()
     const dateTimeInstruction = `Current date and time: ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}. Always consider this when answering questions about dates, schedules, time-sensitive topics, or current events. Your training data has a cutoff and may be outdated — when in doubt, acknowledge uncertainty about recent developments rather than guessing.`
+    const latestUserContent = [...nonSystemMessages].reverse().find(message => message.role === 'user')?.content || ''
+    const continuationInstruction = surface === 'openclaw' && isContinuationWorkspacePrompt(latestUserContent)
+      ? 'The latest user message is a continuation request. Resolve it against the immediately preceding visible assistant response and recent raw transcript. Do not fall back to older working memory, task-state defaults, or greetings unless the recent transcript has no actionable prior step.'
+      : ''
     const memoryRelevanceText = [
-      [...nonSystemMessages].reverse().find(message => message.role === 'user')?.content || '',
+      latestUserContent,
       workspaceContext?.workspace.name || '',
       workspaceContext?.workspace.relativePath || '',
       workspaceContext?.workspace.description || '',
@@ -917,6 +921,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
           chatInternetPrompt,
           presentationPrompt,
           dateTimeInstruction,
+          continuationInstruction,
           ...userSystemMessages,
         ].filter(Boolean);
 
