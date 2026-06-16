@@ -1528,14 +1528,29 @@ function detectMissingToolIntent(content: string): boolean {
   // A trailing question means the model is handing control back to the user.
   if (lastLine.endsWith('?')) return false;
 
-  const signalsImminentAction = /[:：]$/.test(lastLine)
+  const plain = text.replace(/[*_`#>]/g, '').trim();
+  // Phrases that explicitly hand control back to the user — never nudge on these.
+  if (/\b(let me know|would you like|want me to|do you want|should i\b|which (one|would)|up to you)\b/i.test(plain)) {
+    return false;
+  }
+
+  const actionCue = /\b(let me|i'?ll|i will|let's|lets|fetch(?:ing)?|open(?:ing)?|search(?:ing)?|run(?:ning)?|extract(?:ing)?|pull(?:ing)?|load(?:ing)?|navigat(?:e|ing)|grab(?:bing)?|visit(?:ing)?|get(?:ting)?|next step|next,|step \d|proceed(?:ing)?|now i|starting with)\b/i;
+  const toolVerbTarget = /\b(open(?:ing)?|fetch(?:ing)?|search(?:ing)?|pull(?:ing)?|visit(?:ing)?|navigat(?:e|ing)|load(?:ing)?|extract(?:ing)?|run(?:ning)?|get(?:ting)?|check(?:ing)?)\b/i;
+
+  // Strong signal: the message ends as if a tool block should immediately follow.
+  const endsImminent = /[:：]$/.test(lastLine)
     || /(\.\.\.|…)$/.test(lastLine)
     || /[⬜▢]/.test(text);
+  if (endsImminent && actionCue.test(text.slice(-500))) return true;
 
-  const tail = text.slice(-500).toLowerCase();
-  const hasActionCue = /\b(let me|i'?ll|i will|let's|lets|fetch(?:ing)?|open(?:ing)?|search(?:ing)?|run(?:ning)?|extract(?:ing)?|pull(?:ing)?|load(?:ing)?|navigat(?:e|ing)|check(?:ing)?|grab(?:bing)?|next step|next,|step \d|proceed(?:ing)?|now i|starting with)\b/.test(tail);
+  // Softer signal: a short message that is purely an action announcement with no
+  // delivered answer, e.g. "Next step: Open WhaleStream and MarketBeat in parallel."
+  const isShortAnnouncement = plain.length <= 400;
+  if (isShortAnnouncement && actionCue.test(plain) && toolVerbTarget.test(plain)) {
+    return true;
+  }
 
-  return signalsImminentAction && hasActionCue;
+  return false;
 }
 
 function normalizeOpenClawMessage(value: unknown): OpenClawMessage | null {

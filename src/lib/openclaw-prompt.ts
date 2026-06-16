@@ -246,6 +246,9 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
       'If a search or interaction returns success=false, a failureCode, queryMatched=false, resultCount=0, navigationChanged=false, or pageChanged=false, treat that as a failed step. Do not convert prior/background knowledge into a claim that the browser verified it.',
       'When browsing for current information, explicitly separate Observed evidence from Inference. If the browser failed, say the browser failed.',
       'Use exactly one unified_browser request object per tool block. Do not emit multiple JSON objects inside one block.',
+      'Browse ONE page at a time. Never announce that you will open or fetch multiple pages "in parallel" or "simultaneously" — pick the single best next source, emit one tool block for it, then react to its result before choosing the next.',
+      'If a page is blocked, paywalled, rate-limited, or returns 401/403/captcha, do not stop and do not just describe the next plan. Immediately emit one tool block for the single best alternative source (or wait_for_user if a human can unblock it). Keep moving until the objective is met or every reasonable source is exhausted.',
+      'Whenever you say you will visit, open, fetch, search, or extract something, that statement MUST be accompanied by the tool block in the same message. Do not end a turn on a bare "Next step:" line.',
     );
 
     if (context.uwafRuntimeContext?.trim()) {
