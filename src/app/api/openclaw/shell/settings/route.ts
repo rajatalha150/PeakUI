@@ -21,8 +21,8 @@ import {
 
 export async function POST(request: NextRequest) {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use', 'openclaw.shell'], {
-    forbiddenMessage: 'OpenClaw shell execution is not granted for this account.',
-    actionRequired: 'Grant the OpenClaw shell execution permission in Settings -> User Management before editing shell settings for this user.',
+    forbiddenMessage: 'WorkSpaces shell execution is not granted for this account.',
+    actionRequired: 'Grant the WorkSpaces shell execution permission in Settings -> User Management before editing shell settings for this user.',
   })
   if ('response' in access) return access.response
   const userId = access.userId
@@ -97,8 +97,8 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use', 'openclaw.shell'], {
-    forbiddenMessage: 'OpenClaw shell execution is not granted for this account.',
-    actionRequired: 'Grant the OpenClaw shell execution permission in Settings -> User Management before accessing shell settings for this user.',
+    forbiddenMessage: 'WorkSpaces shell execution is not granted for this account.',
+    actionRequired: 'Grant the WorkSpaces shell execution permission in Settings -> User Management before accessing shell settings for this user.',
   })
   if ('response' in access) return access.response
   const userId = access.userId

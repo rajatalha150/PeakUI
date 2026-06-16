@@ -104,7 +104,7 @@ export function prepareOpenClawCodeExecutionRequest(
   }
 
   if (!request.sessionId.trim()) {
-    throw new Error('A valid Open Claw session id is required')
+    throw new Error('A valid WorkSpaces session id is required')
   }
 
   if (!request.code.trim()) {

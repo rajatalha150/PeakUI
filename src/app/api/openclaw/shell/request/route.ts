@@ -34,8 +34,8 @@ function resolveShellTarget(input: {
 
 export async function POST(request: NextRequest) {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use', 'openclaw.shell'], {
-    forbiddenMessage: 'OpenClaw shell execution is not granted for this account.',
-    actionRequired: 'Grant the OpenClaw shell execution permission in Settings -> User Management, then enable shell execution in personal Settings.',
+    forbiddenMessage: 'WorkSpaces shell execution is not granted for this account.',
+    actionRequired: 'Grant the WorkSpaces shell execution permission in Settings -> User Management, then enable shell execution in personal Settings.',
   })
   if ('response' in access) return access.response
   const userId = access.userId

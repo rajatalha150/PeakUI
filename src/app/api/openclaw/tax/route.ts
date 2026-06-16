@@ -20,7 +20,7 @@ function sanitizeFilename(value: string): string {
 
 export async function POST(request: NextRequest) {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use', 'knowledge.use', 'canvas.use'], {
-    forbiddenMessage: 'Tax PDF generation requires OpenClaw, Knowledge Base, and Canvas permissions.',
+    forbiddenMessage: 'Tax PDF generation requires WorkSpaces, Knowledge Base, and Canvas permissions.',
   })
   if ('response' in access) return access.response
 

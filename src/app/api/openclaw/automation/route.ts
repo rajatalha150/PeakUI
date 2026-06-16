@@ -19,8 +19,8 @@ export const runtime = 'nodejs'
 
 async function requireAutomationAccess() {
   return requireCurrentAuthWithPermissions(['openclaw.use', 'openclaw.automation'], {
-    forbiddenMessage: 'OpenClaw automation access is not granted for this account.',
-    actionRequired: 'Grant the OpenClaw automation permission in Settings -> User Management before using autonomous scheduling for this user.',
+    forbiddenMessage: 'WorkSpaces automation access is not granted for this account.',
+    actionRequired: 'Grant the WorkSpaces automation permission in Settings -> User Management before using autonomous scheduling for this user.',
   })
 }
 

@@ -26,7 +26,7 @@ const DEFAULT_BOOT_CONTENT = `# BOOT.md
 - Update task state when the objective or next step changes.
 
 ## Notes
-- This file is loaded into Open Claw as workspace startup guidance.
+- This file is loaded into WorkSpaces as workspace startup guidance.
 - Keep it short, operational, and specific to this workspace.
 `
 
@@ -414,7 +414,7 @@ export async function ensureDefaultOpenClawWorkspace(userId: string): Promise<Op
 
   return createOpenClawWorkspace(userId, {
     name: 'Default Workspace',
-    description: 'Primary Open Claw workspace',
+    description: 'Primary WorkSpaces workspace',
     autoGitBackup: false,
   }, DEFAULT_WORKSPACE_SLUG)
 }

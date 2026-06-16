@@ -18,8 +18,8 @@ function isBrowserAction(value: unknown): value is OpenClawBrowserRequest['actio
 
 export async function POST(request: NextRequest) {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use', 'openclaw.browser'], {
-    forbiddenMessage: 'OpenClaw browser control is not granted for this account.',
-    actionRequired: 'Grant the OpenClaw browser permission in Settings -> User Management, then enable browser control in personal Settings.',
+    forbiddenMessage: 'WorkSpaces browser control is not granted for this account.',
+    actionRequired: 'Grant the WorkSpaces browser permission in Settings -> User Management, then enable browser control in personal Settings.',
   })
   if ('response' in access) return access.response
   const userId = access.userId

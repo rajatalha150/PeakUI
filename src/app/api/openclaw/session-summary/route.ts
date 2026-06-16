@@ -1,6 +1,6 @@
 /**
  * POST /api/openclaw/session-summary
- * Generate and save a session summary when an Open Claw session ends
+ * Generate and save a session summary when a WorkSpaces session ends
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -16,8 +16,8 @@ import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 
 export async function POST(request: NextRequest) {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use'], {
-    forbiddenMessage: 'OpenClaw access is not granted for this account.',
-    actionRequired: 'Grant the OpenClaw permission in Settings -> User Management before generating WorkSpaces session summaries for this user.',
+    forbiddenMessage: 'WorkSpaces access is not granted for this account.',
+    actionRequired: 'Grant the WorkSpaces permission in Settings -> User Management before generating WorkSpaces session summaries for this user.',
   })
   if ('response' in access) return access.response
   const userId = access.userId

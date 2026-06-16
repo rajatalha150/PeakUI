@@ -78,7 +78,7 @@ The status card calls `/api/openclaw/filesystem` and reports:
 
 Filesystem denials now return structured diagnostics. Common `code` values:
 
-- `permission_denied`: the account lacks the required OpenClaw filesystem permission
+- `permission_denied`: the account lacks the required WorkSpaces filesystem permission
 - `no_approved_read_roots`: filesystem read mode is enabled, but no read roots are approved
 - `outside_approved_read_roots`: the requested path is not under an approved read root
 - `outside_mounted_host_roots`: the requested path is not mounted into the app container

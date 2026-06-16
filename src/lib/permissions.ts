@@ -4,7 +4,7 @@ export const ROLE_DEFINITIONS = [
   {
     key: 'ADMIN',
     label: 'Admin',
-    description: 'Full system access, including user administration and all OpenClaw capabilities.',
+    description: 'Full system access, including user administration and all WorkSpaces capabilities.',
   },
   {
     key: 'MANAGER',
@@ -14,7 +14,7 @@ export const ROLE_DEFINITIONS = [
   {
     key: 'USER',
     label: 'User',
-    description: 'Standard workspace access with knowledge base, canvas, and core OpenClaw usage.',
+    description: 'Standard workspace access with knowledge base, canvas, and core WorkSpaces usage.',
   },
 ] as const
 
@@ -33,45 +33,45 @@ export const PERMISSION_DEFINITIONS = [
   },
   {
     key: 'openclaw.use',
-    label: 'Use OpenClaw',
-    description: 'Access the OpenClaw workspace and model-driven task flows.',
-    category: 'OpenClaw',
+    label: 'Use WorkSpaces',
+    description: 'Access WorkSpaces and model-driven task flows.',
+    category: 'WorkSpaces',
   },
   {
     key: 'openclaw.filesystem',
     label: 'Filesystem access',
-    description: 'Use OpenClaw filesystem tools when they are enabled in personal settings.',
-    category: 'OpenClaw',
+    description: 'Use WorkSpaces filesystem tools when they are enabled in personal settings.',
+    category: 'WorkSpaces',
   },
   {
     key: 'openclaw.browser',
     label: 'Browser access',
-    description: 'Use the standard OpenClaw browser tooling.',
-    category: 'OpenClaw',
+    description: 'Use the standard WorkSpaces browser tooling.',
+    category: 'WorkSpaces',
   },
   {
     key: 'openclaw.uwaf',
     label: 'Stealth browser access',
     description: 'Use the UWAF live browser and stealth browsing flows.',
-    category: 'OpenClaw',
+    category: 'WorkSpaces',
   },
   {
     key: 'openclaw.shell',
     label: 'Shell execution',
-    description: 'Request and execute OpenClaw shell commands.',
-    category: 'OpenClaw',
+    description: 'Request and execute WorkSpaces shell commands.',
+    category: 'WorkSpaces',
   },
   {
     key: 'openclaw.code',
     label: 'Code execution',
-    description: 'Run the managed OpenClaw Python/Node code sandbox.',
-    category: 'OpenClaw',
+    description: 'Run the managed WorkSpaces Python/Node code sandbox.',
+    category: 'WorkSpaces',
   },
   {
     key: 'openclaw.automation',
     label: 'Automation scheduling',
     description: 'Manage autonomous scheduling, monitoring, wake events, and proactive nudges.',
-    category: 'OpenClaw',
+    category: 'WorkSpaces',
   },
   {
     key: 'users.manage',

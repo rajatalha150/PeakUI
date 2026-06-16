@@ -9868,7 +9868,7 @@ export default function OpenClawWorkspace({
                 </div>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                   {!shellGranted
-                    ? 'This account does not have OpenClaw shell permission. An admin must grant it in Settings -> User Management before personal shell settings can take effect.'
+                    ? 'This account does not have WorkSpaces shell permission. An admin must grant it in Settings -> User Management before personal shell settings can take effect.'
                     : shellEnabled
                       ? 'Agent can request shell command execution. Commands require approval in ask-first mode.'
                       : 'Shell execution is disabled in personal settings. Enable it to allow command execution.'}
@@ -9914,7 +9914,7 @@ export default function OpenClawWorkspace({
                     {!automationPermissionGranted ? (
                       <div style={{ display: 'grid', gap: '8px' }}>
                         <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                          This account does not have OpenClaw automation permission. An admin must grant it before heartbeat check-ins, schedules, monitors, or wake events can run.
+                          This account does not have WorkSpaces automation permission. An admin must grant it before heartbeat check-ins, schedules, monitors, or wake events can run.
                         </div>
                         {automationActionRequired && (
                           <div style={{ fontSize: '0.78rem', color: 'var(--danger)' }}>
@@ -10511,7 +10511,7 @@ export default function OpenClawWorkspace({
                       </div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                         {!filesystemGranted
-                          ? 'This account does not have OpenClaw filesystem permission. An admin must grant it in Settings -> User Management before approved paths in personal settings can take effect.'
+                          ? 'This account does not have WorkSpaces filesystem permission. An admin must grant it in Settings -> User Management before approved paths in personal settings can take effect.'
                           : filesystemEnabled
                             ? allowedFilesystemPaths.length > 0
                               ? `Agent can inspect approved host paths in read-only mode: ${allowedFilesystemPaths.join(', ')}`
@@ -10531,7 +10531,7 @@ export default function OpenClawWorkspace({
                       </div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                         {!filesystemGranted
-                          ? 'This account does not have OpenClaw filesystem permission, so write settings are ignored until an admin grants it.'
+                          ? 'This account does not have WorkSpaces filesystem permission, so write settings are ignored until an admin grants it.'
                           : filesystemWriteEnabled
                             ? allowedWritablePaths.length > 0
                               ? `Agent can create folders and write text files inside approved writable roots: ${allowedWritablePaths.join(', ')}`
@@ -10551,7 +10551,7 @@ export default function OpenClawWorkspace({
                       </div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                         {!codeGranted
-                          ? 'This account does not have OpenClaw code-execution permission. An admin must grant it before personal code settings can take effect.'
+                          ? 'This account does not have WorkSpaces code-execution permission. An admin must grant it before personal code settings can take effect.'
                           : codeExecutionEnabled
                             ? 'Agent can run short Python or Node scripts in the managed WorkSpaces workspace with sandbox guardrails.'
                             : 'Code execution sandbox is disabled in personal settings. Enable it to let WorkSpaces run short scripts.'}
@@ -10569,7 +10569,7 @@ export default function OpenClawWorkspace({
                       </div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                         {!browserGranted
-                          ? 'This account does not have OpenClaw browser permission. An admin must grant it before personal browser settings can take effect.'
+                          ? 'This account does not have WorkSpaces browser permission. An admin must grant it before personal browser settings can take effect.'
                           : browserEnabled
                             ? browserMode === 'read-only'
                               ? 'Agent can navigate and inspect public web pages, but form fill and submit actions are blocked.'

@@ -1614,7 +1614,7 @@ export async function runUwafBrowserAction(
     }
 
     case 'wait_for_user':
-      throw new Error('wait_for_user is handled by the OpenClaw client so the human can take over the live browser.')
+      throw new Error('wait_for_user is handled by the WorkSpaces client so the human can take over the live browser.')
 
     default:
       throw new Error(`Unknown UWAF browser action: ${String(request.action)}`)

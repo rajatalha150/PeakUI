@@ -30,8 +30,8 @@ function normalizeProviderBaseUrl(value: unknown, provider: 'ollama' | 'openai-c
 export async function POST(req: Request) {
   try {
     const access = await requireCurrentAuthWithPermissions(['openclaw.use'], {
-      forbiddenMessage: 'OpenClaw access is not granted for this account.',
-      actionRequired: 'Grant the OpenClaw permission in Settings -> User Management before verifying WorkSpaces providers for this user.',
+      forbiddenMessage: 'WorkSpaces access is not granted for this account.',
+      actionRequired: 'Grant the WorkSpaces permission in Settings -> User Management before verifying WorkSpaces providers for this user.',
     });
     if ('response' in access) return access.response;
     const userId = access.userId;
@@ -108,7 +108,7 @@ export async function POST(req: Request) {
       loadedModelCount: Array.isArray(psData.models) ? psData.models.length : 0,
     });
   } catch (error) {
-    console.error('Open Claw provider verification failed:', error);
+    console.error('WorkSpaces provider verification failed:', error);
     return NextResponse.json({ error: 'Failed to verify provider connection' }, { status: 500 });
   }
 }

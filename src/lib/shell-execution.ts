@@ -1,14 +1,19 @@
 /**
- * Shell Execution Library for Open Claw
+ * Shell Execution Library for WorkSpaces
  *
  * Provides safe command execution with approval gates and output capture.
  */
 
 import { exec } from 'child_process'
 import { createHmac, timingSafeEqual } from 'crypto'
+import path from 'path'
 import { promisify } from 'util'
 import { getJwtSecret } from './auth'
-import { ensureOpenClawWorkspaceAlias } from './openclaw-workspace'
+import {
+  ensureOpenClawWorkspaceAlias,
+  getOpenClawWorkspaceContainerRoot,
+  getOpenClawWorkspaceHostRoot,
+} from './openclaw-workspace'
 
 const execAsync = promisify(exec)
 const APPROVAL_TTL_MS = 10 * 60 * 1000
@@ -197,6 +202,26 @@ function normalizeCwd(cwd?: string): string | undefined {
   return trimmed || undefined
 }
 
+function isWithinPath(targetPath: string, rootPath: string): boolean {
+  return targetPath === rootPath || targetPath.startsWith(`${rootPath}${path.sep}`)
+}
+
+export function resolveContainerShellCwd(cwd?: string): string {
+  const containerRoot = getOpenClawWorkspaceContainerRoot()
+  const hostRoot = getOpenClawWorkspaceHostRoot()
+  const normalized = normalizeCwd(cwd)
+  if (!normalized) return containerRoot
+
+  const resolved = path.resolve(normalized)
+  if (isWithinPath(resolved, containerRoot)) return resolved
+
+  if (isWithinPath(resolved, hostRoot)) {
+    return path.join(containerRoot, path.relative(hostRoot, resolved))
+  }
+
+  return containerRoot
+}
+
 function matchesCommandPrefix(tokens: string[], prefix: string): boolean {
   const prefixTokens = tokenizeCommand(prefix)
   if (prefixTokens.length === 0 || tokens.length < prefixTokens.length) return false
@@ -355,10 +380,11 @@ export async function executeCommand(
   } = {}
 ): Promise<ShellCommandResult> {
   const startTime = Date.now()
-  const { cwd = process.cwd(), timeout = 120000 } = options
+  const { timeout = 120000 } = options
 
   try {
     await ensureOpenClawWorkspaceAlias()
+    const cwd = resolveContainerShellCwd(options.cwd)
     const { stdout, stderr } = await execAsync(command, {
       cwd,
       timeout,

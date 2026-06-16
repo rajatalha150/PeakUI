@@ -930,7 +930,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
       const automationSystemMessage: InternalChatMessage = {
         role: 'system',
         content: [
-          'Open Claw automation nudges are pending for this user.',
+          'WorkSpaces automation nudges are pending for this user.',
           'Treat them as background triggers, reminders, or monitoring signals relevant to the current workspace.',
           'Use them when they matter to the user’s request. If they are irrelevant, ignore them.',
           '',

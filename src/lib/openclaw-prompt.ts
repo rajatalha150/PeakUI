@@ -68,7 +68,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     ? 'an external OpenAI-compatible provider'
     : 'a local Ollama model';
 
-  const agentName = context.persona?.name?.trim() || 'Open Claw';
+  const agentName = context.persona?.name?.trim() || 'WorkSpaces';
   const allowedFilesystemPaths = context.allowedFilesystemPaths ?? [];
   const writableFilesystemPaths = context.writableFilesystemPaths ?? [];
   const filesystemAvailable = Boolean(context.filesystemEnabled && allowedFilesystemPaths.length);
@@ -107,7 +107,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     'Use shell or filesystem tools for facts about the user\'s current machine, local files, repository state, running processes, or installed software — web research is for external information.',
     workspace
       ? `Current selected workspace: ${workspace.name} at ${workspace.hostPath} (managed relative path: ${workspace.relativePath}).`
-      : 'No explicit Open Claw workspace was selected for this turn.',
+      : 'No explicit WorkSpaces workspace was selected for this turn.',
     'Keep the response presentation-ready. Use headings or lists only when they improve readability.',
     'Report only what tools actually return — do not fabricate results.',
     toolLabels.length > 0
@@ -130,11 +130,12 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
         ? 'The shell is currently configured to run on the host machine through a localhost executor, so commands see the host PATH and installed programs.'
         : 'The shell currently runs inside the PeakUI runtime container, so verify available programs before depending on them.',
       shellTarget === 'host'
-        ? `Host shell commands are constrained by approval rules, timeouts, output caps, and approved working-directory roots. The managed Open Claw workspace is available at ${getOpenClawWorkspaceHostRoot()}.`
+        ? `Host shell commands are constrained by approval rules, timeouts, output caps, and approved working-directory roots. The managed WorkSpaces workspace is available at ${getOpenClawWorkspaceHostRoot()}.`
         : 'Do not use shell for host file or directory inspection when the filesystem tool can do the job. Container paths may differ from host paths such as /home or /tmp.',
       shellTarget === 'host'
         ? `When you need the shared workspace, prefer ${getOpenClawWorkspaceHostRoot()}.`
-        : `The managed Open Claw workspace is available to shell at ${getOpenClawWorkspaceHostRoot()} (host-style alias) and ${getOpenClawWorkspaceContainerRoot()} (container path).`,
+        : `The managed WorkSpaces workspace is available to shell at ${getOpenClawWorkspaceHostRoot()} (host-style alias) and ${getOpenClawWorkspaceContainerRoot()} (container path).`,
+      'Do not treat the PeakUI application/runtime directory as the user workspace. Only inspect PeakUI app source when the user explicitly asks to debug or modify PeakUI itself.',
       'Prefer plain commands without unnecessary pipes or redirection. Shell operators such as &&, |, or 2>&1 disable auto-approval and usually are not needed for simple checks.',
       'When you need to run a command, explain what it does and why it is needed, then end your response with exactly one shell tool block.',
       `Use this exact format:\n${OPENCLAW_SHELL_TOOL_EXAMPLE}`,
@@ -178,12 +179,12 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
 
   if (codeExecutionAvailable) {
     lines.push(
-      'CODE SANDBOX CAPABILITY: You can run short Python or Node scripts inside a managed Open Claw workspace.',
+      'CODE SANDBOX CAPABILITY: You can run short Python or Node scripts inside a managed WorkSpaces workspace.',
       'Use this when you need to execute code, inspect runtime behavior, transform data, or generate artifacts that are easier to produce programmatically than by reasoning alone.',
       'The sandbox is workspace-scoped, time-limited, output-limited, and returns generated files. It is not a full VM, and private/local network targets remain unavailable through the browser tool.',
       'Prefer the sandbox over shell for quick scripts or data-processing tasks.',
       `Use this exact format:\n${OPENCLAW_CODE_TOOL_EXAMPLE}`,
-      'workspacePath is optional and relative to the managed workspace root. If omitted, the run uses the current selected Open Claw workspace.',
+      'workspacePath is optional and relative to the managed workspace root. If omitted, the run uses the current selected WorkSpaces workspace.',
       'Do not request package installs or long-running daemons through the code tool.',
       'After a code result arrives, use the actual stdout, stderr, exit code, and artifact list to continue.',
     );

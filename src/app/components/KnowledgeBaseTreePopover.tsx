@@ -28,7 +28,7 @@ interface KnowledgeBaseTreePopoverProps {
   /**
    * Z-index override. Defaults to 1000. Raise this when the popover is
    * rendered inside another portaled popover (e.g. the Workspace modes
-   * menu in the Open Claw composer sits at 1400, so the folder popover
+   * menu in the WorkSpaces composer sits at 1400, so the folder popover
    * needs to be above that to stay visible).
    */
   zIndex?: number;

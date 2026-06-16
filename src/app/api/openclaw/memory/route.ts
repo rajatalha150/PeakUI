@@ -1,6 +1,6 @@
 /**
  * GET /api/openclaw/memory
- * Returns recent memory context (today + yesterday) for injection into Open Claw sessions
+ * Returns recent memory context (today + yesterday) for injection into WorkSpaces sessions
  */
 
 import { NextResponse } from 'next/server'
@@ -9,8 +9,8 @@ import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 
 export async function GET() {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use'], {
-    forbiddenMessage: 'OpenClaw access is not granted for this account.',
-    actionRequired: 'Grant the OpenClaw permission in Settings -> User Management before loading WorkSpaces memory for this user.',
+    forbiddenMessage: 'WorkSpaces access is not granted for this account.',
+    actionRequired: 'Grant the WorkSpaces permission in Settings -> User Management before loading WorkSpaces memory for this user.',
   })
   if ('response' in access) return access.response
 

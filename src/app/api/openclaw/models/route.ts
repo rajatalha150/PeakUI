@@ -49,8 +49,8 @@ function normalizeProviderBaseUrl(value: unknown, provider: 'ollama' | 'openai-c
 export async function POST(req: Request) {
   try {
     const access = await requireCurrentAuthWithPermissions(['openclaw.use'], {
-      forbiddenMessage: 'OpenClaw access is not granted for this account.',
-      actionRequired: 'Grant the OpenClaw permission in Settings -> User Management before using WorkSpaces model discovery.',
+      forbiddenMessage: 'WorkSpaces access is not granted for this account.',
+      actionRequired: 'Grant the WorkSpaces permission in Settings -> User Management before using WorkSpaces model discovery.',
     });
     if ('response' in access) return access.response;
     const userId = access.userId;
@@ -116,7 +116,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ provider, models });
   } catch (error) {
-    console.error('Open Claw model lookup failed:', error);
+    console.error('WorkSpaces model lookup failed:', error);
     return NextResponse.json({ error: 'Failed to fetch models' }, { status: 500 });
   }
 }

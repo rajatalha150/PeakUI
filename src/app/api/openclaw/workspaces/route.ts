@@ -10,8 +10,8 @@ export const runtime = 'nodejs'
 
 export async function GET() {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use'], {
-    forbiddenMessage: 'OpenClaw workspace access is not granted for this account.',
-    actionRequired: 'Grant the OpenClaw permission in Settings -> User Management before loading workspace definitions for this user.',
+    forbiddenMessage: 'WorkSpaces access is not granted for this account.',
+    actionRequired: 'Grant the WorkSpaces permission in Settings -> User Management before loading workspace definitions for this user.',
   })
   if ('response' in access) return access.response
 
@@ -30,8 +30,8 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use'], {
-    forbiddenMessage: 'OpenClaw workspace access is not granted for this account.',
-    actionRequired: 'Grant the OpenClaw permission in Settings -> User Management before creating workspaces for this user.',
+    forbiddenMessage: 'WorkSpaces access is not granted for this account.',
+    actionRequired: 'Grant the WorkSpaces permission in Settings -> User Management before creating workspaces for this user.',
   })
   if ('response' in access) return access.response
 

@@ -7,8 +7,8 @@ export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use', 'openclaw.automation'], {
-    forbiddenMessage: 'OpenClaw automation access is not granted for this account.',
-    actionRequired: 'Grant the OpenClaw automation permission in Settings -> User Management before sending wake events for this user.',
+    forbiddenMessage: 'WorkSpaces automation access is not granted for this account.',
+    actionRequired: 'Grant the WorkSpaces automation permission in Settings -> User Management before sending wake events for this user.',
   })
   if ('response' in access) return access.response
 

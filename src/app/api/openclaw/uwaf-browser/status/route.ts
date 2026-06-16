@@ -230,8 +230,8 @@ async function getDeepStatus(profile: ReturnType<typeof getDefaultStealthProfile
 
 export async function GET(request: NextRequest) {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use', 'openclaw.uwaf'], {
-    forbiddenMessage: 'OpenClaw UWAF access is not granted for this account.',
-    actionRequired: 'Grant the OpenClaw stealth browser permission in Settings -> User Management before accessing UWAF status for this user.',
+    forbiddenMessage: 'WorkSpaces stealth browser access is not granted for this account.',
+    actionRequired: 'Grant the WorkSpaces stealth browser permission in Settings -> User Management before accessing UWAF status for this user.',
   })
   if ('response' in access) return access.response
 

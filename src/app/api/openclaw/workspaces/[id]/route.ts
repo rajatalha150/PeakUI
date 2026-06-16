@@ -12,8 +12,8 @@ export async function GET(
   ctx: RouteContext<'/api/openclaw/workspaces/[id]'>,
 ) {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use'], {
-    forbiddenMessage: 'OpenClaw workspace access is not granted for this account.',
-    actionRequired: 'Grant the OpenClaw permission in Settings -> User Management before loading workspace details for this user.',
+    forbiddenMessage: 'WorkSpaces access is not granted for this account.',
+    actionRequired: 'Grant the WorkSpaces permission in Settings -> User Management before loading workspace details for this user.',
   })
   if ('response' in access) return access.response
 
@@ -35,8 +35,8 @@ export async function PATCH(
   ctx: RouteContext<'/api/openclaw/workspaces/[id]'>,
 ) {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use'], {
-    forbiddenMessage: 'OpenClaw workspace access is not granted for this account.',
-    actionRequired: 'Grant the OpenClaw permission in Settings -> User Management before updating workspace details for this user.',
+    forbiddenMessage: 'WorkSpaces access is not granted for this account.',
+    actionRequired: 'Grant the WorkSpaces permission in Settings -> User Management before updating workspace details for this user.',
   })
   if ('response' in access) return access.response
 

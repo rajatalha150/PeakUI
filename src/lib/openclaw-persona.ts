@@ -23,7 +23,7 @@ export interface OpenClawUserProfile {
 }
 
 export const DEFAULT_OPENCLAW_PERSONA: OpenClawPersona = {
-  name: 'Open Claw',
+  name: 'WorkSpaces',
   tone: 'Practical, direct, and task-oriented. Prefer clear next steps over lengthy preamble.',
   expertise: 'General software engineering, system administration, technical writing, and research.',
   boundaries:

@@ -89,7 +89,7 @@ WorkSpaces includes a collapsible Canvas panel that:
 - **Workspace controls launcher**: The rail now exposes one `Workspace controls` button that opens a modal for agent mode, response style, task state, workspace brief, persona, user profile, shell configuration, and workspace-capability details, freeing more vertical space for sessions.
 - **Multi-workspace selector**: The same controls modal now lets users create and switch between named project workspaces without leaving the active WorkSpaces thread.
 - **Scaffolded workspace files**: Each workspace gets its own `BOOT.md`, `TOOLS.md`, and `skills/` directory so local conventions and reusable prompts live with the workspace itself.
-- **Prompt-backed startup context**: The selected workspace's `BOOT.md`, `TOOLS.md`, and skill-template summaries are injected into the Open Claw system prompt for that turn.
+- **Prompt-backed startup context**: The selected workspace's `BOOT.md`, `TOOLS.md`, and skill-template summaries are injected into the WorkSpaces system prompt for that turn.
 - **Capability inventory**: Native and future tool capabilities are described through a shared inventory so the AI can choose the right app tool for day-to-day tasks. MCP is documented as a future curated extension path for helping the AI learn new approved skills. See [WorkSpaces Capability Inventory](capability-inventory.md).
 
 ### Session Intelligence
@@ -112,8 +112,8 @@ WorkSpaces includes a collapsible Canvas panel that:
 - **Unattended model execution**: Heartbeats, schedules, monitors, and wake events can now switch from `nudge` delivery to durable background model execution. Queued runs are processed by the same Node-side automation worker and post their result back into a WorkSpaces thread.
 - **Execution guardrails**: Personal settings now control whether unattended execution is enabled, which Ollama model it uses, the hourly execution budget, and whether workspace/memory context is attached automatically.
 - **Execution history**: The automation modal now shows recent unattended runs, including queued/running/succeeded/failed state plus result preview or error output.
-- **Nudge inbox**: Automation nudges show inside WorkSpaces, can jump to the linked thread, and are also injected into Open Claw request context on the backend.
-- **Guardrails**: File monitors require the same approved OpenClaw filesystem roots as manual file inspection, and URL monitors reuse the public-HTTP SSRF checks from the browser stack.
+- **Nudge inbox**: Automation nudges show inside WorkSpaces, can jump to the linked thread, and are also injected into WorkSpaces request context on the backend.
+- **Guardrails**: File monitors require the same approved WorkSpaces filesystem roots as manual file inspection, and URL monitors reuse the public-HTTP SSRF checks from the browser stack.
 - **Current boundary**: Unattended execution currently supports local Ollama only and deliberately does not invoke interactive tools such as shell, filesystem, browser, or code while running in the background.
 
 ### Tool Execution

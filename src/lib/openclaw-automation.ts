@@ -183,12 +183,12 @@ async function authorizeFileMonitorTarget(userId: string, rawTarget: string) {
   const { settings, effectiveToolAccess } = await getAutomationToolAccess(userId)
 
   if (!effectiveToolAccess.filesystemEnabled) {
-    throw new Error('File monitors require OpenClaw filesystem read access to be enabled for this user.')
+    throw new Error('File monitors require WorkSpaces filesystem read access to be enabled for this user.')
   }
 
   const approvedRoots = parseAllowedOpenClawPaths(settings.openClawAllowedPaths)
   if (approvedRoots.length === 0) {
-    throw new Error('File monitors require at least one approved OpenClaw filesystem root.')
+    throw new Error('File monitors require at least one approved WorkSpaces filesystem root.')
   }
 
   const mountedRoots = getMountedOpenClawHostRoots()
@@ -197,7 +197,7 @@ async function authorizeFileMonitorTarget(userId: string, rawTarget: string) {
   }
 
   if (!approvedRoots.some(root => isWithinPath(normalizedTarget, root))) {
-    throw new Error(`File monitor target is outside the approved OpenClaw filesystem roots. Approved roots: ${approvedRoots.join(', ')}`)
+    throw new Error(`File monitor target is outside the approved WorkSpaces filesystem roots. Approved roots: ${approvedRoots.join(', ')}`)
   }
 
   return normalizedTarget

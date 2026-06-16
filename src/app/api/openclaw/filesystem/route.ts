@@ -57,10 +57,10 @@ async function requireFilesystemAuth() {
     return {
       response: NextResponse.json(
         {
-          error: 'OpenClaw filesystem permission is not granted for this account.',
+          error: 'WorkSpaces filesystem permission is not granted for this account.',
           code: 'permission_denied',
           missingPermissions,
-          actionRequired: 'An admin must grant the OpenClaw filesystem permission in Settings -> User Management, then the user must enable approved filesystem paths in their own Settings.',
+          actionRequired: 'An admin must grant the WorkSpaces filesystem permission in Settings -> User Management, then the user must enable approved filesystem paths in their own Settings.',
         },
         { status: 403 }
       ),

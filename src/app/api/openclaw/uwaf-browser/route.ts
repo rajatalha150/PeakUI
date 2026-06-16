@@ -42,8 +42,8 @@ function describeRequestTarget(body: Record<string, unknown>): string | undefine
 
 export async function POST(request: NextRequest) {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use', 'openclaw.uwaf'], {
-    forbiddenMessage: 'OpenClaw UWAF access is not granted for this account.',
-    actionRequired: 'Grant the OpenClaw stealth browser permission in Settings -> User Management, then enable UWAF browser mode in personal Settings.',
+    forbiddenMessage: 'WorkSpaces stealth browser access is not granted for this account.',
+    actionRequired: 'Grant the WorkSpaces stealth browser permission in Settings -> User Management, then enable stealth browser mode in personal Settings.',
   })
   if ('response' in access) return access.response
   const userId = access.userId

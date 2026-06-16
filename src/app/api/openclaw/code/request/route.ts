@@ -13,8 +13,8 @@ export const runtime = 'nodejs'
 
 export async function POST(request: NextRequest) {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use', 'openclaw.code'], {
-    forbiddenMessage: 'OpenClaw code execution is not granted for this account.',
-    actionRequired: 'Grant the OpenClaw code execution permission in Settings -> User Management before enabling the code sandbox for this user.',
+    forbiddenMessage: 'WorkSpaces code execution is not granted for this account.',
+    actionRequired: 'Grant the WorkSpaces code execution permission in Settings -> User Management before enabling the code sandbox for this user.',
   })
   if ('response' in access) return access.response
   const userId = access.userId

@@ -1,5 +1,5 @@
 /**
- * Multi-Layer Memory System for Open Claw
+ * Multi-Layer Memory System for WorkSpaces
  *
  * Three layers:
  * 1. Daily memory logs - auto-generated summaries in memory/YYYY-MM-DD.md

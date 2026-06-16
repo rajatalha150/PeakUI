@@ -313,7 +313,7 @@ async function executeAutomationRun(runId: string) {
 
     const conversation = normalizeConversationForAutomation(preAssistantMessages)
     const automationContext = [
-      `This is an unattended Open Claw automation run triggered in the background.`,
+      `This is an unattended WorkSpaces automation run triggered in the background.`,
       `Execution source: ${run.sourceKind}.`,
       `Execution title: ${run.title}.`,
       'There is no user waiting live for this reply. Produce a concrete, task-forward result and continue the thread as if you are posting an autonomous update.',

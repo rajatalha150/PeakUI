@@ -180,7 +180,7 @@ export function createOpenClawChecklistItems(lines: string[]): OpenClawChecklist
 
 export function buildOpenClawWorkspaceBrief(preferences: OpenClawAgentPreferences): string {
   const lines = [
-    'Open Claw workspace brief:',
+    'WorkSpaces workspace brief:',
     `Active mode: ${preferences.mode}.`,
     getModeInstruction(preferences.mode),
     getResponseStyleInstruction(preferences.responseStyle),
@@ -227,5 +227,5 @@ export function buildOpenClawTaskStateBrief(taskState: OpenClawTaskState): strin
 
   if (lines.length === 0) return ''
 
-  return ['Open Claw task state:', ...lines].join('\n\n')
+  return ['WorkSpaces task state:', ...lines].join('\n\n')
 }

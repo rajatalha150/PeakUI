@@ -584,7 +584,7 @@ export async function runOpenClawBrowserAction(
   }
 
   if (!request.sessionId.trim()) {
-    throw new Error('A valid Open Claw session id is required for browser control')
+    throw new Error('A valid WorkSpaces session id is required for browser control')
   }
 
   const session = getOrCreateBrowserSession(userId, request.sessionId.trim())
