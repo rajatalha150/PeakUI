@@ -381,7 +381,6 @@ function AssistantDownloads({ content, index, presentation, sessionId, messageId
   const normalizedContent = normalizeAssistantResponseContent(content, presentation);
   const generatedFiles = extractGeneratedFiles(normalizedContent);
   const inlineImages = extractInlineImages(normalizedContent);
-  if (!normalizedContent.trim() && generatedFiles.length === 0 && inlineImages.length === 0) return null;
   const downloadExtension = getResponseDownloadExtension(presentation ?? { mode: 'general' });
   const downloadMimeType = getResponseDownloadMimeType(presentation ?? { mode: 'general' });
 
@@ -410,6 +409,8 @@ function AssistantDownloads({ content, index, presentation, sessionId, messageId
       console.error("Failed to save artifact to canvas:", error);
     }
   }, [sessionId, messageId, savedFiles, onSaveArtifact]);
+
+  if (!normalizedContent.trim() && generatedFiles.length === 0 && inlineImages.length === 0) return null;
 
   return (
     <div style={{

@@ -8,6 +8,7 @@ import {
   isContinuationWorkspacePrompt,
   isCrossSessionMemoryRelevant,
   isLowSignalWorkspacePrompt,
+  type SessionMessageLike,
 } from './session-intelligence'
 import { trimMessagesToFit } from './message-trim'
 
@@ -141,7 +142,7 @@ describe('session intelligence', () => {
   })
 
   it('lets newer raw transcript override older memory by instruction', () => {
-    const result = applyContextManagement([
+    const result = applyContextManagement<SessionMessageLike>([
       { role: 'user', content: 'Always draft reports in a very formal tone.' },
       { role: 'assistant', content: 'Preference noted.' },
       { role: 'user', content: 'For this next answer, be casual and short.' },

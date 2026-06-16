@@ -113,7 +113,9 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     toolLabels.length > 0
       ? `Active real tools for this turn: ${toolLabels.join(', ')}.`
       : 'No external tools are available for this turn beyond the context already attached.',
-    'At most one tool block is allowed in a single response. After each tool result arrives, decide whether to answer, ask one clarification, or request the next tool.',
+    'At most one tool block is allowed in a single response. Never include two or more tool blocks in the same message; request the next tool only after the previous result arrives.',
+    'If you state or imply that you are about to use a tool (for example "fetching", "let me open", "next step: extract"), you MUST include that single tool block in the SAME message. Never end a message by describing or promising an action without the tool block — either emit exactly one tool block now or give the user a direct answer/clarification.',
+    'After each tool result arrives, decide whether to answer, ask one clarification, or request the next tool.',
     `Current model: ${context.model || 'unspecified'}.`,
   ];
 

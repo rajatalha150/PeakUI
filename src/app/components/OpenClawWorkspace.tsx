@@ -1515,6 +1515,29 @@ function normalizeExtractedToolRequestName(value: unknown): OpenClawMessage['too
     : undefined;
 }
 
+// Detects when an assistant message narrates an imminent tool action (e.g.
+// "Step 2 — Extract:", "Fetching the page now:") but ends without emitting a
+// tool block. These messages stall the agent loop because there is nothing to
+// execute, so the harness nudges the model to emit the block it promised.
+function detectMissingToolIntent(content: string): boolean {
+  const text = content.trim();
+  if (!text) return false;
+
+  const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
+  const lastLine = lines[lines.length - 1] || '';
+  // A trailing question means the model is handing control back to the user.
+  if (lastLine.endsWith('?')) return false;
+
+  const signalsImminentAction = /[:：]$/.test(lastLine)
+    || /(\.\.\.|…)$/.test(lastLine)
+    || /[⬜▢]/.test(text);
+
+  const tail = text.slice(-500).toLowerCase();
+  const hasActionCue = /\b(let me|i'?ll|i will|let's|lets|fetch(?:ing)?|open(?:ing)?|search(?:ing)?|run(?:ning)?|extract(?:ing)?|pull(?:ing)?|load(?:ing)?|navigat(?:e|ing)|check(?:ing)?|grab(?:bing)?|next step|next,|step \d|proceed(?:ing)?|now i|starting with)\b/.test(tail);
+
+  return signalsImminentAction && hasActionCue;
+}
+
 function normalizeOpenClawMessage(value: unknown): OpenClawMessage | null {
   if (!value || typeof value !== 'object') return null;
 
@@ -6549,6 +6572,7 @@ export default function OpenClawWorkspace({
       let nextAssistantId = assistantMessageId;
       let lastToolRequestSignature: string | null = null;
       let duplicateToolRequestCount = 0;
+      let missingToolNudgeCount = 0;
 
       for (let toolRound = 0; toolRound < 8; toolRound += 1) {
         if (toolRound > 0) {
@@ -6644,10 +6668,48 @@ export default function OpenClawWorkspace({
         sessionHistory = [...sessionHistory, normalizedAssistant];
         finalAssistantMessage = normalizedAssistant;
 
-        if (!request || toolRound === 7) {
+        if (!request) {
+          // The model either emitted a malformed/duplicate tool block, or it
+          // narrated an imminent tool action and stopped without emitting the
+          // block. Both cases stall the loop, so nudge it to recover instead of
+          // silently ending the turn (bounded to avoid runaway loops).
+          const invalidToolBlock = rawToolTagPresent;
+          const promisedToolButStopped = !rawToolTagPresent
+            && detectMissingToolIntent(normalizedAssistant.content);
+
+          if (
+            (invalidToolBlock || promisedToolButStopped)
+            && toolRound < 7
+            && missingToolNudgeCount < 2
+            && !controller.signal.aborted
+          ) {
+            missingToolNudgeCount += 1;
+            const recoveryNotice: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: invalidToolBlock
+                ? 'Your previous message contained an invalid or duplicate tool block. Emit exactly ONE valid <openclaw_tool> block to continue, or give your final answer in plain text if no tool is needed. Never include more than one tool block in a single message.'
+                : 'You described the next action but did not include a tool block, so nothing ran. If a tool call is needed, end your reply with exactly ONE tool block now. If no tool is needed, give the user the answer directly instead of only describing what you will do.',
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, recoveryNotice];
+            setChatHistory(prev => [...prev, recoveryNotice]);
+            setLiveStats(null);
+            setStreamPhase(null);
+            continue;
+          }
+
           lastToolRequestSignature = null;
           break;
         }
+
+        if (toolRound === 7) {
+          lastToolRequestSignature = null;
+          break;
+        }
+
+        missingToolNudgeCount = 0;
 
         setLiveStats(null);
         setStreamPhase(null);

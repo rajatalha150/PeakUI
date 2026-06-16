@@ -82,8 +82,6 @@ export default function KnowledgeBaseTreePopover({
     setFocusIndex(-1);
   }, [tree]);
 
-  if (!anchorRef) return null;
-
   const flatRows: FlattenedFolder[] = tree ? flattenForPopover(tree) : [];
 
   // Arrow-key navigation between folder rows. The Popover primitive owns
@@ -108,6 +106,8 @@ export default function KnowledgeBaseTreePopover({
   }, [open, focusIndex, flatRows, onSelect, onClose]);
   const hasFolders = flatRows.length > 0;
   const totalFiles = tree?.recursiveFileCount ?? 0;
+
+  if (!anchorRef) return null;
 
   return (
     <Popover

@@ -37,7 +37,7 @@ describe('renderWorkbookDocument', () => {
     expect(buffer.byteLength).toBeGreaterThan(1000)
 
     const workbook = new ExcelJS.Workbook()
-    await workbook.xlsx.load(buffer)
+    await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0])
     const worksheet = workbook.getWorksheet('Budget')
     expect(worksheet).toBeTruthy()
     expect(worksheet?.getCell('A1').value).toBe('Budget')
