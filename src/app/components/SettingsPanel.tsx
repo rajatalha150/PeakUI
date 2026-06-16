@@ -157,8 +157,8 @@ const INITIAL_SETTINGS: UserSettings = {
   chatModel: '',
   chatModelProvider: 'ollama',
   huggingFaceBaseUrl: DEFAULT_HUGGING_FACE_BASE_URL,
-  modelKeepAlive: true,
-  ollamaKeepAlive: '30m',
+  modelKeepAlive: false,
+  ollamaKeepAlive: '0',
   exclusiveOllamaModels: false,
   openClawProvider: 'ollama',
   openClawModel: '',
@@ -1285,10 +1285,10 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           label={
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               Model Keep Alive
-              <HelpHint text="Keeps Ollama-backed models resident after each WorkSpaces response, matching the responsive feel of an interactive terminal session. This applies to local Ollama models and Ollama-hosted cloud model names." />
+              <HelpHint text="Optional local Ollama setting that asks a local runner to stay resident after each WorkSpaces response. It is not sent to Ollama cloud model aliases." />
             </span>
           }
-          help="When enabled, PeakUI sends Ollama's request-level keep_alive value on WorkSpaces chat requests and fallback generate requests."
+          help="Off by default. Enable only when a local Ollama model benefits on your hardware and you have enough memory headroom."
         >
           <div style={{
             padding: '12px 14px',
@@ -1323,12 +1323,12 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             >
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>
-                  {settings.modelKeepAlive ? 'Keep models warm after responses' : 'Let Ollama unload on its default schedule'}
+                  {settings.modelKeepAlive ? 'Keep local Ollama models warm after responses' : 'Use Ollama default model lifecycle'}
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 3, lineHeight: 1.45 }}>
                   {settings.modelKeepAlive
-                    ? `PeakUI asks Ollama to keep the selected model loaded for ${settings.ollamaKeepAlive || '30m'} after each response.`
-                    : 'Useful when memory is tight, but repeated turns may cold-load the model again.'}
+                    ? `PeakUI asks local Ollama models to stay loaded for ${settings.ollamaKeepAlive || '30m'} after each response. Cloud aliases ignore this.`
+                    : 'PeakUI does not send request-level keep_alive. Ollama decides when local models stay resident or unload.'}
                 </div>
               </div>
               <span style={{ color: settings.modelKeepAlive ? 'var(--accent-primary)' : 'var(--text-secondary)', fontWeight: 700 }}>

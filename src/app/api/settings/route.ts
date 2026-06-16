@@ -123,14 +123,16 @@ export async function GET() {
     }
 
     const normalized = normalizeAppSettings(settings)
-    if (settings.modelKeepAlive === false && !settings.ollamaKeepAlive?.trim() && normalized.modelKeepAlive) {
+    if (settings.modelKeepAlive === true && settings.ollamaKeepAlive === '30m' && normalized.modelKeepAlive) {
       await prisma.userSettings.update({
         where: { userId: auth.user.id },
         data: {
-          modelKeepAlive: normalized.modelKeepAlive,
-          ollamaKeepAlive: normalized.ollamaKeepAlive,
+          modelKeepAlive: false,
+          ollamaKeepAlive: '0',
         },
       });
+      normalized.modelKeepAlive = false;
+      normalized.ollamaKeepAlive = '0';
     }
     return NextResponse.json({
       ...normalized,

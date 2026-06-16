@@ -381,8 +381,11 @@ async function buildDerivedSessionState(
         fallbackUpdatedAt: sessionUpdatedAt ?? null,
       })
     : null;
+  const tokenEstimate = estimateMessageTokens(messages);
+  const nonSystemCount = messages.filter(message => message.role !== 'system').length;
+  const hasOlderTurnsOutsideRawWindow = nonSystemCount > settings.openClawSessionPreserveTurns * 2;
   const contextSummary = settings.openClawSessionSummariesEnabled
-    && estimateMessageTokens(messages) >= settings.openClawSessionSummaryTargetTokens
+    && (tokenEstimate >= settings.openClawSessionSummaryTargetTokens || hasOlderTurnsOutsideRawWindow)
       ? buildSessionContextSummary(messages, {
           preserveTurns: settings.openClawSessionPreserveTurns,
         })

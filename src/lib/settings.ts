@@ -110,8 +110,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   chatModel: '',
   chatModelProvider: 'ollama',
   huggingFaceBaseUrl: DEFAULT_HUGGING_FACE_BASE_URL,
-  modelKeepAlive: true,
-  ollamaKeepAlive: '30m',
+  modelKeepAlive: false,
+  ollamaKeepAlive: '0',
   exclusiveOllamaModels: false,
   openClawProvider: 'ollama',
   openClawModel: '',
@@ -251,9 +251,6 @@ export function normalizeOllamaKeepAlive(value: unknown): string {
 export function normalizeModelKeepAlive(value: unknown, keepAliveValue?: unknown): boolean {
   const normalizedKeepAlive = typeof keepAliveValue === 'string' ? keepAliveValue.trim().toLowerCase() : ''
   if (normalizedKeepAlive === '0') return false
-  // Older rows stored false/empty after the keep-alive UI was removed. Treat
-  // that legacy shape as the new default so existing users get terminal-like behavior.
-  if (value === false && !normalizedKeepAlive) return DEFAULT_SETTINGS.modelKeepAlive
   return normalizeBoolean(value, DEFAULT_SETTINGS.modelKeepAlive)
 }
 

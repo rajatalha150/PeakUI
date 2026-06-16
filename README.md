@@ -153,7 +153,7 @@ Open Settings inside WorkSpaces and set:
 |---|---|
 | WorkSpaces provider/model | Pick local Ollama or an OpenAI-compatible provider |
 | Ollama host | Default is `http://127.0.0.1:11434` |
-| Model keep alive | Keep Ollama-backed local/cloud models warm between WorkSpaces turns, default `30m` |
+| Model keep alive | Optional local Ollama-only `keep_alive`; off by default and not sent to Ollama cloud aliases |
 | Temperature | Response randomness |
 | Use Ollama default temperature | Let the selected local model use its own native default temperature |
 | Context window | Requested max context for local Ollama |

@@ -147,14 +147,29 @@ function guessMimeType(filename: string): string {
     case 'm2ts': return 'video/mp2t'
     case 'hevc': return 'video/hevc'
     case 'pdf': return 'application/pdf'
-    case 'doc':
-    case 'docx':
-    case 'pptx':
-    case 'xlsx':
-    case 'odt':
-    case 'odp':
-    case 'ods':
-      return 'application/octet-stream'
+    case 'doc': return 'application/msword'
+    case 'docx': return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    case 'xls': return 'application/vnd.ms-excel'
+    case 'xlsx': return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    case 'xlsm': return 'application/vnd.ms-excel.sheet.macroEnabled.12'
+    case 'ppt': return 'application/vnd.ms-powerpoint'
+    case 'pptx': return 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    case 'odt': return 'application/vnd.oasis.opendocument.text'
+    case 'odp': return 'application/vnd.oasis.opendocument.presentation'
+    case 'ods': return 'application/vnd.oasis.opendocument.spreadsheet'
+    case 'rtf': return 'application/rtf'
+    case 'txt': return 'text/plain'
+    case 'md':
+    case 'markdown': return 'text/markdown'
+    case 'csv': return 'text/csv'
+    case 'tsv': return 'text/tab-separated-values'
+    case 'json':
+    case 'jsonl':
+    case 'ndjson': return 'application/json'
+    case 'xml': return 'application/xml'
+    case 'yaml':
+    case 'yml': return 'application/yaml'
+    case 'toml': return 'application/toml'
     case 'zip': return 'application/zip'
     case 'tar': return 'application/x-tar'
     case 'gz':
@@ -351,44 +366,6 @@ function stripRtf(value: string): string {
     .replace(/[ \t]{2,}/g, ' ')
 }
 
-type PdfTextContent = {
-  items?: readonly unknown[]
-}
-
-function extractTextFromPdfTextContent(content: PdfTextContent): string {
-  const lines: string[] = []
-  let currentLine = ''
-
-  for (const item of content.items ?? []) {
-    if (!item || typeof item !== 'object') {
-      continue
-    }
-
-    const record = item as { str?: unknown; hasEOL?: unknown }
-    const raw = typeof record.str === 'string' ? record.str : ''
-    const text = raw.replace(/\s+/g, ' ').trim()
-    if (!text) {
-      if (record.hasEOL === true && currentLine) {
-        lines.push(currentLine)
-        currentLine = ''
-      }
-      continue
-    }
-
-    currentLine = currentLine ? `${currentLine} ${text}` : text
-    if (record.hasEOL === true) {
-      lines.push(currentLine)
-      currentLine = ''
-    }
-  }
-
-  if (currentLine) {
-    lines.push(currentLine)
-  }
-
-  return normalizeExtractedText(lines.join('\n'))
-}
-
 async function commandExists(command: string): Promise<boolean> {
   try {
     await runCommand('sh', ['-lc', `command -v ${command} >/dev/null 2>&1`], { maxBuffer: 1024 })
@@ -500,43 +477,6 @@ async function ocrPdfDocument(pdfPath: string, tempDir: string): Promise<string>
   return normalizeExtractedText(pageTexts.join('\n\n'))
 }
 
-async function extractPdfTextWithPdfJs(buffer: Buffer, pdfPath: string, tempDir: string): Promise<string> {
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
-  const loadingTask = pdfjs.getDocument({
-    data: new Uint8Array(buffer),
-    useWorkerFetch: false,
-    stopAtErrors: false,
-    isEvalSupported: false,
-  })
-
-  const pdf = await loadingTask.promise
-  try {
-    const canOcr = await commandExists('pdftoppm') && await commandExists('tesseract')
-    const sections: string[] = []
-
-    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-      const page = await pdf.getPage(pageNumber)
-      const textContent = await page.getTextContent()
-      let pageText = extractTextFromPdfTextContent(textContent)
-
-      if (canOcr && pageText.replace(/\s+/g, ' ').length < PDF_PAGE_TEXT_FALLBACK_THRESHOLD) {
-        const ocrText = await ocrPdfPage(pdfPath, tempDir, pageNumber)
-        if (ocrText.trim()) {
-          pageText = pageText ? `${pageText}\n${ocrText.trim()}` : ocrText.trim()
-        }
-      }
-
-      if (pageText.trim()) {
-        sections.push(`Page ${pageNumber}\n${pageText.trim()}`)
-      }
-    }
-
-    return normalizeExtractedText(sections.join('\n\n'))
-  } finally {
-    await pdf.destroy().catch(() => undefined)
-  }
-}
-
 async function extractPdfText(buffer: Buffer): Promise<string> {
   const tempDir = await mkdtemp(path.join(tmpdir(), 'peakui-pdf-'))
   const pdfPath = path.join(tempDir, 'source.pdf')
@@ -544,18 +484,6 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
 
   try {
     await writeFile(pdfPath, buffer)
-
-    try {
-      const text = await extractPdfTextWithPdfJs(buffer, pdfPath, tempDir)
-      if (text.length > bestText.length) {
-        bestText = text
-      }
-      if (text.length >= OCR_MIN_TEXT_THRESHOLD) {
-        return text
-      }
-    } catch {
-      // Fall through to the pdftotext/OCR fallback when PDF.js cannot parse.
-    }
 
     try {
       const { stdout } = await runCommand('pdftotext', ['-layout', '-enc', 'UTF-8', pdfPath, '-'], {

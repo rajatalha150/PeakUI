@@ -400,8 +400,13 @@ function buildOllamaOptions(settings: AppSettings, numCtx: number | null): Recor
   return options
 }
 
-function buildOllamaKeepAlive(settings: AppSettings): string | undefined {
-  return settings.modelKeepAlive ? settings.ollamaKeepAlive : undefined
+function isOllamaCloudModel(model: string): boolean {
+  return /:cloud$/i.test(model.trim())
+}
+
+function buildOllamaKeepAlive(settings: AppSettings, model: string): string | undefined {
+  if (!settings.modelKeepAlive || isOllamaCloudModel(model)) return undefined
+  return settings.ollamaKeepAlive === '0' ? undefined : settings.ollamaKeepAlive
 }
 
 function roundTimingMs(value: number | null | undefined): number | null {
@@ -981,7 +986,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
     let firstContentAt: number | null = null;
     let upstreamKind: 'ollama-chat' | 'ollama-generate-fallback' | 'openai-compatible' | null = null;
     const outboundTokenEstimate = estimateMessageTokens(outboundMessages);
-    const activeKeepAlive = provider === 'ollama' ? buildOllamaKeepAlive(settings) : undefined;
+    const activeKeepAlive = provider === 'ollama' ? buildOllamaKeepAlive(settings, requestedModel) : undefined;
     const buildLatencyTimings = (stage: string, extra: Record<string, unknown> = {}) => ({
       stage,
       provider,
@@ -1071,7 +1076,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
               model: requestedModel,
               prompt: buildOllamaGeneratePrompt(messagesForStream),
               stream: true,
-              ...(buildOllamaKeepAlive(settings) ? { keep_alive: buildOllamaKeepAlive(settings) } : {}),
+              ...(activeKeepAlive ? { keep_alive: activeKeepAlive } : {}),
               options: buildOllamaOptions(settings, numCtx),
             }),
             signal: upstreamAbort.signal,
@@ -1175,7 +1180,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
                 model: requestedModel,
                 messages: await buildOllamaMessages(messagesForStream),
                 stream: true,
-                ...(buildOllamaKeepAlive(settings) ? { keep_alive: buildOllamaKeepAlive(settings) } : {}),
+                ...(activeKeepAlive ? { keep_alive: activeKeepAlive } : {}),
                 options: buildOllamaOptions(settings, numCtx),
               }),
               signal: startAbort.signal,

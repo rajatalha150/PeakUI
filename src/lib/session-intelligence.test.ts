@@ -5,6 +5,7 @@ import {
   computeSessionAnalytics,
   hasPendingContinuation,
 } from './session-intelligence'
+import { trimMessagesToFit } from './message-trim'
 
 describe('session intelligence', () => {
   it('builds a rolling summary from older turns', () => {
@@ -42,6 +43,39 @@ describe('session intelligence', () => {
     expect(result.summaryUsed).toBe(true)
     expect(result.contextSummary.length).toBeGreaterThan(0)
     expect(['summarized', 'trimmed']).toContain(result.contextHealth)
+  })
+
+  it('builds memory once older turns fall outside the preserved window', () => {
+    const messages = Array.from({ length: 8 }, (_, index) => ({
+      role: index % 2 === 0 ? 'user' as const : 'assistant' as const,
+      content: `Turn ${index} about the tax packet workflow`,
+      createdAt: new Date(2026, 4, 30, 10, 0, index).toISOString(),
+    }))
+
+    const result = applyContextManagement(messages, {
+      contextLength: 8192,
+      systemOverhead: 500,
+      existingSummary: '',
+      summaryEnabled: true,
+      summaryTargetTokens: 6000,
+      preserveTurns: 3,
+    })
+
+    expect(result.summaryUsed).toBe(true)
+    expect(result.contextSummary).toContain('tax packet workflow')
+  })
+
+  it('does not double count system prompt tokens when trimming chat memory', () => {
+    const system = { role: 'system' as const, content: 'x'.repeat(2400) }
+    const turns = Array.from({ length: 6 }, (_, index) => ({
+      role: index % 2 === 0 ? 'user' as const : 'assistant' as const,
+      content: `Important turn ${index} ${'y'.repeat(120)}`,
+    }))
+
+    const result = trimMessagesToFit([system, ...turns], 4096, 620, { preserveTurns: 3 })
+
+    expect(result.trimmed).toBe(false)
+    expect(result.messages).toHaveLength(7)
   })
 
   it('computes analytics from stored message meta', () => {

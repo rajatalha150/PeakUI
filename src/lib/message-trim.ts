@@ -44,6 +44,8 @@ export function trimMessagesToFit(
   options?: { preserveTurns?: number },
 ): TrimResult {
   const preserveTurns = options?.preserveTurns ?? 4;
+  const systemMessages = messages.filter((m: any) => m.role === 'system');
+  const nonSystemMessages = messages.filter((m: any) => m.role !== 'system');
 
   // Reserve 20% of context for the model's response
   const responseBudget = Math.floor(contextLength * 0.2);
@@ -51,7 +53,6 @@ export function trimMessagesToFit(
 
   if (messageBudget <= 0) {
     // System prompt alone exceeds budget — send only system + latest user message
-    const systemMessages = messages.filter((m: any) => m.role === 'system');
     const lastUserMsg = [...messages].reverse().find((m: any) => m.role === 'user');
     return {
       messages: [...systemMessages, ...(lastUserMsg ? [lastUserMsg] : [])],
@@ -60,14 +61,13 @@ export function trimMessagesToFit(
     };
   }
 
-  const currentTokens = estimateMessageTokens(messages as Array<{ content?: string; images?: unknown[] }>);
+  // The system/tool prompt is already represented by systemOverhead, so only
+  // compare conversation turns against messageBudget. Counting system messages
+  // here as well trims useful chat memory too early.
+  const currentTokens = estimateMessageTokens(nonSystemMessages as Array<{ content?: string; images?: unknown[] }>);
   if (currentTokens <= messageBudget) {
     return { messages, trimmed: false, trimmedCount: 0 };
   }
-
-  // Separate system messages from conversation messages
-  const systemMessages = messages.filter((m: any) => m.role === 'system');
-  const nonSystemMessages = messages.filter((m: any) => m.role !== 'system');
 
   // Preserve: first user message + last N turns
   const preservedIndices = new Set<number>();
@@ -84,7 +84,7 @@ export function trimMessagesToFit(
   const minMessages = 2; // Always keep at least 1 user + 1 assistant
 
   while (
-    estimateMessageTokens([...systemMessages, ...result] as Array<{ content?: string; images?: unknown[] }>) > messageBudget
+    estimateMessageTokens(result as Array<{ content?: string; images?: unknown[] }>) > messageBudget
     && result.length > minMessages
   ) {
     // Find the oldest message that isn't preserved

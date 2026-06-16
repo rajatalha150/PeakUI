@@ -30,6 +30,15 @@ interface OllamaChatResponse {
   }
 }
 
+function isOllamaCloudModel(model: string): boolean {
+  return /:cloud$/i.test(model.trim())
+}
+
+function buildAutomationKeepAlive(settings: Awaited<ReturnType<typeof getUserSettings>>, model: string): string | undefined {
+  if (!settings.modelKeepAlive || isOllamaCloudModel(model)) return undefined
+  return settings.ollamaKeepAlive === '0' ? undefined : settings.ollamaKeepAlive
+}
+
 function previewText(value: string, maxLength = 280) {
   const normalized = value.replace(/\s+/g, ' ').trim()
   if (normalized.length <= maxLength) return normalized
@@ -335,7 +344,7 @@ async function executeAutomationRun(runId: string) {
       useModelDefaultTemperature: settings.ollamaUseModelDefaultTemperature,
       contextLength: settings.contextLength,
       useModelDefaultContext: settings.ollamaUseModelDefaultContext,
-      keepAlive: settings.modelKeepAlive ? settings.ollamaKeepAlive : undefined,
+      keepAlive: buildAutomationKeepAlive(settings, resolvedModel),
     })
 
     await prisma.chatSession.update({

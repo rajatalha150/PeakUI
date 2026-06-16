@@ -346,7 +346,10 @@ export function applyContextManagement<TMessage extends SessionMessageLike>(
 ): ContextManagementResult<TMessage> {
   const rawTokenEstimate = estimateMessageTokens(messages);
   const nearLimitThreshold = Math.floor(options.contextLength * 0.75);
-  const shouldSummarize = options.summaryEnabled && rawTokenEstimate >= options.summaryTargetTokens;
+  const nonSystemCount = messages.filter(message => message.role !== 'system').length;
+  const hasOlderTurnsOutsideRawWindow = nonSystemCount > normalizeSessionPreserveTurns(options.preserveTurns, 6) * 2;
+  const shouldSummarize = options.summaryEnabled
+    && (rawTokenEstimate >= options.summaryTargetTokens || hasOlderTurnsOutsideRawWindow);
   const contextSummary = shouldSummarize
     ? buildSessionContextSummary(messages, {
         existingSummary: options.existingSummary,
