@@ -55,8 +55,32 @@ export interface ContextManagementResult<TMessage> {
   summaryUsed: boolean;
 }
 
-const MAX_SUMMARY_LINES = 18;
 const MAX_SUMMARY_CHARS = 3200;
+const MAX_MEMORY_ITEMS_PER_SECTION = 6;
+
+type WorkingMemorySectionKey =
+  | 'objective'
+  | 'currentStatus'
+  | 'importantDecisions'
+  | 'userPreferences'
+  | 'filesFoldersArtifacts'
+  | 'openQuestions'
+  | 'nextStep';
+
+const WORKING_MEMORY_SECTIONS: Array<{
+  key: WorkingMemorySectionKey;
+  heading: string;
+}> = [
+  { key: 'objective', heading: 'Objective' },
+  { key: 'currentStatus', heading: 'Current status' },
+  { key: 'importantDecisions', heading: 'Important decisions' },
+  { key: 'userPreferences', heading: 'User preferences' },
+  { key: 'filesFoldersArtifacts', heading: 'Files, folders, artifacts' },
+  { key: 'openQuestions', heading: 'Open questions' },
+  { key: 'nextStep', heading: 'Next step' },
+];
+
+type WorkingMemory = Record<WorkingMemorySectionKey, string[]>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -71,6 +95,18 @@ function summarizeText(text: string, maxLength: number) {
   if (!normalized) return '';
   if (normalized.length <= maxLength) return normalized;
   return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function createEmptyWorkingMemory(): WorkingMemory {
+  return {
+    objective: [],
+    currentStatus: [],
+    importantDecisions: [],
+    userPreferences: [],
+    filesFoldersArtifacts: [],
+    openQuestions: [],
+    nextStep: [],
+  };
 }
 
 function summarizeToolResult(message: SessionMessageLike) {
@@ -141,17 +177,147 @@ function uniqueLines(lines: string[]) {
   return lines.filter((line, index) => line && lines.indexOf(line) === index);
 }
 
-function serializeSummary(existingSummary: string, lines: string[]) {
-  const mergedLines = [
-    existingSummary.trim(),
-    ...uniqueLines(lines).slice(0, MAX_SUMMARY_LINES),
-  ]
-    .filter(Boolean)
-    .join('\n');
+function normalizeMemoryLine(value: string): string {
+  return summarizeText(
+    value
+      .replace(/^[-*•]\s+/, '')
+      .replace(/^(?:User request|Assistant response|Tool result \([^)]+\)|Hidden result|System note):\s*/i, '')
+      .trim(),
+    280,
+  );
+}
 
-  return mergedLines.length <= MAX_SUMMARY_CHARS
-    ? mergedLines
-    : mergedLines.slice(0, MAX_SUMMARY_CHARS).trimEnd();
+function pushMemory(memory: WorkingMemory, key: WorkingMemorySectionKey, value: string, limit = MAX_MEMORY_ITEMS_PER_SECTION) {
+  const clean = normalizeMemoryLine(value);
+  if (!clean) return;
+
+  memory[key] = uniqueLines([clean, ...memory[key]]).slice(0, limit);
+}
+
+function parseExistingWorkingMemory(existingSummary: string): WorkingMemory {
+  const memory = createEmptyWorkingMemory();
+  const existing = existingSummary.trim();
+  if (!existing) return memory;
+
+  const sectionByHeading = new Map(WORKING_MEMORY_SECTIONS.map(section => [section.heading.toLowerCase(), section.key]));
+  let currentKey: WorkingMemorySectionKey | null = null;
+  let parsedStructured = false;
+
+  for (const rawLine of existing.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const headingMatch = /^##\s+(.+)$/.exec(line);
+    if (headingMatch) {
+      currentKey = sectionByHeading.get(headingMatch[1].trim().toLowerCase()) ?? null;
+      parsedStructured = Boolean(currentKey);
+      continue;
+    }
+
+    if (currentKey) {
+      pushMemory(memory, currentKey, line);
+    }
+  }
+
+  if (parsedStructured) return memory;
+
+  for (const line of existing.split('\n').map(entry => entry.trim()).filter(Boolean)) {
+    if (/^User request:/i.test(line)) {
+      pushMemory(memory, memory.objective.length === 0 ? 'objective' : 'currentStatus', line);
+    } else if (/^Assistant response:/i.test(line)) {
+      pushMemory(memory, 'currentStatus', line);
+    } else if (/^Tool result|^Hidden result/i.test(line)) {
+      pushMemory(memory, 'filesFoldersArtifacts', line);
+    } else if (/\?$/.test(line)) {
+      pushMemory(memory, 'openQuestions', line);
+    } else {
+      pushMemory(memory, 'currentStatus', line);
+    }
+  }
+
+  return memory;
+}
+
+function extractTaskStateFromSystemMessage(content: string, memory: WorkingMemory) {
+  if (!/WorkSpaces task state:|Open Claw task state:/i.test(content)) return;
+
+  const paragraphs = content.split(/\n{2,}/).map(part => part.trim()).filter(Boolean);
+  for (const paragraph of paragraphs) {
+    const [label, ...rest] = paragraph.split('\n');
+    const value = rest.join('\n').trim();
+    if (!value) continue;
+
+    if (/^Objective:/i.test(label)) pushMemory(memory, 'objective', value, 1);
+    if (/^Current status:/i.test(label)) pushMemory(memory, 'currentStatus', value, 3);
+    if (/^Next step:/i.test(label)) pushMemory(memory, 'nextStep', value, 2);
+    if (/^Done criteria:/i.test(label)) pushMemory(memory, 'importantDecisions', `Done when: ${value}`, 3);
+    if (/^Pinned checklist:/i.test(label)) pushMemory(memory, 'nextStep', value, 3);
+  }
+}
+
+function classifyUserMessage(content: string, memory: WorkingMemory, options: { isFirstUser: boolean }) {
+  const text = summarizeText(content, 500);
+  if (!text) return;
+
+  if (options.isFirstUser && memory.objective.length === 0) {
+    pushMemory(memory, 'objective', text, 1);
+  }
+
+  if (/\b(?:remember|always|never|prefer|preference|do not|don't|dont|make sure|use this|leave .* alone|keep .* there)\b/i.test(text)) {
+    pushMemory(memory, 'userPreferences', text);
+  }
+
+  if (/\b(?:we decided|decision|go with|choose|chosen|selected|use .* instead|we will|we're going to|approved|confirmed)\b/i.test(text)) {
+    pushMemory(memory, 'importantDecisions', text);
+  }
+
+  if (/\b(?:file|folder|pdf|docx|xlsx|workbook|artifact|canvas|knowledge base|rag|workspace|directory|path)\b/i.test(text)) {
+    pushMemory(memory, 'filesFoldersArtifacts', text);
+  }
+
+  if (/\b(?:issue|problem|bug|error|failing|unable|broken|stuck|regression|missing)\b/i.test(text)) {
+    pushMemory(memory, 'currentStatus', text);
+  }
+
+  if (/\?$/.test(text) || /\b(?:question|unclear|figure out|investigate|audit)\b/i.test(text)) {
+    pushMemory(memory, 'openQuestions', text);
+  }
+
+  if (/\b(?:next|after this|one more thing|once done|then|follow up|lastly|before redeploy|redeploy|commit|push)\b/i.test(text)) {
+    pushMemory(memory, 'nextStep', text);
+  }
+}
+
+function classifyAssistantMessage(message: SessionMessageLike, memory: WorkingMemory) {
+  const content = summarizeText(message.content || '', 500);
+  if (!content) return;
+
+  if (message.toolRequest) {
+    pushMemory(memory, 'filesFoldersArtifacts', `Assistant used ${message.toolRequest}: ${content}`);
+  }
+
+  if (message.role === 'assistant' || /\b(?:done|implemented|fixed|updated|verified|tests? passed|build passed|committed|pushed|redeployed|diagnosed)\b/i.test(content)) {
+    pushMemory(memory, 'currentStatus', content);
+  }
+
+  if (/\b(?:next step|follow up|remaining|todo|pending|should)\b/i.test(content)) {
+    pushMemory(memory, 'nextStep', content);
+  }
+}
+
+function serializeWorkingMemory(memory: WorkingMemory): string {
+  const parts: string[] = [];
+
+  for (const section of WORKING_MEMORY_SECTIONS) {
+    const lines = uniqueLines(memory[section.key].map(normalizeMemoryLine).filter(Boolean)).slice(0, MAX_MEMORY_ITEMS_PER_SECTION);
+    if (lines.length === 0) continue;
+    parts.push(`## ${section.heading}`, ...lines.map(line => `- ${line}`), '');
+  }
+
+  const serialized = parts.join('\n').trim();
+  return serialized.length <= MAX_SUMMARY_CHARS
+    ? serialized
+    : serialized.slice(0, MAX_SUMMARY_CHARS).trimEnd();
 }
 
 export function normalizeSessionAutoContinueMode(value: unknown): SessionAutoContinueMode {
@@ -309,6 +475,36 @@ export function hasPendingContinuation(messages: SessionMessageLike[]) {
   return false;
 }
 
+const MEMORY_STOP_WORDS = new Set([
+  'about', 'after', 'again', 'also', 'because', 'before', 'being', 'between', 'could', 'current',
+  'done', 'from', 'have', 'into', 'just', 'make', 'more', 'need', 'needs', 'should', 'that',
+  'their', 'there', 'these', 'thing', 'this', 'those', 'through', 'user', 'using', 'what',
+  'when', 'where', 'with', 'work', 'would', 'your',
+]);
+
+function extractMemoryKeywords(text: string): Set<string> {
+  const normalized = text.toLowerCase().match(/[a-z0-9][a-z0-9_-]{2,}/g) ?? [];
+  return new Set(normalized.filter(word => word.length >= 4 && !MEMORY_STOP_WORDS.has(word)));
+}
+
+export function isCrossSessionMemoryRelevant(memoryContext: string, relevanceText: string): boolean {
+  const memoryKeywords = extractMemoryKeywords(memoryContext);
+  const queryKeywords = extractMemoryKeywords(relevanceText);
+  if (memoryKeywords.size === 0 || queryKeywords.size === 0) return false;
+
+  for (const keyword of queryKeywords) {
+    if (memoryKeywords.has(keyword)) return true;
+  }
+
+  return false;
+}
+
+export function filterRelevantCrossSessionMemory(memoryContext: string, relevanceText: string): string {
+  const clean = memoryContext.trim();
+  if (!clean) return '';
+  return isCrossSessionMemoryRelevant(clean, relevanceText) ? clean : '';
+}
+
 export function buildSessionContextSummary(
   messages: SessionMessageLike[],
   options: {
@@ -329,8 +525,36 @@ export function buildSessionContextSummary(
   if (summaryCandidates.length === 0) {
     return options.existingSummary?.trim() || '';
   }
-  const lines = uniqueLines(summaryCandidates.map(summarizeMessage).filter(Boolean));
-  return serializeSummary(options.existingSummary || '', lines);
+
+  const memory = parseExistingWorkingMemory(options.existingSummary || '');
+  const firstUserIndexInCandidates = summaryCandidates.findIndex(message => message.role === 'user');
+
+  for (const message of messages) {
+    if (message.role === 'system') {
+      extractTaskStateFromSystemMessage(message.content || '', memory);
+    }
+  }
+
+  for (const [index, message] of summaryCandidates.entries()) {
+    if (message.hidden) {
+      const toolSummary = summarizeToolResult(message);
+      if (toolSummary) pushMemory(memory, 'filesFoldersArtifacts', toolSummary);
+      continue;
+    }
+
+    if (message.role === 'user') {
+      classifyUserMessage(message.content || '', memory, {
+        isFirstUser: index === firstUserIndexInCandidates && memory.objective.length === 0,
+      });
+      continue;
+    }
+
+    if (message.role === 'assistant') {
+      classifyAssistantMessage(message, memory);
+    }
+  }
+
+  return serializeWorkingMemory(memory);
 }
 
 export function applyContextManagement<TMessage extends SessionMessageLike>(
@@ -363,8 +587,9 @@ export function applyContextManagement<TMessage extends SessionMessageLike>(
     const summaryMessage = {
       role: 'system',
       content: [
-        'Compressed session context summary from earlier turns.',
-        'Treat this as authoritative session memory when the raw transcript below does not include those older turns.',
+        'Working memory for this thread.',
+        'Use it to preserve continuity about goals, decisions, preferences, files, open questions, and next steps.',
+        'If this working memory conflicts with newer user messages or the recent raw transcript, prefer the newer messages.',
         '',
         contextSummary,
       ].join('\n'),

@@ -3885,6 +3885,40 @@ export default function OpenClawWorkspace({
     });
   };
 
+  const updateCurrentThreadMemory = async (action: 'clear' | 'refresh') => {
+    if (!currentSession) return;
+
+    const res = await fetch('/api/chats', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: currentSession.id,
+        surface: 'openclaw',
+        messages: currentSession.messages,
+        clearContextSummary: action === 'clear',
+        refreshContextSummary: action === 'refresh',
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(typeof data.error === 'string' ? data.error : `Failed to ${action} memory`);
+    }
+
+    const normalized = normalizeOpenClawSession(data.session);
+    if (normalized) {
+      updateSessionRecord(normalized);
+      setSelectedSessionInfo(action === 'clear' ? 'Thread memory cleared.' : 'Thread memory refreshed.');
+    }
+  };
+
+  const updateCurrentThreadMemorySafe = (action: 'clear' | 'refresh') => {
+    void updateCurrentThreadMemory(action).catch(error => {
+      console.error(`Failed to ${action} thread memory:`, error);
+      setSelectedSessionInfo(error instanceof Error ? error.message : `Failed to ${action} memory.`);
+    });
+  };
+
   const handleNewSession = () => {
     if (isStreaming) {
       setSelectedSessionInfo('Stop the current WorkSpaces run before starting a new task thread.');
@@ -7338,7 +7372,7 @@ export default function OpenClawWorkspace({
     ? `${currentSession.analytics.assistantTokens.toLocaleString()} tokens · ${currentSession.analytics.toolCalls} tool call${currentSession.analytics.toolCalls === 1 ? '' : 's'} · ${currentSession.analytics.assistantDurationSeconds.toFixed(1)}s`
     : 'Analytics pending';
   const currentContextSummaryStatus = currentSession?.contextSummary
-    ? `Summarized${currentSession.contextSummaryUpdatedAt ? ` · ${formatTimestamp(currentSession.contextSummaryUpdatedAt)}` : ''}`
+    ? `Memory active${currentSession.contextSummaryUpdatedAt ? ` · ${formatTimestamp(currentSession.contextSummaryUpdatedAt)}` : ''}`
     : settings?.openClawSessionSummariesEnabled
       ? 'Fresh'
       : 'Disabled';
@@ -9257,8 +9291,51 @@ export default function OpenClawWorkspace({
                   )}
                   {currentSession?.contextSummary && (
                     <div style={{ padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'var(--panel-bg)', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
-                      <div className="openclaw-section-label" style={{ marginBottom: '8px' }}>Rolling context summary</div>
+                      <div className="openclaw-card-header" style={{ marginBottom: '8px' }}>
+                        <div>
+                          <div className="openclaw-section-label">What I’m carrying forward</div>
+                          <div style={{ marginTop: '4px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                            Compact working memory for older turns in this thread.
+                          </div>
+                        </div>
+                        <div style={{ display: 'inline-flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                          <button
+                            type="button"
+                            className="openclaw-inline-button"
+                            onClick={() => updateCurrentThreadMemorySafe('refresh')}
+                            disabled={isStreaming}
+                          >
+                            Refresh
+                          </button>
+                          <button
+                            type="button"
+                            className="openclaw-inline-button"
+                            onClick={() => updateCurrentThreadMemorySafe('clear')}
+                            disabled={isStreaming}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </div>
                       {currentSession.contextSummary}
+                    </div>
+                  )}
+                  {currentSession && !currentSession.contextSummary && settings?.openClawSessionSummariesEnabled && (
+                    <div style={{ padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'var(--panel-bg)', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                      <div className="openclaw-card-header">
+                        <div>
+                          <div className="openclaw-section-label">What I’m carrying forward</div>
+                          <div style={{ marginTop: '4px' }}>No compact working memory has been created for this thread yet.</div>
+                        </div>
+                        <button
+                          type="button"
+                          className="openclaw-inline-button"
+                          onClick={() => updateCurrentThreadMemorySafe('refresh')}
+                          disabled={isStreaming}
+                        >
+                          Refresh memory
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -11057,7 +11134,7 @@ export default function OpenClawWorkspace({
                         )}
                         {session.contextSummary && (
                           <div style={{ padding: '12px', borderRadius: '12px', border: '1px solid var(--border-color)', background: 'var(--panel-bg)', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.55, whiteSpace: 'pre-wrap' }}>
-                            <div className="openclaw-section-label" style={{ marginBottom: '8px' }}>Rolling context summary</div>
+                            <div className="openclaw-section-label" style={{ marginBottom: '8px' }}>Working memory</div>
                             {session.contextSummary}
                           </div>
                         )}

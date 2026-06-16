@@ -30,7 +30,7 @@ import { convertImageBufferToJpeg } from './image-normalization';
 import { getOpenClawWorkspaceContext } from './openclaw-project-workspaces';
 import { getOpenAutomationNudges } from './openclaw-automation';
 import { getChatSessionById } from './chat-sessions';
-import { applyContextManagement } from './session-intelligence';
+import { applyContextManagement, filterRelevantCrossSessionMemory } from './session-intelligence';
 import { getUwafMetricsSnapshot } from './uwaf-telemetry';
 import {
   getPreferredSearchProviderLabel,
@@ -873,6 +873,24 @@ export async function createChatCompletionResponse(req: NextRequest) {
     // Current date/time so the model stays grounded in the present
     const now = new Date()
     const dateTimeInstruction = `Current date and time: ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}. Always consider this when answering questions about dates, schedules, time-sensitive topics, or current events. Your training data has a cutoff and may be outdated — when in doubt, acknowledge uncertainty about recent developments rather than guessing.`
+    const memoryRelevanceText = [
+      [...nonSystemMessages].reverse().find(message => message.role === 'user')?.content || '',
+      workspaceContext?.workspace.name || '',
+      workspaceContext?.workspace.relativePath || '',
+      workspaceContext?.workspace.description || '',
+      settings.openClawUserProfilePreferences,
+      settings.openClawUserProfileContext,
+    ].filter(Boolean).join('\n')
+    const userSystemMessages = messages
+      .filter(message => message.role === 'system')
+      .map(message => message.content?.trim() || '')
+      .map(content => {
+        if (/^Recent memory context \(auto-loaded from previous sessions\):/i.test(content)) {
+          return filterRelevantCrossSessionMemory(content, memoryRelevanceText)
+        }
+        return content
+      })
+      .filter(Boolean)
 
     // PERSISTENT_INSTRUCTIONS always included — even in unrestricted/uncensored modes
     // the model must always respond in English and stay grounded
@@ -899,9 +917,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
           chatInternetPrompt,
           presentationPrompt,
           dateTimeInstruction,
-          ...messages
-            .filter(message => message.role === 'system')
-            .map(message => message.content?.trim() || ''),
+          ...userSystemMessages,
         ].filter(Boolean);
 
     const systemPrompt = systemPromptParts.join('\n\n');

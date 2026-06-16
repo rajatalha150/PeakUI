@@ -48,6 +48,8 @@ export async function POST(req: Request) {
       ragEnabled: typeof body.ragEnabled === 'boolean' ? body.ragEnabled : undefined,
       ragQuery: typeof body.ragQuery === 'string' ? body.ragQuery : (body.ragQuery === null ? null : undefined),
       ragSources: Array.isArray(body.ragSources) ? body.ragSources : undefined,
+      clearContextSummary: body.clearContextSummary === true,
+      refreshContextSummary: body.refreshContextSummary === true,
     });
 
     return NextResponse.json({ success: true, session: result.session }, { status: result.created ? 201 : 200 });
@@ -84,6 +86,8 @@ export async function PATCH(req: Request) {
       ragEnabled: typeof body.ragEnabled === 'boolean' ? body.ragEnabled : undefined,
       ragQuery: typeof body.ragQuery === 'string' ? body.ragQuery : (body.ragQuery === null ? null : undefined),
       ragSources: Array.isArray(body.ragSources) ? body.ragSources : undefined,
+      clearContextSummary: body.clearContextSummary === true,
+      refreshContextSummary: body.refreshContextSummary === true,
     });
 
     if (!session) {

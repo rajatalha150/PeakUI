@@ -3,7 +3,9 @@ import {
   applyContextManagement,
   buildSessionContextSummary,
   computeSessionAnalytics,
+  filterRelevantCrossSessionMemory,
   hasPendingContinuation,
+  isCrossSessionMemoryRelevant,
 } from './session-intelligence'
 import { trimMessagesToFit } from './message-trim'
 
@@ -20,8 +22,10 @@ describe('session intelligence', () => {
     ]
 
     const summary = buildSessionContextSummary(messages, { preserveTurns: 2 })
-    expect(summary).toContain('User request: Plan the migration')
-    expect(summary).toContain('Assistant response: Start by auditing dependencies.')
+    expect(summary).toContain('## Objective')
+    expect(summary).toContain('Plan the migration')
+    expect(summary).toContain('## Current status')
+    expect(summary).toContain('Start by auditing dependencies.')
   })
 
   it('summarizes long sessions before trimming them blindly', () => {
@@ -63,6 +67,75 @@ describe('session intelligence', () => {
 
     expect(result.summaryUsed).toBe(true)
     expect(result.contextSummary).toContain('tax packet workflow')
+  })
+
+  it('keeps older decisions in structured working memory', () => {
+    const messages = [
+      { role: 'user' as const, content: 'We decided to use Firebase for the iOS app backend.', createdAt: '2026-05-30T10:00:00.000Z' },
+      { role: 'assistant' as const, content: 'Decision captured.', createdAt: '2026-05-30T10:00:01.000Z' },
+      { role: 'user' as const, content: 'Next, design the invite polling flow.', createdAt: '2026-05-30T10:00:02.000Z' },
+      { role: 'assistant' as const, content: 'The next step is to draft the data model.', createdAt: '2026-05-30T10:00:03.000Z' },
+      { role: 'user' as const, content: 'Now focus on calendar sync.', createdAt: '2026-05-30T10:00:04.000Z' },
+      { role: 'assistant' as const, content: 'Calendar sync will use EventKit.', createdAt: '2026-05-30T10:00:05.000Z' },
+      { role: 'user' as const, content: 'Then prepare the TestFlight checklist.', createdAt: '2026-05-30T10:00:06.000Z' },
+      { role: 'assistant' as const, content: 'TestFlight checklist will follow.', createdAt: '2026-05-30T10:00:07.000Z' },
+    ]
+
+    const summary = buildSessionContextSummary(messages, { preserveTurns: 2 })
+
+    expect(summary).toContain('## Important decisions')
+    expect(summary).toContain('Firebase')
+    expect(summary).toContain('## Next step')
+    expect(summary).toContain('invite polling flow')
+  })
+
+  it('keeps compact tool results instead of transcript blobs', () => {
+    const messages = [
+      { role: 'user' as const, content: 'Generate a PDF report.', createdAt: '2026-05-30T10:00:00.000Z' },
+      { role: 'assistant' as const, content: 'Running PDF document tool', toolRequest: 'pdf_document' as const, createdAt: '2026-05-30T10:00:01.000Z' },
+      {
+        role: 'user' as const,
+        hidden: true,
+        content: `PDF document tool result: Created downloadable PDF artifact at /api/canvas/artifacts/abc/download ${'x'.repeat(1000)}`,
+        createdAt: '2026-05-30T10:00:02.000Z',
+      },
+      { role: 'assistant' as const, content: 'The report is ready to download.', createdAt: '2026-05-30T10:00:03.000Z' },
+      { role: 'user' as const, content: 'Now make a Word version.', createdAt: '2026-05-30T10:00:04.000Z' },
+      { role: 'assistant' as const, content: 'I will create the Word document next.', createdAt: '2026-05-30T10:00:05.000Z' },
+      { role: 'user' as const, content: 'After that, add a workbook version.', createdAt: '2026-05-30T10:00:06.000Z' },
+      { role: 'assistant' as const, content: 'The workbook version is next.', createdAt: '2026-05-30T10:00:07.000Z' },
+    ]
+
+    const summary = buildSessionContextSummary(messages, { preserveTurns: 2 })
+
+    expect(summary).toContain('## Files, folders, artifacts')
+    expect(summary).toContain('downloadable PDF artifact')
+    expect(summary.length).toBeLessThan(1800)
+  })
+
+  it('lets newer raw transcript override older memory by instruction', () => {
+    const result = applyContextManagement([
+      { role: 'user', content: 'Always draft reports in a very formal tone.' },
+      { role: 'assistant', content: 'Preference noted.' },
+      { role: 'user', content: 'For this next answer, be casual and short.' },
+    ], {
+      contextLength: 2048,
+      systemOverhead: 100,
+      existingSummary: '## User preferences\n- Always draft reports in a very formal tone.',
+      summaryEnabled: true,
+      summaryTargetTokens: 512,
+      preserveTurns: 2,
+    })
+
+    const memoryMessage = result.messages.find(message => message.role === 'system' && message.content?.includes('Working memory for this thread.'))
+    expect(memoryMessage?.content).toContain('prefer the newer messages')
+    expect(result.messages[result.messages.length - 1]?.content).toContain('casual and short')
+  })
+
+  it('filters unrelated cross-session memory', () => {
+    const memory = 'Recent memory context:\n- Tax PDF workflow: user wants Form 1040 generation.'
+    expect(isCrossSessionMemoryRelevant(memory, 'Build an iOS invite polling app')).toBe(false)
+    expect(filterRelevantCrossSessionMemory(memory, 'Improve the tax PDF workflow')).toContain('Tax PDF workflow')
   })
 
   it('does not double count system prompt tokens when trimming chat memory', () => {

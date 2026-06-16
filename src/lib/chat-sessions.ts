@@ -73,6 +73,8 @@ export interface SaveChatSessionInput {
   ragEnabled?: boolean;
   ragQuery?: string | null;
   ragSources?: MessageSource[];
+  clearContextSummary?: boolean;
+  refreshContextSummary?: boolean;
 }
 
 export interface FinalizeChatSessionInput {
@@ -690,6 +692,17 @@ export async function updateChatSession(
     ragSources: input.ragSources ?? parseStoredMessageSources(existing.ragSourcesJson),
   }, existing);
 
+  const nextContextSummary = input.clearContextSummary
+    ? null
+    : input.refreshContextSummary
+      ? payload.contextSummary
+      : payload.contextSummary;
+  const nextContextSummaryUpdatedAt = input.clearContextSummary
+    ? null
+    : input.refreshContextSummary
+      ? (payload.contextSummary ? new Date() : null)
+      : payload.contextSummaryUpdatedAt;
+
   const updated = await prisma.chatSession.update({
     where: { id: sessionId },
     data: {
@@ -701,8 +714,8 @@ export async function updateChatSession(
       autoContinueMode: payload.autoContinueMode,
       autoContinueMaxSteps: payload.autoContinueMaxSteps,
       branchLabel: payload.branchLabel,
-      contextSummary: payload.contextSummary,
-      contextSummaryUpdatedAt: payload.contextSummaryUpdatedAt,
+      contextSummary: nextContextSummary,
+      contextSummaryUpdatedAt: nextContextSummaryUpdatedAt,
       analyticsJson: JSON.stringify(payload.analytics ?? {}),
       ragEnabled: payload.ragEnabled,
       ragQuery: payload.ragQuery,
