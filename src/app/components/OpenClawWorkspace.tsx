@@ -6683,8 +6683,15 @@ export default function OpenClawWorkspace({
       let lastToolRequestSignature: string | null = null;
       let duplicateToolRequestCount = 0;
       let missingToolNudgeCount = 0;
+      // Budget tracking. We only count rounds where a real tool actually ran
+      // toward the productive limit, so recovery nudges and duplicate notices
+      // no longer burn the budget and cut a task short. MAX_TOOL_LOOP_ITERATIONS
+      // is just a hard safety ceiling against infinite loops.
+      const MAX_TOOL_ROUNDS = 12;
+      const MAX_TOOL_LOOP_ITERATIONS = 40;
+      let executedToolRounds = 0;
 
-      for (let toolRound = 0; toolRound < 8; toolRound += 1) {
+      for (let toolRound = 0; toolRound < MAX_TOOL_LOOP_ITERATIONS; toolRound += 1) {
         if (toolRound > 0) {
           nextAssistantId = randomUUID();
           setChatHistory(prev => [
@@ -6789,7 +6796,7 @@ export default function OpenClawWorkspace({
 
           if (
             (invalidToolBlock || promisedToolButStopped)
-            && toolRound < 7
+            && toolRound < MAX_TOOL_LOOP_ITERATIONS - 1
             && missingToolNudgeCount < 2
             && !controller.signal.aborted
           ) {
@@ -6799,7 +6806,7 @@ export default function OpenClawWorkspace({
               role: 'user',
               content: invalidToolBlock
                 ? 'Your previous message contained an invalid or duplicate tool block. Emit exactly ONE valid <openclaw_tool> block to continue, or give your final answer in plain text if no tool is needed. Never include more than one tool block in a single message.'
-                : 'You described the next action but did not include a tool block, so nothing ran. If a tool call is needed, end your reply with exactly ONE tool block now. If no tool is needed, give the user the answer directly instead of only describing what you will do.',
+                : 'You described the next action (for example "UWAF Direct: ...") but did not include the tool block, so nothing ran. To actually run it, end your reply with exactly ONE tool block wrapped exactly like:\n<openclaw_tool name="TOOL_NAME">{ ...json args... }</openclaw_tool>\nFor browsing, TOOL_NAME is unified_browser. If no tool is needed, give the user the answer directly instead of only describing what you will do.',
               hidden: true,
               createdAt: new Date().toISOString(),
             };
@@ -6810,16 +6817,44 @@ export default function OpenClawWorkspace({
             continue;
           }
 
-          lastToolRequestSignature = null;
-          break;
-        }
+          // Recovery nudges are exhausted but the model was clearly mid-action.
+          // Surface a clear, visible pause instead of silently ending so the
+          // user understands why the run stopped and can resume it.
+          if ((invalidToolBlock || promisedToolButStopped) && !controller.signal.aborted) {
+            const stallNotice: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'assistant',
+              content: 'I described the next step but couldn\'t emit a clean tool call after a couple of tries, so I paused here instead of looping. Reply "continue" and I\'ll resume from this point.',
+              createdAt: new Date().toISOString(),
+            };
+            setChatHistory(prev => [...prev, stallNotice]);
+            sessionHistory = [...sessionHistory, stallNotice];
+            finalAssistantMessage = stallNotice;
+          }
 
-        if (toolRound === 7) {
           lastToolRequestSignature = null;
           break;
         }
 
         missingToolNudgeCount = 0;
+        executedToolRounds += 1;
+
+        // Reached the productive tool-step budget for this turn. Pause cleanly
+        // with a visible explanation rather than dropping the last requested
+        // tool silently, so the user knows why it stopped and can continue.
+        if (executedToolRounds > MAX_TOOL_ROUNDS) {
+          const pauseNotice: OpenClawMessage = {
+            id: randomUUID(),
+            role: 'assistant',
+            content: `I've run ${MAX_TOOL_ROUNDS} tool steps on this turn and hit the per-message step limit, so I paused to avoid an endless loop. Reply "continue" and I'll pick up exactly where I left off.`,
+            createdAt: new Date().toISOString(),
+          };
+          setChatHistory(prev => [...prev, pauseNotice]);
+          sessionHistory = [...sessionHistory, pauseNotice];
+          finalAssistantMessage = pauseNotice;
+          lastToolRequestSignature = null;
+          break;
+        }
 
         setLiveStats(null);
         setStreamPhase(null);
