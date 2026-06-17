@@ -22,7 +22,7 @@ PeakUI now opens directly into WorkSpaces. The former normal-chat surface and it
 ### File & Media Attachments
 
 - **Attach files and images**: Click the paperclip button or drag-and-drop files onto the message input
-- **Supported formats**: Common still images are treated as vision inputs, including PNG, JPG/JPEG, GIF, WebP, BMP, TIFF, AVIF, HEIC, and HEIF. Documents are extracted to text when possible.
+- **Supported formats**: Common still images are treated as vision inputs, including PNG, JPG/JPEG, GIF, WebP, BMP, TIFF, AVIF, HEIC, and HEIF. Documents are extracted to text when possible, and in WorkSpaces, PDFs are additionally rasterized to page images for vision-capable models (see below).
 - **Vision-model compatibility**: HEIC/HEIF, TIFF, BMP, AVIF, and other unsupported still-image uploads are normalized to JPEG before the Ollama `images` payload is sent, using `sharp` first and system converters (`heif-convert` / ImageMagick) as fallback.
 - **Audio/video detection**: Audio and video uploads are classified by MIME or extension instead of generic binary metadata. They remain metadata-only until a transcription/frame-extraction pipeline is added.
 - **Upload limit**: 100 MB per file
@@ -54,6 +54,9 @@ WorkSpaces uses the shared file and image attachment system:
 - Images sent as normalized image bytes to vision models, with MIME/name metadata preserved through the chat API
 - Per-image attachment modes: `Vision only`, `Vision + OCR`, and `OCR only`
 - Documents extracted to text and prepended to the message
+- **PDF vision pages**: Uploaded PDFs are rasterized to JPEG page images (up to the first 10 pages at 150 DPI via poppler). When the selected model is vision-capable, those page images are attached as native image input so the model can read the original layout, tables, stamps, and signatures — not just the flattened text. Text-only models still receive the extracted text. The full text layer is always included as a supplement.
+- **Vision auto-detection**: The selected model's vision capability is resolved via Ollama `/api/show` capabilities (with a model-name heuristic fallback, also used for OpenAI-compatible providers). Page images are only sent to vision-capable models to avoid bloating or confusing text-only models.
+- **Storage**: Rendered page images stay in the live session so the active task keeps "seeing" the document, but are stripped before persisting to the database to avoid bloating session storage; reloaded threads fall back to the extracted text.
 - Attachment preview with remove capability
 
 ### Canvas Panel

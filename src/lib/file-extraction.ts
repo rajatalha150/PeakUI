@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { promisify } from 'node:util'
 import {
   CHAT_ATTACHMENT_TEXT_LIMIT,
+  MAX_DOCUMENT_PAGE_IMAGES,
   detectFileKind,
   getFileExtension,
   isCodeExtension,
@@ -14,6 +15,7 @@ import {
   isOfficeLikeExtension,
   normalizeMediaMimeType,
   shouldNormalizeImageForCompatibility,
+  type AttachmentPageImage,
   type ExtractedFilePayload,
   type FileExtractionStatus,
   type FileKind,
@@ -252,6 +254,8 @@ function makePayload(
     nativeImageData?: string
     nativeImageType?: string
     nativeImageName?: string
+    pageImages?: AttachmentPageImage[]
+    pageImagesTruncated?: boolean
     kind?: FileKind
     extractionStatus: FileExtractionStatus
     modelInput: FileModelInput
@@ -281,6 +285,13 @@ function makePayload(
           nativeImageData: values.nativeImageData,
           nativeImageType: values.nativeImageType,
           nativeImageName: values.nativeImageName,
+        }
+      : {}),
+    ...(values.pageImages && values.pageImages.length > 0
+      ? {
+          pageImages: values.pageImages,
+          pageImageCount: values.pageImages.length,
+          ...(values.pageImagesTruncated ? { pageImagesTruncated: true } : {}),
         }
       : {}),
     textCharCount: text.length,
@@ -477,6 +488,64 @@ async function ocrPdfDocument(pdfPath: string, tempDir: string): Promise<string>
   return normalizeExtractedText(pageTexts.join('\n\n'))
 }
 
+async function countPdfPages(pdfPath: string): Promise<number | null> {
+  if (!(await commandExists('pdfinfo'))) return null
+  try {
+    const { stdout } = await runCommand('pdfinfo', [pdfPath], { maxBuffer: 1024 * 1024 })
+    const match = stdout.match(/^Pages:\s+(\d+)/m)
+    return match ? Number.parseInt(match[1], 10) : null
+  } catch {
+    return null
+  }
+}
+
+// Render the first N pages of a PDF to JPEG images so vision-capable models can
+// see the full document (layout, tables, stamps, signatures) instead of only
+// the flattened text layer. Best-effort: returns [] when poppler is missing.
+async function renderPdfPageImages(
+  pdfPath: string,
+  tempDir: string,
+  cap = MAX_DOCUMENT_PAGE_IMAGES,
+): Promise<{ images: AttachmentPageImage[]; totalPages: number | null }> {
+  if (!(await commandExists('pdftoppm'))) return { images: [], totalPages: null }
+
+  const totalPages = await countPdfPages(pdfPath)
+  const lastPage = totalPages ? Math.min(totalPages, cap) : cap
+  const prefix = path.join(tempDir, 'vision-page')
+
+  try {
+    await runCommand(
+      'pdftoppm',
+      ['-jpeg', '-r', '150', '-f', '1', '-l', String(lastPage), pdfPath, prefix],
+      { maxBuffer: 64 * 1024 * 1024 },
+    )
+  } catch {
+    return { images: [], totalPages }
+  }
+
+  const pageFiles = (await readdir(tempDir))
+    .filter(entry => entry.startsWith('vision-page') && /\.jpe?g$/i.test(entry))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    .slice(0, cap)
+
+  const images: AttachmentPageImage[] = []
+  for (let index = 0; index < pageFiles.length; index += 1) {
+    try {
+      const data = await readFile(path.join(tempDir, pageFiles[index]))
+      images.push({
+        data: data.toString('base64'),
+        type: 'image/jpeg',
+        name: `page-${index + 1}.jpg`,
+        page: index + 1,
+      })
+    } catch {
+      // Skip unreadable page renders without failing the whole extraction.
+    }
+  }
+
+  return { images, totalPages }
+}
+
 async function extractPdfText(buffer: Buffer): Promise<string> {
   const tempDir = await mkdtemp(path.join(tmpdir(), 'peakui-pdf-'))
   const pdfPath = path.join(tempDir, 'source.pdf')
@@ -507,6 +576,22 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
     }
 
     return bestText
+  } finally {
+    await rm(tempDir, { recursive: true, force: true })
+  }
+}
+
+async function renderPdfVisionPages(
+  buffer: Buffer,
+  cap = MAX_DOCUMENT_PAGE_IMAGES,
+): Promise<{ images: AttachmentPageImage[]; totalPages: number | null }> {
+  const tempDir = await mkdtemp(path.join(tmpdir(), 'peakui-pdf-vision-'))
+  const pdfPath = path.join(tempDir, 'source.pdf')
+  try {
+    await writeFile(pdfPath, buffer)
+    return await renderPdfPageImages(pdfPath, tempDir, cap)
+  } catch {
+    return { images: [], totalPages: null }
   } finally {
     await rm(tempDir, { recursive: true, force: true })
   }
@@ -643,14 +728,38 @@ async function extractFilePayloadInternal(options: ExtractFileOptions, context: 
   }
 
   if (extension === 'pdf') {
-    const pdfText = await extractPdfText(options.buffer)
+    const [pdfText, vision] = await Promise.all([
+      extractPdfText(options.buffer),
+      renderPdfVisionPages(options.buffer),
+    ])
+    const pageImages = vision.images
+    const hasPages = pageImages.length > 0
+    const pagesTruncated = Boolean(vision.totalPages && vision.totalPages > pageImages.length)
+    const visionNote = hasPages
+      ? ` Rendered ${pageImages.length} page image${pageImages.length === 1 ? '' : 's'}${
+          pagesTruncated ? ` (first ${pageImages.length} of ${vision.totalPages})` : ''
+        } so vision-capable models can read the original layout.`
+      : ''
+
     if (pdfText.trim()) {
       return makePayload(options, {
         kind: 'document',
         text: pdfText,
+        ...(hasPages ? { pageImages, pageImagesTruncated: pagesTruncated } : {}),
         extractionStatus: 'extracted',
-        modelInput: 'extracted-text',
-        statusMessage: 'Extracted text from the PDF text layer and OCR fallback when available.',
+        modelInput: hasPages ? 'extracted-text+vision' : 'extracted-text',
+        statusMessage: `Extracted text from the PDF text layer and OCR fallback when available.${visionNote}`,
+      })
+    }
+
+    if (hasPages) {
+      return makePayload(options, {
+        kind: 'document',
+        pageImages,
+        pageImagesTruncated: pagesTruncated,
+        extractionStatus: 'extracted',
+        modelInput: 'extracted-text+vision',
+        statusMessage: `No searchable text layer was found, but${visionNote.replace(' Rendered', ' rendered')} Vision-capable models can still read it as images.`,
       })
     }
 

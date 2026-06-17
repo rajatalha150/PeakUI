@@ -114,6 +114,7 @@ Filesystem and shell denials return structured diagnostics, so the UI and model 
 - Images are vision-first by default.
 - Per-image modes: `Vision only`, `Vision + OCR`, and `OCR only`.
 - HEIC/HEIF, TIFF, BMP, AVIF, and other unsupported still images are normalized to JPEG before Ollama receives them.
+- PDFs uploaded in WorkSpaces are rasterized to page images (first 10 pages) and sent as native vision input to vision-capable models, so the agent reads the whole document (layout, tables, stamps) instead of only the flattened text. Text-only models still get the extracted text. Vision capability is auto-detected per model via Ollama `/api/show`.
 - Audio and video are detected correctly but remain metadata-only until transcription/frame extraction is added.
 
 ## Quick Start

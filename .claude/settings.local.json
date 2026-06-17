@@ -43,7 +43,20 @@
       "Bash(sudo docker compose exec app npx tsc --noEmit)",
       "Bash(echo \"exit: $?\")",
       "Bash(npm ls *)",
-      "Bash(xargs cat)"
+      "Bash(xargs cat)",
+      "Bash(docker --version)",
+      "Bash(docker-compose --version)",
+      "Bash(sudo dnf install -y dnf-plugins-core)",
+      "Bash(sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo)",
+      "Bash(sudo dnf install -y docker-ce docker-ce-cli containerd docker-buildx-plugin docker-compose-plugin)",
+      "Bash(sudo systemctl start docker)",
+      "Bash(sudo systemctl enable docker)",
+      "Bash(mkdir -p /tmp/peakui-openclaw-workspace)",
+      "Bash(sudo chmod -R 777 /tmp/peakui-openclaw-workspace)",
+      "Bash(firewall-cmd --list-all)",
+      "Bash(sudo firewall-cmd --add-port=3000/tcp --permanent)",
+      "Bash(sudo firewall-cmd --reload)",
+      "Bash(sudo firewall-cmd --list-ports)"
     ]
   }
 }

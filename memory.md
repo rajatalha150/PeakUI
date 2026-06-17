@@ -300,6 +300,7 @@ PeakUI is a Next.js (App Router) web application designed to act as a local-firs
 - Images are handled vision-first and passed to Ollama through the native `images` array for vision-capable models, with MIME/name metadata preserved until the server normalizes model-facing bytes
 - Uploaded images are now vision-first with OCR as optional supplemental context instead of OCR replacing the image payload
 - Open Claw composer now supports per-image attachment modes: `Vision only`, `Vision + OCR`, and `OCR only`
+- WorkSpaces PDFs are rasterized to JPEG page images (poppler `pdftoppm`, capped at 10 pages @ 150 DPI in `renderPdfVisionPages`) and attached as native vision input next to the extracted text, so capable models read the whole document instead of only chunked text. Pages are gated by per-model vision auto-detection (`vision-capability.ts` → Ollama `/api/show`, exposed via `/api/openclaw/model-vision`) and stripped from DB persistence via `stripAttachmentVisionData` to avoid session bloat
 - HEIC/HEIF, TIFF, BMP, AVIF, and related still-image uploads are converted to JPEG before reaching Ollama so local/cloud Ollama models do not reject them as `application/octet-stream`
 - Audio/video uploads are now classified by MIME or extension instead of generic binary metadata, while remaining metadata-only until a transcription/frame-extraction pipeline is added
 - Unsupported binary/audio/video/archive files can be attached as metadata-only, with a clear model-input status instead of pretending the bytes are text

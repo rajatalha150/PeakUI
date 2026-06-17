@@ -49,7 +49,15 @@ describe('file extraction', () => {
 
     expect(payload.kind).toBe('document')
     expect(payload.type).toBe('application/pdf')
-    expect(payload.modelInput).toBe('extracted-text')
+    expect(['extracted-text', 'extracted-text+vision']).toContain(payload.modelInput)
     expect(payload.text).toContain('PeakUI PDF upload extraction works')
+
+    // When poppler can rasterize pages, the PDF is also attached as vision
+    // page images so capable models can read the original layout.
+    if (await commandExists('pdftoppm')) {
+      expect(payload.modelInput).toBe('extracted-text+vision')
+      expect(payload.pageImages?.length ?? 0).toBeGreaterThan(0)
+      expect(payload.pageImages?.[0]?.type).toBe('image/jpeg')
+    }
   })
 })

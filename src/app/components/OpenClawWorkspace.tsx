@@ -328,6 +328,9 @@ interface OpenClawFileAttachment {
   nativeImageData?: string;
   nativeImageType?: string;
   nativeImageName?: string;
+  pageImages?: ExtractedFilePayload['pageImages'];
+  pageImageCount?: number;
+  pageImagesTruncated?: boolean;
   statusMessage?: string;
 }
 
@@ -1681,6 +1684,28 @@ function sanitizeOpenClawMessages(messages: unknown): OpenClawMessage[] {
     .filter((message): message is OpenClawMessage => Boolean(message));
 }
 
+// Rendered document page images can be several MB of base64. Keep them in the
+// live in-memory history (so the active vision turn can resend them) but drop
+// them before persisting to the database to avoid bloating session storage and
+// reload payloads. Reloaded threads fall back to the extracted text.
+function stripAttachmentVisionData(messages: OpenClawMessage[]): OpenClawMessage[] {
+  return messages.map(message => {
+    if (!message.attachments?.length) return message;
+    let changed = false;
+    const attachments = message.attachments.map(attachment => {
+      if (!attachment.pageImages?.length) return attachment;
+      changed = true;
+      const { pageImages: _pageImages, ...rest } = attachment;
+      void _pageImages;
+      return {
+        ...rest,
+        pageImageCount: attachment.pageImageCount ?? attachment.pageImages.length,
+      };
+    });
+    return changed ? { ...message, attachments } : message;
+  });
+}
+
 function sanitizeOpenClawSessions(sessions: unknown): OpenClawSession[] {
   if (!Array.isArray(sessions)) return [];
   return sessions
@@ -2538,6 +2563,8 @@ export default function OpenClawWorkspace({
   });
   const [provider, setProvider] = useState<OpenClawProvider>('ollama');
   const [baseUrl, setBaseUrl] = useState('');
+  const [modelSupportsVision, setModelSupportsVision] = useState(false);
+  const visionCapabilityCacheRef = useRef<Map<string, boolean>>(new Map());
   const [configSaving, setConfigSaving] = useState(false);
   const [configError, setConfigError] = useState('');
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -2744,6 +2771,49 @@ export default function OpenClawWorkspace({
 
     pendingPreviewUrlsRef.current = nextPreviewUrls;
   }, [pendingImages]);
+
+  // Resolve whether the selected model can accept image input so document page
+  // images are only attached to vision-capable models (text-only models get the
+  // extracted text instead).
+  useEffect(() => {
+    const model = selectedModel.trim();
+    if (!model) {
+      setModelSupportsVision(false);
+      return;
+    }
+
+    const cacheKey = `${provider}::${model}`;
+    const cached = visionCapabilityCacheRef.current.get(cacheKey);
+    if (cached !== undefined) {
+      setModelSupportsVision(cached);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/openclaw/model-vision', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model,
+            provider,
+            base_url: provider === 'openai-compatible' ? baseUrl : settings?.ollamaHost,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        const vision = Boolean(data?.vision);
+        visionCapabilityCacheRef.current.set(cacheKey, vision);
+        if (!cancelled) setModelSupportsVision(vision);
+      } catch {
+        if (!cancelled) setModelSupportsVision(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedModel, provider, baseUrl, settings?.ollamaHost]);
 
   useEffect(() => {
     return () => {
@@ -3845,7 +3915,7 @@ export default function OpenClawWorkspace({
       body: JSON.stringify({
         id: sessionId,
         title,
-        messages: baseMessages,
+        messages: stripAttachmentVisionData(baseMessages),
         surface: 'openclaw',
         autoContinueMode: effectiveSessionAutoContinueMode,
         autoContinueMaxSteps: effectiveSessionAutoContinueMaxSteps,
@@ -3933,7 +4003,7 @@ export default function OpenClawWorkspace({
       body: JSON.stringify({
         id: currentSession.id,
         surface: 'openclaw',
-        messages: currentSession.messages,
+        messages: stripAttachmentVisionData(currentSession.messages),
         clearContextSummary: action === 'clear',
         refreshContextSummary: action === 'refresh',
       }),
@@ -4108,7 +4178,7 @@ export default function OpenClawWorkspace({
         body: JSON.stringify({
           sessionId,
           title,
-          messages,
+          messages: stripAttachmentVisionData(messages),
           objective,
           apiKey: provider === 'openai-compatible' ? apiKey : undefined,
         }),
@@ -6003,6 +6073,13 @@ export default function OpenClawWorkspace({
             nativeImageName: data.nativeImageName,
           }
         : {}),
+      ...(data.pageImages && data.pageImages.length > 0
+        ? {
+            pageImages: data.pageImages,
+            pageImageCount: data.pageImageCount ?? data.pageImages.length,
+            ...(data.pageImagesTruncated ? { pageImagesTruncated: true } : {}),
+          }
+        : {}),
     };
   };
 
@@ -6040,6 +6117,12 @@ export default function OpenClawWorkspace({
         `Extraction status: ${attachment.extractionStatus || 'text'}`,
         `Status: ${attachment.statusMessage || 'Read file as text.'}`,
       ];
+      const pageCount = attachment.pageImageCount ?? attachment.pageImages?.length ?? 0;
+      if (pageCount > 0) {
+        lines.push(modelSupportsVision
+          ? `Vision input: ${pageCount} rendered page image${pageCount === 1 ? '' : 's'} attached so you can read this document visually${attachment.pageImagesTruncated ? ' (remaining pages are provided as text only)' : ''}.`
+          : `Vision input: ${pageCount} page image${pageCount === 1 ? '' : 's'} available, but the selected model is text-only — only the extracted text below is sent.`);
+      }
       const attachmentText = getAttachmentContent(attachment);
       if (attachmentText.trim()) lines.push('', attachmentText);
       return lines.join('\n');
@@ -6289,19 +6372,31 @@ export default function OpenClawWorkspace({
         rag_topk: options.ragTopK,
         unrestricted: unrestrictedEnabled,
         uncensored: uncensoredEnabled,
-        messages: options.conversationMessages.map(message => ({
-          role: message.role,
-          content: message.content,
-          ...(message.images?.length
-            ? {
-                images: message.images.map(img => ({
-                  data: img.data,
-                  mimeType: img.type,
-                  name: img.name,
+        messages: options.conversationMessages.map(message => {
+          const displayImages = (message.images ?? []).map(img => ({
+            data: img.data,
+            mimeType: img.type,
+            name: img.name,
+          }));
+          // Send rendered document pages as native image input, but only to
+          // vision-capable models. Text-only models already receive the
+          // extracted text via the attachment context.
+          const documentPageImages = modelSupportsVision
+            ? (message.attachments ?? []).flatMap(attachment =>
+                (attachment.pageImages ?? []).map(page => ({
+                  data: page.data,
+                  mimeType: page.type,
+                  name: `${attachment.name} · ${page.name}`,
                 })),
-              }
-            : {}),
-        })),
+              )
+            : [];
+          const images = [...displayImages, ...documentPageImages];
+          return {
+            role: message.role,
+            content: message.content,
+            ...(images.length > 0 ? { images } : {}),
+          };
+        }),
       }),
     });
 
@@ -7198,7 +7293,7 @@ export default function OpenClawWorkspace({
           session_id: 'openclaw',
           title: getChatTitle(baseHistory),
           message: finalAssistantMessage,
-          messages: messagesBeforeFinalAssistant,
+          messages: stripAttachmentVisionData(messagesBeforeFinalAssistant),
           surface: 'openclaw',
           autoContinueMode: effectiveSessionAutoContinueMode,
           autoContinueMaxSteps: effectiveSessionAutoContinueMaxSteps,

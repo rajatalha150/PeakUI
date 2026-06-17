@@ -2,9 +2,23 @@ export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 export const MAX_UPLOAD_LABEL = '100 MB'
 export const CHAT_ATTACHMENT_TEXT_LIMIT = 120000
 
+// Cap on how many document pages are rendered to images for vision-capable
+// models. Each rendered page adds a base64 JPEG to the request, so keep this
+// modest to avoid bloating prompts and slowing local models.
+export const MAX_DOCUMENT_PAGE_IMAGES = 10
+
 export type FileKind = 'image' | 'document' | 'text' | 'code' | 'data' | 'archive' | 'audio' | 'video' | 'binary'
 export type FileExtractionStatus = 'native' | 'extracted' | 'text' | 'unsupported' | 'error'
-export type FileModelInput = 'native-image' | 'extracted-text' | 'metadata-only'
+export type FileModelInput = 'native-image' | 'extracted-text' | 'extracted-text+vision' | 'metadata-only'
+
+// A single rendered document page, sent to vision-capable models as native
+// image bytes so they can "see" layout, stamps, tables, and signatures.
+export interface AttachmentPageImage {
+  data: string
+  type: string
+  name: string
+  page: number
+}
 
 export interface ExtractedFilePayload {
   name: string
@@ -18,6 +32,9 @@ export interface ExtractedFilePayload {
   nativeImageData?: string
   nativeImageType?: string
   nativeImageName?: string
+  pageImages?: AttachmentPageImage[]
+  pageImageCount?: number
+  pageImagesTruncated?: boolean
   textCharCount: number
   truncated: boolean
   extractionStatus: FileExtractionStatus

@@ -100,6 +100,7 @@ The old screenshot/CDP screencast path has been replaced. The current live brows
 ### File & Media Uploads
 - WorkSpaces image uploads are vision-first: native image bytes stay attached by default, while OCR text is optional supplemental context.
 - Per-image modes let users choose `Vision only`, `Vision + OCR`, or `OCR only`.
+- WorkSpaces PDFs are rasterized to JPEG page images (`renderPdfVisionPages` in `file-extraction.ts`, capped at 10 pages @ 150 DPI via poppler) and attached as native vision input alongside the extracted text. Pages are sent only to vision-capable models (auto-detected via `vision-capability.ts` / Ollama `/api/show`, route `/api/openclaw/model-vision`). Page images live in-memory for the active task but are stripped (`stripAttachmentVisionData`) before DB persistence.
 - HEIC/HEIF, TIFF, BMP, AVIF, and related still-image formats are normalized to JPEG before Ollama receives them, using `sharp` first and `heif-convert`/ImageMagick fallbacks when runtime codec support is external.
 - Image payloads now preserve `data`, `mimeType`, and `name` through chat serialization so server-side normalization can make model-facing bytes safe.
 - Audio/video files are detected by MIME or extension instead of generic binary fallback, but remain metadata-only until transcription/frame extraction is implemented.
