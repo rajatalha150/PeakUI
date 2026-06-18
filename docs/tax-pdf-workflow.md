@@ -41,10 +41,12 @@ Optional fields:
 - `templateDocumentId`: Knowledge Base document id for a fillable PDF template.
 - `flatten`: When `true`, flattens the filled AcroForm output.
 
-## Safety And Limits
+## Safety, Privacy, And Limits
 
-- The generated packet is a review draft, not an official filed return.
-- PeakUI does not e-file, sign, or submit returns.
-- The extractor is deterministic and conservative; users must verify all values before filing.
+- The generated packet is a **review aid only**, not an official filed return.
+- PeakUI does **not** e-file, sign, submit, or validate returns with any tax authority.
+- The extractor is deterministic and conservative; users must verify **every** value before filing.
+- Tax documents contain sensitive personal information (SSN/TIN, address, income, withholding). Protect uploaded files, database backups, and host access accordingly.
 - Original bytes are retained only for uploaded PDFs so fillable templates can be processed later.
 - The initial extraction focuses on common W-2, 1099-NEC, 1099-INT, 1099-DIV, SSA-1099, SSN, name, address, and federal withholding fields.
+- Always consult a qualified tax professional for filing decisions.

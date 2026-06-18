@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The Development section will turn PeakUI from a local chat studio into a local development control room. It will contain three dedicated work areas:
+The Development section will turn PeakUI from a local AI studio into a local development control room. It will contain three dedicated work areas:
 
 - Code Interpreter
 - Virtual Machines
@@ -255,7 +255,7 @@ Main surface:
 
 Left rail:
 
-- Code Interpreter chat threads
+- Code Interpreter task threads
 - Recent workspaces
 - New analysis task
 
@@ -313,8 +313,8 @@ Main surface:
 
 Left rail:
 
-- VM-specific chats
-- Global VM operator chat
+- VM-specific task threads
+- Global VM operator task thread
 - Recent VMs
 - New VM task
 
@@ -368,8 +368,8 @@ Main surface:
 
 Left rail:
 
-- Docker Agent chats
-- Container-specific chats
+- Docker Agent task threads
+- Container-specific task threads
 - Recent compose projects
 - New container task
 

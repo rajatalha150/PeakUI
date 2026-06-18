@@ -1,9 +1,8 @@
-> **Note:** The workspace feature previously called "Open Claw" is now labeled **WorkSpaces** in the UI. This rename is limited to visible labels only. All internal identifiers, API routes, database schema fields, and tool tags (e.g. <openclaw_tool>) remain unchanged.
 # PeakUI Features
 
 ## WorkSpaces-First App Shell
 
-PeakUI now opens directly into WorkSpaces. The former normal-chat surface and its separate app sidebar are no longer part of the primary UI; Workspace, Knowledge Base, Settings, task sessions, and logout all live inside the WorkSpaces shell.
+PeakUI opens directly into WorkSpaces. Workspace, Knowledge Base, Settings, task sessions, and logout all live inside the WorkSpaces shell.
 
 ### Model Platforms
 
@@ -368,8 +367,12 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 - `ShellCommandAudit` stores WorkSpaces shell requests, target, approval mode, status, output, exit code, duration, allowed roots, and env allowlist for auditability.
 
 - `User` - User accounts
-- `ChatSession` - Chat conversations
+- `ChatSession` - WorkSpaces task threads
 - `ChatMessage` - Individual messages
 - `UserSettings` - Per-user preferences
 - `RagDocument` - Knowledge base files
 - `RagChunk` - Document chunks for search
+
+## Internal Naming Note
+
+The user-facing label is **WorkSpaces**. Internal identifiers still use the `openclaw` prefix for API routes, database schema fields, CSS classes, and tool tags (for example, `<openclaw_tool>`). This is a legacy internal codename; external documentation and UI labels use WorkSpaces.

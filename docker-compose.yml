@@ -3,9 +3,9 @@ services:
     image: postgres:15-alpine
     restart: always
     environment:
-      POSTGRES_USER: peakui
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: peakui
+      POSTGRES_USER: ${POSTGRES_USER:-peakui}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-peakui}
     ports:
       - "5432:5432"
     volumes:
@@ -24,13 +24,14 @@ services:
       start_period: 30s
 
   app:
+    image: peakui-app
     build: .
     shm_size: "256m"
     ports:
       - "3000:3000"
     environment:
-      - DATABASE_URL=postgresql://peakui:password@localhost:5432/peakui
-      - JWT_SECRET=${JWT_SECRET:-}
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
       - OPENCLAW_HOST_HOME_DIR=${OPENCLAW_HOST_HOME_DIR:-/home}
       - OPENCLAW_HOST_TMP_DIR=${OPENCLAW_HOST_TMP_DIR:-/tmp}
       - OPENCLAW_HOST_WORKSPACE_DIR=${OPENCLAW_HOST_WORKSPACE_DIR:-/tmp/peakui-openclaw-workspace}

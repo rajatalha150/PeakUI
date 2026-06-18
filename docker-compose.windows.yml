@@ -11,9 +11,9 @@ services:
     image: postgres:15-alpine
     restart: always
     environment:
-      POSTGRES_USER: peakui
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: peakui
+      POSTGRES_USER: ${POSTGRES_USER:-peakui}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-peakui}
     ports:
       - "5432:5432"
     volumes:
@@ -38,6 +38,7 @@ services:
       start_period: 30s
 
   app:
+    image: peakui-app
     build:
       context: .
       dockerfile: Dockerfile
@@ -45,11 +46,11 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: postgresql://peakui:password@db:5432/peakui
-      JWT_SECRET: ${JWT_SECRET:-peakui-local-dev-jwt-secret-do-not-use-in-production}
-      OPENCLAW_HOST_HOME_DIR: "C:\\Users\\raza"
-      OPENCLAW_HOST_TMP_DIR: "C:\\Users\\raza\\AppData\\Local\\Temp"
-      OPENCLAW_HOST_WORKSPACE_DIR: "C:\\Users\\raza\\peakui-workspace"
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      OPENCLAW_HOST_HOME_DIR: ${OPENCLAW_HOST_HOME_DIR:?OPENCLAW_HOST_HOME_DIR is required}
+      OPENCLAW_HOST_TMP_DIR: ${OPENCLAW_HOST_TMP_DIR:?OPENCLAW_HOST_TMP_DIR is required}
+      OPENCLAW_HOST_WORKSPACE_DIR: ${OPENCLAW_HOST_WORKSPACE_DIR:?OPENCLAW_HOST_WORKSPACE_DIR is required}
       OPENCLAW_HOST_EXECUTOR_URL: ${OPENCLAW_HOST_EXECUTOR_URL:-http://host.docker.internal:4318}
       OPENCLAW_HOST_EXECUTOR_TOKEN: ${OPENCLAW_HOST_EXECUTOR_TOKEN:-}
       TOR_PROXY_URL: socks5://tor-proxy:9150
@@ -68,15 +69,15 @@ services:
     restart: always
     volumes:
       - type: bind
-        source: "C:\\Users\\raza"
+        source: ${OPENCLAW_HOST_HOME_DIR}
         target: /mnt/openclaw/home
         read_only: true
       - type: bind
-        source: "C:\\Users\\raza\\AppData\\Local\\Temp"
+        source: ${OPENCLAW_HOST_TMP_DIR}
         target: /mnt/openclaw/tmp
         read_only: true
       - type: bind
-        source: "C:\\Users\\raza\\peakui-workspace"
+        source: ${OPENCLAW_HOST_WORKSPACE_DIR}
         target: /mnt/openclaw/workspace
       - app_runtime:/var/lib/peakui
     networks:

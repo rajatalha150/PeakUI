@@ -1,37 +1,55 @@
 ---
-name: Project Overview
-description: PeakUI local AI Studio — architecture, tech stack, key features, and UWAF browser integration
+name: project-overview
+description: PeakUI public open-source project overview — architecture, mission, and key capabilities
 type: project
 ---
 
-PeakUI is a local-first AI Studio web app built on Next.js 16 (App Router), React 19, Prisma 7, and PostgreSQL 15, deployed via Docker Compose.
+# PeakUI
 
-**Development platform:** Windows 11 Pro (Build 26200 / 25H2) with Docker Desktop (WSL2 backend).
+**PeakUI** is a local-first, self-hosted AI studio built by [Muhammad Talha Raza](https://peakservices-inc.com) and owned by **Peak Services INC**.
 
-**Core capabilities:**
-- Chat with Ollama, HuggingFace, or Hybrid model selection; streaming responses with session management, folders, tags, and search
-- WorkSpaces agent workspace (formerly "Open Claw") with task modes, shell execution (container/host), filesystem access, code sandbox, browser tool, canvas artifacts, and multi-layer memory
-- Knowledge Base / RAG with hybrid semantic+BM25 search, document upload (PDF, DOCX, code, etc.), and per-chat RAG toggle
-- Internet mode with backend-managed web search (Brave/SearXNG/DuckDuckGo/Bing) and citation rendering
-- JWT auth with admin-only user management; per-user settings (themes, model defaults, persona, permissions)
-- **UWAF (Unified Web Agent Framework):** Dual-mode browser engine supporting Direct (Clear Web) and Stealth (Tor-routed) modes, Playwright rendering, sanitize-first HTML→Markdown pipeline, screenshots, table extraction, research batch crawling, and binary download blocking
+It gives individuals and small teams a privacy-respecting, self-controlled command center for local LLMs and OpenAI-compatible providers. The flagship surface is **WorkSpaces**, an agentic workspace with persistent task threads, tools, Canvas artifacts, Knowledge Base RAG, session intelligence, and background automation.
 
-**Why:** Designed as a self-hosted, privacy-respecting AI command center that runs entirely local models via Ollama, with optional cloud inference via HuggingFace, and anonymous dark web research via Tor.
+## Mission
 
-**How to apply:** When working on this project, understand that it's a monolithic Next.js app (single `page.tsx` + components + API routes). The `memory.md` file at project root is the detailed changelog/roadmap — consult it for feature history and next steps. Key libs are `jose` for JWT, `bcryptjs` for passwords, `pg` + `@prisma/adapter-pg` for DB, `ollama` SDK for model interaction, `playwright-core` + system Chromium for UWAF browser, and `turndown` for HTML→Markdown conversion. Styling is vanilla CSS (glassmorphism, CSS variables, dark mode) — no Tailwind or CSS-in-JS.
+Provide an open, local-first alternative to cloud-hosted chat and agent platforms:
 
-**Windows Docker Notes:**
-- The original `docker-compose.yml` uses `network_mode: host`, which is unsupported on Windows Docker Desktop.
-- Use `docker-compose.windows.yml` for Windows deployments. It uses a named bridge network and service names for inter-container communication.
-- Ollama must be restarted with `OLLAMA_HOST=0.0.0.0:11434` for containers to reach it via `host.docker.internal:11434`.
-- See `WINDOWS-SETUP.md` and `setup-windows.ps1` for full Windows deployment instructions.
+- Your models, documents, browsing, and execution environment stay under your control.
+- Built for developers, power users, privacy-conscious teams, and security researchers who want transparent, auditable AI tooling.
+- Designed to be self-hosted via Docker Compose with minimal external dependencies.
 
-**WorkSpaces Rename:** The workspace feature previously called "Open Claw" is now displayed as **"WorkSpaces"** in the UI. This is a cosmetic, UI-only change. All internal code, API routes (`/api/openclaw/*`), database fields (`openClaw*` columns), CSS classes (`.openclaw-*`), and system prompts remain unchanged.
+## Architecture
 
-**Key new dependencies:** `playwright-core` (browser engine), `turndown` (HTML→Markdown), `@types/turndown` (types)
+- **Framework**: Next.js 16 (App Router), React 19, TypeScript
+- **Database**: PostgreSQL 15 via Prisma 7 ORM
+- **Auth**: JWT tokens via `jose`, bcrypt password hashing
+- **Styling**: Vanilla CSS with glassmorphism UI and CSS variable themes
+- **Container**: Docker & Docker Compose
+- **Local inference**: Ollama
+- **Browser automation**: Playwright Core with system Chromium
+- **Document processing**: `officeparser`, `pdf-lib`, `poppler-utils`, `tesseract`
 
-**Key new Docker services:** `tor-proxy` (peterdavehello/tor-socks-proxy) on host port 9050 (container port 9150)
+## Core Capabilities
 
-**Key new env vars:** `TOR_PROXY_URL` (default: `socks5://localhost:9050`), `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` (default: `/usr/bin/chromium-browser`)
+- **WorkSpaces**: Persistent agent workspace with task modes (Plan, Research, Execute, Review), workspace notes, success criteria, checklists, and named project workspaces.
+- **Session Intelligence**: Rolling summaries, context health, auto-continue modes, branching, branch comparison, and analytics.
+- **Knowledge Base (RAG)**: PostgreSQL-backed document index with semantic, keyword, and hybrid RRF retrieval; supports PDFs, Office files, code, archives, and OCR fallback.
+- **Canvas**: Persistent artifact generation with previews, downloads, revisions, lineage, search, and bundle export.
+- **Tools**: Shell, filesystem, code sandbox, public browser, and UWAF Direct/Stealth browser with approval gates.
+- **Automation**: Heartbeats, cron schedules, URL/file monitors, wake events, and guarded unattended local Ollama runs.
+- **Media**: Vision-first image handling, PDF page rasterization for vision-capable models, and audio/video metadata detection.
 
-**UWAF architecture:** The UWAF browser uses Playwright-core with system Chromium in headless mode. Direct mode connects without proxy; Stealth mode routes through the Tor SOCKS5 proxy. Browser contexts are managed by `uwaf-pool.ts` with lazy init, 30-minute TTL, and auto-cleanup. The sanitize pipeline in `uwaf-sanitizer.ts` runs three stages: HTML pruning, readability filtering, and Turndown-based Markdown conversion. Stealth mode applies stricter sanitization (stripping inline styles, data attributes, tracking URL parameters). The `unified_browser` tool is integrated into WorkSpaces alongside the existing `browser` tool for backward compatibility. Approval tokens are always required for `submit` and `research_batch` actions regardless of mode.
+## Internal Naming Note
+
+The public UI label is **WorkSpaces**. The internal implementation still uses `openclaw` identifiers in API routes (`/api/openclaw/*`), database fields, CSS classes, and tool tags such as `<openclaw_tool>`. This is a legacy internal codename; external documentation and UI labels use WorkSpaces.
+
+## Repository Health
+
+- Build: `npm run build`
+- Tests: `npm test`
+- Docker: `docker compose up -d --build`
+
+**Owner:** Peak Services INC  
+**Author:** Muhammad Talha Raza  
+**Contact:** info@peakservices-inc.com  
+**Website:** https://peakservices-inc.com

@@ -246,7 +246,7 @@ export function diagnoseOpenClawFilesystemRequest(
       allowed: false,
       code: 'invalid_path',
       message: 'A valid absolute host path is required.',
-      actionRequired: 'Use an absolute host path, for example /home/raza/project or /tmp/peakui-openclaw-workspace.',
+      actionRequired: 'Use an absolute host path, for example /home/user/project or /tmp/peakui-openclaw-workspace.',
     }
   }
 

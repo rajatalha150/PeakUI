@@ -2,7 +2,7 @@ ALTER TABLE "UserSettings"
   ADD COLUMN IF NOT EXISTS "shellExecutionTarget" TEXT NOT NULL DEFAULT 'container';
 
 ALTER TABLE "UserSettings"
-  ADD COLUMN IF NOT EXISTS "shellHostAllowedRoots" TEXT NOT NULL DEFAULT '/tmp/viewllama-openclaw-workspace';
+  ADD COLUMN IF NOT EXISTS "shellHostAllowedRoots" TEXT NOT NULL DEFAULT '/tmp/peakui-openclaw-workspace';
 
 ALTER TABLE "UserSettings"
   ADD COLUMN IF NOT EXISTS "shellHostAllowedEnvVars" TEXT NOT NULL DEFAULT E'PATH\nHOME\nUSER\nSHELL\nLANG\nTERM';

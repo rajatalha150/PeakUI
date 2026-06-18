@@ -8,20 +8,7 @@ import {
 import { ollamaModelKey, RECOMMENDED_EMBEDDING_MODELS } from '@/lib/embedding-models';
 import { applyTheme, THEME_OPTIONS } from '@/lib/theme-options';
 import HelpHint from './HelpHint';
-import {
-  buildChatModelOptionId,
-  DEFAULT_HUGGING_FACE_BASE_URL,
-  isHuggingFaceRouterUrl,
-  type ChatModelOption,
-  type ChatPlatform,
-} from '@/lib/chat-platforms';
-
-const HUGGING_FACE_API_KEY_STORAGE = 'peakui-huggingface-api-key';
-
 interface UserSettings {
-  chatPlatform: ChatPlatform;
-  chatModel: string;
-  chatModelProvider: 'ollama' | 'huggingface';
   huggingFaceBaseUrl: string;
   modelKeepAlive: boolean;
   ollamaKeepAlive: string;
@@ -150,13 +137,8 @@ interface Props {
   onLogout?: () => void;
 }
 
-const SHOW_LEGACY_CHAT_SETTINGS = false;
-
 const INITIAL_SETTINGS: UserSettings = {
-  chatPlatform: 'ollama',
-  chatModel: '',
-  chatModelProvider: 'ollama',
-  huggingFaceBaseUrl: DEFAULT_HUGGING_FACE_BASE_URL,
+  huggingFaceBaseUrl: 'https://router.huggingface.co/v1',
   modelKeepAlive: false,
   ollamaKeepAlive: '0',
   exclusiveOllamaModels: false,
@@ -250,20 +232,10 @@ function formatTimestamp(value: string | null) {
 export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
   const [settings, setSettings] = useState<UserSettings>(INITIAL_SETTINGS);
   const [models, setModels] = useState<Model[]>([]);
-  const [chatModels, setChatModels] = useState<ChatModelOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [ollamaStatus, setOllamaStatus] = useState<'checking' | 'online' | 'offline'>('checking');
-  const [chatModelsLoading, setChatModelsLoading] = useState(false);
-  const [huggingFaceApiKey, setHuggingFaceApiKey] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    try {
-      return window.localStorage.getItem(HUGGING_FACE_API_KEY_STORAGE) || '';
-    } catch {
-      return '';
-    }
-  });
   const [testingEmbed, setTestingEmbed] = useState(false);
   const [embedStatus, setEmbedStatus] = useState<'idle' | 'ok' | 'error'>('idle');
   const [embedError, setEmbedError] = useState('');
@@ -324,52 +296,6 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
     }
   }, []);
 
-  const fetchChatModels = useCallback(async (settingsToUse: UserSettings, apiKey = huggingFaceApiKey) => {
-    setChatModelsLoading(true);
-    try {
-      const res = await fetch('/api/chat/models', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          platform: settingsToUse.chatPlatform,
-          ollamaHost: settingsToUse.ollamaHost,
-          huggingFaceBaseUrl: settingsToUse.huggingFaceBaseUrl,
-          apiKey,
-        }),
-      });
-      const data = await res.json().catch(() => ({})) as { models?: ChatModelOption[] };
-      const nextModels = Array.isArray(data.models) ? [...data.models] : [];
-      const savedModelName = typeof settingsToUse.chatModel === 'string' ? settingsToUse.chatModel.trim() : '';
-      const savedModelProvider = settingsToUse.chatModelProvider;
-      if (savedModelName && savedModelProvider === 'huggingface' && !nextModels.some(model => model.name === savedModelName && model.provider === 'huggingface')) {
-        nextModels.unshift({
-          id: `huggingface::${savedModelName}`,
-          name: savedModelName,
-          model: savedModelName,
-          provider: 'huggingface',
-          sourceLabel: (settingsToUse.huggingFaceBaseUrl || DEFAULT_HUGGING_FACE_BASE_URL) === DEFAULT_HUGGING_FACE_BASE_URL
-            ? 'Hugging Face'
-            : settingsToUse.huggingFaceBaseUrl || DEFAULT_HUGGING_FACE_BASE_URL,
-        });
-      }
-      setChatModels(nextModels);
-    } catch (error) {
-      console.error('Failed to load chat models:', error);
-      setChatModels([]);
-    } finally {
-      setChatModelsLoading(false);
-    }
-  }, [huggingFaceApiKey]);
-
-  const persistHuggingFaceApiKey = useCallback((value: string) => {
-    setHuggingFaceApiKey(value);
-    try {
-      window.localStorage.setItem(HUGGING_FACE_API_KEY_STORAGE, value);
-      window.dispatchEvent(new Event('peakui-hf-token-change'));
-    } catch {
-      // Ignore browser storage failures.
-    }
-  }, []);
 
   const fetchSession = useCallback(async () => {
     try {
@@ -437,7 +363,6 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
       const nextSettings = loadedSettings || INITIAL_SETTINGS;
       await Promise.all([
         fetchModels(nextSettings.ollamaHost),
-        SHOW_LEGACY_CHAT_SETTINGS ? fetchChatModels(nextSettings, huggingFaceApiKey) : Promise.resolve(),
         authUser?.permissions.includes('openclaw.filesystem') ? fetchHostAccessStatus() : Promise.resolve(),
       ]);
       if (authUser?.permissions.includes('users.manage')) {
@@ -446,16 +371,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
     };
 
     void loadInitialSettings();
-  }, [fetchSettings, fetchModels, fetchChatModels, fetchManagedUsers, fetchSession, fetchHostAccessStatus, huggingFaceApiKey]);
-
-  useEffect(() => {
-    if (loading) return;
-    if (!SHOW_LEGACY_CHAT_SETTINGS) return;
-    const timer = window.setTimeout(() => {
-      void fetchChatModels(settings);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [loading, settings, huggingFaceApiKey, fetchChatModels]);
+  }, [fetchSettings, fetchModels, fetchManagedUsers, fetchSession, fetchHostAccessStatus]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -474,7 +390,6 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
         onSettingsChange?.(data);
         void fetchModels(data.ollamaHost);
         if (sessionUser?.permissions.includes('openclaw.filesystem')) void fetchHostAccessStatus();
-        if (SHOW_LEGACY_CHAT_SETTINGS) void fetchChatModels(data, huggingFaceApiKey);
         setTimeout(() => setSaved(false), 3000);
       }
     } catch (e) {
@@ -514,17 +429,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
   };
 
   const update = <K extends keyof UserSettings>(field: K, value: UserSettings[K]) => {
-    setSettings(prev => {
-      const next = { ...prev, [field]: value };
-      if (field === 'chatPlatform') {
-        if (value === 'ollama') {
-          next.chatModelProvider = 'ollama';
-        } else if (value === 'huggingface') {
-          next.chatModelProvider = 'huggingface';
-        }
-      }
-      return next;
-    });
+    setSettings(prev => ({ ...prev, [field]: value }));
     if (field === 'theme') applyTheme(value as string);
     if (field === 'ragModel') {
       setEmbedStatus('idle');
@@ -724,17 +629,6 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
   const installedModelKeys = new Set(models.map(model => ollamaModelKey(model.name)));
   const recommendedModelKeys = new Set(RECOMMENDED_EMBEDDING_MODELS.map(model => ollamaModelKey(model.name)));
   const otherInstalledModels = models.filter(model => !recommendedModelKeys.has(ollamaModelKey(model.name)));
-  const visibleChatModels = chatModels.filter(model => {
-    if (settings.chatPlatform === 'ollama') return model.provider === 'ollama';
-    if (settings.chatPlatform === 'huggingface') return model.provider === 'huggingface';
-    return true;
-  });
-  const selectedChatModelId = settings.chatModel
-    ? buildChatModelOptionId(settings.chatModelProvider, settings.chatModel)
-    : '';
-  const needsHuggingFaceTokenForDiscovery = (
-    settings.chatPlatform === 'huggingface' || settings.chatPlatform === 'hybrid'
-  ) && isHuggingFaceRouterUrl(settings.huggingFaceBaseUrl) && !huggingFaceApiKey.trim();
   const availableRoles = roleDefinitions.length > 0 ? roleDefinitions : [
     { key: 'ADMIN' as const, label: 'Admin', description: 'Full access' },
     { key: 'MANAGER' as const, label: 'Manager', description: 'Power-user access' },
@@ -745,7 +639,6 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
     acc[permission.category].push(permission);
     return acc;
   }, {});
-  const showLegacyChatSettings = SHOW_LEGACY_CHAT_SETTINGS;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', padding: '24px', gap: '4px', maxWidth: '680px', margin: '0 auto' }}>
@@ -1219,68 +1112,6 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
 
       {/* Generation Settings */}
       <Section icon={<MessageSquare size={18} />} title="Generation">
-        {showLegacyChatSettings && (
-          <>
-            <Field label="Platform Selection" help="Choose where legacy chat models come from. Hybrid merges local Ollama models with discoverable Hugging Face models in one picker.">
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                {[
-                  { value: 'ollama', label: 'Ollama', sub: 'Local-only models' },
-                  { value: 'huggingface', label: 'Hugging Face', sub: 'HF router or HF-compatible endpoint' },
-                  { value: 'hybrid', label: 'Hybrid', sub: 'Merge Ollama + Hugging Face' },
-                ].map(opt => {
-                  const active = settings.chatPlatform === opt.value;
-                  return (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => update('chatPlatform', opt.value as ChatPlatform)}
-                      style={{
-                        flex: 1,
-                        minWidth: '150px',
-                        padding: '12px 14px',
-                        borderRadius: '12px',
-                        border: `1px solid ${active ? 'var(--accent-primary)' : 'var(--border-color)'}`,
-                        background: active ? 'var(--accent-soft)' : 'var(--bg-glass)',
-                        color: 'var(--text-primary)',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        fontFamily: 'inherit',
-                      }}
-                    >
-                      <div style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '4px' }}>{opt.label}</div>
-                      <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>{opt.sub}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            </Field>
-
-            {(settings.chatPlatform === 'huggingface' || settings.chatPlatform === 'hybrid') && (
-              <>
-                <Field label="Hugging Face Base URL" help="Default is the official Hugging Face router. You can also point this at a local HF-compatible serving endpoint such as TGI, vLLM, or SGLang if it exposes OpenAI-style chat completions.">
-                  <input
-                    className="input-field"
-                    value={settings.huggingFaceBaseUrl}
-                    onChange={e => update('huggingFaceBaseUrl', e.target.value)}
-                    placeholder={DEFAULT_HUGGING_FACE_BASE_URL}
-                  />
-                </Field>
-
-                <Field label="Hugging Face Token" help="Stored only in this browser. Required for the default Hugging Face router; custom local endpoints may not need it.">
-                  <input
-                    className="input-field"
-                    type="password"
-                    value={huggingFaceApiKey}
-                    onChange={e => persistHuggingFaceApiKey(e.target.value)}
-                    placeholder="hf_..."
-                    autoComplete="off"
-                  />
-                </Field>
-              </>
-            )}
-          </>
-        )}
-
         <Field
           label={
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
@@ -1426,55 +1257,6 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             </div>
           </button>
         </Field>
-
-        {showLegacyChatSettings && (
-          <Field label="Default Chat Model" help="This model is pre-selected when you open legacy chat. You can still change it per-session from the header dropdown.">
-            {visibleChatModels.length > 0 ? (
-              <select
-                className="input-field"
-                value={selectedChatModelId}
-                onChange={e => {
-                  const nextModel = visibleChatModels.find(model => model.id === e.target.value)
-                  if (!nextModel) {
-                    update('chatModel', '')
-                    return
-                  }
-                  update('chatModel', nextModel.name)
-                  if (nextModel) {
-                    update('chatModelProvider', nextModel.provider)
-                  }
-                }}
-                style={{ width: '100%' }}
-              >
-                <option value="">— Pick from header each time —</option>
-                {visibleChatModels.map(model => (
-                  <option key={model.id} value={model.id}>
-                    {model.provider === 'ollama' ? `[Ollama] ${model.name}` : `[Hugging Face] ${model.name}`}
-                  </option>
-                ))}
-              </select>
-            ) : settings.chatPlatform === 'huggingface' ? (
-              <input
-                className="input-field"
-                value={settings.chatModel}
-                onChange={e => {
-                  update('chatModel', e.target.value)
-                  update('chatModelProvider', 'huggingface')
-                }}
-                placeholder="deepseek-ai/DeepSeek-R1:fastest"
-              />
-            ) : (
-              <div style={{ padding: '12px 14px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                {chatModelsLoading ? 'Loading chat models…' : 'No chat models were discovered for the selected platform yet.'}
-              </div>
-            )}
-            {needsHuggingFaceTokenForDiscovery && (
-              <div style={{ marginTop: '6px', fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.45 }}>
-                Add a Hugging Face token to list router models automatically. In Hugging Face-only mode, you can still type a model id manually if you already know the exact name.
-              </div>
-            )}
-          </Field>
-        )}
 
         <Field label={`Temperature: ${settings.temperature.toFixed(1)}`} help="Controls randomness. Lower = focused and deterministic. Higher = creative and varied. (0.0 – 2.0)">
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
@@ -1945,7 +1727,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                 rows={4}
                 value={settings.shellHostAllowedRoots}
                 onChange={e => update('shellHostAllowedRoots', e.target.value)}
-                placeholder={`/tmp/peakui-openclaw-workspace\n/home/raza/Desktop`}
+                placeholder={`/tmp/peakui-openclaw-workspace\n/home/user/Desktop`}
                 style={{ width: '100%', resize: 'vertical', fontFamily: 'monospace' }}
               />
             </Field>

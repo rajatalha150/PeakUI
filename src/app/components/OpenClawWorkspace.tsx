@@ -10563,7 +10563,7 @@ export default function OpenClawWorkspace({
                                 className="input-field"
                                 value={newMonitorTarget}
                                 onChange={event => setNewMonitorTarget(event.target.value)}
-                                placeholder={newMonitorKind === 'url' ? 'https://example.com/feed' : '/home/raza/project/file.txt'}
+                                placeholder={newMonitorKind === 'url' ? 'https://example.com/feed' : '/home/user/project/file.txt'}
                               />
                               <div style={{ display: 'grid', gap: '10px', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
                                 <input

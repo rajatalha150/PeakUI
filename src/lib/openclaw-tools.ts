@@ -151,7 +151,7 @@ export const OPENCLAW_SHELL_TOOL_EXAMPLE = `<openclaw_tool name="shell">
 </openclaw_tool>`
 
 export const OPENCLAW_FILESYSTEM_TOOL_EXAMPLE = `<openclaw_tool name="filesystem">
-{"action":"read","path":"/home/raza/Desktop/project/src/app.ts"}
+{"action":"read","path":"/home/user/project/src/app.ts"}
 </openclaw_tool>`
 
 export const OPENCLAW_FILESYSTEM_WRITE_TOOL_EXAMPLE = `<openclaw_tool name="filesystem">

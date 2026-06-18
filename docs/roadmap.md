@@ -2,125 +2,110 @@
 
 ## Completed
 
-### v0.1.0 - Initial Release
-- Basic chat interface with Ollama
-- Session management
-- JWT authentication
-- PostgreSQL storage
+### v0.1.0 - Foundation
+- JWT authentication and per-user settings
+- PostgreSQL persistence via Prisma
+- Docker Compose deployment
 
-### v0.2.0 - Core Features
-- WorkSpaces workspace for agentic tasks
+### v0.2.0 - WorkSpaces Shell
+- WorkSpaces as the primary agent workspace
 - Task modes: Plan, Research, Execute, Review
 - Response styles: Concise, Structured, Deep
-- Workspace notes and success criteria
-- Pinned checklists
+- Workspace notes, success criteria, and pinned checklists
 
-### v0.3.0 - RAG Knowledge Base
+### v0.3.0 - Knowledge Base (RAG)
 - Document upload and chunking
 - Semantic search with Ollama embeddings
 - Keyword search with BM25
-- Source citations in chat
+- Source citations in WorkSpaces
 
 ### v0.4.0 - File Handling
-- File and image attachments in chat
-- Document extraction (PDF, Office, RTF, text)
+- File and image attachments in WorkSpaces
+- Document extraction for PDF, Office, RTF, and text
 - 100 MB upload limit
-- Attachment preview and removal
-- WorkSpaces file attachments
 - Vision-first image uploads with OCR as supplemental context
-- Server-side JPEG normalization for HEIC/HEIF, TIFF, BMP, AVIF, and other still-image formats before Ollama vision requests
+- Server-side JPEG normalization for HEIC/HEIF, TIFF, BMP, AVIF, and other still-image formats
 
 ### v0.5.0 - Response Improvements
 - Inline image gallery for AI-generated images
 - Copy-to-clipboard for code blocks
-- Response download
-- Generated file downloads
+- Response download and generated file downloads
 
-### v0.6.0 - Canvas & Artifacts ✅
-- CanvasArtifact DB model for persistent artifact storage
-- CanvasArtifactRevision history for durable edit/restore snapshots
+### v0.6.0 - Canvas & Artifacts
+- Persistent CanvasArtifact DB model
+- CanvasArtifactRevision history for edit/restore snapshots
 - Compact artifact rows with Copy, Download, Preview, and Delete controls
-- Modal previews for PDF, markdown, code, image, table, Word, Excel, and other Canvas artifacts
-- Artifact versioning, revision restore, lightweight compare, lineage navigation, and edit-in-place
-- Search, cursor paging, collapsible bundles, and bundle-level export/delete controls
-- Canvas panels in both WorkSpaces and main chat
-- Inline image rendering for AI picture requests
-- AI system prompt instructions for image awareness
+- Modal previews for PDF, markdown, code, image, table, Word, Excel, and other artifacts
+- Artifact versioning, revision restore, lightweight compare, lineage, search, and bundle export
 
-### v0.10.0 - UWAF Dual-Mode Browser ✅
-- [x] UWAF (Unified Web Agent Framework) dual-mode browser engine (Direct/Stealth)
-- [x] Playwright-core integration with system Chromium for full page rendering
-- [x] Tor proxy sidecar (peterdavehello/tor-socks-proxy) for stealth mode
-- [x] Three-stage sanitize-first pipeline (HTML pruning → readability → Markdown)
-- [x] unified_browser tool with open, click, extract, extract_table, research_batch, fill, submit actions
-- [x] Live noVNC browser as the visual browsing surface; static screenshot capture is now disabled
-- [x] Network Hub Panel showing Direct IP, Tor status, and mode selector
-- [x] Source chip labeling (Clear Web blue, Dark Web purple)
-- [x] Approval-gated submit and research_batch actions
-- [x] Binary download blocking and .onion URL restrictions
-- [x] Stealth mode fail-closed design (no Tor fallback to direct)
-- [x] UWAF settings in Settings Panel (mode, default mode, live-browser toggle)
-- [x] Connection status API endpoint
+### v0.7.0 - WorkSpaces Tooling
+- Shell command execution with approvals and audit records
+- Optional host shell executor
+- Filesystem read/write with approved roots
+- Managed Python/Node code sandbox
+- Public-web browser control with staged form submission
+- Shared managed workspace mount
+
+### v0.8.0 - Session Intelligence
+- Per-thread auto-continue modes (manual, ask, safe)
+- Rolling context summaries and context health feedback
+- Session branching and branch comparison
+- Session analytics (tokens, TPS, tool calls, sources)
+
+### v0.10.0 - UWAF Dual-Mode Browser
+- Direct (clear-web) and Stealth (Tor-routed) browsing
+- Playwright-core integration with system Chromium
+- Tor proxy sidecar for stealth mode
+- Sanitize-first HTML → Markdown pipeline
+- Live noVNC browser as the visual browsing surface
+- Source chip labeling and binary download blocking
+- Stealth fail-closed design and fingerprint diversity
+
+### v0.11.0 - Automation
+- Server-side automation worker
+- Heartbeats, cron schedules, file/URL monitors
+- Wake events and unattended local Ollama execution
+- Durable run history and nudge inbox
+
+### v0.12.0 - Vision Documents
+- PDF page rasterization for vision-capable models
+- Vision capability auto-detection per model
+- Multi-tab browsing and improved WorkSpaces continuity
 
 ## In Progress
 
-### v0.7.0 - WorkSpaces Tooling (continued)
-- [x] Shell command execution with approvals
-- [x] Optional host shell executor for host-installed CLI access
-- [x] Shell target selection with container fallback when host executor is unavailable
-- [x] Shell command audit records in PostgreSQL
-- [x] Filesystem read access for approved host paths
-- [x] Filesystem write support for approved writable roots
-- [x] Managed Python/Node code sandbox
-- [x] Public-web browser control with staged form submission
-- [x] Shared managed WorkSpaces workspace mount
-
-### v0.7.1 - WorkSpaces Shell Polish
-- [x] Client-side error capture path for browser/render crashes
-- [x] Hidden-tool-message normalization to prevent raw tool bridges from crashing session reloads
-- [x] Local-Ollama switch path trimmed to avoid redundant verification calls
-- [x] Workspace-controls modal to free rail space without removing controls
-- [x] Session rail paging (15 per page) and smoother rail/chat scrolling
-
-### v0.7.0 - Chat Organization
-- [x] Chat folders
-- [x] Chat tags
-- [x] Chat search
-- [ ] Share/export chat
-
-### v0.8.0 - Enhanced Chat UX
-- [ ] Message queue (send later)
-- [ ] Input variables in prompts
-- [ ] Chat controls per-message
-- [ ] Voice input (speech-to-text)
+### v0.13.0 - Polish and Public Release
+- Open-source under MIT License
+- Public documentation and standard project files
+- Scrubbed internal-only notes and legacy chat surface
+- Parameterized deployment configuration
 
 ## Planned
 
 ### v0.9.0 - Collaboration
-- [ ] User groups
-- [ ] Granular permissions
-- [ ] Shared knowledge bases
-- [ ] Chat sharing between users
+- User groups and granular permissions
+- Shared knowledge bases
+- Session sharing between users
 
 ### v1.0.0 - Advanced Features
-- [ ] Development-section code interpreter beyond WorkSpaces's current managed sandbox
-- [ ] Docker orchestration from the Development section
-- [ ] VM orchestration from the Development section
-- [ ] Image generation
-- [ ] Advanced citation control
+- Development-section code interpreter beyond WorkSpaces's current sandbox
+- Docker orchestration from the Development section
+- VM orchestration from the Development section
+- Image generation
+- Advanced citation control
 
-### v1.1.0 - Production Ready
-- [ ] Comprehensive testing
-- [ ] Performance optimization
-- [ ] Documentation completeness
-- [ ] Mobile UI polish
+### v1.1.0 - Production Hardening
+- Comprehensive testing
+- Performance optimization
+- Documentation completeness
+- Mobile UI polish
 
 ## Future Ideas
 
 ### Development Section
+- Dedicated code interpreter workspace
 - Docker container management
 - Virtual machine control
-- Code interpreter workspace beyond the current WorkSpaces sandbox
 - Terminal integration
 
 ### Enterprise Features
@@ -133,4 +118,4 @@
 - Mobile apps
 - Desktop client
 - Browser extension
-- API access
+- Public API access

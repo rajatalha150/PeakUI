@@ -9,7 +9,7 @@ WorkSpaces is the primary app shell. Generation settings are saved per user in `
 ### Provider Selection
 
 - WorkSpaces provider settings are stored as `UserSettings.openClawProvider`, `UserSettings.openClawModel`, and `UserSettings.openClawBaseUrl`.
-- The legacy `UserSettings.chatPlatform`, `UserSettings.chatModel`, `UserSettings.chatModelProvider`, and `UserSettings.huggingFaceBaseUrl` fields still exist for shared backend compatibility, but the normal-chat UI and its sidebar are no longer part of the primary app shell.
+- The legacy `UserSettings.chatPlatform`, `UserSettings.chatModel`, and `UserSettings.chatModelProvider` fields remain in the database for schema compatibility but are no longer exposed in the WorkSpaces UI.
 - WorkSpaces supports local Ollama and OpenAI-compatible providers.
 - The saved model is provider-aware, so a duplicate model id on both platforms will still reopen against the correct source.
 - Hugging Face or compatible-provider tokens are intentionally not stored in `UserSettings`. Browser-entered tokens stay only in browser storage.
