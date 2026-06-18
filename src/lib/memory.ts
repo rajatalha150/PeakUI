@@ -36,10 +36,10 @@ export interface SessionSummary {
   createdAt: string
 }
 
-const MEMORY_DIR = join(process.cwd(), 'memory')
+const MEMORY_DIR = join(/*turbopackIgnore: true*/ process.cwd(), 'memory')
 const LONG_TERM_MEMORY_CANDIDATES = [
-  join(process.cwd(), 'memory.md'),
-  join(process.cwd(), 'MEMORY.md'),
+  join(/*turbopackIgnore: true*/ process.cwd(), 'memory.md'),
+  join(/*turbopackIgnore: true*/ process.cwd(), 'MEMORY.md'),
   join(MEMORY_DIR, 'MEMORY.md'),
 ]
 

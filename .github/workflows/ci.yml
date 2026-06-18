@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build production app
+        run: npm run build
+        env:
+          # Dummy values required by the Next.js build and Prisma config.
+          # Real secrets are never committed; they are injected at runtime.
+          DATABASE_URL: postgresql://peakui:ci-password@localhost:5432/peakui
+          JWT_SECRET: ci-jwt-secret-must-be-at-least-thirty-two-characters-long
+          NEXT_TELEMETRY_DISABLED: 1
