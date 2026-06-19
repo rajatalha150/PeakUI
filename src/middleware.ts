@@ -3,9 +3,10 @@ import type { NextRequest } from 'next/server'
 import { AUTH_COOKIE_NAME } from './lib/auth'
 import { verifyToken } from './lib/auth'
 
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const token = request.cookies.get(AUTH_COOKIE_NAME)?.value
-  const isLoginPage = request.nextUrl.pathname.startsWith('/login')
+  const pathname = request.nextUrl.pathname
+  const isLoginPage = pathname.startsWith('/login')
 
   if (!token) {
     if (!isLoginPage) {
@@ -30,5 +31,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api|_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|.*\\.).*)'],
 }
