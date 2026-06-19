@@ -69,15 +69,15 @@ export default function LoginPage() {
           <div style={{ textAlign: 'center', marginBottom: '32px' }}>
             <div style={{
               position: 'relative',
-              width: '80px', height: '80px',
+              width: '140px', height: '140px',
               background: 'var(--accent-gradient)',
-              borderRadius: '18px',
+              borderRadius: '24px',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               margin: '0 auto 16px',
               boxShadow: '0 8px 24px var(--accent-glow)',
               overflow: 'hidden',
             }}>
-              <Image src="/logo.png" alt="PeakUI" fill style={{ objectFit: 'contain', padding: '4px' }} sizes="80px" priority />
+              <Image src="/logo.png" alt="PeakUI" fill style={{ objectFit: 'contain', padding: '8px' }} sizes="140px" priority />
             </div>
             <h1 style={{ fontSize: '1.8rem', margin: 0 }}>PeakUI</h1>
             <p style={{ color: 'var(--text-secondary)', marginTop: '8px', fontSize: '0.9rem' }}>
