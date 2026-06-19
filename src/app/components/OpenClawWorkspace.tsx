@@ -2,7 +2,8 @@
 
 import React, { useEffect, useMemo, useRef, useState, useDeferredValue, useCallback, memo } from 'react';
 import { randomUUID } from '@/lib/uuid';
-import { Activity, AlertCircle, BookOpen, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Cpu, Database, Download, FileText, Folder, Globe, ListTodo, Loader2, Menu, MessageSquare, MoreHorizontal, Paperclip, Pin, Plus, Redo2, RefreshCw, Send, Server, Shield, Square, Star, Tag, Trash2, Wand2, Wifi, WifiOff, X } from 'lucide-react';
+import Image from 'next/image';
+import { Activity, AlertCircle, BookOpen, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Database, Download, FileText, Folder, Globe, ListTodo, Loader2, Menu, MessageSquare, MoreHorizontal, Paperclip, Pin, Plus, Redo2, RefreshCw, Send, Server, Shield, Square, Star, Tag, Trash2, Wand2, Wifi, WifiOff, X } from 'lucide-react';
 import { ChatMessageContent, AssistantDownloads, ThinkingBlock } from './ChatMessageContent';
 import HelpHint from './HelpHint';
 import SourceChips from './SourceChips';
@@ -8666,8 +8667,8 @@ export default function OpenClawWorkspace({
                   fontFamily: 'inherit',
                 }}
               >
-                <div style={{ background: 'var(--accent-gradient)', padding: '8px', borderRadius: '12px' }}>
-                  <Cpu size={24} color="white" />
+                <div style={{ position: 'relative', background: 'var(--accent-gradient)', width: '40px', height: '40px', borderRadius: '12px', overflow: 'hidden', flexShrink: 0 }}>
+                  <Image src="/logo.png" alt="PeakUI" fill style={{ objectFit: 'contain', padding: '5px' }} sizes="40px" />
                 </div>
                 <div>
                   <h2 style={{ fontSize: '1.2rem', margin: 0 }}>PeakUI</h2>

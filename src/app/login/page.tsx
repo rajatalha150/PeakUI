@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Cpu, Lock, User, ArrowRight } from 'lucide-react';
+import Image from 'next/image';
+import { Lock, User, ArrowRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { getPasswordPolicyText } from '@/lib/auth-validation';
 
@@ -66,15 +67,17 @@ export default function LoginPage() {
 
         <div style={{ position: 'relative', zIndex: 1 }}>
           <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-            <div style={{ 
-              width: '64px', height: '64px', 
-              background: 'var(--accent-gradient)', 
-              borderRadius: '16px', 
+            <div style={{
+              position: 'relative',
+              width: '64px', height: '64px',
+              background: 'var(--accent-gradient)',
+              borderRadius: '16px',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               margin: '0 auto 16px',
-              boxShadow: '0 8px 24px var(--accent-glow)'
+              boxShadow: '0 8px 24px var(--accent-glow)',
+              overflow: 'hidden',
             }}>
-              <Cpu size={32} color="white" />
+              <Image src="/logo.png" alt="PeakUI" fill style={{ objectFit: 'contain', padding: '10px' }} sizes="64px" priority />
             </div>
             <h1 style={{ fontSize: '1.8rem', margin: 0 }}>PeakUI</h1>
             <p style={{ color: 'var(--text-secondary)', marginTop: '8px', fontSize: '0.9rem' }}>

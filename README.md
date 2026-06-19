@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/logo.png" alt="PeakUI logo" width="120" height="120" />
+</p>
+
 # PeakUI
 
 **PeakUI** is a local-first, self-hosted AI studio built around **WorkSpaces** — a persistent agent workspace for local Ollama models, OpenAI-compatible providers, RAG, tools, browser research, Canvas artifacts, automation, and session intelligence.
