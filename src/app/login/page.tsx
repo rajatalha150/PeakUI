@@ -71,7 +71,7 @@ export default function LoginPage() {
               position: 'relative',
               width: '180px', height: '180px',
               background: 'var(--accent-gradient)',
-              borderRadius: '28px',
+              borderRadius: '3px',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               margin: '0 auto 16px',
               boxShadow: '0 10px 32px var(--accent-glow)',

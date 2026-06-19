@@ -8667,7 +8667,7 @@ export default function OpenClawWorkspace({
                   fontFamily: 'inherit',
                 }}
               >
-                <div style={{ position: 'relative', background: 'var(--accent-gradient)', width: '110px', height: '110px', borderRadius: '24px', overflow: 'hidden', flexShrink: 0 }}>
+                <div style={{ position: 'relative', background: 'var(--accent-gradient)', width: '110px', height: '110px', borderRadius: '2px', overflow: 'hidden', flexShrink: 0 }}>
                   <Image src="/logo.png" alt="PeakUI" fill style={{ objectFit: 'contain' }} sizes="110px" />
                 </div>
                 <div>
