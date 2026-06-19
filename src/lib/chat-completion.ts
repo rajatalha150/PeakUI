@@ -20,6 +20,7 @@ import {
 import { buildOpenClawSystemPrompt, buildChatInternetToolPrompt } from '@/lib/openclaw-prompt';
 import type { OpenClawPersona, OpenClawUserProfile } from '@/lib/openclaw-persona';
 import { normalizeOpenClawProvider } from '@/lib/settings';
+import { getModelContextRecommendation, shouldUseCompactToolManifest } from './model-context';
 import { unloadOtherOllamaModels } from '@/lib/ollama-control';
 import { getHostExecutorStatus } from './openclaw-host-executor';
 import type { ServerStreamStatus } from '@/lib/stream-status';
@@ -40,10 +41,10 @@ import {
 
 const CHAT_HEARTBEAT_INTERVAL_MS = 15000;
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
-const DEFAULT_OLLAMA_CONTEXT_LENGTH = 16384;
+const DEFAULT_OLLAMA_CONTEXT_LENGTH = 8192;
 const MIN_CONTEXT_LENGTH = 512;
 const OLLAMA_CONTEXT_CAP_ENV = 'PEAKUI_OLLAMA_CONTEXT_CAP';
-const OLLAMA_START_TIMEOUT_MS = 60000;
+const OLLAMA_START_TIMEOUT_MS = 120000;
 const OLLAMA_SHORT_CHAT_FALLBACK_MAX_TOKENS = 1;
 const OLLAMA_SHORT_CHAT_FALLBACK_MAX_CHARS = 32;
 const OLLAMA_SHORT_CHAT_FALLBACK_MAX_DURATION_NS = 50_000_000;
@@ -351,7 +352,7 @@ function normalizeProviderBaseUrl(value: unknown, provider: ChatProvider, fallba
   }
 }
 
-function buildNumericContextCandidates(requestedContext: number, upperBound = LOCAL_OLLAMA_CONTEXT_CAP): number[] {
+function buildNumericContextCandidates(requestedContext: number, upperBound: number): number[] {
   const initial = Math.max(
     MIN_CONTEXT_LENGTH,
     Math.min(requestedContext, upperBound),
@@ -372,16 +373,39 @@ function buildNumericContextCandidates(requestedContext: number, upperBound = LO
   return candidates;
 }
 
-function buildContextCandidates(requestedContext: number, preferNativeDefault: boolean): Array<number | null> {
+function buildContextCandidates(
+  requestedContext: number,
+  preferNativeDefault: boolean,
+  modelName: string,
+  provider: ChatProvider,
+): Array<number | null> {
+  const recommendation = provider === 'ollama'
+    ? getModelContextRecommendation(modelName, provider)
+    : null;
+  const hardCap = recommendation && !recommendation.isCloud
+    ? Math.min(LOCAL_OLLAMA_CONTEXT_CAP, recommendation.maxContext)
+    : LOCAL_OLLAMA_CONTEXT_CAP;
+
   if (!preferNativeDefault) {
-    return buildNumericContextCandidates(requestedContext);
+    return buildNumericContextCandidates(
+      Math.min(requestedContext, hardCap),
+      hardCap,
+    );
+  }
+
+  // For local models, prefer a conservative default context over Ollama's
+  // native default. Native defaults for modern models can be large (8k+)
+  // and cause first-token stalls on CPU-bound small models.
+  if (recommendation && !recommendation.isCloud) {
+    const startContext = Math.min(recommendation.defaultContext, hardCap);
+    return buildNumericContextCandidates(startContext, hardCap);
   }
 
   const fallbackStart = Math.max(
     MIN_CONTEXT_LENGTH,
-    Math.floor(Math.min(DEFAULT_SETTINGS.contextLength, LOCAL_OLLAMA_CONTEXT_CAP) / 2),
+    Math.floor(Math.min(DEFAULT_SETTINGS.contextLength, hardCap) / 2),
   );
-  const fallbackCandidates = buildNumericContextCandidates(fallbackStart);
+  const fallbackCandidates = buildNumericContextCandidates(fallbackStart, hardCap);
   return [null, ...fallbackCandidates];
 }
 
@@ -833,6 +857,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const workspacePrepEndedAt = performance.now();
     const effectiveUwafBrowserMode = internetToolEnabled ? effectiveToolAccess.uwafBrowserMode : 'deny';
 
+    const latestUserContent = [...nonSystemMessages].reverse().find(message => message.role === 'user')?.content || ''
     const promptBuildStartedAt = performance.now();
     const openClawPrompt = surface === 'openclaw'
       ? buildOpenClawSystemPrompt({
@@ -865,6 +890,8 @@ export async function createChatCompletionResponse(req: NextRequest) {
                 skillTemplates: workspaceContext.skillTemplates,
               }
             : undefined,
+          latestUserQuery: latestUserContent,
+          toolManifestMode: shouldUseCompactToolManifest(requestedModel, provider) ? 'compact' : 'full',
         })
       : '';
     const chatInternetPrompt = surface === 'chat' && internetToolEnabled
@@ -873,7 +900,6 @@ export async function createChatCompletionResponse(req: NextRequest) {
     // Current date/time so the model stays grounded in the present
     const now = new Date()
     const dateTimeInstruction = `Current date and time: ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}. Always consider this when answering questions about dates, schedules, time-sensitive topics, or current events. Your training data has a cutoff and may be outdated — when in doubt, acknowledge uncertainty about recent developments rather than guessing.`
-    const latestUserContent = [...nonSystemMessages].reverse().find(message => message.role === 'user')?.content || ''
     const continuationInstruction = surface === 'openclaw' && isContinuationWorkspacePrompt(latestUserContent)
       ? 'The latest user message is a continuation request. Resolve it against the immediately preceding visible assistant response and recent raw transcript. Do not fall back to older working memory, task-state defaults, or greetings unless the recent transcript has no actionable prior step.'
       : ''
@@ -1187,7 +1213,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
           // Use raw fetch instead of the Ollama SDK so <think> content is preserved in the stream.
           let ollamaRes: Response;
           try {
-            emitStatus('starting-model');
+            emitStatus('model-loading');
             upstreamAbort.signal.addEventListener('abort', abortStart, { once: true });
             upstreamKind = 'ollama-chat';
             upstreamStartedAt = performance.now();
@@ -1488,10 +1514,17 @@ export async function createChatCompletionResponse(req: NextRequest) {
               await unloadOtherOllamaModels(baseUrl, requestedModel, upstreamAbort.signal);
             }
 
+            emitStatus('starting-model');
+
             // Match the terminal/Open WebUI local path first: let Ollama choose
             // its own default context unless the user explicitly changed it.
             const preferNativeContext = settings.ollamaUseModelDefaultContext;
-            const contextCandidates = buildContextCandidates(settings.contextLength, preferNativeContext);
+            const contextCandidates = buildContextCandidates(
+              settings.contextLength,
+              preferNativeContext,
+              requestedModel,
+              provider,
+            );
 
             for (const numCtx of contextCandidates) {
               try {

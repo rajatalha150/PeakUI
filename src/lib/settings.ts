@@ -122,7 +122,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   systemPrompt: '',
   temperature: 0.7,
   ollamaUseModelDefaultTemperature: false,
-  contextLength: 16384,
+  contextLength: 8192,
   ollamaUseModelDefaultContext: true,
   theme: 'aurora',
   openClawPersonaTemplate: 'custom',

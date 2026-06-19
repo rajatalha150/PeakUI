@@ -25,12 +25,8 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
     adapter: 'native',
     toolName: 'pdf_document',
     promptLines: [
-      'PDF DOCUMENT CAPABILITY: When the user asks you to create, generate, produce, or return a downloadable PDF, use the pdf_document tool. Do not use shell, filesystem, or code sandbox to generate PDFs unless the user specifically asks to write source code.',
-      'The pdf_document tool accepts either markdown-like content or structured sections, fields, tables, and callouts, then creates a polished server-generated PDF Canvas artifact and chat download URL.',
-      'PROFESSIONAL DOCUMENT RULE: Treat PDFs as designed documents, not markdown transcripts. Prefer structured sections, fields, tables, and callouts over putting everything into one markdown string.',
-      'For invoices, receipts, estimates, contracts, resumes, letters, reports, checklists, and forms: put metadata and label/value facts in fields, line items in tables, warnings/notes in callouts, and only short narrative prose in section body.',
-      'Avoid markdown tables, horizontal rules, decorative markdown, and long copied summaries inside section body. Do not duplicate the same facts in both body text and tables.',
-      'After a PDF tool succeeds, keep the user-facing answer download-first and concise. Do not restate the whole document in markdown unless the user asks for an inline summary.',
+      'PDF DOCUMENT CAPABILITY: When the user asks for a downloadable PDF, use the pdf_document tool.',
+      'Prefer structured sections, fields, tables, and callouts over long markdown body text.',
     ],
     example: OPENCLAW_PDF_DOCUMENT_TOOL_EXAMPLE,
   },
@@ -41,10 +37,8 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
     toolName: 'tax_return',
     requiresWorkspace: true,
     promptLines: [
-      'TAX PDF CAPABILITY: When the user has enabled a Knowledge Base folder containing tax documents and asks for a downloadable tax return PDF, use the tax_return tool.',
-      'The tax_return tool extracts a structured tax packet from ready Knowledge Base documents, saves a server-generated PDF artifact, and returns a download URL for chat.',
-      'Use generate_review_pdf to create a review packet from W-2/1099/supporting documents. Use fill_pdf_form only when the user identifies a fillable PDF template document id from Knowledge Base.',
-      'This workflow creates a review draft with source citations and missing-field warnings. Do not claim it is officially filed, e-filed, or tax-advice complete.',
+      'TAX PDF CAPABILITY: When the user has enabled a Knowledge Base tax folder and asks for a downloadable tax return PDF, use the tax_return tool.',
+      'Use generate_review_pdf for W-2/1099 review packets; use fill_pdf_form only when a fillable PDF template id is provided.',
     ],
     example: OPENCLAW_TAX_RETURN_TOOL_EXAMPLE,
   },
@@ -54,10 +48,8 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
     adapter: 'native',
     toolName: 'workbook_document',
     promptLines: [
-      'EXCEL WORKBOOK CAPABILITY: When the user asks to create, generate, produce, return, or download Excel, XLSX, spreadsheet, workbook, budget, invoice workbook, timesheet, ledger, tracker, inventory, schedule, or multi-sheet analysis output, use the workbook_document tool.',
-      'The workbook_document tool creates a real downloadable XLSX Canvas artifact. Do not answer workbook requests with markdown tables or use shell/code sandbox unless the user specifically asks to write source code.',
-      'PROFESSIONAL WORKBOOK RULE: Treat workbooks as structured spreadsheet deliverables. Use sheets for separate topics, columns with types for data, rows for records, tables for summaries, notes for assumptions, and formulas/totals for calculations.',
-      'For financial, invoice, budget, timesheet, ledger, and inventory workbooks: format currency, dates, numbers, totals, filters, and frozen headers. Keep chat responses download-first and concise after the tool succeeds.',
+      'EXCEL WORKBOOK CAPABILITY: When the user asks for a downloadable spreadsheet, use the workbook_document tool.',
+      'Use sheets, typed columns, and totals for structured data; keep the chat response download-first after the tool succeeds.',
     ],
     example: OPENCLAW_WORKBOOK_DOCUMENT_TOOL_EXAMPLE,
   },
@@ -67,10 +59,8 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
     adapter: 'native',
     toolName: 'word_document',
     promptLines: [
-      'WORD DOCUMENT CAPABILITY: When the user asks to create, generate, produce, return, or download a Word document, DOCX, proposal, contract, resume, letter, memo, report, policy, checklist, or form-style business document, use the word_document tool.',
-      'The word_document tool creates a real downloadable DOCX Canvas artifact. Do not answer Word document requests with markdown or use shell/code sandbox unless the user specifically asks to write source code.',
-      'PROFESSIONAL WORD DOCUMENT RULE: Treat Word documents as designed business deliverables. Use fields for document metadata, sections for prose, bullets/numbered lists for steps, tables for structured comparisons or pricing, and callouts for notes, warnings, and next steps.',
-      'For proposals, contracts, reports, resumes, memos, letters, policies, and forms: keep the chat response download-first and concise after the tool succeeds. Do not restate the whole document in markdown unless asked.',
+      'WORD DOCUMENT CAPABILITY: When the user asks for a downloadable Word document, use the word_document tool.',
+      'Use fields for metadata, sections for prose, tables for structured comparisons, and callouts for notes or next steps.',
     ],
     example: OPENCLAW_WORD_DOCUMENT_TOOL_EXAMPLE,
   },
@@ -80,8 +70,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
     adapter: 'mcp',
     future: true,
     promptLines: [
-      'FUTURE MCP SKILL INVENTORY: PeakUI will use curated MCP adapters to help the AI discover and learn new day-to-day skills such as document conversion, template rendering, PDF manipulation, Word documents, spreadsheets, workbooks, and business workflows.',
-      'Until MCP adapters are explicitly enabled and approved, use native PeakUI tools only. Do not claim access to external MCP servers.',
+      'FUTURE MCP SKILL INVENTORY: PeakUI will use curated MCP adapters for additional skills. Until explicitly enabled, use native PeakUI tools only.',
     ],
   },
 ]
@@ -93,15 +82,75 @@ export function listActiveCapabilityLabels(options: { workspaceAvailable: boolea
     .map(capability => capability.label)
 }
 
-export function buildCapabilityPromptLines(options: { workspaceAvailable: boolean; includeFuture?: boolean }): string[] {
+export interface BuildCapabilityPromptOptions {
+  workspaceAvailable: boolean
+  includeFuture?: boolean
+  /**
+   * If provided, only capabilities in this set are included. This lets the
+   * chat pipeline avoid sending PDF/Word/Excel tutorials on turns where the
+   * user is unlikely to need them, while keeping the tool available when it
+   * is explicitly relevant.
+   */
+  includeIds?: Set<string>
+}
+
+export function buildCapabilityPromptLines(options: BuildCapabilityPromptOptions): string[] {
+  const includeIds = options.includeIds
   const lines: string[] = []
   for (const capability of OPENCLAW_CAPABILITIES) {
     if (capability.future && !options.includeFuture) continue
     if (capability.requiresWorkspace && !options.workspaceAvailable) continue
+    if (includeIds && !includeIds.has(capability.id)) continue
     lines.push(...capability.promptLines)
     if (capability.example) {
       lines.push(`Use this exact format:\n${capability.example}`)
     }
   }
   return lines
+}
+
+interface CapabilityTrigger {
+  id: string
+  keywords: string[]
+}
+
+const CAPABILITY_KEYWORD_TRIGGERS: CapabilityTrigger[] = [
+  {
+    id: 'pdf-document',
+    keywords: ['pdf', 'document', 'report', 'invoice', 'memo', 'letter', 'checklist', 'form'],
+  },
+  {
+    id: 'workbook-document',
+    keywords: ['excel', 'spreadsheet', 'workbook', 'xlsx', 'csv', 'sheet'],
+  },
+  {
+    id: 'word-document',
+    keywords: ['word', 'docx', 'proposal', 'contract', 'resume'],
+  },
+  {
+    id: 'tax-return-pdf',
+    keywords: ['tax', 'w-2', 'w2', '1099', 'return', 'irs'],
+  },
+]
+
+/**
+ * Pick document-generation capability IDs that are relevant to the latest user
+ * query. This keeps verbose JSON examples out of turns where the user is just
+ * chatting or doing filesystem/shell work. The model still sees the capability
+ * label in the active-tools list, so it can request the full instructions by
+ * wording its next turn around the relevant document type.
+ */
+export function selectCapabilityIdsForQuery(
+  query: string | undefined,
+  workspaceAvailable: boolean,
+): Set<string> | undefined {
+  if (!workspaceAvailable || !query || !query.trim()) return new Set()
+
+  const normalized = query.trim().toLowerCase()
+  const matchedIds = CAPABILITY_KEYWORD_TRIGGERS
+    .filter(trigger => trigger.keywords.some(keyword => normalized.includes(keyword)))
+    .map(trigger => trigger.id)
+
+  if (matchedIds.length === 0) return new Set()
+  return new Set(matchedIds)
 }

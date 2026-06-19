@@ -11,7 +11,7 @@ import {
   OPENCLAW_UWAF_BROWSER_TOOL_EXAMPLE,
   OPENCLAW_WEB_TOOL_EXAMPLE,
 } from './openclaw-tools';
-import { buildCapabilityPromptLines, listActiveCapabilityLabels } from './openclaw-capabilities';
+import { buildCapabilityPromptLines, listActiveCapabilityLabels, selectCapabilityIdsForQuery } from './openclaw-capabilities';
 import { listSearchProvidersForPrompt } from './uwaf-search-providers';
 
 export function buildChatInternetToolPrompt(): string {
@@ -61,6 +61,42 @@ export interface OpenClawPromptContext {
   browserMode?: 'deny' | 'read-only' | 'ask-first';
   uwafBrowserMode?: 'deny' | 'direct' | 'stealth';
   uwafRuntimeContext?: string;
+  /**
+   * Restrict document-generation capabilities (PDF, Word, Excel, Tax) to this
+   * set. If omitted, all enabled capabilities are included for backward
+   * compatibility. Pass an empty set to skip document tutorials on simple
+   * turns where they are unlikely to be needed.
+   */
+  activeCapabilityIds?: Set<string>;
+  /**
+   * Latest user message. When combined with `toolManifestMode: 'compact'`,
+   * detailed tool instructions are only included if the query signals that
+   * the user wants to use a tool. Otherwise the model gets a short one-line
+   * manifest of available tools.
+   */
+  latestUserQuery?: string;
+  /**
+   * Controls how verbose the tool sections are. 'full' (default) emits the
+   * complete instructions and examples. 'compact' emits one-line availability
+   * notes for tools that the latest query does not obviously need.
+   */
+  toolManifestMode?: 'full' | 'compact';
+}
+
+const TOOL_INTENT_KEYWORDS: Record<'internet' | 'shell' | 'filesystem' | 'filesystemWrite' | 'code' | 'browser' | 'uwaf', string[]> = {
+  internet: ['search', 'look up', 'lookup', 'find online', 'web search', 'google', 'what is the latest', 'current', 'news'],
+  shell: ['shell', 'command', 'run', 'execute', 'terminal', 'bash', 'script', 'git', 'npm', 'yarn', 'pnpm', 'node', 'python', 'docker', 'compose', 'ls', 'cat', 'grep', 'find', 'install', 'build', 'deploy'],
+  filesystem: ['file', 'files', 'folder', 'directory', 'path', 'read', 'list', 'open file', 'create file', 'check file', 'show file'],
+  filesystemWrite: ['write file', 'save file', 'edit file', 'update file', 'create file', 'append file', 'mkdir'],
+  code: ['code', 'run code', 'execute code', 'python script', 'node script', 'sandbox', 'quick script'],
+  browser: ['browse', 'browser', 'website', 'url', 'open page', 'visit page', 'web page', 'fetch page', 'look at site'],
+  uwaf: ['unified browser', 'shared browser', 'tor', '.onion', 'onion', 'dark web', 'stealth browse'],
+}
+
+function queryMatchesToolIntent(query: string | undefined, keywords: string[]): boolean {
+  if (!query || !query.trim()) return false
+  const normalized = query.trim().toLowerCase()
+  return keywords.some(keyword => normalized.includes(keyword.toLowerCase()))
 }
 
 export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): string {
@@ -120,142 +156,182 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
   ];
 
   if (context.internetToolEnabled && !uwafBrowserAvailable) {
-    lines.push(buildChatInternetToolPrompt());
+    const internetIntent = queryMatchesToolIntent(context.latestUserQuery, TOOL_INTENT_KEYWORDS.internet);
+    if (context.toolManifestMode !== 'compact' || internetIntent) {
+      lines.push(buildChatInternetToolPrompt());
+    } else {
+      lines.push('WEB RESEARCH: available when the user asks for current external information. Use one web tool block per response.');
+    }
   }
 
-  lines.push(...buildCapabilityPromptLines({ workspaceAvailable: Boolean(context.workspace), includeFuture: true }));
+  const activeCapabilityIds = context.activeCapabilityIds
+    ?? selectCapabilityIdsForQuery(context.latestUserQuery, Boolean(context.workspace));
+  lines.push(...buildCapabilityPromptLines({
+    workspaceAvailable: Boolean(context.workspace),
+    includeFuture: false,
+    includeIds: activeCapabilityIds,
+  }));
 
   if (context.shellEnabled) {
-    lines.push(
-      'SHELL EXECUTION CAPABILITY: You can request to run shell commands on the user\'s system.',
-      shellTarget === 'host'
-        ? 'The shell is currently configured to run on the host machine through a localhost executor, so commands see the host PATH and installed programs.'
-        : 'The shell currently runs inside the PeakUI runtime container, so verify available programs before depending on them.',
-      shellTarget === 'host'
-        ? `Host shell commands are constrained by approval rules, timeouts, output caps, and approved working-directory roots. The managed WorkSpaces workspace is available at ${getOpenClawWorkspaceHostRoot()}.`
-        : 'Do not use shell for host file or directory inspection when the filesystem tool can do the job. Container paths may differ from host paths such as /home or /tmp.',
-      shellTarget === 'host'
-        ? `When you need the shared workspace, prefer ${getOpenClawWorkspaceHostRoot()}.`
-        : `The managed WorkSpaces workspace is available to shell at ${getOpenClawWorkspaceHostRoot()} (host-style alias) and ${getOpenClawWorkspaceContainerRoot()} (container path).`,
-      'Do not treat the PeakUI application/runtime directory as the user workspace. Only inspect PeakUI app source when the user explicitly asks to debug or modify PeakUI itself.',
-      'Prefer plain commands without unnecessary pipes or redirection. Shell operators such as &&, |, or 2>&1 disable auto-approval and usually are not needed for simple checks.',
-      'When you need to run a command, explain what it does and why it is needed, then end your response with exactly one shell tool block.',
-      `Use this exact format:\n${OPENCLAW_SHELL_TOOL_EXAMPLE}`,
-      'Do not invent command results. Wait for the tool output and continue from it on the next turn.',
-      'After a command runs, interpret the output and explain what it means for the task.',
-      'If the latest system message already contains the result for the command you wanted, do not repeat the same command. Use the result or choose a different next step.',
-      'Safe inspection commands commonly include: ls, pwd, cat, grep, rg, find, which, command -v, git status, node --version, and similar checks.',
-      'Commands that fetch from the network, install software, or start services such as git clone, curl, wget, npm install, npx, docker run, or docker compose up require explicit approval when approvals are enabled.',
-      'Dangerous commands (rm -rf, sudo, ssh, etc.) are blocked for safety.',
-    );
+    const shellIntent = queryMatchesToolIntent(context.latestUserQuery, TOOL_INTENT_KEYWORDS.shell);
+    if (context.toolManifestMode !== 'compact' || shellIntent) {
+      lines.push(
+        'SHELL EXECUTION CAPABILITY: You can request to run shell commands on the user\'s system.',
+        shellTarget === 'host'
+          ? 'The shell is currently configured to run on the host machine through a localhost executor, so commands see the host PATH and installed programs.'
+          : 'The shell currently runs inside the PeakUI runtime container, so verify available programs before depending on them.',
+        shellTarget === 'host'
+          ? `Host shell commands are constrained by approval rules, timeouts, output caps, and approved working-directory roots. The managed WorkSpaces workspace is available at ${getOpenClawWorkspaceHostRoot()}.`
+          : 'Do not use shell for host file or directory inspection when the filesystem tool can do the job. Container paths may differ from host paths such as /home or /tmp.',
+        shellTarget === 'host'
+          ? `When you need the shared workspace, prefer ${getOpenClawWorkspaceHostRoot()}.`
+          : `The managed WorkSpaces workspace is available to shell at ${getOpenClawWorkspaceHostRoot()} (host-style alias) and ${getOpenClawWorkspaceContainerRoot()} (container path).`,
+        'Do not treat the PeakUI application/runtime directory as the user workspace. Only inspect PeakUI app source when the user explicitly asks to debug or modify PeakUI itself.',
+        'Prefer plain commands without unnecessary pipes or redirection. Shell operators such as &&, |, or 2>&1 disable auto-approval and usually are not needed for simple checks.',
+        'When you need to run a command, explain what it does and why it is needed, then end your response with exactly one shell tool block.',
+        `Use this exact format:\n${OPENCLAW_SHELL_TOOL_EXAMPLE}`,
+        'Do not invent command results. Wait for the tool output and continue from it on the next turn.',
+        'After a command runs, interpret the output and explain what it means for the task.',
+        'If the latest system message already contains the result for the command you wanted, do not repeat the same command. Use the result or choose a different next step.',
+        'Safe inspection commands commonly include: ls, pwd, cat, grep, rg, find, which, command -v, git status, node --version, and similar checks.',
+        'Commands that fetch from the network, install software, or start services such as git clone, curl, wget, npm install, npx, docker run, or docker compose up require explicit approval when approvals are enabled.',
+        'Dangerous commands (rm -rf, sudo, ssh, etc.) are blocked for safety.',
+      );
+    } else {
+      lines.push('SHELL EXECUTION: available when the user asks to run a command. Use one shell tool block with the exact format shown in the full instructions.');
+    }
   }
 
   if (filesystemAvailable) {
-    lines.push(
-      'FILESYSTEM CAPABILITY: You can inspect approved host files and directories in read-only mode.',
-      'Use the host path exactly as the user would see it, not an internal container path.',
-      'Prefer this filesystem tool over shell whenever the user asks about local files, source code, folders, /home, /tmp, or other host paths.',
-      filesystemWriteAvailable
-        ? 'Supported filesystem actions are: list, read, stat, write, append, and mkdir.'
-        : 'Supported filesystem actions are: list, read, and stat.',
-      `Use this exact format:\n${OPENCLAW_FILESYSTEM_TOOL_EXAMPLE}`,
-      `Approved host paths: ${allowedFilesystemPaths.join(', ')}.`,
-      'Only request paths inside the approved host paths. If you need a broader path, say so explicitly instead of guessing.',
-      'After a filesystem tool result arrives, continue from the actual file contents or listing you were given.',
-      'If the latest system message already contains the filesystem result you needed, do not repeat the same request. Use it to answer or move to a different path/action.',
-    );
+    const fsIntent = queryMatchesToolIntent(context.latestUserQuery, TOOL_INTENT_KEYWORDS.filesystem);
+    if (context.toolManifestMode !== 'compact' || fsIntent) {
+      lines.push(
+        'FILESYSTEM CAPABILITY: You can inspect approved host files and directories in read-only mode.',
+        'Use the host path exactly as the user would see it, not an internal container path.',
+        'Prefer this filesystem tool over shell whenever the user asks about local files, source code, folders, /home, /tmp, or other host paths.',
+        filesystemWriteAvailable
+          ? 'Supported filesystem actions are: list, read, stat, write, append, and mkdir.'
+          : 'Supported filesystem actions are: list, read, and stat.',
+        `Use this exact format:\n${OPENCLAW_FILESYSTEM_TOOL_EXAMPLE}`,
+        `Approved host paths: ${allowedFilesystemPaths.join(', ')}.`,
+        'Only request paths inside the approved host paths. If you need a broader path, say so explicitly instead of guessing.',
+        'After a filesystem tool result arrives, continue from the actual file contents or listing you were given.',
+        'If the latest system message already contains the filesystem result you needed, do not repeat the same request. Use it to answer or move to a different path/action.',
+      );
+    } else {
+      lines.push('FILESYSTEM: available to inspect approved host paths. Use one filesystem tool block per response.');
+    }
   }
 
   if (filesystemWriteAvailable) {
-    lines.push(
-      'FILESYSTEM WRITE CAPABILITY: You can create folders and write text files inside approved writable host roots.',
-      'Use filesystem write actions for small, explicit text changes when the user wants files created or edited.',
-      'Prefer the code sandbox when you need to run code that generates files, and prefer shell only when the task truly requires commands rather than direct file edits.',
-      `Write example:\n${OPENCLAW_FILESYSTEM_WRITE_TOOL_EXAMPLE}`,
-      `Approved writable host roots: ${writableFilesystemPaths.join(', ')}.`,
-      'Only request writes inside those approved writable roots.',
-      'When writing a file, send the full target content you want persisted. Do not assume patch utilities exist unless you actually use shell separately.',
-      'If you need to create parent folders first, set createDirectories to true.',
-    );
+    const fsWriteIntent = queryMatchesToolIntent(context.latestUserQuery, TOOL_INTENT_KEYWORDS.filesystemWrite);
+    if (context.toolManifestMode !== 'compact' || fsWriteIntent) {
+      lines.push(
+        'FILESYSTEM WRITE CAPABILITY: You can create folders and write text files inside approved writable host roots.',
+        'Use filesystem write actions for small, explicit text changes when the user wants files created or edited.',
+        'Prefer the code sandbox when you need to run code that generates files, and prefer shell only when the task truly requires commands rather than direct file edits.',
+        `Write example:\n${OPENCLAW_FILESYSTEM_WRITE_TOOL_EXAMPLE}`,
+        `Approved writable host roots: ${writableFilesystemPaths.join(', ')}.`,
+        'Only request writes inside those approved writable roots.',
+        'When writing a file, send the full target content you want persisted. Do not assume patch utilities exist unless you actually use shell separately.',
+        'If you need to create parent folders first, set createDirectories to true.',
+      );
+    } else {
+      lines.push('FILESYSTEM WRITE: available to create/edit files in approved writable roots. Use one filesystem tool block per response.');
+    }
   }
 
   if (codeExecutionAvailable) {
-    lines.push(
-      'CODE SANDBOX CAPABILITY: You can run short Python or Node scripts inside a managed WorkSpaces workspace.',
-      'Use this when you need to execute code, inspect runtime behavior, transform data, or generate artifacts that are easier to produce programmatically than by reasoning alone.',
-      'The sandbox is workspace-scoped, time-limited, output-limited, and returns generated files. It is not a full VM, and private/local network targets remain unavailable through the browser tool.',
-      'Prefer the sandbox over shell for quick scripts or data-processing tasks.',
-      `Use this exact format:\n${OPENCLAW_CODE_TOOL_EXAMPLE}`,
-      'workspacePath is optional and relative to the managed workspace root. If omitted, the run uses the current selected WorkSpaces workspace.',
-      'Do not request package installs or long-running daemons through the code tool.',
-      'After a code result arrives, use the actual stdout, stderr, exit code, and artifact list to continue.',
-    );
+    const codeIntent = queryMatchesToolIntent(context.latestUserQuery, TOOL_INTENT_KEYWORDS.code);
+    if (context.toolManifestMode !== 'compact' || codeIntent) {
+      lines.push(
+        'CODE SANDBOX CAPABILITY: You can run short Python or Node scripts inside a managed WorkSpaces workspace.',
+        'Use this when you need to execute code, inspect runtime behavior, transform data, or generate artifacts that are easier to produce programmatically than by reasoning alone.',
+        'The sandbox is workspace-scoped, time-limited, output-limited, and returns generated files. It is not a full VM, and private/local network targets remain unavailable through the browser tool.',
+        'Prefer the sandbox over shell for quick scripts or data-processing tasks.',
+        `Use this exact format:\n${OPENCLAW_CODE_TOOL_EXAMPLE}`,
+        'workspacePath is optional and relative to the managed workspace root. If omitted, the run uses the current selected WorkSpaces workspace.',
+        'Do not request package installs or long-running daemons through the code tool.',
+        'After a code result arrives, use the actual stdout, stderr, exit code, and artifact list to continue.',
+      );
+    } else {
+      lines.push('CODE SANDBOX: available to run short Python/Node scripts in the workspace. Use one code tool block per response.');
+    }
   }
 
   if (browserAvailable && context.internetToolEnabled) {
-    lines.push(
-      'BROWSER CAPABILITY: You can navigate public web pages, inspect links/forms, and extract page content using a controlled browsing session.',
-      'This browser is limited to public HTTP/HTTPS pages. Local/private hosts, non-standard ports, and credentialed URLs are blocked.',
-      browserMode === 'read-only'
-        ? 'Browser mode is read-only: you may open pages, click links, and extract content, but not fill or submit forms.'
-        : 'Browser mode allows page navigation plus form interactions. Filling is staged locally; submitting forms may require user approval.',
-      'Prefer the browser tool over generic web research when the task depends on step-by-step navigation, page structure, or form discovery.',
-      `Use this exact format:\n${OPENCLAW_BROWSER_TOOL_EXAMPLE}`,
-      'Supported browser actions are: open, click, fill, submit, and extract.',
-      'click can target either linkIndex or linkText from the last opened page.',
-      'extract mode can be summary, text, links, forms, or html.',
-      'If a site needs heavy client-side JavaScript, login, or private-network access, explain that limitation instead of pretending it worked.',
-    );
+    const browserIntent = queryMatchesToolIntent(context.latestUserQuery, TOOL_INTENT_KEYWORDS.browser);
+    if (context.toolManifestMode !== 'compact' || browserIntent) {
+      lines.push(
+        'BROWSER CAPABILITY: You can navigate public web pages, inspect links/forms, and extract page content using a controlled browsing session.',
+        'This browser is limited to public HTTP/HTTPS pages. Local/private hosts, non-standard ports, and credentialed URLs are blocked.',
+        browserMode === 'read-only'
+          ? 'Browser mode is read-only: you may open pages, click links, and extract content, but not fill or submit forms.'
+          : 'Browser mode allows page navigation plus form interactions. Filling is staged locally; submitting forms may require user approval.',
+        'Prefer the browser tool over generic web research when the task depends on step-by-step navigation, page structure, or form discovery.',
+        `Use this exact format:\n${OPENCLAW_BROWSER_TOOL_EXAMPLE}`,
+        'Supported browser actions are: open, click, fill, submit, and extract.',
+        'click can target either linkIndex or linkText from the last opened page.',
+        'extract mode can be summary, text, links, forms, or html.',
+        'If a site needs heavy client-side JavaScript, login, or private-network access, explain that limitation instead of pretending it worked.',
+      );
+    } else {
+      lines.push('BROWSER: available to navigate public web pages. Use one browser tool block per response.');
+    }
   }
 
   if (uwafBrowserAvailable && context.internetToolEnabled) {
-    const modeLabel = uwafBrowserMode === 'stealth' ? 'Stealth (Tor-routed)' : 'Direct (clear web)';
-    const stealthProviderLine = listSearchProvidersForPrompt('stealth');
-    lines.push(
-      'UNIFIED BROWSER CAPABILITY: You have access to a dual-mode shared browser that the user can watch live and take over when help is needed.',
-      `Current default mode: ${modeLabel}.`,
-      'For web searches, public page visits, and source gathering, prefer unified_browser over the background web tool so the user can see what you are opening.',
-      'Direct mode uses standard web access for public sites (.com, .org, .edu, etc.).',
-      'Stealth mode routes all traffic through the Tor network for anonymous research, including .onion addresses.',
-      '.onion URLs are ONLY accessible in Stealth mode. If you see an .onion URL, switch to Stealth mode.',
-      'The unified browser renders pages with a real browser engine and returns sanitized Markdown content with tables extracted. The live browser is the visual browsing surface; static page screenshots are not used.',
-      'Browser results now include evidence fields such as redirects, search-result counts, anti-bot/login detection, tab state, and recent JS/network failures. Treat those fields as authoritative.',
-      `Use this exact format:\n${OPENCLAW_UWAF_BROWSER_TOOL_EXAMPLE}`,
-      'Supported unified_browser actions: search, open, click, type, press, wait_for_selector, scroll, back, forward, new_tab, list_tabs, switch_tab, close_tab, select, hover, extract, extract_table, research_batch, fill, submit, wait_for_user.',
-      `search: Search inside the visible shared browser. Direct mode can rotate among clear-web engines. Stealth mode rotates only among the approved onion-search providers configured for this deployment: ${stealthProviderLine || 'Ahmia'}. There is no stealth fallback to general clear-web engines.`,
-      'open: Navigate to a URL. Returns page content, links, forms, and tables.',
-      'click: Follow a link by index or text from the last opened page.',
-      'type: Fill a specific selector directly when form indexing is too weak.',
-      'press: Send a key like Enter, Tab, or Escape, optionally scoped to a selector.',
-      'wait_for_selector: Wait for visible DOM evidence before assuming a page changed.',
-      'scroll/back/forward: Use these when the page state depends on browser history or lazy content.',
-      'new_tab/list_tabs/switch_tab/close_tab: Manage multiple visible tabs instead of assuming a single-page flow.',
-      'select/hover: Interact with dropdowns and hover-driven menus before extracting.',
-      'extract: Re-extract the current page in a specific mode (summary, text, links, forms, html).',
-      'extract_table: Extract all HTML tables from the current page as Markdown or CSV.',
-      'research_batch: Crawl a URL and follow links up to a depth (1-3). Returns aggregated content from multiple pages.',
-      'wait_for_user: Pause for the human to take over the visible browser, solve CAPTCHA/MFA/login/bot checks, then resume after the page is re-observed.',
-      'browserMode can be "direct" (default, clear web) or "stealth" (Tor-routed, for .onion and anonymous research).',
-      'Optional stealthProfile can be "normal" or "high". Use high only when a stealth search target is unusually bot-sensitive or repeatedly blocks the normal profile.',
-      'Optional providerId can pin a specific approved search engine when you need to retry or compare engines. Use providerId only with a known approved engine id such as "ahmia", "onionway", "onionland", "tordex", or "excavator".',
-      'In Stealth mode, .onion pages are allowed and should be opened directly instead of being rewritten to a clear-web mirror.',
-      'In Stealth mode, content is sanitized more aggressively to remove trackers, ads, and scripts.',
-      'Executable file downloads (.exe, .sh, .bin, etc.) are blocked for security. If you need a binary, explain the risk and request unpacking approval.',
-      'If a site requires login, CAPTCHA, MFA, "I am human" checks, or bot verification, request wait_for_user instead of giving up. Tell the user exactly what help is needed, then wait for the observed page state after they resume you.',
-      'After wait_for_user returns, continue from the updated observed URL, title, links, forms, and page text. Do not assume the verification succeeded unless the observed page shows it.',
-      'If a search or interaction returns success=false, a failureCode, queryMatched=false, resultCount=0, navigationChanged=false, or pageChanged=false, treat that as a failed step. Do not convert prior/background knowledge into a claim that the browser verified it.',
-      'When browsing for current information, explicitly separate Observed evidence from Inference. If the browser failed, say the browser failed.',
-      'Use exactly one unified_browser request object per tool block. Do not emit multiple JSON objects inside one block, and do not try to fire several browser requests in a single message — the runtime executes one tool block per message.',
-      'You CAN work across multiple tabs (up to 5) for speed: open them one tool block at a time with new_tab, then switch_tab/extract as needed. To pull several pages quickly in a single call, prefer research_batch (it fetches up to 10 linked pages at once). The rule is one tool block per message, not one page per task — so when you want multiple sources, either batch them with research_batch or open the next tab in your very next message instead of stopping.',
-      'If a page is blocked, paywalled, rate-limited, or returns 401/403/captcha, do not stop and do not just describe the next plan. Immediately emit one tool block for the single best alternative source (or wait_for_user if a human can unblock it). Keep moving until the objective is met or every reasonable source is exhausted.',
-      'Whenever you say you will visit, open, fetch, search, or extract something, that statement MUST be accompanied by the tool block in the same message. Do not end a turn on a bare "Next step:" line.',
-    );
-
-    if (context.uwafRuntimeContext?.trim()) {
+    const uwafIntent = queryMatchesToolIntent(context.latestUserQuery, TOOL_INTENT_KEYWORDS.uwaf);
+    if (context.toolManifestMode !== 'compact' || uwafIntent) {
+      const modeLabel = uwafBrowserMode === 'stealth' ? 'Stealth (Tor-routed)' : 'Direct (clear web)';
+      const stealthProviderLine = listSearchProvidersForPrompt('stealth');
       lines.push(
-        'UWAF RUNTIME CONTEXT:',
-        context.uwafRuntimeContext.trim(),
+        'UNIFIED BROWSER CAPABILITY: You have access to a dual-mode shared browser that the user can watch live and take over when help is needed.',
+        `Current default mode: ${modeLabel}.`,
+        'For web searches, public page visits, and source gathering, prefer unified_browser over the background web tool so the user can see what you are opening.',
+        'Direct mode uses standard web access for public sites (.com, .org, .edu, etc.).',
+        'Stealth mode routes all traffic through the Tor network for anonymous research, including .onion addresses.',
+        '.onion URLs are ONLY accessible in Stealth mode. If you see an .onion URL, switch to Stealth mode.',
+        'The unified browser renders pages with a real browser engine and returns sanitized Markdown content with tables extracted. The live browser is the visual browsing surface; static page screenshots are not used.',
+        'Browser results now include evidence fields such as redirects, search-result counts, anti-bot/login detection, tab state, and recent JS/network failures. Treat those fields as authoritative.',
+        `Use this exact format:\n${OPENCLAW_UWAF_BROWSER_TOOL_EXAMPLE}`,
+        'Supported unified_browser actions: search, open, click, type, press, wait_for_selector, scroll, back, forward, new_tab, list_tabs, switch_tab, close_tab, select, hover, extract, extract_table, research_batch, fill, submit, wait_for_user.',
+        `search: Search inside the visible shared browser. Direct mode can rotate among clear-web engines. Stealth mode rotates only among the approved onion-search providers configured for this deployment: ${stealthProviderLine || 'Ahmia'}. There is no stealth fallback to general clear-web engines.`,
+        'open: Navigate to a URL. Returns page content, links, forms, and tables.',
+        'click: Follow a link by index or text from the last opened page.',
+        'type: Fill a specific selector directly when form indexing is too weak.',
+        'press: Send a key like Enter, Tab, or Escape, optionally scoped to a selector.',
+        'wait_for_selector: Wait for visible DOM evidence before assuming a page changed.',
+        'scroll/back/forward: Use these when the page state depends on browser history or lazy content.',
+        'new_tab/list_tabs/switch_tab/close_tab: Manage multiple visible tabs instead of assuming a single-page flow.',
+        'select/hover: Interact with dropdowns and hover-driven menus before extracting.',
+        'extract: Re-extract the current page in a specific mode (summary, text, links, forms, html).',
+        'extract_table: Extract all HTML tables from the current page as Markdown or CSV.',
+        'research_batch: Crawl a URL and follow links up to a depth (1-3). Returns aggregated content from multiple pages.',
+        'wait_for_user: Pause for the human to take over the visible browser, solve CAPTCHA/MFA/login/bot checks, then resume after the page is re-observed.',
+        'browserMode can be "direct" (default, clear web) or "stealth" (Tor-routed, for .onion and anonymous research).',
+        'Optional stealthProfile can be "normal" or "high". Use high only when a stealth search target is unusually bot-sensitive or repeatedly blocks the normal profile.',
+        'Optional providerId can pin a specific approved search engine when you need to retry or compare engines. Use providerId only with a known approved engine id such as "ahmia", "onionway", "onionland", "tordex", or "excavator".',
+        'In Stealth mode, .onion pages are allowed and should be opened directly instead of being rewritten to a clear-web mirror.',
+        'In Stealth mode, content is sanitized more aggressively to remove trackers, ads, and scripts.',
+        'Executable file downloads (.exe, .sh, .bin, etc.) are blocked for security. If you need a binary, explain the risk and request unpacking approval.',
+        'If a site requires login, CAPTCHA, MFA, "I am human" checks, or bot verification, request wait_for_user instead of giving up. Tell the user exactly what help is needed, then wait for the observed page state after they resume you.',
+        'After wait_for_user returns, continue from the updated observed URL, title, links, forms, and page text. Do not assume the verification succeeded unless the observed page shows it.',
+        'If a search or interaction returns success=false, a failureCode, queryMatched=false, resultCount=0, navigationChanged=false, or pageChanged=false, treat that as a failed step. Do not convert prior/background knowledge into a claim that the browser verified it.',
+        'When browsing for current information, explicitly separate Observed evidence from Inference. If the browser failed, say the browser failed.',
+        'Use exactly one unified_browser request object per tool block. Do not emit multiple JSON objects inside one block, and do not try to fire several browser requests in a single message — the runtime executes one tool block per message.',
+        'You CAN work across multiple tabs (up to 5) for speed: open them one tool block at a time with new_tab, then switch_tab/extract as needed. To pull several pages quickly in a single call, prefer research_batch (it fetches up to 10 linked pages at once). The rule is one tool block per message, not one page per task — so when you want multiple sources, either batch them with research_batch or open the next tab in your very next message instead of stopping.',
+        'If a page is blocked, paywalled, rate-limited, or returns 401/403/captcha, do not stop and do not just describe the next plan. Immediately emit one tool block for the single best alternative source (or wait_for_user if a human can unblock it). Keep moving until the objective is met or every reasonable source is exhausted.',
+        'Whenever you say you will visit, open, fetch, search, or extract something, that statement MUST be accompanied by the tool block in the same message. Do not end a turn on a bare "Next step:" line.',
       );
+      if (context.uwafRuntimeContext?.trim()) {
+        lines.push(
+          'UWAF RUNTIME CONTEXT:',
+          context.uwafRuntimeContext.trim(),
+        );
+      }
+    } else {
+      lines.push('UNIFIED BROWSER: available for direct or Tor-routed browsing and search. Use one unified_browser tool block per response.');
     }
   }
 
