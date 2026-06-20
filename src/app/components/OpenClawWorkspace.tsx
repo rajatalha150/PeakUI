@@ -71,6 +71,7 @@ import {
   type OpenClawEmailDocumentToolRequest,
   type OpenClawFetchSummarizeToolRequest,
   type OpenClawFilesystemToolRequest,
+  type OpenClawMarkdownDocumentToolRequest,
   type OpenClawPdfDocumentToolRequest,
   type OpenClawTaxReturnToolRequest,
   type OpenClawToolRequest,
@@ -286,7 +287,7 @@ interface OpenClawMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   hidden?: boolean;
-  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document' | 'csv_document' | 'email_document' | 'fetch_summarize';
+  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document' | 'csv_document' | 'email_document' | 'markdown_document' | 'fetch_summarize';
   thinking?: string;
   presentation?: ResponsePresentation;
   sources?: MessageSource[];
@@ -890,6 +891,10 @@ type PendingToolApproval =
   | (PendingToolApprovalBase & {
       kind: 'email_document';
       request: OpenClawEmailDocumentToolRequest & { sessionId: string; messageId?: string };
+    })
+  | (PendingToolApprovalBase & {
+      kind: 'markdown_document';
+      request: OpenClawMarkdownDocumentToolRequest & { sessionId: string; messageId?: string };
     });
 
 type ToolApprovalResolution =
@@ -903,7 +908,8 @@ type ToolApprovalResolution =
   | WorkbookDocumentToolResultEntry
   | WordDocumentToolResultEntry
   | CsvDocumentToolResultEntry
-  | EmailDocumentToolResultEntry;
+  | EmailDocumentToolResultEntry
+  | MarkdownDocumentToolResultEntry;
 
 interface WebToolResultEntry {
   query: string;
@@ -983,6 +989,19 @@ interface CsvDocumentToolResultEntry {
 }
 
 interface EmailDocumentToolResultEntry {
+  success: boolean;
+  title: string;
+  artifact?: {
+    id: string;
+    name: string;
+    mimeType: string;
+    size: number;
+    downloadUrl: string;
+  };
+  error?: string;
+}
+
+interface MarkdownDocumentToolResultEntry {
   success: boolean;
   title: string;
   artifact?: {
@@ -1355,6 +1374,12 @@ function describeFetchSummarizeRequest(request: OpenClawFetchSummarizeToolReques
     : `Fetch and summarize web page: ${request.url}`;
 }
 
+function describeMarkdownDocumentRequest(request: OpenClawMarkdownDocumentToolRequest) {
+  return request.description?.trim()
+    ? `Markdown document: ${request.description.trim()}`
+    : `Generating downloadable Markdown document: \`${request.filename || request.title}.md\``;
+}
+
 function normalizeToolSources(value: unknown): MessageSource[] {
   return normalizeMessageSources(value);
 }
@@ -1593,7 +1618,7 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
 ));
 
 function normalizeExtractedToolRequestName(value: unknown): OpenClawMessage['toolRequest'] {
-  return value === 'shell' || value === 'filesystem' || value === 'web' || value === 'code' || value === 'browser' || value === 'unified_browser' || value === 'tax_return' || value === 'pdf_document' || value === 'workbook_document' || value === 'word_document' || value === 'csv_document' || value === 'email_document' || value === 'fetch_summarize'
+  return value === 'shell' || value === 'filesystem' || value === 'web' || value === 'code' || value === 'browser' || value === 'unified_browser' || value === 'tax_return' || value === 'pdf_document' || value === 'workbook_document' || value === 'word_document' || value === 'csv_document' || value === 'email_document' || value === 'markdown_document' || value === 'fetch_summarize'
     ? value
     : undefined;
 }
@@ -1927,6 +1952,11 @@ function getOpenClawToolRequestSignature(request: OpenClawToolRequest) {
   if (request.name === 'fetch_summarize') {
     const fetchSummarize = request.request as OpenClawFetchSummarizeToolRequest
     return `fetch_summarize:${fetchSummarize.url.trim()}`;
+  }
+
+  if (request.name === 'markdown_document') {
+    const markdown = request.request as OpenClawMarkdownDocumentToolRequest
+    return `markdown_document:${markdown.title.trim()}:${markdown.filename?.trim() || ''}:${(markdown.content || '').trim().slice(0, 2000)}`;
   }
 
   if (request.name === 'filesystem') {
@@ -2519,6 +2549,33 @@ function formatEmailDocumentToolResult(entry: EmailDocumentToolResultEntry): str
   }
 
   lines.push('', 'Use this result to present the .eml download link first. Offer to revise the draft if the user wants changes.');
+  return lines.join('\n');
+}
+
+function formatMarkdownDocumentToolResult(entry: MarkdownDocumentToolResultEntry): string {
+  const lines = [
+    'Markdown document tool result:',
+    `Title: ${entry.title}`,
+    `Status: ${entry.success ? 'completed' : 'failed'}`,
+  ];
+
+  if (!entry.success) {
+    if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    lines.push('', 'Use this result to continue the task. Do not claim a Markdown file was generated if this result failed.');
+    return lines.join('\n');
+  }
+
+  if (entry.artifact) {
+    lines.push(
+      `Artifact: ${entry.artifact.name}`,
+      `Artifact id: ${entry.artifact.id}`,
+      `Download URL: ${entry.artifact.downloadUrl}`,
+      `Mime type: ${entry.artifact.mimeType}`,
+      `Size: ${entry.artifact.size} bytes`,
+    );
+  }
+
+  lines.push('', 'Use this result to present the .md download link first. Keep the user-facing response concise and do not restate the full Markdown contents unless the user explicitly asks for an inline summary.');
   return lines.join('\n');
 }
 
@@ -5816,6 +5873,85 @@ export default function OpenClawWorkspace({
     });
   };
 
+  const executeMarkdownDocumentAction = async (
+    request: OpenClawMarkdownDocumentToolRequest & { sessionId: string; messageId?: string },
+  ): Promise<MarkdownDocumentToolResultEntry> => {
+    try {
+      const res = await fetch('/api/openclaw/markdown-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          title: request.title || 'Generated Markdown Document',
+          success: false,
+          error: typeof data.error === 'string' ? data.error : 'Markdown document generation failed',
+        };
+      }
+      const artifact = data.artifact && typeof data.artifact === 'object'
+        ? data.artifact as Record<string, unknown>
+        : null;
+      return {
+        title: request.title || 'Generated Markdown Document',
+        success: data.success !== false,
+        artifact: artifact
+          && typeof artifact.id === 'string'
+          && typeof artifact.name === 'string'
+          && typeof artifact.mimeType === 'string'
+          && typeof artifact.size === 'number'
+          && typeof artifact.downloadUrl === 'string'
+          ? {
+              id: artifact.id,
+              name: artifact.name,
+              mimeType: artifact.mimeType,
+              size: artifact.size,
+              downloadUrl: artifact.downloadUrl,
+            }
+          : undefined,
+      };
+    } catch (error) {
+      return {
+        title: request.title || 'Generated Markdown Document',
+        success: false,
+        error: error instanceof Error ? error.message : 'Markdown document generation failed',
+      };
+    }
+  };
+
+  const requestMarkdownDocumentAction = async (
+    request: OpenClawMarkdownDocumentToolRequest,
+    options: { messageId: string; sessionId: string },
+  ): Promise<MarkdownDocumentToolResultEntry> => {
+    const payload = {
+      ...request,
+      sessionId: options.sessionId,
+      messageId: options.messageId,
+    };
+    const title = request.title || 'Generated Markdown Document';
+
+    return await new Promise<MarkdownDocumentToolResultEntry>(resolve => {
+      pendingApprovalResolverRef.current = resolve as (result: ToolApprovalResolution) => void;
+      setPendingApproval({
+        kind: 'markdown_document',
+        title: 'Markdown Document Approval',
+        description: describeMarkdownDocumentRequest(request),
+        previewLabel: 'Markdown preview',
+        previewContent: truncateApprovalPreview(
+          [
+            `Title: ${title}`,
+            `Filename: ${request.filename || `${title}.md`}`,
+            '',
+            request.content.slice(0, 4000),
+          ].filter(Boolean).join('\n')
+        ),
+        messageId: options.messageId,
+        request: payload,
+      });
+    });
+  };
+
   const executeFetchSummarizeAction = async (
     request: OpenClawFetchSummarizeToolRequest,
   ): Promise<FetchSummarizeToolResultEntry> => {
@@ -5917,6 +6053,11 @@ export default function OpenClawWorkspace({
 
       if (approval.kind === 'email_document') {
         resolve(await executeEmailDocumentAction(approval.request));
+        return;
+      }
+
+      if (approval.kind === 'markdown_document') {
+        resolve(await executeMarkdownDocumentAction(approval.request));
         return;
       }
 
@@ -6038,6 +6179,15 @@ export default function OpenClawWorkspace({
           success: false,
           error: message,
         } satisfies EmailDocumentToolResultEntry);
+        return;
+      }
+
+      if (approval.kind === 'markdown_document') {
+        resolve({
+          title: approval.request.title || 'Generated Markdown Document',
+          success: false,
+          error: message,
+        } satisfies MarkdownDocumentToolResultEntry);
         return;
       }
 
@@ -6170,6 +6320,15 @@ export default function OpenClawWorkspace({
         success: false,
         error: 'Email draft rejected by user',
       } satisfies EmailDocumentToolResultEntry);
+      return;
+    }
+
+    if (approval.kind === 'markdown_document') {
+      resolve({
+        title: approval.request.title || 'Generated Markdown Document',
+        success: false,
+        error: 'Markdown document generation rejected by user',
+      } satisfies MarkdownDocumentToolResultEntry);
       return;
     }
 
@@ -7211,7 +7370,9 @@ export default function OpenClawWorkspace({
                                       ? describeEmailDocumentRequest(request.request)
                                       : request.name === 'fetch_summarize'
                                         ? describeFetchSummarizeRequest(request.request)
-                                        : describeFilesystemRequest(request.request.action, request.request.path)
+                                        : request.name === 'markdown_document'
+                                          ? describeMarkdownDocumentRequest(request.request)
+                                          : describeFilesystemRequest(request.request.action, request.request.path)
               : rawToolTagPresent
                 ? stripAllToolTags(assistantMessage.content)
                 : assistantMessage.content
@@ -7773,6 +7934,44 @@ export default function OpenClawWorkspace({
               id: randomUUID(),
               role: 'user',
               content: `Fetch and summarize failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. The URL may be unreachable or the page may block fetching.`,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
+          continue;
+        }
+
+        if (request.name === 'markdown_document') {
+          lastToolRequestSignature = effectiveToolSignature;
+          duplicateToolRequestCount = 0;
+          try {
+            setStreamPhase('tool-code');
+            const markdownResult = await requestMarkdownDocumentAction(request.request, {
+              messageId: nextAssistantId,
+              sessionId: chatId,
+            });
+            setStreamPhase(null);
+            if (markdownResult.success) {
+              void loadCanvasArtifacts(chatId);
+            }
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatMarkdownDocumentToolResult(markdownResult),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Markdown document tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Markdown document generation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Try again with a clear title and markdown body.`,
               hidden: true,
               createdAt: new Date().toISOString(),
             };

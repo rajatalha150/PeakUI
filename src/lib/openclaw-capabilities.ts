@@ -2,6 +2,7 @@ import {
   OPENCLAW_CSV_DOCUMENT_TOOL_EXAMPLE,
   OPENCLAW_EMAIL_DOCUMENT_TOOL_EXAMPLE,
   OPENCLAW_FETCH_SUMMARIZE_TOOL_EXAMPLE,
+  OPENCLAW_MARKDOWN_DOCUMENT_TOOL_EXAMPLE,
   OPENCLAW_PDF_DOCUMENT_TOOL_EXAMPLE,
   OPENCLAW_TAX_RETURN_TOOL_EXAMPLE,
   OPENCLAW_WORKBOOK_DOCUMENT_TOOL_EXAMPLE,
@@ -88,6 +89,17 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
       'Include to, from, subject, and a professional plain-text body. The result is a downloadable .eml file that opens in any email client.',
     ],
     example: OPENCLAW_EMAIL_DOCUMENT_TOOL_EXAMPLE,
+  },
+  {
+    id: 'markdown-document',
+    label: 'Markdown document generation',
+    adapter: 'native',
+    toolName: 'markdown_document',
+    promptLines: [
+      'MARKDOWN DOCUMENT CAPABILITY: When the user asks for a downloadable Markdown file (.md), a markdown version of a document, or a markdown export, use the markdown_document tool.',
+      'Provide the full markdown body in the content field. The result is a downloadable .md Canvas artifact with a clickable /api/canvas/artifacts/<id>/download link. Do NOT write markdown files to the filesystem as a workaround.',
+    ],
+    example: OPENCLAW_MARKDOWN_DOCUMENT_TOOL_EXAMPLE,
   },
   {
     id: 'fetch-summarize',
@@ -181,6 +193,10 @@ const CAPABILITY_KEYWORD_TRIGGERS: CapabilityTrigger[] = [
   {
     id: 'email-document',
     keywords: ['email', 'draft email', 'write an email', 'compose email', 'message'],
+  },
+  {
+    id: 'markdown-document',
+    keywords: ['markdown', '.md', 'md file', 'markdown version', 'markdown export', 'convert to markdown'],
   },
   {
     id: 'fetch-summarize',

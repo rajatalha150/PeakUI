@@ -9,6 +9,7 @@ import type { WorkbookDocumentInput } from './workbook/workbook-schema'
 import type { WordDocumentInput, WordDocumentTemplate } from './word/word-schema'
 import type { CsvDocumentInput } from './csv/csv-schema'
 import type { EmailDocumentInput } from './email/email-schema'
+import type { MarkdownDocumentInput } from './markdown/markdown-schema'
 
 export interface OpenClawShellToolRequest {
   command: string
@@ -106,6 +107,8 @@ export interface OpenClawCsvDocumentToolRequest extends CsvDocumentInput {}
 
 export interface OpenClawEmailDocumentToolRequest extends EmailDocumentInput {}
 
+export interface OpenClawMarkdownDocumentToolRequest extends MarkdownDocumentInput {}
+
 export interface OpenClawFetchSummarizeToolRequest {
   url: string
   description?: string
@@ -159,6 +162,10 @@ export type OpenClawToolRequest =
   | {
       name: 'email_document'
       request: OpenClawEmailDocumentToolRequest
+    }
+  | {
+      name: 'markdown_document'
+      request: OpenClawMarkdownDocumentToolRequest
     }
   | {
       name: 'fetch_summarize'
@@ -217,6 +224,10 @@ export const OPENCLAW_EMAIL_DOCUMENT_TOOL_EXAMPLE = `<openclaw_tool name="email_
 {"title":"Follow-up Email","filename":"follow-up-email.eml","to":"client@example.com","from":"team@peakui.local","subject":"Project Kickoff Next Steps","body":"Hi team,\n\nThank you for the kickoff call. The next steps are:\n1. Share access credentials\n2. Confirm timeline\n3. Schedule weekly check-ins\n\nBest,\nPeakUI","description":"Draft a professional follow-up email"}
 </openclaw_tool>`
 
+export const OPENCLAW_MARKDOWN_DOCUMENT_TOOL_EXAMPLE = `<openclaw_tool name="markdown_document">
+{"title":"Activity Blueprint","filename":"activity-blueprint.md","content":"# Activity Blueprint\n\n## Product Vision\n...","description":"Create a downloadable Markdown version of the blueprint"}
+</openclaw_tool>`
+
 export const OPENCLAW_FETCH_SUMMARIZE_TOOL_EXAMPLE = `<openclaw_tool name="fetch_summarize">
 {"url":"https://example.com/article","description":"Fetch and summarize the article"}
 </openclaw_tool>`
@@ -261,7 +272,7 @@ function isWordDocumentTemplate(value: unknown): value is WordDocumentTemplate {
   return value === 'report' || value === 'memo' || value === 'letter' || value === 'proposal' || value === 'contract' || value === 'resume' || value === 'checklist' || value === 'form' || value === 'meeting-notes'
 }
 
-const TOOL_BLOCK_PATTERN = /<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser|tax_return|pdf_document|workbook_document|word_document|csv_document|email_document|fetch_summarize)["']\s*>([\s\S]*?)<\/openclaw_tool>/i
+const TOOL_BLOCK_PATTERN = /<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser|tax_return|pdf_document|workbook_document|word_document|csv_document|email_document|markdown_document|fetch_summarize)["']\s*>([\s\S]*?)<\/openclaw_tool>/i
 const LEGACY_UWAF_TOOL_BLOCK_PATTERN = /<unified_browser>\s*([\s\S]*?)<\/unified_browser>/i
 
 function extractFirstJsonObject(raw: string): string | null {
@@ -350,10 +361,10 @@ function findToolBlock(content: string): { toolName: string; rawBlock: string; r
 /** Strip all complete and partial <openclaw_tool> tags from content. */
 export function stripAllToolTags(content: string): string {
   // Remove complete tool blocks first
-  let cleaned = content.replace(/<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser|tax_return|pdf_document|workbook_document|word_document|csv_document|email_document|fetch_summarize)["']\s*>[\s\S]*?<\/openclaw_tool>/gi, '')
+  let cleaned = content.replace(/<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser|tax_return|pdf_document|workbook_document|word_document|csv_document|email_document|markdown_document|fetch_summarize)["']\s*>[\s\S]*?<\/openclaw_tool>/gi, '')
   cleaned = cleaned.replace(/<unified_browser>\s*[\s\S]*?<\/unified_browser>/gi, '')
   // Remove partial/incomplete tags (no closing tag)
-  cleaned = cleaned.replace(/<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser|tax_return|pdf_document|workbook_document|word_document|csv_document|email_document|fetch_summarize)["']\s*>[\s\S]*/gi, '')
+  cleaned = cleaned.replace(/<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser|tax_return|pdf_document|workbook_document|word_document|csv_document|email_document|markdown_document|fetch_summarize)["']\s*>[\s\S]*/gi, '')
   cleaned = cleaned.replace(/<unified_browser>\s*[\s\S]*/gi, '')
   // Remove orphaned opening tags
   cleaned = cleaned.replace(/<openclaw_tool[^>]*>/gi, '')
@@ -909,6 +920,36 @@ export function extractOpenClawToolRequest(content: string): {
             htmlBody: typeof parsed.htmlBody === 'string' && parsed.htmlBody.trim()
               ? parsed.htmlBody.trim().slice(0, 60_000)
               : undefined,
+          },
+        },
+      }
+    }
+
+    if (toolName === 'markdown_document') {
+      const parsed = parseToolJson<Partial<OpenClawMarkdownDocumentToolRequest>>(block.rawJson)
+      if (!parsed) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+
+      const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
+      const contentText = typeof parsed.content === 'string' ? parsed.content.trim() : ''
+      if (!title || !contentText) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+
+      return {
+        cleanedContent,
+        request: {
+          name: 'markdown_document',
+          request: {
+            title: title.slice(0, 160),
+            filename: typeof parsed.filename === 'string' && parsed.filename.trim()
+              ? parsed.filename.trim().slice(0, 180)
+              : undefined,
+            description: typeof parsed.description === 'string' && parsed.description.trim()
+              ? parsed.description.trim()
+              : undefined,
+            content: contentText.slice(0, 500_000),
           },
         },
       }

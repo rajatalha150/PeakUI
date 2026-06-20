@@ -90,6 +90,7 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | [docs/workbook-document-workflow.md](docs/workbook-document-workflow.md) | Excel workbook artifact workflow |
 | [docs/csv-document-workflow.md](docs/csv-document-workflow.md) | CSV export artifact workflow |
 | [docs/email-document-workflow.md](docs/email-document-workflow.md) | Email draft artifact workflow |
+| [docs/markdown-document-workflow.md](docs/markdown-document-workflow.md) | Markdown document artifact workflow |
 | [docs/fetch-summarize-workflow.md](docs/fetch-summarize-workflow.md) | URL fetch and summarize workflow |
 | [docs/tax-pdf-workflow.md](docs/tax-pdf-workflow.md) | Tax document review workflow |
 | [docs/development-section-plan.md](docs/development-section-plan.md) | Development section plan (draft) |
