@@ -261,7 +261,6 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
   const [nowMs, setNowMs] = useState(0);
   const [ragHealth, setRagHealth] = useState<RagHealthSnapshot | null>(null);
   const [ragHealthError, setRagHealthError] = useState<string | null>(null);
-  const [ragHealthExpanded, setRagHealthExpanded] = useState(false);
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({
     filename: '',
     folder: '',
@@ -431,6 +430,8 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
 
   useEffect(() => {
     void loadCurrentLevel();
+    const id = setInterval(() => { void loadCurrentLevel(); }, 4000);
+    return () => clearInterval(id);
   }, [loadCurrentLevel])
 
   useEffect(() => {
@@ -860,86 +861,6 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
   const pageItems = buildPageItems(currentDocumentPage, totalPages);
   const hasReadyDocuments = (ragHealthSummary?.indexed ?? 0) > 0 || documents.some(doc => doc.status === 'ready');
   const searchableDocumentCount = ragHealthSummary?.indexed ?? readyDocs.length;
-  const ragHealthHasIssues = Boolean(
-    (ragHealthSummary && (ragHealthSummary.failed > 0 || ragHealthSummary.pending > 0 || ragHealthSummary.warnings > 0)) ||
-    ragHealthError
-  );
-  const ragHealthPanelOpen = ragHealthHasIssues || ragHealthExpanded;
-  const ragHealthHasDocumentRows = Boolean(
-    (ragHealth?.indexedDocuments.length ?? 0) > 0 ||
-    (ragHealth?.failedDocuments.length ?? 0) > 0 ||
-    (ragHealth?.pendingDocuments.length ?? 0) > 0
-  );
-
-  const renderHealthEntry = (entry: RagHealthEntry, tone: 'success' | 'warning' | 'danger' | 'neutral') => {
-    const toneTextColor = tone === 'success'
-      ? 'var(--success)'
-      : tone === 'warning'
-        ? '#facc15'
-        : tone === 'danger'
-          ? 'var(--danger)'
-          : 'var(--text-secondary)';
-    const toneBorder = tone === 'success'
-      ? 'rgba(16,185,129,0.24)'
-      : tone === 'warning'
-        ? 'rgba(250,204,21,0.24)'
-        : tone === 'danger'
-          ? 'rgba(239,68,68,0.24)'
-          : 'var(--border-color)';
-    const toneBackground = tone === 'success'
-      ? 'rgba(16,185,129,0.08)'
-      : tone === 'warning'
-        ? 'rgba(250,204,21,0.08)'
-        : tone === 'danger'
-          ? 'rgba(239,68,68,0.08)'
-          : 'rgba(255,255,255,0.03)';
-
-    return (
-      <div
-        key={entry.id}
-        style={{
-          padding: '12px 14px',
-          borderRadius: '12px',
-          border: `1px solid ${toneBorder}`,
-          background: toneBackground,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '6px',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'flex-start' }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: '0.86rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {entry.sourcePath && entry.sourcePath !== entry.filename ? `${entry.filename} · ${entry.sourcePath}` : entry.filename}
-            </div>
-            <div style={{ marginTop: '4px', fontSize: '0.72rem', color: 'var(--text-secondary)', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              {entry.kind && <span>{entry.kind}</span>}
-              <span>{entry.retrievalScope === 'full-document' ? 'full document' : `${entry.chunkCount} chunks`}</span>
-              {entry.ragMode && <span>{entry.ragMode}</span>}
-              {entry.errorMessage && entry.status === 'ready' && <span>fallback</span>}
-            </div>
-          </div>
-          <div style={{
-            flexShrink: 0,
-            fontSize: '0.7rem',
-            padding: '2px 8px',
-            borderRadius: '999px',
-            color: toneTextColor,
-            border: `1px solid ${toneBorder}`,
-            background: toneBackground,
-            textTransform: 'uppercase',
-            letterSpacing: '0.06em',
-            whiteSpace: 'nowrap',
-          }}>
-            {entry.status}
-          </div>
-        </div>
-        <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)', lineHeight: 1.6 }} title={entry.reason}>
-          {getShortError(entry.reason)}
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflowY: 'auto', padding: '24px', gap: '24px' }}>
@@ -961,163 +882,45 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
         </p>
       </div>
 
+      {/* Status bar */}
       <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '12px',
+        flexWrap: 'wrap',
+        padding: '8px 12px',
+        borderRadius: '8px',
         border: '1px solid var(--border-color)',
-        borderRadius: '14px',
-        background: 'rgba(255,255,255,0.02)',
-        overflow: 'visible',
-        position: 'relative',
-        zIndex: 1,
+        background: 'rgba(255,255,255,0.03)',
+        fontSize: '0.78rem',
       }}>
-        <button
-          type="button"
-          onClick={() => setRagHealthExpanded(open => !open)}
-          aria-expanded={ragHealthPanelOpen}
-          style={{
-            width: '100%',
-            border: 'none',
-            background: 'transparent',
-            color: 'inherit',
-            cursor: 'pointer',
-            padding: '14px 16px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: '12px',
-            textAlign: 'left',
-          }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)' }}>
-              <ChevronDown size={14} style={{ transform: ragHealthPanelOpen ? 'rotate(0deg)' : 'rotate(-90deg)', transition: 'transform 0.18s ease' }} />
-              <span>RAG health</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+          {[
+            { label: 'Files', value: ragHealthSummary?.total ?? documents.length, color: 'var(--text-secondary)' },
+            { label: 'Indexed', value: ragHealthSummary?.indexed ?? 0, color: 'var(--success)' },
+            { label: 'Full', value: ragHealthSummary?.fullDocuments ?? 0, color: 'var(--accent-primary)' },
+            { label: 'Chunked', value: ragHealthSummary?.chunkedDocuments ?? 0, color: 'var(--text-secondary)' },
+            { label: 'Pending', value: ragHealthSummary?.pending ?? 0, color: 'var(--text-secondary)' },
+            { label: 'Warnings', value: ragHealthSummary?.warnings ?? 0, color: '#facc15' },
+            { label: 'Failed', value: ragHealthSummary?.failed ?? 0, color: 'var(--danger)' },
+          ].map(item => (
+            <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>{item.label}</span>
+              <span style={{ fontWeight: 700, color: item.color }}>{item.value}</span>
             </div>
-            <div style={{ marginTop: '4px', fontSize: '0.9rem', color: 'var(--text-primary)' }}>
-              {ragHealthSummary
-                ? `${ragHealthSummary.indexed} indexed · ${ragHealthSummary.failed} failed · ${ragHealthSummary.pending} pending`
-                : ragHealthError || 'Loading health status...'}
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <span style={{ padding: '4px 8px', borderRadius: '999px', background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)', fontSize: '0.72rem' }}>
-              {ragHealthSummary?.total ?? documents.length} files
+          ))}
+          {ragHealthSummary?.lastIndexedAt && (
+            <span style={{ color: 'var(--text-secondary)' }}>
+              · last indexed {formatElapsed(ragHealthSummary.lastIndexedAt)}
             </span>
-            <span style={{ padding: '4px 8px', borderRadius: '999px', background: 'rgba(16,185,129,0.15)', color: 'var(--success)', fontSize: '0.72rem' }}>
-              {ragHealthSummary?.fullDocuments ?? 0} full docs
-            </span>
-            <span style={{ padding: '4px 8px', borderRadius: '999px', background: 'rgba(245,158,11,0.16)', color: '#facc15', fontSize: '0.72rem' }}>
-              {ragHealthSummary?.warnings ?? 0} warnings
-            </span>
-            <span style={{ padding: '4px 8px', borderRadius: '999px', background: 'rgba(239,68,68,0.12)', color: 'var(--danger)', fontSize: '0.72rem' }}>
-              {ragHealthSummary?.failed ?? 0} failed
-            </span>
-          </div>
-        </button>
-        {ragHealthPanelOpen && (
-          <div style={{ padding: '0 16px 16px 16px', display: 'grid', gap: '14px' }}>
-            {ragHealthError && (
-              <div style={{
-                padding: '12px 14px',
-                borderRadius: '12px',
-                border: '1px solid var(--danger)',
-                background: 'rgba(239,68,68,0.08)',
-                color: '#fca5a5',
-                fontSize: '0.84rem',
-                lineHeight: 1.6,
-              }}>
-                {ragHealthError}
-              </div>
-            )}
-
-          {ragHealthSummary && (
-            <div style={{ display: 'grid', gap: '10px', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))' }}>
-              {[
-                { label: 'Indexed', value: ragHealthSummary.indexed, accent: 'var(--success)' },
-                { label: 'Full docs', value: ragHealthSummary.fullDocuments, accent: 'var(--accent-primary)' },
-                { label: 'Chunked', value: ragHealthSummary.chunkedDocuments, accent: 'var(--text-secondary)' },
-                { label: 'Warnings', value: ragHealthSummary.warnings, accent: '#facc15' },
-                { label: 'Failed', value: ragHealthSummary.failed, accent: 'var(--danger)' },
-                { label: 'Pending', value: ragHealthSummary.pending, accent: 'var(--text-secondary)' },
-              ].map(item => (
-                <div key={item.label} style={{
-                  padding: '12px 14px',
-                  borderRadius: '12px',
-                  border: '1px solid var(--border-color)',
-                  background: 'rgba(255,255,255,0.03)',
-                }}>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                    {item.label}
-                  </div>
-                  <div style={{ marginTop: '6px', fontSize: '1.2rem', fontWeight: 700, color: item.accent }}>
-                    {item.value}
-                  </div>
-                  {item.label === 'Indexed' && ragHealthSummary.lastIndexedAt && (
-                    <div style={{ marginTop: '4px', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-                      Last indexed {formatElapsed(ragHealthSummary.lastIndexedAt)}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {ragHealthHasDocumentRows && (
-          <div style={{ display: 'grid', gap: '12px', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}>
-            <div style={{ display: 'grid', gap: '8px' }}>
-              <div style={{ fontSize: '0.74rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)' }}>
-                Indexed successfully
-              </div>
-              {ragHealth?.indexedDocuments.length
-                ? ragHealth.indexedDocuments.slice(0, 5).map(entry => renderHealthEntry(entry, entry.errorMessage ? 'warning' : 'success'))
-                : (
-                  <div style={{ padding: '12px 14px', borderRadius: '12px', border: '1px dashed var(--border-color)', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
-                    {documents.length > 0 ? 'No ready files yet.' : 'Upload files to see indexing status here.'}
-                  </div>
-                )}
-              {ragHealth && ragHealth.indexedDocuments.length > 5 && (
-                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                  +{ragHealth.indexedDocuments.length - 5} more indexed file{ragHealth.indexedDocuments.length - 5 !== 1 ? 's' : ''}
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: 'grid', gap: '8px' }}>
-              <div style={{ fontSize: '0.74rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)' }}>
-                Failed and why
-              </div>
-              {ragHealth?.failedDocuments.length
-                ? ragHealth.failedDocuments.slice(0, 5).map(entry => renderHealthEntry(entry, 'danger'))
-                : (
-                  <div style={{ padding: '12px 14px', borderRadius: '12px', border: '1px dashed var(--border-color)', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
-                    No failed files right now.
-                  </div>
-                )}
-              {ragHealth && ragHealth.failedDocuments.length > 5 && (
-                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                  +{ragHealth.failedDocuments.length - 5} more failed file{ragHealth.failedDocuments.length - 5 !== 1 ? 's' : ''}
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: 'grid', gap: '8px' }}>
-              <div style={{ fontSize: '0.74rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-secondary)' }}>
-                Still processing
-              </div>
-              {ragHealth?.pendingDocuments.length
-                ? ragHealth.pendingDocuments.slice(0, 5).map(entry => renderHealthEntry(entry, 'neutral'))
-                : (
-                  <div style={{ padding: '12px 14px', borderRadius: '12px', border: '1px dashed var(--border-color)', color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
-                    No pending files right now.
-                  </div>
-                )}
-              {ragHealth && ragHealth.pendingDocuments.length > 5 && (
-                <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                  +{ragHealth.pendingDocuments.length - 5} more pending file{ragHealth.pendingDocuments.length - 5 !== 1 ? 's' : ''}
-                </div>
-              )}
-            </div>
-          </div>
           )}
         </div>
+        {ragHealthError && (
+          <div style={{ color: '#fca5a5', fontSize: '0.74rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <AlertCircle size={12} />
+            {ragHealthError}
+          </div>
         )}
       </div>
 
@@ -1193,14 +996,23 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
           </div>
         ) : (
           <>
-            <Upload size={36} color={dragOver ? 'var(--accent-primary)' : 'var(--text-secondary)'} style={{ marginBottom: '12px' }} />
-            <div style={{ fontWeight: 600, fontSize: '1.05rem', marginBottom: '6px' }}>
-              {dragOver ? 'Drop to upload' : 'Click or drag & drop files or folders'}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+              <Upload size={36} color={dragOver ? 'var(--accent-primary)' : 'var(--text-secondary)'} />
+              <div style={{ fontWeight: 600, fontSize: '1.05rem' }}>
+                {dragOver ? 'Drop to upload' : 'Click or drag & drop files or folders'}
+              </div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
+                PDF · DOC/DOCX · PPTX · XLSX · ODT · RTF · text · code · data files
+              </div>
             </div>
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem' }}>
-              PDF · DOC/DOCX · PPTX · XLSX · ODT · RTF · text · code · data files
+
+            <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.5, textAlign: 'center', maxWidth: '42rem', margin: '0 auto' }}>
+                Folder uploads preserve relative paths, keep the uploaded tree intact in the index, and batch refresh the list so large project drops stay responsive.
+              </div>
             </div>
-            <div style={{ marginTop: '14px', display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
               <button
                 className="btn btn-secondary"
                 style={{ padding: '8px 14px' }}
@@ -1221,9 +1033,6 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
               >
                 Choose folder
               </button>
-            </div>
-            <div style={{ marginTop: '10px', fontSize: '0.74rem', color: 'var(--text-secondary)', lineHeight: 1.5, maxWidth: '42rem' }}>
-              Folder uploads preserve relative paths, keep the uploaded tree intact in the index, and batch refresh the list so large project drops stay responsive.
             </div>
           </>
         )}
@@ -1251,24 +1060,11 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
           <div style={{
             display: 'flex',
             alignItems: 'flex-start',
-            justifyContent: 'space-between',
+            justifyContent: 'flex-end',
             gap: '12px',
             marginBottom: '12px',
             flexWrap: 'wrap',
           }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--text-secondary)' }}>
-              {folderTree && browserFolder === '' && (
-                <span>Knowledge Base — {folderTree.recursiveFileCount} file{folderTree.recursiveFileCount !== 1 ? 's' : ''}</span>
-              )}
-              {folderTree && browserFolder !== '' && (
-                <span>{folderTree.recursiveFileCount} total file{folderTree.recursiveFileCount !== 1 ? 's' : ''}</span>
-              )}
-              {ragHealthSummary && (
-                <span style={{ marginLeft: '8px' }}>
-                  · {ragHealthSummary.indexed} indexed · {ragHealthSummary.pending} pending · {ragHealthSummary.failed} failed
-                </span>
-              )}
-            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
                 <span>Per page</span>

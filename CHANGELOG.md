@@ -14,10 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Copy-to-clipboard action on every user and assistant chat message.
 - Polished login/rail logo sizing with reduced border/background visual weight.
 - Markdown document outputs now return Canvas artifact download links instead of filesystem paths.
+- Knowledge Base folder/document list refreshes every 4 seconds so uploads and indexing status update without manual refresh.
 
 ### Changed
 - Replaced user-facing "Open Claw" branding with **WorkSpaces** across documentation.
 - Parameterized Windows setup scripts and Docker Compose files to remove hardcoded personal paths.
+- Knowledge Base RAG health UI simplified to a compact top status bar instead of an expandable panel.
 
 ### Removed
 - Discontinued regular-chat interface code and unused API routes.

@@ -200,8 +200,8 @@ WorkSpaces includes a collapsible Canvas panel that:
 - Background processing with status indicators
 - PDF, Office, CSV/JSON/YAML/XML, code, OCR, and archive support are indexed as searchable content when text is available, with page-aware OCR fallback for scanned or mixed PDFs when the runtime image includes `poppler-utils` and `tesseract`
 - Knowledge Base uploads can also ingest folder trees from the browser file picker or drag-and-drop. Relative paths are preserved, the uploaded tree stays intact in the index, and large drops are queued in batches so indexing stays responsive.
-- The Knowledge Base dashboard now includes a RAG health panel that shows what indexed successfully, what is still pending, and which files failed with the associated reason.
-- The indexed document list is server-paginated, lets users choose how many rows to show per page, and supports multi-select, select-all, and bulk delete actions.
+- A compact top status bar shows live RAG health counts: total files, indexed, full/chunked documents, pending, warnings, failed, and last indexed time.
+- The indexed document list is server-paginated, lets users choose how many rows to show per page, and supports multi-select, select-all, and bulk delete actions. The folder/file view refreshes automatically every few seconds, so newly uploaded items and status changes appear without manual refresh.
 - A OneDrive-style folder browser lets users navigate by the original `sourcePath`: breadcrumbs, immediate subfolders, file rows, a folder/files view toggle, sortable columns (name/size/createdAt/indexedAt/kind), and a kind filter. A whole subtree can be deleted in one action.
 - The Knowledge Base dashboard opens from the WorkSpaces workspace rail.
 - Opening it keeps the WorkSpaces session rail visible and swaps only the main content panel.
@@ -238,7 +238,7 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 - **Full Access**: When ON (topK = -1), retrieves ALL matching chunks instead of limiting
 - **Mode**: Semantic or Keyword search
 - **Embedding Model**: Model for semantic embeddings (test button available, with a larger recommended shortlist for speed vs recall tradeoffs)
-- **RAG health panel**: Shows indexed, pending, failed, and warning files plus the reason each file ended up in that state
+- **RAG health bar**: Compact top status bar showing indexed, pending, failed, and warning counts, plus last indexed time
 
 ## Internet Mode
 
