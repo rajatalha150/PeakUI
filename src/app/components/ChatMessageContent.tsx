@@ -52,29 +52,62 @@ export function downloadGeneratedFile(file: GeneratedFile) {
   }
 }
 
+const CANVAS_DOWNLOAD_PREFIX = '/api/canvas/artifacts/'
+const CANVAS_DOWNLOAD_SUFFIX = '/download'
+
+function toRelativeArtifactUrl(url: string): string | null {
+  const trimmed = url.trim()
+  if (!trimmed) return null
+
+  if (trimmed.startsWith(CANVAS_DOWNLOAD_PREFIX) && trimmed.endsWith(CANVAS_DOWNLOAD_SUFFIX)) {
+    return trimmed
+  }
+
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.pathname.startsWith(CANVAS_DOWNLOAD_PREFIX) && parsed.pathname.endsWith(CANVAS_DOWNLOAD_SUFFIX)) {
+      return parsed.pathname + parsed.search
+    }
+  } catch {
+    // Not a valid absolute URL; ignore.
+  }
+
+  return null
+}
+
+function sanitizeArtifactName(name: string): string {
+  return (name.trim() || 'download')
+    .replace(/[^\w.\- ()[\]]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 180)
+}
+
 export function extractServerArtifactDownloads(content: string): ServerArtifactDownload[] {
   const downloads: ServerArtifactDownload[] = []
   const seen = new Set<string>()
+
   const pushDownload = (name: string, url: string) => {
-    const cleanUrl = url.trim()
-    if (!cleanUrl || seen.has(cleanUrl)) return
-    seen.add(cleanUrl)
-    const cleanName = (name.trim() || 'download.pdf').replace(/[^\w.\- ()[\]]+/g, '_')
+    const relativeUrl = toRelativeArtifactUrl(url)
+    if (!relativeUrl || seen.has(relativeUrl)) return
+    seen.add(relativeUrl)
     downloads.push({
-      name: cleanName.toLowerCase().endsWith('.pdf') ? cleanName : `${cleanName}.pdf`,
-      url: cleanUrl,
+      name: sanitizeArtifactName(name),
+      url: relativeUrl,
     })
   }
 
-  const markdownLinkRegex = /\[([^\]]{1,180})\]\((\/api\/canvas\/artifacts\/[^)\s]+\/download)\)/g
+  const artifactPath = `${CANVAS_DOWNLOAD_PREFIX}[0-9a-fA-F-]+${CANVAS_DOWNLOAD_SUFFIX}`
+  const markdownLinkRegex = new RegExp(`\\[([^\\]]{1,180})\\]\\((https?://[^)\\s]*${artifactPath.replace(/\//g, '\\/')}|${artifactPath.replace(/\//g, '\\/')})\\)`, 'g')
+  const bareUrlRegex = new RegExp(`(?:^|\\s)((?:https?://[^)\\s]+)?${artifactPath.replace(/\//g, '\\/')})(?=$|\\s|[),.])`, 'g')
+
   let match: RegExpExecArray | null
   while ((match = markdownLinkRegex.exec(content)) !== null && downloads.length < 8) {
     pushDownload(match[1], match[2])
   }
 
-  const bareUrlRegex = /(?:^|\s)(\/api\/canvas\/artifacts\/[A-Za-z0-9_-]+\/download)(?=$|\s|[),.])/g
   while ((match = bareUrlRegex.exec(content)) !== null && downloads.length < 8) {
-    pushDownload(`server-artifact-${downloads.length + 1}.pdf`, match[1])
+    pushDownload(`server-artifact-${downloads.length + 1}`, match[1])
   }
 
   return downloads

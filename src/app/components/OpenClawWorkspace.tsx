@@ -2413,8 +2413,13 @@ function formatTaxReturnToolResult(entry: TaxReturnToolResultEntry): string {
     entry.warnings.forEach(warning => lines.push(`- ${warning}`));
   }
 
-  lines.push('', 'Use this result to present the PDF download link to the user and clearly state any missing fields or review warnings.');
+  lines.push('', artifactDownloadInstruction(entry.artifact?.name ?? 'tax-review.pdf'));
+  lines.push('Use this result to clearly state any missing fields or review warnings.');
   return lines.join('\n');
+}
+
+function artifactDownloadInstruction(artifactName: string): string {
+  return `When presenting the download link, output a markdown link using the artifact name as the link text and the EXACT relative Download URL below (for example: [${artifactName}](<URL>)). Do not add any domain or protocol prefix such as https://peakui.com; the URL must stay a relative path starting with /api/canvas/artifacts/.`;
 }
 
 function formatPdfDocumentToolResult(entry: PdfDocumentToolResultEntry): string {
@@ -2440,7 +2445,8 @@ function formatPdfDocumentToolResult(entry: PdfDocumentToolResultEntry): string 
     );
   }
 
-  lines.push('', 'Use this result to present the PDF download link first. Keep the user-facing response concise and do not restate the full PDF contents in markdown unless the user explicitly asks for an inline summary.');
+  lines.push('', artifactDownloadInstruction(entry.artifact?.name ?? 'document.pdf'));
+  lines.push('Keep the user-facing response concise and do not restate the full PDF contents in markdown unless the user explicitly asks for an inline summary.');
   return lines.join('\n');
 }
 
@@ -2467,7 +2473,8 @@ function formatWorkbookDocumentToolResult(entry: WorkbookDocumentToolResultEntry
     );
   }
 
-  lines.push('', 'Use this result to present the Excel workbook download link first. Keep the user-facing response concise and do not restate spreadsheet rows as markdown unless the user explicitly asks for an inline summary.');
+  lines.push('', artifactDownloadInstruction(entry.artifact?.name ?? 'document.xlsx'));
+  lines.push('Keep the user-facing response concise and do not restate spreadsheet rows as markdown unless the user explicitly asks for an inline summary.');
   return lines.join('\n');
 }
 
@@ -2494,7 +2501,8 @@ function formatWordDocumentToolResult(entry: WordDocumentToolResultEntry): strin
     );
   }
 
-  lines.push('', 'Use this result to present the Word document download link first. Keep the user-facing response concise and do not restate the full document in markdown unless the user explicitly asks for an inline summary.');
+  lines.push('', artifactDownloadInstruction(entry.artifact?.name ?? 'document.docx'));
+  lines.push('Keep the user-facing response concise and do not restate the full document in markdown unless the user explicitly asks for an inline summary.');
   return lines.join('\n');
 }
 
@@ -2521,7 +2529,8 @@ function formatCsvDocumentToolResult(entry: CsvDocumentToolResultEntry): string 
     );
   }
 
-  lines.push('', 'Use this result to present the CSV download link first. Keep the user-facing response concise.');
+  lines.push('', artifactDownloadInstruction(entry.artifact?.name ?? 'document.csv'));
+  lines.push('Keep the user-facing response concise.');
   return lines.join('\n');
 }
 
@@ -2548,7 +2557,8 @@ function formatEmailDocumentToolResult(entry: EmailDocumentToolResultEntry): str
     );
   }
 
-  lines.push('', 'Use this result to present the .eml download link first. Offer to revise the draft if the user wants changes.');
+  lines.push('', artifactDownloadInstruction(entry.artifact?.name ?? 'email.eml'));
+  lines.push('Present the .eml download link first, then offer to revise the draft if the user wants changes.');
   return lines.join('\n');
 }
 
@@ -2575,7 +2585,8 @@ function formatMarkdownDocumentToolResult(entry: MarkdownDocumentToolResultEntry
     );
   }
 
-  lines.push('', 'Use this result to present the .md download link first. Keep the user-facing response concise and do not restate the full Markdown contents unless the user explicitly asks for an inline summary.');
+  lines.push('', artifactDownloadInstruction(entry.artifact?.name ?? 'document.md'));
+  lines.push('Present the .md download link first. Keep the user-facing response concise and do not restate the full Markdown contents unless the user explicitly asks for an inline summary.');
   return lines.join('\n');
 }
 

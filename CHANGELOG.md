@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Polished login/rail logo sizing with reduced border/background visual weight.
 - Markdown document outputs now return Canvas artifact download links instead of filesystem paths.
 - Knowledge Base folder/document list refreshes every 4 seconds so uploads and indexing status update without manual refresh.
+- Canvas artifact download links are parsed from both relative and absolute URLs and normalized to the current domain, preventing model-hallucinated domains from breaking downloads.
 
 ### Changed
 - Replaced user-facing "Open Claw" branding with **WorkSpaces** across documentation.
