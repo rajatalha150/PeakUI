@@ -35,6 +35,10 @@ PeakUI opens directly into WorkSpaces. Workspace, Knowledge Base, Settings, task
 - **Language detection**: Code blocks display the detected language in the header
 - **Syntax highlighting**: Handled via CSS styles on code elements
 
+### Message Actions
+
+- **Copy message to clipboard**: Each user and assistant message has a copy button to copy its full text to the clipboard
+
 ### Download Actions
 
 - **Response download**: Download the full assistant response as a text file
@@ -128,11 +132,14 @@ WorkSpaces includes a collapsible Canvas panel that:
 - **Host shell executor**: Optional daemon runs outside Docker on `127.0.0.1`, requires `OPENCLAW_HOST_EXECUTOR_TOKEN`, and enforces approved cwd roots, env allowlists, timeout caps, output caps, and DB audit records
 - **Host fallback behavior**: If Host is selected but the executor is not configured or reachable, WorkSpaces falls back to the container shell and labels the actual target in the approval/output UI
 - **Filesystem read**: List, read, and stat files inside approved host paths
-- **Filesystem write**: Write, append, and create directories inside approved writable roots with approval support
+- **Filesystem read/write tools**: Local file tools are implemented as `list`, `read`, `stat`, `write`, `append`, and `mkdir` actions against approved roots, with approval gates for write/append/mkdir and read-only defaults.
 - **Code execution sandbox**: Run short Python or Node scripts in a managed workspace-scoped sandbox with timeouts, output limits, and generated-file reporting. This now has its own `openclaw.code` account permission instead of piggybacking only on general WorkSpaces access.
 - **PDF document generation**: The `pdf_document` tool creates polished downloadable server-side PDF Canvas artifacts for reports, summaries, letters, checklists, invoices, form-style output, or sample document requests. WorkSpaces should use this tool instead of shell/filesystem/code sandbox when the user asks for a PDF file. See [PDF Document Workflow](pdf-document-workflow.md).
 - **Excel workbook generation**: The `workbook_document` tool creates real downloadable XLSX Canvas artifacts for spreadsheets, budgets, invoices, timesheets, ledgers, trackers, inventories, schedules, and multi-sheet analysis. WorkSpaces should use this tool instead of markdown tables or code sandbox when the user asks for an Excel file. See [Excel Workbook Workflow](workbook-document-workflow.md).
-- **Word document generation**: The `word_document` tool creates real downloadable DOCX Canvas artifacts for proposals, contracts, resumes, letters, memos, reports, policies, checklists, and form-style business documents. WorkSpaces should use this tool instead of markdown or code sandbox when the user asks for a Word file. See [Word Document Workflow](word-document-workflow.md).
+- **Word document generation**: The `word_document` tool creates real downloadable DOCX Canvas artifacts for proposals, contracts, resumes, letters, memos, reports, policies, checklists, meeting notes/minutes, and form-style business documents. WorkSpaces should use this tool instead of markdown or code sandbox when the user asks for a Word file. See [Word Document Workflow](word-document-workflow.md).
+- **CSV export generation**: The `csv_document` tool creates downloadable CSV Canvas artifacts from headers and rows. Use it for structured data exports, report extracts, quick datasets, or spreadsheet interchange instead of pasting markdown tables or writing temporary files through the code sandbox.
+- **Email draft generation**: The `email_document` tool creates downloadable `.eml` Canvas artifacts with a styled HTML body, optional plain-text version, and optional attachments. Use it for formal emails, outreach templates, or replies instead of generating raw files manually.
+- **Web fetch and summarize**: The `fetch_summarize` tool fetches a public URL and returns a concise summary with title, bullet takeaways, and a representative quote. It uses the same public-HTTP and SSRF guardrails as the browser stack.
 - **Tax PDF generation**: The `tax_return` tool creates downloadable tax review PDFs from enabled Knowledge Base folders and can best-effort fill uploaded AcroForm PDF templates. It reuses the same generic PDF artifact pipeline. See [Tax PDF Workflow](tax-pdf-workflow.md).
 - **Browser control**: Open public pages, inspect links/forms, stage fills, submit with approval, and extract content
 - **UWAF browser (Unified Web Agent Framework)**: Dual-mode browser engine supporting Direct (Clear Web) and Stealth (Tor-routed Dark Web) research modes

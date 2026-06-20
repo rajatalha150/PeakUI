@@ -67,6 +67,9 @@ import {
   stripAllToolTags,
   type OpenClawBrowserToolRequest,
   type OpenClawCodeToolRequest,
+  type OpenClawCsvDocumentToolRequest,
+  type OpenClawEmailDocumentToolRequest,
+  type OpenClawFetchSummarizeToolRequest,
   type OpenClawFilesystemToolRequest,
   type OpenClawPdfDocumentToolRequest,
   type OpenClawTaxReturnToolRequest,
@@ -283,7 +286,7 @@ interface OpenClawMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   hidden?: boolean;
-  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document';
+  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document' | 'csv_document' | 'email_document' | 'fetch_summarize';
   thinking?: string;
   presentation?: ResponsePresentation;
   sources?: MessageSource[];
@@ -879,6 +882,14 @@ type PendingToolApproval =
   | (PendingToolApprovalBase & {
       kind: 'word_document';
       request: OpenClawWordDocumentToolRequest & { sessionId: string; messageId?: string };
+    })
+  | (PendingToolApprovalBase & {
+      kind: 'csv_document';
+      request: OpenClawCsvDocumentToolRequest & { sessionId: string; messageId?: string };
+    })
+  | (PendingToolApprovalBase & {
+      kind: 'email_document';
+      request: OpenClawEmailDocumentToolRequest & { sessionId: string; messageId?: string };
     });
 
 type ToolApprovalResolution =
@@ -890,7 +901,9 @@ type ToolApprovalResolution =
   | TaxReturnToolResultEntry
   | PdfDocumentToolResultEntry
   | WorkbookDocumentToolResultEntry
-  | WordDocumentToolResultEntry;
+  | WordDocumentToolResultEntry
+  | CsvDocumentToolResultEntry
+  | EmailDocumentToolResultEntry;
 
 interface WebToolResultEntry {
   query: string;
@@ -953,6 +966,41 @@ interface WordDocumentToolResultEntry {
     size: number;
     downloadUrl: string;
   };
+  error?: string;
+}
+
+interface CsvDocumentToolResultEntry {
+  success: boolean;
+  title: string;
+  artifact?: {
+    id: string;
+    name: string;
+    mimeType: string;
+    size: number;
+    downloadUrl: string;
+  };
+  error?: string;
+}
+
+interface EmailDocumentToolResultEntry {
+  success: boolean;
+  title: string;
+  artifact?: {
+    id: string;
+    name: string;
+    mimeType: string;
+    size: number;
+    downloadUrl: string;
+  };
+  error?: string;
+}
+
+interface FetchSummarizeToolResultEntry {
+  success: boolean;
+  url: string;
+  title?: string;
+  summary?: string[];
+  quote?: string;
   error?: string;
 }
 
@@ -1289,6 +1337,24 @@ function describeWordDocumentRequest(request: OpenClawWordDocumentToolRequest) {
     : `Generating downloadable Word document: \`${request.filename || request.title}.docx\``;
 }
 
+function describeCsvDocumentRequest(request: OpenClawCsvDocumentToolRequest) {
+  return request.description?.trim()
+    ? `CSV export: ${request.description.trim()}`
+    : `Generating downloadable CSV: \`${request.filename || request.title}.csv\``;
+}
+
+function describeEmailDocumentRequest(request: OpenClawEmailDocumentToolRequest) {
+  return request.description?.trim()
+    ? `Email draft: ${request.description.trim()}`
+    : `Generating downloadable email draft: \`${request.filename || request.title || request.subject}.eml\``;
+}
+
+function describeFetchSummarizeRequest(request: OpenClawFetchSummarizeToolRequest) {
+  return request.description?.trim()
+    ? `Fetch and summarize: ${request.description.trim()} (${request.url})`
+    : `Fetch and summarize web page: ${request.url}`;
+}
+
 function normalizeToolSources(value: unknown): MessageSource[] {
   return normalizeMessageSources(value);
 }
@@ -1345,6 +1411,7 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
   messageSources,
   branchingEnabled,
   onBranchFromMessage,
+  onCopyMessage,
 }: {
   msg: OpenClawMessage;
   index: number;
@@ -1357,6 +1424,7 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
   messageSources: MessageSource[];
   branchingEnabled: boolean;
   onBranchFromMessage?: (messageId?: string, branchLabel?: string) => void;
+  onCopyMessage?: (message: OpenClawMessage) => void;
 }) {
   const messageContent = typeof msg.content === 'string' ? msg.content : '';
   const messageThinking = typeof msg.thinking === 'string' ? msg.thinking : '';
@@ -1457,7 +1525,7 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
           {latencySummary && <span>{latencySummary}</span>}
         </div>
       )}
-      {branchingEnabled && msg.role !== 'system' && !msg.hidden && msg.id && !isStreaming && (
+      {msg.role !== 'system' && !msg.hidden && msg.id && !isStreaming && (
         <div
           style={{
             fontSize: '0.74rem',
@@ -1470,11 +1538,21 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
           <button
             type="button"
             className="openclaw-inline-button"
-            onClick={() => onBranchFromMessage?.(msg.id, `${msg.role === 'user' ? 'User' : 'Assistant'} turn ${index + 1}`)}
+            onClick={() => void onCopyMessage?.(msg)}
           >
             <Copy size={12} />
-            Branch from here
+            Copy message
           </button>
+          {branchingEnabled && (
+            <button
+              type="button"
+              className="openclaw-inline-button"
+              onClick={() => onBranchFromMessage?.(msg.id, `${msg.role === 'user' ? 'User' : 'Assistant'} turn ${index + 1}`)}
+            >
+              <Copy size={12} />
+              Branch from here
+            </button>
+          )}
         </div>
       )}
       {isStreaming && isLast && liveStats && !msg.meta && (
@@ -1511,10 +1589,11 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
   && prev.outputsForMessage === next.outputsForMessage
   && prev.messageSources === next.messageSources
   && prev.branchingEnabled === next.branchingEnabled
+  && prev.onCopyMessage === next.onCopyMessage
 ));
 
 function normalizeExtractedToolRequestName(value: unknown): OpenClawMessage['toolRequest'] {
-  return value === 'shell' || value === 'filesystem' || value === 'web' || value === 'code' || value === 'browser' || value === 'unified_browser' || value === 'tax_return' || value === 'pdf_document' || value === 'workbook_document' || value === 'word_document'
+  return value === 'shell' || value === 'filesystem' || value === 'web' || value === 'code' || value === 'browser' || value === 'unified_browser' || value === 'tax_return' || value === 'pdf_document' || value === 'workbook_document' || value === 'word_document' || value === 'csv_document' || value === 'email_document' || value === 'fetch_summarize'
     ? value
     : undefined;
 }
@@ -1832,7 +1911,30 @@ function getOpenClawToolRequestSignature(request: OpenClawToolRequest) {
     }).slice(0, 6000)}`;
   }
 
-  return `filesystem:${request.request.action}:${request.request.path.trim()}`;
+  if (request.name === 'csv_document') {
+    const csv = request.request as OpenClawCsvDocumentToolRequest
+    return `csv_document:${csv.title.trim()}:${csv.filename?.trim() || ''}:${(csv.content || '').trim().slice(0, 2000)}:${JSON.stringify({
+      headers: csv.headers,
+      rows: csv.rows?.slice(0, 20),
+    }).slice(0, 4000)}`;
+  }
+
+  if (request.name === 'email_document') {
+    const email = request.request as OpenClawEmailDocumentToolRequest
+    return `email_document:${email.title?.trim() || email.subject.trim()}:${email.filename?.trim() || ''}:${email.to?.trim() || ''}:${email.subject.trim()}:${(email.body || '').trim().slice(0, 2000)}`;
+  }
+
+  if (request.name === 'fetch_summarize') {
+    const fetchSummarize = request.request as OpenClawFetchSummarizeToolRequest
+    return `fetch_summarize:${fetchSummarize.url.trim()}`;
+  }
+
+  if (request.name === 'filesystem') {
+    return `filesystem:${request.request.action}:${request.request.path.trim()}`;
+  }
+
+  const fallback = request as any;
+  return `${fallback.name}:${JSON.stringify(fallback.request).slice(0, 200)}`;
 }
 
 function formatShellToolResult(entry: ShellOutputEntry): string {
@@ -2363,6 +2465,84 @@ function formatWordDocumentToolResult(entry: WordDocumentToolResultEntry): strin
   }
 
   lines.push('', 'Use this result to present the Word document download link first. Keep the user-facing response concise and do not restate the full document in markdown unless the user explicitly asks for an inline summary.');
+  return lines.join('\n');
+}
+
+function formatCsvDocumentToolResult(entry: CsvDocumentToolResultEntry): string {
+  const lines = [
+    'CSV export tool result:',
+    `Title: ${entry.title}`,
+    `Status: ${entry.success ? 'completed' : 'failed'}`,
+  ];
+
+  if (!entry.success) {
+    if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    lines.push('', 'Use this result to continue the task. Do not claim a CSV was exported if this result failed.');
+    return lines.join('\n');
+  }
+
+  if (entry.artifact) {
+    lines.push(
+      `Artifact: ${entry.artifact.name}`,
+      `Artifact id: ${entry.artifact.id}`,
+      `Download URL: ${entry.artifact.downloadUrl}`,
+      `Mime type: ${entry.artifact.mimeType}`,
+      `Size: ${entry.artifact.size} bytes`,
+    );
+  }
+
+  lines.push('', 'Use this result to present the CSV download link first. Keep the user-facing response concise.');
+  return lines.join('\n');
+}
+
+function formatEmailDocumentToolResult(entry: EmailDocumentToolResultEntry): string {
+  const lines = [
+    'Email writer tool result:',
+    `Title: ${entry.title}`,
+    `Status: ${entry.success ? 'completed' : 'failed'}`,
+  ];
+
+  if (!entry.success) {
+    if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    lines.push('', 'Use this result to continue the task. Do not claim an email was generated if this result failed.');
+    return lines.join('\n');
+  }
+
+  if (entry.artifact) {
+    lines.push(
+      `Artifact: ${entry.artifact.name}`,
+      `Artifact id: ${entry.artifact.id}`,
+      `Download URL: ${entry.artifact.downloadUrl}`,
+      `Mime type: ${entry.artifact.mimeType}`,
+      `Size: ${entry.artifact.size} bytes`,
+    );
+  }
+
+  lines.push('', 'Use this result to present the .eml download link first. Offer to revise the draft if the user wants changes.');
+  return lines.join('\n');
+}
+
+function formatFetchSummarizeToolResult(entry: FetchSummarizeToolResultEntry): string {
+  const lines = [
+    'URL fetch and summarize tool result:',
+    `URL: ${entry.url}`,
+    `Status: ${entry.success ? 'completed' : 'failed'}`,
+  ];
+
+  if (!entry.success) {
+    if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    lines.push('', 'Use this result to continue the task. Do not claim the page was fetched if this result failed.');
+    return lines.join('\n');
+  }
+
+  if (entry.title) lines.push(`Title: ${entry.title}`);
+  if (entry.summary && entry.summary.length > 0) {
+    lines.push('', 'Summary:');
+    entry.summary.forEach(bullet => lines.push(`- ${bullet}`));
+  }
+  if (entry.quote) lines.push('', `Key quote: "${entry.quote}"`);
+
+  lines.push('', 'Use this result to answer the user. Cite the source URL explicitly.');
   return lines.join('\n');
 }
 
@@ -5468,6 +5648,207 @@ export default function OpenClawWorkspace({
     });
   };
 
+  const executeCsvDocumentAction = async (
+    request: OpenClawCsvDocumentToolRequest & { sessionId: string; messageId?: string },
+  ): Promise<CsvDocumentToolResultEntry> => {
+    try {
+      const res = await fetch('/api/openclaw/csv-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          title: request.title,
+          success: false,
+          error: typeof data.error === 'string' ? data.error : 'CSV export failed',
+        };
+      }
+      const artifact = data.artifact && typeof data.artifact === 'object'
+        ? data.artifact as Record<string, unknown>
+        : null;
+      return {
+        title: request.title,
+        success: data.success !== false,
+        artifact: artifact
+          && typeof artifact.id === 'string'
+          && typeof artifact.name === 'string'
+          && typeof artifact.mimeType === 'string'
+          && typeof artifact.size === 'number'
+          && typeof artifact.downloadUrl === 'string'
+          ? {
+              id: artifact.id,
+              name: artifact.name,
+              mimeType: artifact.mimeType,
+              size: artifact.size,
+              downloadUrl: artifact.downloadUrl,
+            }
+          : undefined,
+      };
+    } catch (error) {
+      return {
+        title: request.title,
+        success: false,
+        error: error instanceof Error ? error.message : 'CSV export failed',
+      };
+    }
+  };
+
+  const requestCsvDocumentAction = async (
+    request: OpenClawCsvDocumentToolRequest,
+    options: { messageId: string; sessionId: string },
+  ): Promise<CsvDocumentToolResultEntry> => {
+    const payload = {
+      ...request,
+      sessionId: options.sessionId,
+      messageId: options.messageId,
+    };
+
+    return await new Promise<CsvDocumentToolResultEntry>(resolve => {
+      pendingApprovalResolverRef.current = resolve as (result: ToolApprovalResolution) => void;
+      setPendingApproval({
+        kind: 'csv_document',
+        title: 'CSV Export Approval',
+        description: describeCsvDocumentRequest(request),
+        previewLabel: 'CSV preview',
+        previewContent: truncateApprovalPreview(
+          [
+            `Title: ${request.title}`,
+            `Filename: ${request.filename || `${request.title}.csv`}`,
+            request.headers?.length ? `Columns: ${request.headers.length}` : null,
+            request.rows?.length ? `Rows: ${request.rows.length}` : null,
+            '',
+            request.content || JSON.stringify({
+              headers: request.headers,
+              rows: request.rows?.slice(0, 10),
+            }, null, 2),
+          ].filter(Boolean).join('\n')
+        ),
+        messageId: options.messageId,
+        request: payload,
+      });
+    });
+  };
+
+  const executeEmailDocumentAction = async (
+    request: OpenClawEmailDocumentToolRequest & { sessionId: string; messageId?: string },
+  ): Promise<EmailDocumentToolResultEntry> => {
+    try {
+      const res = await fetch('/api/openclaw/email-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const title = request.title || request.subject || 'Generated Email';
+        return {
+          title,
+          success: false,
+          error: typeof data.error === 'string' ? data.error : 'Email generation failed',
+        };
+      }
+      const artifact = data.artifact && typeof data.artifact === 'object'
+        ? data.artifact as Record<string, unknown>
+        : null;
+      const title = request.title || request.subject || 'Generated Email';
+      return {
+        title,
+        success: data.success !== false,
+        artifact: artifact
+          && typeof artifact.id === 'string'
+          && typeof artifact.name === 'string'
+          && typeof artifact.mimeType === 'string'
+          && typeof artifact.size === 'number'
+          && typeof artifact.downloadUrl === 'string'
+          ? {
+              id: artifact.id,
+              name: artifact.name,
+              mimeType: artifact.mimeType,
+              size: artifact.size,
+              downloadUrl: artifact.downloadUrl,
+            }
+          : undefined,
+      };
+    } catch (error) {
+      const title = request.title || request.subject || 'Generated Email';
+      return {
+        title,
+        success: false,
+        error: error instanceof Error ? error.message : 'Email generation failed',
+      };
+    }
+  };
+
+  const requestEmailDocumentAction = async (
+    request: OpenClawEmailDocumentToolRequest,
+    options: { messageId: string; sessionId: string },
+  ): Promise<EmailDocumentToolResultEntry> => {
+    const payload = {
+      ...request,
+      sessionId: options.sessionId,
+      messageId: options.messageId,
+    };
+    const title = request.title || request.subject || 'Generated Email';
+
+    return await new Promise<EmailDocumentToolResultEntry>(resolve => {
+      pendingApprovalResolverRef.current = resolve as (result: ToolApprovalResolution) => void;
+      setPendingApproval({
+        kind: 'email_document',
+        title: 'Email Draft Approval',
+        description: describeEmailDocumentRequest(request),
+        previewLabel: 'Email preview',
+        previewContent: truncateApprovalPreview(
+          [
+            `Title: ${title}`,
+            `Filename: ${request.filename || `${title}.eml`}`,
+            request.to ? `To: ${request.to}` : null,
+            request.from ? `From: ${request.from}` : null,
+            `Subject: ${request.subject}`,
+            '',
+            request.body,
+          ].filter(Boolean).join('\n')
+        ),
+        messageId: options.messageId,
+        request: payload,
+      });
+    });
+  };
+
+  const executeFetchSummarizeAction = async (
+    request: OpenClawFetchSummarizeToolRequest,
+  ): Promise<FetchSummarizeToolResultEntry> => {
+    try {
+      const res = await fetch('/api/openclaw/fetch-summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          url: request.url,
+          success: false,
+          error: typeof data.error === 'string' ? data.error : 'Fetch and summarize failed',
+        };
+      }
+      return {
+        url: request.url,
+        success: data.success !== false,
+        title: typeof data.title === 'string' ? data.title : undefined,
+        summary: Array.isArray(data.summary) ? data.summary.filter((s: unknown): s is string => typeof s === 'string') : undefined,
+        quote: typeof data.quote === 'string' ? data.quote : undefined,
+      };
+    } catch (error) {
+      return {
+        url: request.url,
+        success: false,
+        error: error instanceof Error ? error.message : 'Fetch and summarize failed',
+      };
+    }
+  };
+
   const handleToolApprove = async () => {
     if (!pendingApproval || !pendingApprovalResolverRef.current) return;
     const approval = pendingApproval;
@@ -5526,6 +5907,16 @@ export default function OpenClawWorkspace({
 
       if (approval.kind === 'word_document') {
         resolve(await executeWordDocumentAction(approval.request));
+        return;
+      }
+
+      if (approval.kind === 'csv_document') {
+        resolve(await executeCsvDocumentAction(approval.request));
+        return;
+      }
+
+      if (approval.kind === 'email_document') {
+        resolve(await executeEmailDocumentAction(approval.request));
         return;
       }
 
@@ -5629,6 +6020,24 @@ export default function OpenClawWorkspace({
           success: false,
           error: message,
         } satisfies WordDocumentToolResultEntry);
+        return;
+      }
+
+      if (approval.kind === 'csv_document') {
+        resolve({
+          title: approval.request.title,
+          success: false,
+          error: message,
+        } satisfies CsvDocumentToolResultEntry);
+        return;
+      }
+
+      if (approval.kind === 'email_document') {
+        resolve({
+          title: approval.request.title || approval.request.subject || 'Generated Email',
+          success: false,
+          error: message,
+        } satisfies EmailDocumentToolResultEntry);
         return;
       }
 
@@ -5746,6 +6155,24 @@ export default function OpenClawWorkspace({
       return;
     }
 
+    if (approval.kind === 'csv_document') {
+      resolve({
+        title: approval.request.title,
+        success: false,
+        error: 'CSV export rejected by user',
+      } satisfies CsvDocumentToolResultEntry);
+      return;
+    }
+
+    if (approval.kind === 'email_document') {
+      resolve({
+        title: approval.request.title || approval.request.subject || 'Generated Email',
+        success: false,
+        error: 'Email draft rejected by user',
+      } satisfies EmailDocumentToolResultEntry);
+      return;
+    }
+
     resolve({
       action: approval.request.action,
       currentUrl: '',
@@ -5829,6 +6256,16 @@ export default function OpenClawWorkspace({
       setSelectedSessionInfo(`Could not copy "${session.title}" to clipboard.`);
     }
     setSessionMenuOpen(null);
+  };
+
+  const handleCopyMessage = async (message: OpenClawMessage) => {
+    const text = message.content || '';
+    try {
+      await navigator.clipboard.writeText(text);
+      setSelectedSessionInfo('Copied message to clipboard.');
+    } catch {
+      setSelectedSessionInfo('Could not copy message to clipboard.');
+    }
   };
 
   const handleBranchFromMessage = async (messageId?: string, branchLabel?: string, sessionIdOverride?: string) => {
@@ -6768,7 +7205,13 @@ export default function OpenClawWorkspace({
                                 ? describeWorkbookDocumentRequest(request.request)
                                 : request.name === 'word_document'
                                   ? describeWordDocumentRequest(request.request)
-                                  : describeFilesystemRequest(request.request.action, request.request.path)
+                                  : request.name === 'csv_document'
+                                    ? describeCsvDocumentRequest(request.request)
+                                    : request.name === 'email_document'
+                                      ? describeEmailDocumentRequest(request.request)
+                                      : request.name === 'fetch_summarize'
+                                        ? describeFetchSummarizeRequest(request.request)
+                                        : describeFilesystemRequest(request.request.action, request.request.path)
               : rawToolTagPresent
                 ? stripAllToolTags(assistantMessage.content)
                 : assistantMessage.content
@@ -7228,6 +7671,117 @@ export default function OpenClawWorkspace({
           continue;
         }
 
+        if (request.name === 'csv_document') {
+          lastToolRequestSignature = effectiveToolSignature;
+          duplicateToolRequestCount = 0;
+          try {
+            setStreamPhase('tool-code');
+            const csvResult = await requestCsvDocumentAction(request.request, {
+              messageId: nextAssistantId,
+              sessionId: chatId,
+            });
+            setStreamPhase(null);
+            if (csvResult.success) {
+              void loadCanvasArtifacts(chatId);
+            }
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatCsvDocumentToolResult(csvResult),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('CSV export tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `CSV export failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Check the data structure and retry.`,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
+          continue;
+        }
+
+        if (request.name === 'email_document') {
+          lastToolRequestSignature = effectiveToolSignature;
+          duplicateToolRequestCount = 0;
+          try {
+            setStreamPhase('tool-code');
+            const emailResult = await requestEmailDocumentAction(request.request, {
+              messageId: nextAssistantId,
+              sessionId: chatId,
+            });
+            setStreamPhase(null);
+            if (emailResult.success) {
+              void loadCanvasArtifacts(chatId);
+            }
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatEmailDocumentToolResult(emailResult),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Email writer tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Email generation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Try again with a clear subject and body.`,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
+          continue;
+        }
+
+        if (request.name === 'fetch_summarize') {
+          if (!draftInternetEnabled) {
+            break;
+          }
+          lastToolRequestSignature = effectiveToolSignature;
+          duplicateToolRequestCount = 0;
+          try {
+            setStreamPhase('web-search');
+            const summaryResult = await executeFetchSummarizeAction(request.request);
+            setStreamPhase(null);
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatFetchSummarizeToolResult(summaryResult),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Fetch summarize tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Fetch and summarize failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. The URL may be unreachable or the page may block fetching.`,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
+          continue;
+        }
+
         if (request.name === 'shell') {
           if (!shellEnabled) {
             break;
@@ -7638,6 +8192,7 @@ export default function OpenClawWorkspace({
         messageSources={messageSources}
         branchingEnabled={settings?.openClawSessionBranchingEnabled !== false}
         onBranchFromMessage={handleBranchFromMessage}
+        onCopyMessage={handleCopyMessage}
       />
     );
   };

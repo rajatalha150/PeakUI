@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Public open-source release under MIT License.
 - `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`, `CODE_OF_CONDUCT.md`, `.env.example`, `INSTALL.md`, `DEVELOPMENT.md`, and `docs/ARCHITECTURE.md`.
+- New WorkSpaces tools: `csv_document` export, `email_document` draft generation, `fetch_summarize` URL summarization, and `word_document` meeting-notes template.
+- Copy-to-clipboard action on every user and assistant chat message.
+- Polished login/rail logo sizing with reduced border/background visual weight.
 
 ### Changed
 - Replaced user-facing "Open Claw" branding with **WorkSpaces** across documentation.

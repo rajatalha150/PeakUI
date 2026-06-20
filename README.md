@@ -32,7 +32,7 @@ Most AI chat interfaces send your prompts, documents, and browsing history to so
 | **Remote providers** | OpenAI-compatible endpoints, including Hugging Face router, TGI, vLLM, and SGLang-style servers |
 | **Knowledge Base** | PostgreSQL-backed document index with semantic, keyword, hybrid RRF, source chips, and full-access mode |
 | **Canvas** | Compact artifact rows, modal previews, downloads, bundles, revisions, lineage, search, restore, and exports |
-| **Tools** | Shell, filesystem, code sandbox, public browser, and UWAF Direct/Stealth browser with approval gates |
+| **Tools** | Shell, filesystem, code sandbox, public browser, UWAF Direct/Stealth browser, PDF/Word/Excel/CSV/Email artifact generation, and URL fetch-summarize with approval gates |
 | **Automation** | Heartbeats, cron tasks, monitors, wake events, nudges, and guarded unattended local Ollama runs |
 | **Session intelligence** | Rolling summaries, context health, auto-continue modes, branches, branch compare, and analytics |
 
@@ -88,6 +88,9 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | [docs/pdf-document-workflow.md](docs/pdf-document-workflow.md) | PDF artifact workflow |
 | [docs/word-document-workflow.md](docs/word-document-workflow.md) | Word document artifact workflow |
 | [docs/workbook-document-workflow.md](docs/workbook-document-workflow.md) | Excel workbook artifact workflow |
+| [docs/csv-document-workflow.md](docs/csv-document-workflow.md) | CSV export artifact workflow |
+| [docs/email-document-workflow.md](docs/email-document-workflow.md) | Email draft artifact workflow |
+| [docs/fetch-summarize-workflow.md](docs/fetch-summarize-workflow.md) | URL fetch and summarize workflow |
 | [docs/tax-pdf-workflow.md](docs/tax-pdf-workflow.md) | Tax document review workflow |
 | [docs/development-section-plan.md](docs/development-section-plan.md) | Development section plan (draft) |
 
@@ -121,7 +124,7 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | `/api/settings` | Per-user app and WorkSpaces settings |
 | `/api/rag/*` | Knowledge Base upload, search, health, diagnostics |
 | `/api/canvas/artifacts*` | Canvas artifact list, create, edit, delete, revisions |
-| `/api/openclaw/*` | WorkSpaces workspace, tools, browser, automation |
+| `/api/openclaw/*` | WorkSpaces workspace, tools, browser, document generation, fetch-summarize, and automation |
 
 ---
 

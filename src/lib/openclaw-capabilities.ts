@@ -1,4 +1,7 @@
 import {
+  OPENCLAW_CSV_DOCUMENT_TOOL_EXAMPLE,
+  OPENCLAW_EMAIL_DOCUMENT_TOOL_EXAMPLE,
+  OPENCLAW_FETCH_SUMMARIZE_TOOL_EXAMPLE,
   OPENCLAW_PDF_DOCUMENT_TOOL_EXAMPLE,
   OPENCLAW_TAX_RETURN_TOOL_EXAMPLE,
   OPENCLAW_WORKBOOK_DOCUMENT_TOOL_EXAMPLE,
@@ -65,6 +68,50 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
     example: OPENCLAW_WORD_DOCUMENT_TOOL_EXAMPLE,
   },
   {
+    id: 'csv-document',
+    label: 'CSV export',
+    adapter: 'native',
+    toolName: 'csv_document',
+    promptLines: [
+      'CSV EXPORT CAPABILITY: When the user asks for a downloadable CSV spreadsheet, table data export, or structured data in CSV format, use the csv_document tool.',
+      'Provide headers and rows, or raw CSV content. The result is a downloadable .csv artifact.',
+    ],
+    example: OPENCLAW_CSV_DOCUMENT_TOOL_EXAMPLE,
+  },
+  {
+    id: 'email-document',
+    label: 'Email writer',
+    adapter: 'native',
+    toolName: 'email_document',
+    promptLines: [
+      'EMAIL WRITER CAPABILITY: When the user asks to draft, write, or generate an email message, use the email_document tool.',
+      'Include to, from, subject, and a professional plain-text body. The result is a downloadable .eml file that opens in any email client.',
+    ],
+    example: OPENCLAW_EMAIL_DOCUMENT_TOOL_EXAMPLE,
+  },
+  {
+    id: 'fetch-summarize',
+    label: 'URL fetch and summarize',
+    adapter: 'native',
+    toolName: 'fetch_summarize',
+    promptLines: [
+      'URL SUMMARIZE CAPABILITY: When the user provides a single public URL and asks to fetch, summarize, or extract the key points, use the fetch_summarize tool.',
+      'The result will include a title, 3-5 bullet summary, key quote, and source URL.',
+    ],
+    example: OPENCLAW_FETCH_SUMMARIZE_TOOL_EXAMPLE,
+  },
+  {
+    id: 'stealth-search',
+    label: 'Stealth web search (Tor)',
+    adapter: 'native',
+    toolName: 'unified_browser',
+    promptLines: [
+      'STEALTH SEARCH CAPABILITY: When the user asks to search the dark web, onion sites, Tor index, or use a privacy-preserving search, use the unified_browser tool with browserMode "stealth".',
+      'Set action to "search", provide the query, and set browserMode to "stealth". Results may include .onion links.',
+    ],
+    example: `<openclaw_tool name="unified_browser">\n{"action":"search","query":"privacy focused search engines","browserMode":"stealth","description":"Search via Tor"}\n</openclaw_tool>`,
+  },
+  {
     id: 'mcp-skill-inventory',
     label: 'MCP skill inventory',
     adapter: 'mcp',
@@ -121,11 +168,27 @@ const CAPABILITY_KEYWORD_TRIGGERS: CapabilityTrigger[] = [
   },
   {
     id: 'workbook-document',
-    keywords: ['excel', 'spreadsheet', 'workbook', 'xlsx', 'csv', 'sheet'],
+    keywords: ['excel', 'spreadsheet', 'workbook', 'xlsx', 'sheet'],
   },
   {
     id: 'word-document',
-    keywords: ['word', 'docx', 'proposal', 'contract', 'resume'],
+    keywords: ['word', 'docx', 'proposal', 'contract', 'resume', 'meeting notes', 'meeting minutes'],
+  },
+  {
+    id: 'csv-document',
+    keywords: ['csv', 'export table', 'export data', 'download csv'],
+  },
+  {
+    id: 'email-document',
+    keywords: ['email', 'draft email', 'write an email', 'compose email', 'message'],
+  },
+  {
+    id: 'fetch-summarize',
+    keywords: ['summarize this url', 'fetch this page', 'summarize the article', 'extract from url'],
+  },
+  {
+    id: 'stealth-search',
+    keywords: ['onion', 'dark web', 'tor search', 'stealth search', '.onion'],
   },
   {
     id: 'tax-return-pdf',

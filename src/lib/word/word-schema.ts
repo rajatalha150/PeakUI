@@ -7,6 +7,7 @@ export type WordDocumentTemplate =
   | 'resume'
   | 'checklist'
   | 'form'
+  | 'meeting-notes'
 
 export interface WordDocumentField {
   label: string
@@ -79,6 +80,7 @@ const TEMPLATE_VALUES = new Set<WordDocumentTemplate>([
   'resume',
   'checklist',
   'form',
+  'meeting-notes',
 ])
 
 function cleanString(value: unknown, maxLength = 4000): string | undefined {

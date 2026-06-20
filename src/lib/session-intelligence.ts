@@ -8,7 +8,7 @@ export interface SessionMessageLike {
   role: 'user' | 'assistant' | 'system';
   content?: string;
   hidden?: boolean;
-  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document';
+  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document' | 'csv_document' | 'email_document' | 'fetch_summarize';
   thinking?: string;
   images?: unknown[];
   attachments?: unknown[];
