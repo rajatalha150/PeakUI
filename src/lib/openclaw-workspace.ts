@@ -5,12 +5,18 @@ const DEFAULT_OPENCLAW_WORKSPACE_HOST_ROOT = '/tmp/peakui-openclaw-workspace'
 const OPENCLAW_WORKSPACE_CONTAINER_ROOT = '/mnt/openclaw/workspace'
 let workspaceAliasBootstrapPromise: Promise<void> | null = null
 
-function normalizeAbsolutePath(input: string): string {
-  return path.resolve(input.trim())
+function normalizeHostPath(input: string): string {
+  const trimmed = input.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+  // Preserve Windows absolute paths (e.g. C:/Users/John/peakui-workspace) as-is.
+  // Linux path.resolve would treat them as relative and corrupt the drive letter.
+  if (/^[A-Za-z]:\//.test(trimmed)) {
+    return trimmed
+  }
+  return path.resolve(trimmed)
 }
 
 export function getOpenClawWorkspaceHostRoot(): string {
-  return normalizeAbsolutePath(
+  return normalizeHostPath(
     process.env.OPENCLAW_HOST_WORKSPACE_DIR || DEFAULT_OPENCLAW_WORKSPACE_HOST_ROOT
   )
 }
@@ -23,13 +29,20 @@ export function getOpenClawWorkspaceLabel(): string {
   return `${getOpenClawWorkspaceHostRoot()} (mounted at ${OPENCLAW_WORKSPACE_CONTAINER_ROOT})`
 }
 
+export function isWindowsHostPath(value: string): boolean {
+  return /^[A-Za-z]:\//.test(value.replace(/\\/g, '/'))
+}
+
 async function ensureWorkspaceAliasExists(): Promise<void> {
   const containerRoot = getOpenClawWorkspaceContainerRoot()
   const hostAliasPath = getOpenClawWorkspaceHostRoot()
 
   await fs.mkdir(containerRoot, { recursive: true })
 
-  if (hostAliasPath === containerRoot) {
+  // Skip alias creation when the host root is a Windows path or already the
+  // container root. Inside a Linux container we cannot create a C:\ symlink,
+  // and the bind mount already makes the workspace available at /mnt/openclaw/workspace.
+  if (hostAliasPath === containerRoot || /^[A-Za-z]:\//.test(hostAliasPath)) {
     return
   }
 

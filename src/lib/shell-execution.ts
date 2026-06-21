@@ -13,6 +13,7 @@ import {
   ensureOpenClawWorkspaceAlias,
   getOpenClawWorkspaceContainerRoot,
   getOpenClawWorkspaceHostRoot,
+  isWindowsHostPath,
 } from './openclaw-workspace'
 
 const execAsync = promisify(exec)
@@ -202,8 +203,19 @@ function normalizeCwd(cwd?: string): string | undefined {
   return trimmed || undefined
 }
 
+function normalizeShellPath(input: string): string {
+  return input.trim().replace(/\\/g, '/')
+}
+
 function isWithinPath(targetPath: string, rootPath: string): boolean {
-  return targetPath === rootPath || targetPath.startsWith(`${rootPath}${path.sep}`)
+  const normalizedTarget = normalizeShellPath(targetPath)
+  const normalizedRoot = normalizeShellPath(rootPath)
+  return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}/`)
+}
+
+function hostRelativeToContainer(hostPath: string, hostRoot: string, containerRoot: string): string {
+  const relative = normalizeShellPath(hostPath).slice(normalizeShellPath(hostRoot).length).replace(/^\//, '')
+  return path.join(containerRoot, relative)
 }
 
 export function resolveContainerShellCwd(cwd?: string): string {
@@ -212,11 +224,18 @@ export function resolveContainerShellCwd(cwd?: string): string {
   const normalized = normalizeCwd(cwd)
   if (!normalized) return containerRoot
 
-  const resolved = path.resolve(normalized)
+  const resolved = normalizeShellPath(normalized)
   if (isWithinPath(resolved, containerRoot)) return resolved
 
   if (isWithinPath(resolved, hostRoot)) {
-    return path.join(containerRoot, path.relative(hostRoot, resolved))
+    return hostRelativeToContainer(resolved, hostRoot, containerRoot)
+  }
+
+  // If the cwd looks like a Windows path but the host root is not Windows,
+  // the user may have mixed configs. Fall back to container root rather than
+  // constructing an invalid path.
+  if (isWindowsHostPath(resolved) && !isWindowsHostPath(hostRoot)) {
+    return containerRoot
   }
 
   return containerRoot

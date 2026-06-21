@@ -4,7 +4,11 @@ import type {
   OpenClawFileAccessMode,
   OpenClawFileWriteMode,
 } from './settings'
-import { getOpenClawWorkspaceContainerRoot, getOpenClawWorkspaceHostRoot } from './openclaw-workspace'
+import {
+  getOpenClawWorkspaceContainerRoot,
+  getOpenClawWorkspaceHostRoot,
+  isWindowsHostPath,
+} from './openclaw-workspace'
 
 export type OpenClawFilesystemReadAction = 'list' | 'read' | 'stat'
 export type OpenClawFilesystemWriteAction = 'write' | 'append' | 'mkdir'
@@ -104,12 +108,28 @@ const FILE_WRITE_PREVIEW_LIMIT_BYTES = 4_000
 const FILE_WRITE_LIMIT_BYTES = 250_000
 const DIRECTORY_LIST_LIMIT = 200
 
+function normalizeRequestPath(input: string): string {
+  return input.trim().replace(/\\/g, '/')
+}
+
 function normalizeAbsolutePath(input: string): string {
-  return path.resolve(input.trim())
+  const normalized = normalizeRequestPath(input)
+  // Preserve Windows absolute paths (C:/...) inside the Linux container.
+  if (isWindowsHostPath(normalized)) {
+    return normalized.replace(/\/+$/, '')
+  }
+  return path.resolve(normalized)
 }
 
 function isWithinPath(targetPath: string, rootPath: string): boolean {
-  return targetPath === rootPath || targetPath.startsWith(`${rootPath}${path.sep}`)
+  const normalizedTarget = normalizeRequestPath(targetPath)
+  const normalizedRoot = normalizeRequestPath(rootPath)
+  return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}/`)
+}
+
+function hostRelativeToContainer(hostPath: string, hostRoot: string, containerRoot: string): string {
+  const relative = normalizeRequestPath(hostPath).slice(normalizeRequestPath(hostRoot).length).replace(/^\//, '')
+  return path.join(containerRoot, relative)
 }
 
 function getMountedRoots(): OpenClawMountedRoot[] {
@@ -388,14 +408,8 @@ async function resolveReadableContainerPaths(
     throw new Error(`Requested path is outside the mounted host roots. Available mounted roots: ${getMountedOpenClawHostRoots().join(', ')}`)
   }
 
-  const containerPath = path.join(
-    mountedRoot.containerPath,
-    path.relative(mountedRoot.hostPath, normalizedHostPath)
-  )
-  const allowedContainerRoot = path.join(
-    mountedRoot.containerPath,
-    path.relative(mountedRoot.hostPath, authorizedRoot)
-  )
+  const containerPath = hostRelativeToContainer(normalizedHostPath, mountedRoot.hostPath, mountedRoot.containerPath)
+  const allowedContainerRoot = hostRelativeToContainer(authorizedRoot, mountedRoot.hostPath, mountedRoot.containerPath)
 
   let realAllowedRoot: string
   let realTargetPath: string
@@ -446,14 +460,8 @@ async function resolveWritableContainerPaths(
     throw new Error(`Requested path is outside the mounted writable roots. Available writable roots: ${getMountedOpenClawWritableRoots().join(', ')}`)
   }
 
-  const logicalContainerPath = path.join(
-    mountedRoot.containerPath,
-    path.relative(mountedRoot.hostPath, normalizedHostPath)
-  )
-  const logicalAllowedRoot = path.join(
-    mountedRoot.containerPath,
-    path.relative(mountedRoot.hostPath, authorizedRoot)
-  )
+  const logicalContainerPath = hostRelativeToContainer(normalizedHostPath, mountedRoot.hostPath, mountedRoot.containerPath)
+  const logicalAllowedRoot = hostRelativeToContainer(authorizedRoot, mountedRoot.hostPath, mountedRoot.containerPath)
 
   const realMountedRoot = await fs.realpath(mountedRoot.containerPath).catch(() => {
     throw new Error('Writable workspace root is not available inside the container mount')

@@ -140,6 +140,18 @@ If you want semantic RAG, also pull an embedding model such as `nomic-embed-text
 - Docker Desktop → Settings → Resources → File Sharing → Ensure `C:\` is shared.
 - WSL2 backend handles this automatically, but verify if errors occur.
 
+## Workspace Directory Mapping
+
+PeakUI keeps two views of the same workspace directory:
+
+| Location | Path on Windows host | Path inside Docker container |
+|----------|----------------------|------------------------------|
+| Managed workspace | `C:\Users\%USERNAME%\peakui-workspace` (set by `OPENCLAW_HOST_WORKSPACE_DIR`) | `/mnt/openclaw/workspace` |
+| Host home tree | `C:\Users\%USERNAME%` (set by `OPENCLAW_HOST_HOME_DIR`) | `/mnt/openclaw/home` (read-only) |
+| Host temp | `C:\Users\%USERNAME%\AppData\Local\Temp` (set by `OPENCLAW_HOST_TMP_DIR`) | `/mnt/openclaw/tmp` (read-only) |
+
+The app stores files inside the container at `/mnt/openclaw/workspace`, but it presents the Windows host path (`C:\Users\...`) to you and the AI. Filesystem and shell tools translate between the two automatically. Make sure the paths in your `.env` match the bind mounts in `docker-compose.windows.yml`.
+
 ## Post-Restart Workflow
 
 After every Windows restart:
