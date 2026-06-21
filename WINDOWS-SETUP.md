@@ -37,6 +37,13 @@ Edit `setup-windows.ps1` to match your project directory, workspace directory, a
 
 The script creates a `.env` file automatically on first run. If you already have a `.env`, it keeps your existing values.
 
+The generated `.env` uses the correct Windows Docker values:
+- `DATABASE_URL=postgresql://peakui:<password>@db:5432/peakui`
+- `OLLAMA_HOST=http://host.docker.internal:11434`
+- `OPENCLAW_HOST_HOME_DIR=C:\Users\%USERNAME%`
+- `OPENCLAW_HOST_TMP_DIR=C:\Users\%USERNAME%\AppData\Local\Temp`
+- `OPENCLAW_HOST_WORKSPACE_DIR=C:\Users\%USERNAME%\peakui-workspace`
+
 ### Option B: Manual Steps
 
 #### 1. Start Docker Desktop
@@ -58,24 +65,32 @@ Start-Process "C:\Path\To\Ollama\ollama.exe" -ArgumentList "serve"
 
 Or double-click `restart-ollama-for-docker.bat` after editing the Ollama path inside it.
 
-#### 3. Build and Run
+#### 3. Configure Environment
 
 ```powershell
 # From your project directory
 cd C:\Path\To\PeakUI
 
-# Copy environment template and fill it in
+# Copy environment template and fill it in.
+# Make sure to uncomment the Windows examples for DATABASE_URL, OLLAMA_HOST,
+# OPENCLAW_HOST_*, and TOR_PROXY_URL.
 copy .env.example .env
+notepad .env
+```
 
-# Build and start
+#### 4. Build and Run
+
+```powershell
 docker compose -f docker-compose.windows.yml up --build
 ```
 
 Wait for the build. First build takes ~5–10 minutes.
 
-#### 4. Open the App
+#### 5. Open the App
 
 Navigate to: [http://localhost:3000](http://localhost:3000)
+
+Create the initial admin account. The Ollama host default is taken from the `OLLAMA_HOST` env var at first login, so set it to `http://host.docker.internal:11434` before signing in.
 
 ## File Reference
 
@@ -85,6 +100,16 @@ Navigate to: [http://localhost:3000](http://localhost:3000)
 | `.env` | Environment variables with Windows paths |
 | `setup-windows.ps1` | One-click setup script |
 | `restart-ollama-for-docker.bat` | Rebinds Ollama to 0.0.0.0 |
+
+## Pull a Model
+
+Before chatting, pull at least one Ollama model from the host:
+
+```powershell
+ollama pull llama3.2
+```
+
+If you want semantic RAG, also pull an embedding model such as `nomic-embed-text`.
 
 ## Troubleshooting
 
@@ -136,6 +161,10 @@ docker compose -f docker-compose.windows.yml up --build
 ```
 
 This rebuilds the Next.js app inside the container.
+
+### Resetting to default settings
+
+If you already signed in while `OLLAMA_HOST` was wrong, the bad URL is saved in the database. You can fix it in **Settings → Ollama host**, or reset all settings by deleting the `userSettings` row in PostgreSQL and signing in again.
 
 ---
 

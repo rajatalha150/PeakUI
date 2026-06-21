@@ -118,7 +118,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   openClawBaseUrl: '',
   ragModel: DEFAULT_EMBEDDING_MODEL,
   ragMode: 'semantic',
-  ollamaHost: 'http://127.0.0.1:11434',
+  ollamaHost: process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434',
   systemPrompt: '',
   temperature: 0.7,
   ollamaUseModelDefaultTemperature: false,

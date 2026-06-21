@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replaced user-facing "Open Claw" branding with **WorkSpaces** across documentation.
 - Parameterized Windows setup scripts and Docker Compose files to remove hardcoded personal paths.
 - Knowledge Base RAG health UI simplified to a compact top status bar instead of an expandable panel.
+- Default Ollama host now reads from the `OLLAMA_HOST` environment variable, so Windows Docker Desktop deployments default to `http://host.docker.internal:11434` instead of the unreachable container-local `127.0.0.1`.
 
 ### Removed
 - Discontinued regular-chat interface code and unused API routes.

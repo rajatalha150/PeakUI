@@ -35,18 +35,31 @@ Windows Docker Desktop does not support `network_mode: host`, so use the Windows
 
 1. Install Docker Desktop with the WSL2 backend.
 2. Install Ollama for Windows.
-3. Copy `.env.example` to `.env` and fill in your values.
-4. Run the setup helper or start manually:
+3. Restart Ollama so it binds to `0.0.0.0:11434` (containers cannot reach `127.0.0.1`):
+   ```powershell
+   .\restart-ollama-for-docker.bat
+   ```
+4. Copy `.env.example` to `.env` and use the **Windows** values in the commented examples:
+   - `DATABASE_URL=postgresql://peakui:CHANGE_ME@db:5432/peakui`
+   - `OLLAMA_HOST=http://host.docker.internal:11434`
+   - `OPENCLAW_HOST_HOME_DIR=C:\Users\%USERNAME%`
+   - `OPENCLAW_HOST_TMP_DIR=C:\Users\%USERNAME%\AppData\Local\Temp`
+   - `OPENCLAW_HOST_WORKSPACE_DIR=C:\Users\%USERNAME%\peakui-workspace`
+   - `OPENCLAW_HOST_EXECUTOR_URL=http://host.docker.internal:4318`
+   - `TOR_PROXY_URL=socks5://tor-proxy:9150`
+5. Run the setup helper or start manually:
 
 ```powershell
 # Helper (adjust paths in the script if your Ollama/project directories differ)
 .\setup-windows.ps1 -FullSetup
 
 # Or manually:
-$env:OLLAMA_HOST="0.0.0.0:11434"
-Start-Process "C:\Path\To\Ollama\ollama.exe" -ArgumentList "serve"
 docker compose -f docker-compose.windows.yml up --build
 ```
+
+6. Open [http://localhost:3000](http://localhost:3000) and create the initial admin account.
+
+> **Note:** The first time you sign in, PeakUI stores the `OLLAMA_HOST` value as your default Ollama host. Make sure the env var is set correctly before that first login.
 
 See [WINDOWS-SETUP.md](WINDOWS-SETUP.md) for full details.
 
