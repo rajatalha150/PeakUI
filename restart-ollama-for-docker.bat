@@ -1,8 +1,9 @@
 @echo off
 REM Rebind Ollama to 0.0.0.0:11434 so Docker containers on Windows can reach it.
-REM Edit OLLAMA_EXE below to match your Ollama installation path.
+REM Set PEAKUI_OLLAMA_EXE before running this script to override the default path.
 
-set "OLLAMA_EXE=C:\Users\%USERNAME%\AppData\Local\Programs\Ollama\ollama.exe"
+if not defined PEAKUI_OLLAMA_EXE set "OLLAMA_EXE=C:\Users\%USERNAME%\AppData\Local\Programs\Ollama\ollama.exe"
+if defined PEAKUI_OLLAMA_EXE set "OLLAMA_EXE=%PEAKUI_OLLAMA_EXE%"
 
 echo Stopping Ollama...
 taskkill /F /IM ollama.exe 2>nul

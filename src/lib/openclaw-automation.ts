@@ -6,7 +6,13 @@ import { getUserSettings } from './settings'
 import { buildEffectiveOpenClawToolAccess } from './openclaw-tool-access'
 import { resolvePermissions } from './permissions'
 import { assertPublicHttpUrl } from './openclaw-browser'
-import { getMountedOpenClawHostRoots, parseAllowedOpenClawPaths } from './openclaw-filesystem'
+import {
+  getMountedOpenClawHostRoots,
+  getMountedOpenClawRootDetails,
+  hostRelativeToContainer,
+  normalizeRequestPath as normalizeFilesystemPath,
+  parseAllowedOpenClawPaths,
+} from './openclaw-filesystem'
 import type { AuthenticatedUser } from './request-auth'
 import { queueAutomationExecution, processQueuedAutomationRuns } from './openclaw-automation-execution'
 
@@ -145,7 +151,9 @@ function normalizeDeliveryMode(value: unknown): AutomationDeliveryMode {
 }
 
 function isWithinPath(targetPath: string, rootPath: string): boolean {
-  return targetPath === rootPath || targetPath.startsWith(`${rootPath}${path.sep}`)
+  const normalizedTarget = normalizeFilesystemPath(targetPath).replace(/\/$/, '')
+  const normalizedRoot = normalizeFilesystemPath(rootPath).replace(/\/$/, '')
+  return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}/`)
 }
 
 async function getAutomationToolAccess(userId: string) {
@@ -179,7 +187,9 @@ async function getAutomationToolAccess(userId: string) {
 }
 
 async function authorizeFileMonitorTarget(userId: string, rawTarget: string) {
-  const normalizedTarget = path.resolve(rawTarget.trim())
+  // Normalize with forward slashes so Windows paths (C:/Users/...) stay intact
+  // and can be compared with the mounted host roots inside the Linux container.
+  const normalizedTarget = normalizeFilesystemPath(rawTarget.trim()).replace(/\/$/, '')
   const { settings, effectiveToolAccess } = await getAutomationToolAccess(userId)
 
   if (!effectiveToolAccess.filesystemEnabled) {
@@ -201,6 +211,22 @@ async function authorizeFileMonitorTarget(userId: string, rawTarget: string) {
   }
 
   return normalizedTarget
+}
+
+/**
+ * Translate a host-side monitor target (e.g. C:/Users/John/peakui-workspace/foo)
+ * into the container path where it is actually mounted. File monitor evaluation
+ * runs inside the app container, so it must read via container paths.
+ */
+function translateMonitorTargetToContainerPath(hostTarget: string): string {
+  const normalizedHost = normalizeFilesystemPath(hostTarget)
+  const roots = getMountedOpenClawRootDetails()
+  const matched = roots
+    .sort((a, b) => b.hostPath.length - a.hostPath.length)
+    .find(root => isWithinPath(normalizedHost, root.hostPath))
+
+  if (!matched) return hostTarget
+  return hostRelativeToContainer(normalizedHost, matched.hostPath, matched.containerPath)
 }
 
 function normalizeTimezone(value: string | null | undefined): string {
@@ -1019,13 +1045,17 @@ async function evaluateUrlMonitor(target: string) {
 }
 
 async function evaluateFileMonitor(target: string) {
-  const resolved = path.resolve(target)
+  // The stored target is a host path; the evaluator runs in the container and
+  // must read the mounted container path. The fingerprint still reflects the
+  // original host path so cross-platform comparisons remain stable.
+  const containerPath = translateMonitorTargetToContainerPath(target)
+  const resolved = path.resolve(containerPath)
   try {
     const stat = await fs.stat(resolved)
     if (stat.isDirectory()) {
       return {
         available: true,
-        fingerprint: hashText(`dir:${resolved}:${stat.mtimeMs}`),
+        fingerprint: hashText(`dir:${target}:${stat.mtimeMs}`),
         summary: `Directory changed at ${new Date(stat.mtimeMs).toISOString()}`,
         content: '',
       }
@@ -1034,7 +1064,7 @@ async function evaluateFileMonitor(target: string) {
     const compact = content.replace(/\s+/g, ' ').trim().slice(0, 12000)
     return {
       available: true,
-      fingerprint: hashText(`file:${resolved}:${stat.size}:${stat.mtimeMs}:${compact}`),
+      fingerprint: hashText(`file:${target}:${stat.size}:${stat.mtimeMs}:${compact}`),
       summary: `${path.basename(resolved)} · ${stat.size} bytes · modified ${new Date(stat.mtimeMs).toISOString()}`,
       content: compact,
     }
@@ -1042,7 +1072,7 @@ async function evaluateFileMonitor(target: string) {
     return {
       available: false,
       fingerprint: 'missing',
-      summary: `Missing: ${resolved}`,
+      summary: `Missing: ${target}`,
       content: '',
     }
   }

@@ -7,17 +7,20 @@
 param(
     [switch]$BuildOnly,
     [switch]$OllamaOnly,
-    [switch]$FullSetup
+    [switch]$FullSetup,
+    [string]$ProjectDir = $env:PEAKUI_PROJECT_DIR,
+    [string]$WorkspaceDir = $env:PEAKUI_WORKSPACE_DIR,
+    [string]$OllamaExe = $env:PEAKUI_OLLAMA_EXE
 )
 
 $ErrorActionPreference = "Stop"
 
 # ---------------------------------------------------------------------------
-# Customize these paths for your environment
+# Apply sensible defaults when not provided via parameter or environment
 # ---------------------------------------------------------------------------
-$ProjectDir = "C:\Users\$env:USERNAME\Projects\PeakUI"
-$WorkspaceDir = "C:\Users\$env:USERNAME\peakui-workspace"
-$OllamaExe = "C:\Users\$env:USERNAME\AppData\Local\Programs\Ollama\ollama.exe"
+if (-not $ProjectDir) { $ProjectDir = "C:\Users\$env:USERNAME\Projects\PeakUI" }
+if (-not $WorkspaceDir) { $WorkspaceDir = "C:\Users\$env:USERNAME\peakui-workspace" }
+if (-not $OllamaExe) { $OllamaExe = "C:\Users\$env:USERNAME\AppData\Local\Programs\Ollama\ollama.exe" }
 
 function Write-Header($text) {
     Write-Host ""
@@ -39,6 +42,20 @@ function Test-OllamaRunning {
         $res = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue
         return $res.StatusCode -eq 200
     } catch { return $false }
+}
+
+# --- 0. Validate project directory ---
+if (-not $OllamaOnly) {
+    if (-not (Test-Path $ProjectDir)) {
+        Write-Host "Creating project directory: $ProjectDir" -ForegroundColor Yellow
+        New-Item -ItemType Directory -Path $ProjectDir -Force | Out-Null
+    }
+    $composeFile = Join-Path $ProjectDir "docker-compose.windows.yml"
+    if (-not (Test-Path $composeFile)) {
+        Write-Host "ERROR: docker-compose.windows.yml not found in $ProjectDir" -ForegroundColor Red
+        Write-Host "Make sure this script is run from the PeakUI repository root." -ForegroundColor Yellow
+        exit 1
+    }
 }
 
 # --- 1. Verify Docker Desktop ---

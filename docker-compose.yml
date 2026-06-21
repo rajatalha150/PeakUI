@@ -1,3 +1,7 @@
+# WARNING: network_mode: host only works on Linux Docker hosts.
+# Docker Desktop for Windows does NOT support host networking.
+# Use docker-compose.windows.yml on Windows instead.
+
 services:
   db:
     image: postgres:15-alpine
@@ -40,6 +44,7 @@ services:
       - TOR_PROXY_URL=${TOR_PROXY_URL:-socks5://localhost:9050}
       - PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
       - SCREENCAST_PORT=3001
+      - PEAKUI_DATA_DIR=/var/lib/peakui
       - BRAVE_API_KEY=${BRAVE_API_KEY:-}
       - SEARXNG_URL=${SEARXNG_URL:-}
       - GOOGLE_SEARCH_API_KEY=${GOOGLE_SEARCH_API_KEY:-}

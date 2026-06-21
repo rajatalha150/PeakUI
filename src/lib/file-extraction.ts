@@ -379,7 +379,11 @@ function stripRtf(value: string): string {
 
 async function commandExists(command: string): Promise<boolean> {
   try {
-    await runCommand('sh', ['-lc', `command -v ${command} >/dev/null 2>&1`], { maxBuffer: 1024 })
+    if (process.platform === 'win32') {
+      await runCommand('where', [command], { maxBuffer: 1024 })
+    } else {
+      await runCommand('sh', ['-lc', `command -v ${command} >/dev/null 2>&1`], { maxBuffer: 1024 })
+    }
     return true
   } catch {
     return false

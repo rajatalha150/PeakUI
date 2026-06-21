@@ -1,3 +1,5 @@
+# This Dockerfile builds a Linux container. It is the only supported image target.
+# On Windows use Docker Desktop with the WSL2 backend and Linux containers enabled.
 FROM node:22-alpine AS base
 
 FROM base AS deps

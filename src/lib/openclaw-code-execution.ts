@@ -410,11 +410,26 @@ async function runCommandWithCapturedOutput(
     let outputTruncated = false
     let finished = false
 
+    function terminateChildProcess(): void {
+      if (child.exitCode !== null || child.signalCode !== null) return
+      try {
+        // On Windows Node does not support POSIX signals well, so use the
+        // default signal first; SIGKILL falls back where available.
+        if (process.platform === 'win32') {
+          child.kill()
+        } else {
+          child.kill('SIGKILL')
+        }
+      } catch {
+        // Ignore if the process already exited.
+      }
+    }
+
     // Abort handler
     const abortHandler = () => {
       if (finished) return
       finished = true
-      child.kill('SIGKILL')
+      terminateChildProcess()
       resolve({
         stdout,
         stderr,
@@ -440,7 +455,7 @@ async function runCommandWithCapturedOutput(
 
     const timer = setTimeout(() => {
       if (finished) return
-      child.kill('SIGKILL')
+      terminateChildProcess()
     }, EXECUTION_TIMEOUT_MS)
 
     const appendChunk = (target: 'stdout' | 'stderr', chunk: Buffer) => {
@@ -448,7 +463,7 @@ async function runCommandWithCapturedOutput(
       const remaining = MAX_OUTPUT_BYTES - outputBytes
       if (remaining <= 0) {
         outputTruncated = true
-        child.kill('SIGKILL')
+        terminateChildProcess()
         return
       }
 
@@ -463,7 +478,7 @@ async function runCommandWithCapturedOutput(
 
       if (slice.length < chunk.length) {
         outputTruncated = true
-        child.kill('SIGKILL')
+        terminateChildProcess()
       }
     }
 

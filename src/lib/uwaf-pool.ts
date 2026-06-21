@@ -770,14 +770,25 @@ async function runDnsLeakVerification(context: BrowserContext, directIp: string)
 async function terminateChildProcess(child: ChildProcess | null | undefined): Promise<void> {
   if (!child || child.exitCode !== null || child.signalCode !== null) return
 
-  child.kill('SIGTERM')
+  try {
+    child.kill('SIGTERM')
+  } catch {
+    // Ignore platforms where SIGTERM is unsupported.
+  }
+
   const exited = await Promise.race([
     new Promise<boolean>((resolve) => child.once('exit', () => resolve(true))),
     delay(2000).then(() => false),
   ]).catch(() => false)
 
   if (!exited && child.exitCode === null && child.signalCode === null) {
-    child.kill('SIGKILL')
+    try {
+      // Windows does not support SIGKILL natively, but Node falls back to
+      // TerminateProcess. Use the default signal on Windows to avoid errors.
+      child.kill(process.platform === 'win32' ? undefined : 'SIGKILL')
+    } catch {
+      // Process may already be gone.
+    }
     await new Promise<void>((resolve) => child.once('exit', () => resolve())).catch(() => {})
   }
 }

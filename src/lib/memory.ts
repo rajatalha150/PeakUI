@@ -36,7 +36,9 @@ export interface SessionSummary {
   createdAt: string
 }
 
-const MEMORY_DIR = join(/*turbopackIgnore: true*/ process.cwd(), 'memory')
+const MEMORY_DIR = process.env.PEAKUI_DATA_DIR
+  ? join(process.env.PEAKUI_DATA_DIR, 'memory')
+  : join(/*turbopackIgnore: true*/ process.cwd(), 'memory')
 const LONG_TERM_MEMORY_CANDIDATES = [
   join(/*turbopackIgnore: true*/ process.cwd(), 'memory.md'),
   join(/*turbopackIgnore: true*/ process.cwd(), 'MEMORY.md'),

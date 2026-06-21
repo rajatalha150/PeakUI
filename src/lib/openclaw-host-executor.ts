@@ -1,6 +1,9 @@
 import type { ShellCommandResult } from './shell-execution'
 
-const DEFAULT_HOST_EXECUTOR_URL = 'http://127.0.0.1:4318'
+// Default to the Docker Desktop host gateway so the app container can reach a
+// host-side executor out of the box. Linux host-mode deployments should set
+// OPENCLAW_HOST_EXECUTOR_URL explicitly (Compose already does this).
+const DEFAULT_HOST_EXECUTOR_URL = 'http://host.docker.internal:4318'
 const DEFAULT_CONNECT_TIMEOUT_MS = 4000
 
 export interface HostExecutorStatus {

@@ -204,11 +204,12 @@ export async function assertPublicHttpUrl(rawUrl: string): Promise<URL> {
   }
 
   const hostname = url.hostname.toLowerCase()
+  const allowInternalHosts = process.env.PEAKUI_ALLOW_INTERNAL_HOSTS === 'true'
   if (
     hostname === 'localhost'
     || hostname.endsWith('.localhost')
     || hostname.endsWith('.local')
-    || hostname.endsWith('.internal')
+    || (hostname.endsWith('.internal') && !allowInternalHosts)
   ) {
     throw new Error(`Blocked local/private URL: ${url.href}`)
   }

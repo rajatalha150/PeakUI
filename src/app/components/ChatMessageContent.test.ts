@@ -10,7 +10,7 @@ describe('extractServerArtifactDownloads', () => {
 
     expect(downloads).toEqual([
       { name: 'tax-2025-review.pdf', url: '/api/canvas/artifacts/art_123/download' },
-      { name: 'server-artifact-2.pdf', url: '/api/canvas/artifacts/art_456/download' },
+      { name: 'server-artifact-2', url: '/api/canvas/artifacts/art_456/download' },
     ])
   })
 })

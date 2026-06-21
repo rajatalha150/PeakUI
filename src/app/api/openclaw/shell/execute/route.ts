@@ -20,6 +20,7 @@ function resolveShellTarget(input: {
   hostExecutorStatus?: HostExecutorStatus
 }): {
   target: ShellExecutionTarget
+  targetFallbackReason?: string
 } {
   if (input.configuredTarget !== 'host') {
     return { target: 'container' }
@@ -30,7 +31,17 @@ function resolveShellTarget(input: {
     return { target: 'host' }
   }
 
-  return { target: 'container' }
+  if (!status?.configured) {
+    return {
+      target: 'container',
+      targetFallbackReason: 'Host executor is not configured (OPENCLAW_HOST_EXECUTOR_TOKEN missing). Command ran in the container instead.',
+    }
+  }
+
+  return {
+    target: 'container',
+    targetFallbackReason: `Host executor is unreachable (${status.error || status.url}). Command ran in the container instead.`,
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -72,7 +83,7 @@ export async function POST(request: NextRequest) {
     const hostExecutorStatus = configuredTarget === 'host'
       ? await getHostExecutorStatus()
       : undefined
-    const { target } = resolveShellTarget({ configuredTarget, hostExecutorStatus })
+    const { target, targetFallbackReason } = resolveShellTarget({ configuredTarget, hostExecutorStatus })
     const hostAllowedRoots = target === 'host' && settings.shellHostAllowedRoots
       ? settings.shellHostAllowedRoots.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean)
       : []
@@ -180,6 +191,7 @@ export async function POST(request: NextRequest) {
       duration: result.duration,
       command: result.command,
       target: result.target,
+      targetFallbackReason,
       auditId: effectiveAuditId,
     })
   } catch (error) {

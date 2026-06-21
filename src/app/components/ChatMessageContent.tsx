@@ -97,7 +97,7 @@ export function extractServerArtifactDownloads(content: string): ServerArtifactD
     })
   }
 
-  const artifactPath = `${CANVAS_DOWNLOAD_PREFIX}[0-9a-fA-F-]+${CANVAS_DOWNLOAD_SUFFIX}`
+  const artifactPath = `${CANVAS_DOWNLOAD_PREFIX}[A-Za-z0-9_-]+${CANVAS_DOWNLOAD_SUFFIX}`
   const markdownLinkRegex = new RegExp(`\\[([^\\]]{1,180})\\]\\((https?://[^)\\s]*${artifactPath.replace(/\//g, '\\/')}|${artifactPath.replace(/\//g, '\\/')})\\)`, 'g')
   const bareUrlRegex = new RegExp(`(?:^|\\s)((?:https?://[^)\\s]+)?${artifactPath.replace(/\//g, '\\/')})(?=$|\\s|[),.])`, 'g')
 

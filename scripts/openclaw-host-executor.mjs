@@ -5,18 +5,41 @@ import path from 'path'
 import fs from 'fs/promises'
 import { spawn } from 'child_process'
 
+const isWindows = process.platform === 'win32'
 const bindHost = process.env.OPENCLAW_HOST_EXECUTOR_BIND || '127.0.0.1'
 const port = Number(process.env.OPENCLAW_HOST_EXECUTOR_PORT || '4318')
 const sharedToken = process.env.OPENCLAW_HOST_EXECUTOR_TOKEN || ''
-const shellPath = process.env.OPENCLAW_HOST_EXECUTOR_SHELL || process.env.SHELL || '/bin/bash'
+const shellPath = resolveShellPath()
+const hostWorkspaceDir = (process.env.OPENCLAW_HOST_WORKSPACE_DIR || '').trim()
+const containerWorkspaceRoot = (process.env.OPENCLAW_HOST_WORKSPACE_CONTAINER_ROOT || '/mnt/openclaw/workspace').trim()
 const requestBodyLimitBytes = 1024 * 1024
-const defaultEnv = {
-  PATH: process.env.PATH || '',
-  HOME: process.env.HOME || '',
-  USER: process.env.USER || '',
-  SHELL: process.env.SHELL || shellPath,
-  LANG: process.env.LANG || 'C.UTF-8',
-  TERM: process.env.TERM || 'xterm-256color',
+
+const defaultEnv = isWindows
+  ? {
+      PATH: process.env.PATH || '',
+      PATHEXT: process.env.PATHEXT || '',
+      USERNAME: process.env.USERNAME || '',
+      USERPROFILE: process.env.USERPROFILE || '',
+      SystemRoot: process.env.SystemRoot || '',
+      SHELL: shellPath,
+      COMPUTERNAME: process.env.COMPUTERNAME || '',
+    }
+  : {
+      PATH: process.env.PATH || '',
+      HOME: process.env.HOME || '',
+      USER: process.env.USER || '',
+      SHELL: process.env.SHELL || shellPath,
+      LANG: process.env.LANG || 'C.UTF-8',
+      TERM: process.env.TERM || 'xterm-256color',
+    }
+
+function resolveShellPath() {
+  const configured = (process.env.OPENCLAW_HOST_EXECUTOR_SHELL || '').trim()
+  if (configured) return configured
+  if (isWindows) {
+    return process.env.ComSpec || 'cmd.exe'
+  }
+  return process.env.SHELL || '/bin/bash'
 }
 
 if (!sharedToken) {
@@ -68,8 +91,28 @@ function clampNumber(value, min, max, fallback) {
   return Math.min(max, Math.max(min, Math.round(parsed)))
 }
 
+function normalizeSeparators(input) {
+  return String(input || '').replace(/\\/g, '/')
+}
+
 function normalizeAbsolutePath(input) {
   return path.resolve(String(input || '').trim())
+}
+
+/**
+ * The app container may send cwd as a container path (e.g. /mnt/openclaw/workspace/...).
+ * When the executor is running on a Windows host, translate that back to the host path
+ * so commands execute in the correct directory.
+ */
+function translateContainerPathToHost(input) {
+  if (!hostWorkspaceDir || !containerWorkspaceRoot) return input
+  const normalizedInput = normalizeSeparators(input)
+  const normalizedContainerRoot = normalizeSeparators(containerWorkspaceRoot).replace(/\/$/, '')
+  if (!normalizedInput.startsWith(`${normalizedContainerRoot}/`) && normalizedInput !== normalizedContainerRoot) {
+    return input
+  }
+  const relative = normalizedInput.slice(normalizedContainerRoot.length).replace(/^\//, '')
+  return path.join(hostWorkspaceDir, relative)
 }
 
 async function normalizeExistingRoots(value) {
@@ -92,11 +135,18 @@ async function normalizeExistingRoots(value) {
   return roots
 }
 
+function normalizePathForComparison(input) {
+  const normalized = normalizeSeparators(input).replace(/\/$/, '')
+  return isWindows ? normalized.toLowerCase() : normalized
+}
+
 function pathIsInsideRoot(candidate, roots) {
   const resolvedCandidate = normalizeAbsolutePath(candidate)
+  const normalizedCandidate = normalizePathForComparison(resolvedCandidate)
   return roots.some(root => {
-    const relative = path.relative(root, resolvedCandidate)
-    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+    const normalizedRoot = normalizePathForComparison(root)
+    if (normalizedCandidate === normalizedRoot) return true
+    return normalizedCandidate.startsWith(`${normalizedRoot}/`)
   })
 }
 
@@ -117,6 +167,41 @@ function buildChildEnv(allowedEnvNames) {
   return env
 }
 
+function isPowerShellShell() {
+  const lower = shellPath.toLowerCase()
+  return lower.includes('powershell') || lower.includes('pwsh')
+}
+
+function buildShellArgs(command) {
+  if (isWindows && isPowerShellShell()) {
+    return ['-Command', command]
+  }
+  if (isWindows) {
+    return ['/c', command]
+  }
+  return ['-lc', command]
+}
+
+function terminateChildProcess(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return
+
+  try {
+    child.kill('SIGTERM')
+  } catch {
+    // Windows may ignore SIGTERM; fallback to SIGKILL below.
+  }
+
+  setTimeout(() => {
+    if (child.exitCode === null && child.signalCode === null) {
+      try {
+        child.kill('SIGKILL')
+      } catch {
+        // Ignore if the process already exited or the signal is unsupported.
+      }
+    }
+  }, 1500)
+}
+
 function executeCommand({
   command,
   cwd,
@@ -126,10 +211,11 @@ function executeCommand({
 }) {
   return new Promise((resolve) => {
     const startedAt = Date.now()
-    const child = spawn(shellPath, ['-lc', command], {
+    const child = spawn(shellPath, buildShellArgs(command), {
       cwd,
       env: buildChildEnv(allowedEnvNames),
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
     })
 
     let stdout = ''
@@ -167,12 +253,7 @@ function executeCommand({
     const enforceOutputCap = () => {
       if (outputBytes <= maxOutputBytes || outputCapped) return
       outputCapped = true
-      child.kill('SIGTERM')
-      setTimeout(() => {
-        if (!settled) {
-          child.kill('SIGKILL')
-        }
-      }, 1500)
+      terminateChildProcess(child)
     }
 
     child.stdout.setEncoding('utf8')
@@ -191,12 +272,7 @@ function executeCommand({
 
     const timeoutTimer = setTimeout(() => {
       timedOut = true
-      child.kill('SIGTERM')
-      setTimeout(() => {
-        if (!settled) {
-          child.kill('SIGKILL')
-        }
-      }, 1500)
+      terminateChildProcess(child)
     }, timeoutMs)
 
     child.on('error', error => {
@@ -232,6 +308,7 @@ const server = http.createServer(async (request, response) => {
       shellPath,
       host: bindHost,
       port,
+      platform: process.platform,
     })
     return
   }
@@ -259,9 +336,12 @@ const server = http.createServer(async (request, response) => {
       return
     }
 
-    const requestedCwd = typeof body.cwd === 'string' && body.cwd.trim()
-      ? normalizeAbsolutePath(body.cwd)
+    const rawCwd = typeof body.cwd === 'string' && body.cwd.trim()
+      ? body.cwd
       : allowedRoots[0]
+
+    const hostCwd = translateContainerPathToHost(rawCwd)
+    const requestedCwd = normalizeAbsolutePath(hostCwd)
 
     let cwd
     try {
@@ -293,5 +373,5 @@ const server = http.createServer(async (request, response) => {
 })
 
 server.listen(port, bindHost, () => {
-  console.log(`Open Claw host executor listening on http://${bindHost}:${port}`)
+  console.log(`Open Claw host executor listening on http://${bindHost}:${port} (shell=${shellPath}, platform=${process.platform})`)
 })

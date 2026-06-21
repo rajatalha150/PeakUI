@@ -12,6 +12,7 @@ const execFileAsync = promisify(execFile)
 
 const WORKSPACE_METADATA_FILENAME = '.openclaw-workspace.json'
 const WORKSPACE_GITIGNORE_FILENAME = '.gitignore'
+const WORKSPACE_GITATTRIBUTES_FILENAME = '.gitattributes'
 const DEFAULT_WORKSPACE_SLUG = 'default'
 const WORKSPACE_SKILLS_DIRNAME = 'skills'
 const DEFAULT_BOOT_FILENAME = 'BOOT.md'
@@ -58,6 +59,13 @@ Example files:
 `
 
 const DEFAULT_GITIGNORE_CONTENT = `${WORKSPACE_METADATA_FILENAME}
+`
+
+const DEFAULT_GITATTRIBUTES_CONTENT = `# Normalize line endings across Linux/macOS/Windows checkouts.
+* text=auto
+*.md text
+*.json text
+*.txt text
 `
 
 interface OpenClawWorkspaceMetadata {
@@ -324,6 +332,10 @@ async function maybeSnapshotWorkspaceGitBackup(
     const code = error && typeof error === 'object' && 'code' in error ? error.code : null
     if (code !== 'ENOENT') throw error
     await runGitInWorkspace(containerPath, ['init'])
+    await ensureTextFile(
+      path.join(containerPath, WORKSPACE_GITATTRIBUTES_FILENAME),
+      DEFAULT_GITATTRIBUTES_CONTENT,
+    )
   }
 
   try {

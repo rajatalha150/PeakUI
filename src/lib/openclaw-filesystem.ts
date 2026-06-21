@@ -108,7 +108,7 @@ const FILE_WRITE_PREVIEW_LIMIT_BYTES = 4_000
 const FILE_WRITE_LIMIT_BYTES = 250_000
 const DIRECTORY_LIST_LIMIT = 200
 
-function normalizeRequestPath(input: string): string {
+export function normalizeRequestPath(input: string): string {
   return input.trim().replace(/\\/g, '/')
 }
 
@@ -127,7 +127,7 @@ function isWithinPath(targetPath: string, rootPath: string): boolean {
   return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}/`)
 }
 
-function hostRelativeToContainer(hostPath: string, hostRoot: string, containerRoot: string): string {
+export function hostRelativeToContainer(hostPath: string, hostRoot: string, containerRoot: string): string {
   const relative = normalizeRequestPath(hostPath).slice(normalizeRequestPath(hostRoot).length).replace(/^\//, '')
   return path.join(containerRoot, relative)
 }

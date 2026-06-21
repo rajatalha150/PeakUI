@@ -81,6 +81,14 @@ const DANGEROUS_COMMAND_PREFIXES = [
   'su',
   'sudo',
   'visudo',
+  // Windows-only destructive/admin commands
+  'format',
+  'diskpart',
+  'reg',
+  'schtasks',
+  'takeown',
+  'icacls',
+  'bcdedit',
 ]
 
 const DANGEROUS_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
@@ -92,6 +100,13 @@ const DANGEROUS_COMMAND_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\bchown\s+-R\b/i, reason: 'Contains dangerous pattern: chown -R' },
   { pattern: /\bnc\s+-l\b/i, reason: 'Contains dangerous pattern: nc -l' },
   { pattern: /\/etc\/(?:passwd|shadow)\b/i, reason: 'Access to sensitive system files is blocked' },
+  // Windows destructive patterns
+  { pattern: /\bformat\s+\/fs:/i, reason: 'Contains dangerous pattern: disk format' },
+  { pattern: /\bdiskpart\b/i, reason: 'Contains dangerous pattern: diskpart' },
+  { pattern: /(^|[;&|]\s*)(del|rd|erase)\s+\/(f|s|q)\s+C:\\/i, reason: 'Contains dangerous pattern: mass Windows delete on system drive' },
+  { pattern: /\breg\s+((add|delete|import)\b)/i, reason: 'Contains dangerous pattern: registry modification' },
+  { pattern: /\bbcdedit\b/i, reason: 'Contains dangerous pattern: bcdedit' },
+  { pattern: /\btakeown\s+\/f\s+C:\\/i, reason: 'Contains dangerous pattern: taking ownership of system files' },
 ]
 
 // Commands that require approval (unless in auto-approve mode)
@@ -136,6 +151,30 @@ const SAFE_COMMANDS = [
   'python3',
   'docker',
   'docker compose',
+  // Common Windows shell commands ( harmless on Linux; needed for host target on Windows)
+  'dir',
+  'copy',
+  'move',
+  'del',
+  'type',
+  'findstr',
+  'cd',
+  'chdir',
+  'md',
+  'rd',
+  'rmdir',
+  'echo',
+  'more',
+  'tree',
+  'robocopy',
+  'xcopy',
+  'fc',
+  'comp',
+  'cls',
+  'date',
+  'time',
+  'vol',
+  'ver',
   'prisma',
   'tsc',
   'eslint',
@@ -189,6 +228,18 @@ const APPROVAL_REQUIRED_COMMANDS = [
   'yarn install',
   'yarn run',
   'yarn upgrade',
+  // Windows shells and package/admin tools
+  'cmd',
+  'cmd.exe',
+  'powershell',
+  'pwsh',
+  'choco',
+  'winget',
+  'msiexec',
+  'net',
+  'sc',
+  'format',
+  'diskpart',
 ]
 
 const SHELL_FEATURE_PATTERN = /&&|\|\||[|;`]|>>?|<<?|\$\(|\r|\n/

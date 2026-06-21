@@ -24,7 +24,7 @@ This guide covers running PeakUI on **Windows 11** with **Docker Desktop** (WSL2
 
 ### Option A: PowerShell Script (Recommended)
 
-Edit `setup-windows.ps1` to match your project directory, workspace directory, and Ollama executable path, then run:
+`setup-windows.ps1` picks up paths from environment variables (`PEAKUI_PROJECT_DIR`, `PEAKUI_WORKSPACE_DIR`, `PEAKUI_OLLAMA_EXE`) and falls back to sensible defaults. You can also override them with parameters, then run:
 
 ```powershell
 # Full setup: verifies Docker, creates workspace, generates .env, restarts Ollama, builds & runs app

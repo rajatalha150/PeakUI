@@ -84,6 +84,26 @@ Filesystem denials now return structured diagnostics. Common `code` values:
 - `outside_mounted_host_roots`: the requested path is not mounted into the app container
 - `missing_approval_token`: a write action was attempted without the ask-first approval token
 
+## Windows host executor
+
+The same daemon works on Windows, but a few details differ:
+
+1. Start the daemon with PowerShell or Command Prompt (not inside WSL or Docker):
+
+   ```powershell
+   $env:OPENCLAW_HOST_EXECUTOR_TOKEN='replace-this-with-a-long-random-token'
+   $env:OPENCLAW_HOST_WORKSPACE_DIR='C:\Users\John\peakui-workspace'
+   npm run openclaw:host-executor
+   ```
+
+2. The executor auto-detects Windows and uses `cmd.exe` (or PowerShell if `OPENCLAW_HOST_EXECUTOR_SHELL` points to it). It translates container paths such as `/mnt/openclaw/workspace/...` back to the matching Windows host path so commands run in the right directory.
+
+3. On Docker Desktop for Windows, the app container reaches the host daemon through `http://host.docker.internal:4318`. Make sure `OPENCLAW_HOST_EXECUTOR_URL` in the container environment matches the host bind address. If you bind to `127.0.0.1` inside the host (the default), Docker Desktop's `host.docker.internal` will reach it.
+
+4. Windows signals behave differently than on Linux. The daemon attempts graceful termination and falls back to `SIGKILL`; this is usually mapped to `TerminateProcess` by Node.js, but it may be less reliable than on Linux. Keep timeout and output caps conservative.
+
+5. Windows absolute paths use drive letters. The executor normalizes separators internally, so configure `Host Shell Allowed Roots` with Windows paths (e.g. `C:\Users\John\peakui-workspace`).
+
 ## Important limitation
 
 The host executor constrains the command's working directory and inherited environment, but it is not a full OS sandbox. If you allow an arbitrary host shell command and approve it, that command still has the normal power of the host user account running the daemon.
