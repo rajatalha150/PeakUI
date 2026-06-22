@@ -175,6 +175,9 @@ const PROVIDERS: readonly UwafSearchProvider[] = [
     inputSelectors: ['input[name="q"]', 'input[type="search"]', 'input[type="text"]'],
     submitSelectors: ['button[type="submit"]', 'input[type="submit"]'],
     resultSelectors: ['.searchResults li', '.search-results li', '.result', '.search-result', '.results li'],
+    mirrors: [
+      'http://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion/search/?q={query}',
+    ],
   },
   {
     id: 'onionway',
@@ -284,9 +287,17 @@ const DEFAULT_CURATED_ENTRY_POINTS: readonly UwafCuratedEntryPoint[] = [
   {
     id: 'ahmia-home',
     label: 'Ahmia',
-    url: 'https://ahmia.fi/',
+    url: 'http://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion/',
     mode: 'stealth',
     tags: ['search', 'onion', 'directory'],
+    source: 'built-in',
+  },
+  {
+    id: 'ahmia-clearnet',
+    label: 'Ahmia (Clearnet)',
+    url: 'https://ahmia.fi/',
+    mode: 'stealth',
+    tags: ['search', 'onion', 'directory', 'clearnet'],
     source: 'built-in',
   },
   {

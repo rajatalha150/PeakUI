@@ -400,6 +400,15 @@ function isValidOnionHostname(hostname: string): boolean {
   return /^[a-z2-7]{56}$/.test(label) || /^[a-z2-7]{16}$/.test(label)
 }
 
+function describeOnionValidationIssue(hostname: string): string {
+  const label = hostname.toLowerCase().replace(/\.onion$/, '')
+  if (label.length !== 16 && label.length !== 56) {
+    return `onion address length is ${label.length}; valid v2 addresses are 16 chars and v3 addresses are 56 chars`
+  }
+  const invalidChars = Array.from(new Set(label.match(/[^a-z2-7]/g) || []))
+  return `onion address contains invalid characters: ${invalidChars.join(', ')}; only a-z and 2-7 are allowed`
+}
+
 function buildStealthLandingHtml(profile: StealthProfile): string {
   const providers = getStealthProviderLabels(profile).join(', ')
   return `<!doctype html>
@@ -1254,7 +1263,7 @@ export async function checkOnionResolution(rawUrl: string, profile: StealthProfi
       url: parsed.href,
       hostname: parsed.hostname,
       failureCode: 'invalid_onion_host',
-      error: `.onion hostname is not a valid v2/v3 onion address: ${parsed.hostname}`,
+      error: `.onion hostname is not a valid v2/v3 onion address: ${parsed.hostname} (${describeOnionValidationIssue(parsed.hostname)}).`,
     }
   }
 
