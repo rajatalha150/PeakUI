@@ -17,8 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Knowledge Base folder/document list refreshes every 4 seconds so uploads and indexing status update without manual refresh.
 - Canvas artifact download links are parsed from both relative and absolute URLs and normalized to the current domain, preventing model-hallucinated domains from breaking downloads.
 - Windows Docker Desktop support: `docker-compose.windows.yml` with bridge networking, env-driven service names, and `host.docker.internal` defaults for Ollama and the optional host shell executor.
-- Cross-platform Tor proxy auto-detection: `uwaf-pool.ts` probes `localhost:9050` (Linux/macOS host-mode) and `tor-proxy:9150` (Windows Docker Desktop) and caches the first working endpoint, so stealth/dark-web browsing works on both platforms even when `TOR_PROXY_URL` is unset.
+- Cross-platform Tor proxy auto-detection: `uwaf-pool.ts` probes `localhost:9050` (Linux/macOS host-mode) and `tor-proxy:9150` (Windows Docker Desktop) and caches the first working endpoint. If an explicit `TOR_PROXY_URL` is unreachable, the app falls back to the built-in candidates automatically, so stealth/dark-web browsing works on both platforms whether or not the env var is set.
 - Stealth `.onion` navigation now retries once on transient errors and reports clearer failure codes (`timeout`, `empty_response`, `connection_refused`, `tor_unavailable`).
+- Stealth search now waits for JS-rendered result selectors after navigation and after the on-page form fallback, so JS-heavy onion engines (OnionLand, TorDex) no longer appear empty at `domcontentloaded`.
 - Cross-platform host shell executor (`scripts/openclaw-host-executor.mjs`) detects Windows and uses `cmd.exe`/`PowerShell`, preserves drive-letter paths, and translates container paths back to the host workspace.
 - `.gitattributes` is created automatically for each workspace when git backups are enabled, normalizing line endings across Linux/macOS/Windows.
 - Optional `PEAKUI_ALLOW_INTERNAL_HOSTS` environment variable permits `.internal` hostnames in browser/search guards.
