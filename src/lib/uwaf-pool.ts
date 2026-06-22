@@ -48,15 +48,31 @@ async function probeSocks5Proxy(url: string, timeoutMs = 1500): Promise<boolean>
 /**
  * Return the configured Tor proxy URL, or auto-detect a working default.
  * Linux host-mode uses localhost:9050; Windows Docker Desktop bridge uses
- * tor-proxy:9150. Explicit TOR_PROXY_URL always wins and is cached forever.
+ * tor-proxy:9150. An explicit TOR_PROXY_URL is preferred, but if it is not
+ * reachable we fall back to probing the built-in candidates.
  */
 export async function getTorProxyUrl(): Promise<string> {
   const configured = process.env.TOR_PROXY_URL?.trim()
-  if (configured) {
-    cachedTorProxyUrl = configured
+  if (configured && cachedTorProxyUrl === configured) {
     return configured
   }
-  if (cachedTorProxyUrl) return cachedTorProxyUrl
+
+  // If a proxy is already known to be reachable, reuse it.
+  if (cachedTorProxyUrl) {
+    if (await probeSocks5Proxy(cachedTorProxyUrl)) {
+      return cachedTorProxyUrl
+    }
+    cachedTorProxyUrl = null
+  }
+
+  // Prefer the explicit setting, but verify it is actually reachable.
+  if (configured) {
+    if (await probeSocks5Proxy(configured)) {
+      cachedTorProxyUrl = configured
+      return configured
+    }
+    console.warn(`[uwaf-pool] Configured TOR_PROXY_URL ${configured} is not reachable, trying auto-detection.`)
+  }
 
   for (const candidate of DEFAULT_TOR_PROXY_CANDIDATES) {
     if (await probeSocks5Proxy(candidate)) {

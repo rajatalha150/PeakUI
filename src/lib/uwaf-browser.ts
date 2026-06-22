@@ -652,6 +652,18 @@ async function countMatchingSelectors(page: Page, selectors: readonly string[]):
   return 0
 }
 
+async function waitForMatchingSelectors(page: Page, selectors: readonly string[], timeoutMs = 5000): Promise<boolean> {
+  for (const selector of selectors) {
+    try {
+      await page.waitForSelector(selector, { state: 'attached', timeout: timeoutMs })
+      return true
+    } catch {
+      // Try the next selector.
+    }
+  }
+  return false
+}
+
 async function maybeUseSearchForm(page: Page, provider: UwafSearchProvider, query: string): Promise<boolean> {
   await page.goto(provider.homeUrl, { timeout: 30_000, waitUntil: 'domcontentloaded' })
   await page.waitForTimeout(250)
@@ -672,7 +684,9 @@ async function maybeUseSearchForm(page: Page, provider: UwafSearchProvider, quer
       }
     }
     await page.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {})
-    await page.waitForTimeout(400)
+    // JS-heavy engines (OnionLand, TorDex, etc.) render results after the
+    // initial DOM event. Wait for a result selector before declaring success.
+    await waitForMatchingSelectors(page, provider.resultSelectors, 5000)
     return true
   }
 
@@ -962,6 +976,9 @@ async function executeSearch(
           : []),
       ],
     })
+    // Many search engines render results via JS. Give their result selectors a
+    // short window to appear before evaluating the page.
+    await waitForMatchingSelectors(page, provider.resultSelectors, 5000)
     let resultCount = await countMatchingSelectors(page, provider.resultSelectors)
     let evaluation = evaluateSearchObservation(observation, query, provider, resultCount)
 
