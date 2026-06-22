@@ -19,6 +19,7 @@ This guide covers running PeakUI on **Windows 11** with **Docker Desktop** (WSL2
 | `localhost:11434` for Ollama | `host.docker.internal:11434` (requires Ollama bound to `0.0.0.0`) |
 | `/home/user` host paths | Configured via environment variables / `.env` |
 | `/tmp` | Configured via environment variables / `.env` |
+| Tor SOCKS proxy | Auto-detected: `tor-proxy:9150` on Windows bridge, `localhost:9050` on Linux host-mode |
 
 ## Quick Start
 

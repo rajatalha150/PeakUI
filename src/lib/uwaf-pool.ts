@@ -13,8 +13,64 @@ import {
 } from './uwaf-fingerprint'
 import { getStealthProviderLabels } from './uwaf-search-providers'
 
-const TOR_PROXY_URL = process.env.TOR_PROXY_URL || 'socks5://localhost:9050'
 const CHROMIUM_PATH = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || '/usr/bin/chromium-browser'
+
+const DEFAULT_TOR_PROXY_CANDIDATES = [
+  'socks5://localhost:9050',      // Linux/macOS host-mode Docker Compose
+  'socks5://tor-proxy:9150',      // Windows Docker Desktop bridge network
+]
+
+let cachedTorProxyUrl: string | null = null
+
+async function probeSocks5Proxy(url: string, timeoutMs = 1500): Promise<boolean> {
+  try {
+    const parsed = new URL(url)
+    const hostname = parsed.hostname
+    const port = Number(parsed.port)
+    if (!hostname || !Number.isFinite(port)) return false
+    await new Promise<void>((resolve, reject) => {
+      const socket = net.createConnection({ host: hostname, port }, () => {
+        socket.destroy()
+        resolve()
+      })
+      socket.once('error', reject)
+      socket.setTimeout(timeoutMs, () => {
+        socket.destroy()
+        reject(new Error('Timeout'))
+      })
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Return the configured Tor proxy URL, or auto-detect a working default.
+ * Linux host-mode uses localhost:9050; Windows Docker Desktop bridge uses
+ * tor-proxy:9150. Explicit TOR_PROXY_URL always wins and is cached forever.
+ */
+export async function getTorProxyUrl(): Promise<string> {
+  const configured = process.env.TOR_PROXY_URL?.trim()
+  if (configured) {
+    cachedTorProxyUrl = configured
+    return configured
+  }
+  if (cachedTorProxyUrl) return cachedTorProxyUrl
+
+  for (const candidate of DEFAULT_TOR_PROXY_CANDIDATES) {
+    if (await probeSocks5Proxy(candidate)) {
+      cachedTorProxyUrl = candidate
+      console.log(`[uwaf-pool] Auto-detected Tor proxy: ${candidate}`)
+      return candidate
+    }
+  }
+
+  // Fallback to the Linux default so callers still have a URL to attempt; the
+  // failure will be reported clearly by the preflight/onion check.
+  cachedTorProxyUrl = DEFAULT_TOR_PROXY_CANDIDATES[0]
+  return cachedTorProxyUrl
+}
 
 const BROWSER_WIDTH = parseInt(process.env.LIVE_BROWSER_WIDTH || '1280', 10)
 const BROWSER_HEIGHT = parseInt(process.env.LIVE_BROWSER_HEIGHT || '720', 10)
@@ -68,7 +124,7 @@ export interface OnionResolutionResult {
   httpStatus?: number
   finalUrl?: string
   error?: string
-  failureCode?: 'invalid_onion_host' | 'tor_unavailable' | 'onion_not_found' | 'connection_refused' | 'timeout' | 'navigation_failed'
+  failureCode?: 'invalid_onion_host' | 'tor_unavailable' | 'onion_not_found' | 'connection_refused' | 'timeout' | 'empty_response' | 'navigation_failed'
 }
 
 interface ManagedSession {
@@ -209,10 +265,10 @@ async function allocateDisplayNumber(): Promise<number> {
   throw new Error('No free Xvfb display numbers available')
 }
 
-function buildContextOptions(
+async function buildContextOptions(
   mode: BrowserMode,
   input?: { profile?: StealthProfile; fingerprint?: StealthFingerprint },
-): Parameters<Browser['newContext']>[0] {
+): Promise<Parameters<Browser['newContext']>[0]> {
   const profile = normalizeStealthProfile(input?.profile)
   const fingerprint = mode === 'stealth'
     ? (input?.fingerprint || buildStealthFingerprint(profile, `ephemeral:${Date.now()}`))
@@ -231,7 +287,7 @@ function buildContextOptions(
   }
 
   if (mode === 'stealth') {
-    contextOptions.proxy = { server: TOR_PROXY_URL }
+    contextOptions.proxy = { server: await getTorProxyUrl() }
     contextOptions.permissions = []
     contextOptions.geolocation = undefined
   }
@@ -300,6 +356,12 @@ function classifyOnionResolutionError(message: string): Pick<OnionResolutionResu
     return {
       failureCode: 'timeout',
       error: 'Timed out while resolving or connecting to the .onion service through Tor.',
+    }
+  }
+  if (lower.includes('err_empty_response') || lower.includes('empty response')) {
+    return {
+      failureCode: 'empty_response',
+      error: 'The .onion hostname resolved, but the server returned an empty response. The hidden service may be offline or overloaded.',
     }
   }
   return {
@@ -857,7 +919,7 @@ async function createManagedSession(
       ],
     })
 
-    context = await browser.newContext(buildContextOptions(mode, {
+    context = await browser.newContext(await buildContextOptions(mode, {
       profile: stealthProfile,
       fingerprint,
     }))
@@ -1042,7 +1104,7 @@ async function withEphemeralBrowser<T>(
   })
 
   const context = await browser.newContext(mode === 'stealth'
-    ? buildContextOptions(mode, { profile: stealthProfile, fingerprint })
+    ? await buildContextOptions(mode, { profile: stealthProfile, fingerprint })
     : resolvedContextOptions)
   if (mode === 'stealth' && fingerprint) {
     await applyStealthInitScript(context, fingerprint, stealthProfile)
@@ -1058,8 +1120,9 @@ async function withEphemeralBrowser<T>(
 
 export async function checkTorProxyStatus(profile: StealthProfile = getDefaultStealthProfile()): Promise<{ reachable: boolean; error?: string }> {
   try {
+    const proxyUrl = await getTorProxyUrl()
     return await withEphemeralBrowser({
-      proxy: { server: TOR_PROXY_URL },
+      proxy: { server: proxyUrl },
     }, async (context) => {
       const page = await context.newPage()
       await page.goto('https://check.torproject.org/api/ip', {
@@ -1128,8 +1191,9 @@ async function lookupTorExitCountry(context: BrowserContext, ip: string): Promis
 
 export async function getStealthInfo(profile: StealthProfile = getDefaultStealthProfile()): Promise<{ ip: string; country: string; isTor: boolean } | null> {
   try {
+    const proxyUrl = await getTorProxyUrl()
     return await withEphemeralBrowser({
-      proxy: { server: TOR_PROXY_URL },
+      proxy: { server: proxyUrl },
     }, async (context) => {
       const page = await context.newPage()
       await page.goto('https://check.torproject.org/api/ip', {
@@ -1178,40 +1242,55 @@ export async function checkOnionResolution(rawUrl: string, profile: StealthProfi
     }
   }
 
-  try {
-    return await withEphemeralBrowser({
-      proxy: { server: TOR_PROXY_URL },
-    }, async (context) => {
-      const page = await context.newPage()
-      try {
-        const response = await page.goto(parsed.href, {
-          timeout: 20_000,
-          waitUntil: 'domcontentloaded',
-        })
-        return {
-          ok: true,
-          checkedAt,
-          url: parsed.href,
-          hostname: parsed.hostname,
-          httpStatus: response?.status(),
-          finalUrl: page.url(),
-        }
-      } finally {
-        await page.close().catch(() => {})
-      }
-    }, {
-      stealthProfile: profile,
-    })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    const classified = classifyOnionResolutionError(message)
-    return {
-      ok: false,
-      checkedAt,
-      url: parsed.href,
-      hostname: parsed.hostname,
-      ...classified,
+  const proxyUrl = await getTorProxyUrl()
+  let lastError: { message: string; classified: Pick<OnionResolutionResult, 'failureCode' | 'error'> } = {
+    message: '',
+    classified: { failureCode: 'navigation_failed', error: 'Failed to reach .onion service.' },
+  }
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (attempt > 0) {
+      await delay(1500)
     }
+    try {
+      return await withEphemeralBrowser({
+        proxy: { server: proxyUrl },
+      }, async (context) => {
+        const page = await context.newPage()
+        try {
+          const response = await page.goto(parsed.href, {
+            timeout: 30_000,
+            waitUntil: 'domcontentloaded',
+          })
+          return {
+            ok: true,
+            checkedAt,
+            url: parsed.href,
+            hostname: parsed.hostname,
+            httpStatus: response?.status(),
+            finalUrl: page.url(),
+          }
+        } finally {
+          await page.close().catch(() => {})
+        }
+      }, {
+        stealthProfile: profile,
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      lastError.message = message
+      lastError.classified = classifyOnionResolutionError(message)
+      const transient = /timeout|timed out|empty response|connection closed|connection refused/i.test(message)
+      if (!transient) break
+    }
+  }
+
+  return {
+    ok: false,
+    checkedAt,
+    url: parsed.href,
+    hostname: parsed.hostname,
+    ...lastError.classified,
   }
 }
 
@@ -1251,8 +1330,9 @@ export async function runStealthPreflight(options?: { force?: boolean; profile?:
     const warnings: string[] = []
 
     try {
+      const proxyUrl = await getTorProxyUrl()
       const runtimeChecks = await withEphemeralBrowser({
-        proxy: { server: TOR_PROXY_URL },
+        proxy: { server: proxyUrl },
       }, async (context) => {
         const runtimeProtection = await verifyStealthRuntimeProtection(context)
         const dnsVerification = await runDnsLeakVerification(context, directIp)

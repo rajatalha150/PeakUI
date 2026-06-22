@@ -46,7 +46,7 @@ Windows Docker Desktop does not support `network_mode: host`, so use the Windows
    - `OPENCLAW_HOST_TMP_DIR=C:\Users\%USERNAME%\AppData\Local\Temp`
    - `OPENCLAW_HOST_WORKSPACE_DIR=C:\Users\%USERNAME%\peakui-workspace`
    - `OPENCLAW_HOST_EXECUTOR_URL=http://host.docker.internal:4318`
-   - `TOR_PROXY_URL=socks5://tor-proxy:9150`
+   - `TOR_PROXY_URL=socks5://tor-proxy:9150` (auto-detected if omitted)
 5. Run the setup helper or start manually:
 
 ```powershell
