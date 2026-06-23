@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UWAF browser now keeps per-session memory of visited pages and searches (direct and stealth), with automatic pruning and cross-tab link resolution so the model can return to previous results instead of repeating searches.
 - UWAF browser actions now record per-tab snapshots and expose `new_tab/list_tabs/switch_tab/close_tab` consistently; the runtime context tells the model it is not limited to a single tab.
 - Chat runtime context includes a live UWAF session summary (current page, open tabs, recent visits, recent searches) so the model can reference previously browsed links in the same chat session.
+- Chat auto-scroll now stays pinned to the bottom across all messages (not just the first response) by watching content height growth and ignoring scroll events caused by programmatic auto-scroll. Streaming uses instant scrolling to keep up with tokens; non-streaming updates use smooth scrolling.
 
 ### Changed
 - Replaced user-facing "Open Claw" branding with **WorkSpaces** across documentation.

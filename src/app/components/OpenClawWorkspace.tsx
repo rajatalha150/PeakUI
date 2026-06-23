@@ -3003,7 +3003,7 @@ export default function OpenClawWorkspace({
     scrollToBottom,
     showScrollToBottom,
   } = useStickyScroll({
-    contentKey: chatHistory,
+    contentKey: deferredChatHistory,
     isStreaming,
   });
 
