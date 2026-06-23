@@ -210,8 +210,42 @@ export interface UwafBrowserSettings {
 }
 
 const MAX_SESSION_SCREENSHOTS = 20
+const MAX_SESSION_VISITED_PAGES = 50
+const MAX_SESSION_SEARCH_HISTORY = 20
+const MAX_TAB_SNAPSHOTS = 10
 
-interface UwafBrowserSession {
+export interface VisitedPageEntry {
+  url: string
+  title: string
+  mode: BrowserMode
+  stealthProfile?: StealthProfile
+  source: 'open' | 'click' | 'search' | 'research_batch' | 'new_tab' | 'switch_tab' | 'back' | 'forward'
+  visitedAt: string
+  httpStatus?: number
+}
+
+export interface SearchHistoryEntry {
+  query: string
+  mode: BrowserMode
+  stealthProfile?: StealthProfile
+  providerId?: string
+  providerLabel?: string
+  resultCount: number
+  success: boolean
+  topUrls: string[]
+  searchedAt: string
+}
+
+export interface TabPageSnapshot {
+  tabIndex: number
+  url: string
+  title: string
+  links: UwafBrowserLink[]
+  forms: UwafBrowserForm[]
+  active: boolean
+}
+
+export interface UwafBrowserSession {
   userId: string
   sessionId: string
   mode: BrowserMode
@@ -223,8 +257,11 @@ interface UwafBrowserSession {
     links: UwafBrowserLink[]
     forms: UwafBrowserForm[]
   }
+  tabSnapshots: TabPageSnapshot[]
   filledForms: Record<number, Record<string, string>>
   screenshots: string[]
+  visitedPages: VisitedPageEntry[]
+  searchHistory: SearchHistoryEntry[]
 }
 
 interface PageEventRecord {
@@ -237,7 +274,7 @@ interface PageInstrumentation {
   networkErrors: PageEventRecord[]
 }
 
-interface PageObservation {
+export interface PageObservation {
   url: string
   title: string
   text: string
@@ -285,7 +322,7 @@ function getSessionKey(userId: string, sessionId: string, mode: BrowserMode): st
   return `${userId}:${sessionId}:${mode}`
 }
 
-function getOrCreateSession(
+export function getOrCreateSession(
   userId: string,
   sessionId: string,
   mode: BrowserMode,
@@ -308,17 +345,96 @@ function getOrCreateSession(
     updatedAt: Date.now(),
     filledForms: {},
     screenshots: [],
+    tabSnapshots: [],
+    visitedPages: [],
+    searchHistory: [],
   }
   sessions.set(key, session)
   return session
 }
 
-function pushScreenshot(session: UwafBrowserSession, screenshot: string | undefined): void {
+export function pushScreenshot(session: UwafBrowserSession, screenshot: string | undefined): void {
   if (!screenshot) return
   session.screenshots.push(screenshot)
   if (session.screenshots.length > MAX_SESSION_SCREENSHOTS) {
     session.screenshots = session.screenshots.slice(-MAX_SESSION_SCREENSHOTS)
   }
+}
+
+export function recordVisitedPage(
+  session: UwafBrowserSession,
+  page: Pick<PageObservation, 'url' | 'title' | 'httpStatus'>,
+  source: VisitedPageEntry['source'],
+): void {
+  // Avoid duplicate consecutive entries for the same URL/source pair.
+  const last = session.visitedPages[session.visitedPages.length - 1]
+  if (last && last.url === page.url && last.source === source) {
+    return
+  }
+  session.visitedPages.push({
+    url: page.url,
+    title: page.title,
+    mode: session.mode,
+    stealthProfile: session.stealthProfile,
+    source,
+    visitedAt: new Date().toISOString(),
+    httpStatus: page.httpStatus,
+  })
+  if (session.visitedPages.length > MAX_SESSION_VISITED_PAGES) {
+    session.visitedPages = session.visitedPages.slice(-MAX_SESSION_VISITED_PAGES)
+  }
+}
+
+export function recordSearchHistory(
+  session: UwafBrowserSession,
+  query: string,
+  provider: { id: string; label: string },
+  resultCount: number,
+  success: boolean,
+  topUrls?: string[],
+): void {
+  session.searchHistory.push({
+    query,
+    mode: session.mode,
+    stealthProfile: session.stealthProfile,
+    providerId: provider.id,
+    providerLabel: provider.label,
+    resultCount,
+    success,
+    topUrls: topUrls?.slice(0, 5) ?? [],
+    searchedAt: new Date().toISOString(),
+  })
+  if (session.searchHistory.length > MAX_SESSION_SEARCH_HISTORY) {
+    session.searchHistory = session.searchHistory.slice(-MAX_SESSION_SEARCH_HISTORY)
+  }
+}
+
+export function updateTabSnapshots(session: UwafBrowserSession, observation: PageObservation): void {
+  const tabs = observation.tabs.slice(0, MAX_TAB_SNAPSHOTS)
+  session.tabSnapshots = tabs.map((tab, index) => ({
+    tabIndex: index,
+    url: tab.url,
+    title: tab.title,
+    active: tab.active,
+    links: index === observation.activeTabIndex ? observation.links : [],
+    forms: index === observation.activeTabIndex ? observation.forms : [],
+  }))
+}
+
+export function commitObservationToSession(
+  session: UwafBrowserSession,
+  observation: PageObservation,
+  source: VisitedPageEntry['source'],
+): void {
+  session.currentPage = {
+    url: observation.url,
+    title: observation.title,
+    links: observation.links,
+    forms: observation.forms,
+  }
+  updateTabSnapshots(session, observation)
+  recordVisitedPage(session, observation, source)
+  session.updatedAt = Date.now()
 }
 
 function cleanupExpiredSessions(): void {
@@ -554,20 +670,17 @@ function buildPageSignature(title: string, markdown: string, links: UwafBrowserL
   ].join('\n--\n')
 }
 
-async function syncSessionCurrentPage(session: UwafBrowserSession, page: Page): Promise<void> {
+async function syncSessionCurrentPage(session: UwafBrowserSession, page: Page): Promise<PageObservation> {
   await page.bringToFront().catch(() => {})
-  const [title, links, forms] = await Promise.all([
-    page.title().catch(() => ''),
-    extractLinksFromPage(page),
-    extractFormsFromPage(page),
-  ])
-
+  const observation = await observePage(page, session.mode, false)
   session.currentPage = {
-    url: page.url(),
-    title,
-    links,
-    forms,
+    url: observation.url,
+    title: observation.title,
+    links: observation.links,
+    forms: observation.forms,
   }
+  updateTabSnapshots(session, observation)
+  return observation
 }
 
 async function observePage(
@@ -871,24 +984,37 @@ function toResult(
   }
 }
 
-async function resolveTargetLink(session: UwafBrowserSession, request: UwafBrowserRequest): Promise<string> {
+export async function resolveTargetLink(session: UwafBrowserSession, request: UwafBrowserRequest): Promise<string> {
   if (!session.currentPage) {
     throw new Error('No page is currently open. Use "open" first.')
   }
 
-  if (request.linkIndex !== undefined && request.linkIndex >= 0 && request.linkIndex < session.currentPage.links.length) {
-    return session.currentPage.links[request.linkIndex].url
+  // Prefer a specific tab snapshot if requested, otherwise fall back to the
+  // active/current page. This lets the model click links on background tabs.
+  const tabSnapshot = request.tabIndex !== undefined
+    ? session.tabSnapshots.find(tab => tab.tabIndex === request.tabIndex)
+    : undefined
+  const linkSource = tabSnapshot || session.currentPage
+
+  if (request.linkIndex !== undefined && request.linkIndex >= 0 && request.linkIndex < linkSource.links.length) {
+    return linkSource.links[request.linkIndex].url
   }
 
   if (request.linkText) {
     const lowered = request.linkText.toLowerCase()
-    const link = session.currentPage.links.find(item => item.text.toLowerCase().includes(lowered))
-    if (link) {
-      return link.url
+    // Search the requested tab first, then all tab snapshots, then current page.
+    const candidates = tabSnapshot
+      ? [tabSnapshot]
+      : [...session.tabSnapshots, session.currentPage]
+    for (const source of candidates) {
+      const link = source.links.find(item => item.text.toLowerCase().includes(lowered))
+      if (link) {
+        return link.url
+      }
     }
   }
 
-  throw new Error(`Link not found. Available links: 0–${session.currentPage.links.length - 1}`)
+  throw new Error(`Link not found. Available links: 0–${linkSource.links.length - 1}${tabSnapshot ? ` on tab ${tabSnapshot.tabIndex}` : ''}`)
 }
 
 async function navigateToUrl(
@@ -935,6 +1061,7 @@ async function navigateToUrl(
 }
 
 async function executeSearch(
+  session: UwafBrowserSession,
   page: Page,
   query: string,
   mode: BrowserMode,
@@ -1034,6 +1161,9 @@ async function executeSearch(
         failureCode: entry.evaluation.failureCode,
         failureDetail: entry.evaluation.failureDetail,
       }))
+      const topUrls = observation.links.slice(0, 5).map(link => link.url)
+      recordSearchHistory(session, query, provider, resultCount, true, topUrls)
+      commitObservationToSession(session, observation, 'search')
       return toResult('search', mode, observation, {
         success: true,
         requestedUrl,
@@ -1055,6 +1185,12 @@ async function executeSearch(
 
   if (!fallback) {
     throw new Error('No configured search providers are available for this browser mode.')
+  }
+
+  // Record the failed search too, so the model knows it already tried.
+  if (fallback) {
+    recordSearchHistory(session, query, fallback.provider, fallback.resultCount, false)
+    commitObservationToSession(session, fallback.observation, 'search')
   }
 
   return toResult('search', mode, fallback.observation, {
@@ -1143,13 +1279,8 @@ export async function runUwafBrowserAction(
   switch (request.action) {
     case 'search': {
       if (!request.query?.trim()) throw new Error('Query is required for the "search" action.')
-      const result = await executeSearch(page, request.query, mode, takeScreenshot, stealthProfile, request.providerId)
-      session.currentPage = {
-        url: result.currentUrl,
-        title: result.title,
-        links: result.links,
-        forms: result.forms,
-      }
+      const result = await executeSearch(session, page, request.query, mode, takeScreenshot, stealthProfile, request.providerId)
+      // Search history and tab snapshots are already updated inside executeSearch.
       if (result.screenshot) pushScreenshot(session, result.screenshot)
       return result
     }
@@ -1160,12 +1291,7 @@ export async function runUwafBrowserAction(
       const beforeUrl = page.url()
       const beforeSignature = await page.title().catch(() => '')
       const observation = await navigateToUrl(page, request.url, mode, takeScreenshot, { since, stealthProfile })
-      session.currentPage = {
-        url: observation.url,
-        title: observation.title,
-        links: observation.links,
-        forms: observation.forms,
-      }
+      commitObservationToSession(session, observation, 'open')
       if (observation.screenshot) pushScreenshot(session, observation.screenshot)
       return toResult('open', mode, observation, {
         requestedUrl: request.url,
@@ -1181,7 +1307,7 @@ export async function runUwafBrowserAction(
       const beforeUrl = page.url()
       const beforeObservation = await observePage(page, mode, false, { since: 0 })
       const observation = await navigateToUrl(page, targetUrl, mode, takeScreenshot, { since, stealthProfile })
-      session.currentPage = { url: observation.url, title: observation.title, links: observation.links, forms: observation.forms }
+      commitObservationToSession(session, observation, 'click')
       if (observation.screenshot) pushScreenshot(session, observation.screenshot)
       return toResult('click', mode, observation, {
         requestedUrl: targetUrl,
@@ -1194,12 +1320,7 @@ export async function runUwafBrowserAction(
       await syncSessionCurrentPage(session, page)
       if (!session.currentPage) throw new Error('No page is currently open. Use "open" first.')
       const observation = await observePage(page, mode, takeScreenshot)
-      session.currentPage = {
-        url: observation.url,
-        title: observation.title,
-        links: observation.links,
-        forms: observation.forms,
-      }
+      commitObservationToSession(session, observation, 'open')
       const extractMode = request.mode || 'summary'
       const result = toResult('extract', mode, observation)
       if (extractMode === 'links') {
@@ -1218,12 +1339,7 @@ export async function runUwafBrowserAction(
       await syncSessionCurrentPage(session, page)
       if (!session.currentPage) throw new Error('No page is currently open. Use "open" first.')
       const observation = await observePage(page, mode, takeScreenshot)
-      session.currentPage = {
-        url: observation.url,
-        title: observation.title,
-        links: observation.links,
-        forms: observation.forms,
-      }
+      commitObservationToSession(session, observation, 'open')
       return toResult('extract_table', mode, observation, {
         textOverride: observation.tables.map(table => table.markdown).join('\n\n'),
       })
@@ -1243,12 +1359,7 @@ export async function runUwafBrowserAction(
         depth: 0,
       }]
 
-      session.currentPage = {
-        url: startObservation.url,
-        title: startObservation.title,
-        links: startObservation.links,
-        forms: startObservation.forms,
-      }
+      commitObservationToSession(session, startObservation, 'research_batch')
       if (startObservation.screenshot) pushScreenshot(session, startObservation.screenshot)
 
       let currentLinks = startObservation.links
@@ -1267,6 +1378,7 @@ export async function runUwafBrowserAction(
               links: pageResult.links,
               depth: currentDepth,
             })
+            recordVisitedPage(session, pageResult, 'research_batch')
             nextLinks.push(...pageResult.links)
           } catch {
             // Skip unreachable pages and keep crawling.
@@ -1297,12 +1409,7 @@ export async function runUwafBrowserAction(
       }
 
       const observation = await observePage(page, mode, false)
-      session.currentPage = {
-        url: observation.url,
-        title: observation.title,
-        links: observation.links,
-        forms: observation.forms,
-      }
+      commitObservationToSession(session, observation, 'open')
       return toResult('fill', mode, observation, {
         pendingFormValues: session.filledForms[request.formIndex],
       })
@@ -1333,7 +1440,7 @@ export async function runUwafBrowserAction(
       await page.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {})
 
       const observation = await observePage(page, mode, takeScreenshot, { since })
-      session.currentPage = { url: observation.url, title: observation.title, links: observation.links, forms: observation.forms }
+      commitObservationToSession(session, observation, 'open')
       if (observation.screenshot) pushScreenshot(session, observation.screenshot)
 
       return toResult('submit', mode, observation, {
@@ -1366,12 +1473,7 @@ export async function runUwafBrowserAction(
       const beforeObservation = await observePage(page, mode, false, { since: 0 })
       await locator.fill(request.text)
       const observation = await observePage(page, mode, takeScreenshot, { since })
-      session.currentPage = {
-        url: observation.url,
-        title: observation.title,
-        links: observation.links,
-        forms: observation.forms,
-      }
+      commitObservationToSession(session, observation, 'open')
       return toResult('type', mode, observation, {
         selectorMatched: true,
         pageChanged: observation.pageSignature !== beforeObservation.pageSignature,
@@ -1391,12 +1493,7 @@ export async function runUwafBrowserAction(
       }
       await page.waitForLoadState('domcontentloaded', { timeout: 5_000 }).catch(() => {})
       const observation = await observePage(page, mode, takeScreenshot, { since })
-      session.currentPage = {
-        url: observation.url,
-        title: observation.title,
-        links: observation.links,
-        forms: observation.forms,
-      }
+      commitObservationToSession(session, observation, 'open')
       return toResult('press', mode, observation, {
         selectorMatched: Boolean(request.selector),
         pageChanged: observation.pageSignature !== beforeObservation.pageSignature,
@@ -1417,12 +1514,7 @@ export async function runUwafBrowserAction(
         waitTimedOut = true
       }
       const observation = await observePage(page, mode, takeScreenshot, { since })
-      session.currentPage = {
-        url: observation.url,
-        title: observation.title,
-        links: observation.links,
-        forms: observation.forms,
-      }
+      commitObservationToSession(session, observation, 'open')
       return toResult('wait_for_selector', mode, observation, {
         success: selectorMatched,
         error: selectorMatched ? undefined : `Timed out waiting for selector: ${request.selector}`,
@@ -1439,12 +1531,7 @@ export async function runUwafBrowserAction(
       await page.mouse.wheel(0, normalizeDeltaY(request.deltaY))
       await page.waitForTimeout(300)
       const observation = await observePage(page, mode, takeScreenshot, { since })
-      session.currentPage = {
-        url: observation.url,
-        title: observation.title,
-        links: observation.links,
-        forms: observation.forms,
-      }
+      commitObservationToSession(session, observation, 'open')
       return toResult('scroll', mode, observation, {
         pageChanged: observation.pageSignature !== beforeObservation.pageSignature,
       })
@@ -1456,12 +1543,7 @@ export async function runUwafBrowserAction(
       const beforeObservation = await observePage(page, mode, false, { since: 0 })
       await page.goBack({ waitUntil: 'domcontentloaded', timeout: 10_000 }).catch(() => null)
       const observation = await observePage(page, mode, takeScreenshot, { since })
-      session.currentPage = {
-        url: observation.url,
-        title: observation.title,
-        links: observation.links,
-        forms: observation.forms,
-      }
+      commitObservationToSession(session, observation, 'back')
       return toResult('back', mode, observation, {
         success: observation.url !== beforeUrl || observation.pageSignature !== beforeObservation.pageSignature,
         error: observation.url !== beforeUrl || observation.pageSignature !== beforeObservation.pageSignature ? undefined : 'Back navigation had no visible effect.',
@@ -1478,12 +1560,7 @@ export async function runUwafBrowserAction(
       const beforeObservation = await observePage(page, mode, false, { since: 0 })
       await page.goForward({ waitUntil: 'domcontentloaded', timeout: 10_000 }).catch(() => null)
       const observation = await observePage(page, mode, takeScreenshot, { since })
-      session.currentPage = {
-        url: observation.url,
-        title: observation.title,
-        links: observation.links,
-        forms: observation.forms,
-      }
+      commitObservationToSession(session, observation, 'forward')
       return toResult('forward', mode, observation, {
         success: observation.url !== beforeUrl || observation.pageSignature !== beforeObservation.pageSignature,
         error: observation.url !== beforeUrl || observation.pageSignature !== beforeObservation.pageSignature ? undefined : 'Forward navigation had no visible effect.',
@@ -1500,12 +1577,7 @@ export async function runUwafBrowserAction(
       const observation = targetUrl
         ? await openNewTabFromUrl(page, targetUrl, mode, takeScreenshot, since, stealthProfile)
         : await observePage(await page.context().newPage(), mode, takeScreenshot, { since })
-      session.currentPage = {
-        url: observation.url,
-        title: observation.title,
-        links: observation.links,
-        forms: observation.forms,
-      }
+      commitObservationToSession(session, observation, 'new_tab')
       if (observation.screenshot) pushScreenshot(session, observation.screenshot)
       return toResult('new_tab', mode, observation, {
         requestedUrl: targetUrl,
@@ -1514,12 +1586,7 @@ export async function runUwafBrowserAction(
 
     case 'list_tabs': {
       const observation = await observePage(page, mode, takeScreenshot)
-      session.currentPage = {
-        url: observation.url,
-        title: observation.title,
-        links: observation.links,
-        forms: observation.forms,
-      }
+      updateTabSnapshots(session, observation)
       return toResult('list_tabs', mode, observation)
     }
 
@@ -1538,12 +1605,7 @@ export async function runUwafBrowserAction(
       }
       await targetPage.bringToFront().catch(() => {})
       const observation = await observePage(targetPage, mode, takeScreenshot)
-      session.currentPage = {
-        url: observation.url,
-        title: observation.title,
-        links: observation.links,
-        forms: observation.forms,
-      }
+      commitObservationToSession(session, observation, 'switch_tab')
       return toResult('switch_tab', mode, observation)
     }
 
@@ -1563,12 +1625,7 @@ export async function runUwafBrowserAction(
       await targetPage.close()
       const fallbackPage = await getPage(contextKey, mode, stealthProfile)
       const observation = await observePage(fallbackPage, mode, takeScreenshot)
-      session.currentPage = {
-        url: observation.url,
-        title: observation.title,
-        links: observation.links,
-        forms: observation.forms,
-      }
+      commitObservationToSession(session, observation, 'switch_tab')
       return toResult('close_tab', mode, observation)
     }
 
@@ -1597,12 +1654,7 @@ export async function runUwafBrowserAction(
           : { label: request.optionLabel!.trim() },
       )
       const observation = await observePage(page, mode, takeScreenshot, { since })
-      session.currentPage = {
-        url: observation.url,
-        title: observation.title,
-        links: observation.links,
-        forms: observation.forms,
-      }
+      commitObservationToSession(session, observation, 'open')
       return toResult('select', mode, observation, {
         selectorMatched: true,
         pageChanged: observation.pageSignature !== beforeObservation.pageSignature,
@@ -1627,12 +1679,7 @@ export async function runUwafBrowserAction(
       const beforeObservation = await observePage(page, mode, false, { since: 0 })
       await locator.hover()
       const observation = await observePage(page, mode, takeScreenshot, { since })
-      session.currentPage = {
-        url: observation.url,
-        title: observation.title,
-        links: observation.links,
-        forms: observation.forms,
-      }
+      commitObservationToSession(session, observation, 'open')
       return toResult('hover', mode, observation, {
         selectorMatched: true,
         pageChanged: observation.pageSignature !== beforeObservation.pageSignature,

@@ -304,6 +304,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
         'wait_for_selector: Wait for visible DOM evidence before assuming a page changed.',
         'scroll/back/forward: Use these when the page state depends on browser history or lazy content.',
         'new_tab/list_tabs/switch_tab/close_tab: Manage multiple visible tabs instead of assuming a single-page flow.',
+        'Per-session browsing memory: the runtime remembers pages you visited and searches you ran in this session. If a task needs you to return to a previous result, use open with the exact URL or list_tabs + switch_tab instead of repeating the search.',
         'select/hover: Interact with dropdowns and hover-driven menus before extracting.',
         'extract: Re-extract the current page in a specific mode (summary, text, links, forms, html).',
         'extract_table: Extract all HTML tables from the current page as Markdown or CSV.',

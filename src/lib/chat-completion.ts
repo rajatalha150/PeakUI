@@ -38,6 +38,11 @@ import {
   getSearchProviderSnapshot,
   getStealthProviderIds,
 } from './uwaf-search-providers';
+import {
+  getUwafBrowserSession,
+  type SearchHistoryEntry,
+  type VisitedPageEntry,
+} from './uwaf-browser';
 
 const CHAT_HEARTBEAT_INTERVAL_MS = 15000;
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
@@ -119,6 +124,69 @@ function buildUwafRuntimeContext(mode: 'deny' | 'direct' | 'stealth'): string {
     `Recent UWAF search success rate: ${searchSuccessRate}; median browser launch: ${metrics.medianLaunchTimeMs ?? 'unknown'}ms; median page open: ${metrics.medianPageOpenTimeMs ?? 'unknown'}ms.`,
     'For dark-web or .onion requests, use unified_browser with browserMode "stealth"; for normal public sites, use browserMode "direct". Omit providerId unless retrying or comparing one of the approved provider ids listed above.',
   ].join('\n');
+}
+
+const UWAF_SESSION_VISIT_CONTEXT_LIMIT = 12;
+const UWAF_SESSION_SEARCH_CONTEXT_LIMIT = 6;
+const UWAF_SESSION_TAB_CONTEXT_LIMIT = 12;
+
+function buildUwafSessionRuntimeContext(
+  userId: string,
+  sessionId: string | undefined,
+  mode: 'deny' | 'direct' | 'stealth',
+): string {
+  if (mode === 'deny' || !sessionId) return '';
+
+  const session = getUwafBrowserSession(userId, sessionId, mode);
+  if (!session) return '';
+
+  const formatTime = (timestamp: string | number): string => {
+    const date = typeof timestamp === 'number' ? new Date(timestamp) : new Date(timestamp);
+    return date.toISOString();
+  };
+
+  const recentVisits = session.visitedPages
+    .slice(-UWAF_SESSION_VISIT_CONTEXT_LIMIT)
+    .map((entry: VisitedPageEntry, index: number) => {
+      const sourceLabel = entry.source === 'research_batch' ? 'crawled' : entry.source;
+      return `${index + 1}. [${sourceLabel}] ${entry.title || 'Untitled'} — ${entry.url}${entry.httpStatus ? ` (${entry.httpStatus})` : ''} at ${formatTime(entry.visitedAt)}`;
+    });
+
+  const recentSearches = session.searchHistory
+    .slice(-UWAF_SESSION_SEARCH_CONTEXT_LIMIT)
+    .map((entry: SearchHistoryEntry, index: number) => {
+      const status = entry.success ? `${entry.resultCount} results` : 'failed';
+      const providers = entry.providerLabel || entry.providerId || 'unknown';
+      const urls = entry.topUrls?.length ? `; top: ${entry.topUrls.slice(0, 3).join(', ')}` : '';
+      return `${index + 1}. [${providers}] "${entry.query}" — ${status}${urls} at ${formatTime(entry.searchedAt)}`;
+    });
+
+  const openTabs = session.tabSnapshots
+    .slice(0, UWAF_SESSION_TAB_CONTEXT_LIMIT)
+    .map((tab, index) => {
+      const marker = tab.active ? ' (active)' : '';
+      return `${index + 1}. tab ${tab.tabIndex}: ${tab.title || 'Untitled'} — ${tab.url}${marker}`;
+    });
+
+  const current = session.currentPage
+    ? `Current page: ${session.currentPage.title || 'Untitled'} — ${session.currentPage.url}`
+    : '';
+
+  const parts: string[] = [];
+  if (current) parts.push(current);
+  if (openTabs.length) {
+    parts.push(`Open tabs:\n${openTabs.join('\n')}`);
+  }
+  if (recentVisits.length) {
+    parts.push(`Recent pages visited this session:\n${recentVisits.join('\n')}`);
+  }
+  if (recentSearches.length) {
+    parts.push(`Recent searches this session:\n${recentSearches.join('\n')}`);
+  }
+
+  if (!parts.length) return '';
+
+  return `UWAF SESSION MEMORY (mode: ${mode}):\n${parts.join('\n\n')}`;
 }
 
 function normalizeContextCap(value: string | undefined): number {
@@ -879,7 +947,10 @@ export async function createChatCompletionResponse(req: NextRequest) {
           codeExecutionEnabled: effectiveToolAccess.codeExecutionEnabled,
           browserMode: internetToolEnabled ? effectiveToolAccess.browserMode : 'deny',
           uwafBrowserMode: effectiveUwafBrowserMode,
-          uwafRuntimeContext: buildUwafRuntimeContext(effectiveUwafBrowserMode),
+          uwafRuntimeContext: [
+            buildUwafRuntimeContext(effectiveUwafBrowserMode),
+            buildUwafSessionRuntimeContext(userId, chatId || workspaceId, effectiveUwafBrowserMode),
+          ].filter(Boolean).join('\n\n'),
           workspace: workspaceContext
             ? {
                 name: workspaceContext.workspace.name,
