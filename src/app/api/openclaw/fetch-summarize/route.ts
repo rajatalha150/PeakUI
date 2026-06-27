@@ -35,7 +35,10 @@ export async function POST(request: NextRequest) {
 
     const source = await fetchPublicWebPage(url, '', { signal: request.signal })
     if (!source) {
-      return NextResponse.json({ success: false, url, error: 'Could not fetch or extract the page.' })
+      return NextResponse.json(
+        { success: false, url, error: 'Could not fetch or extract the page.' },
+        { status: 502 },
+      )
     }
 
     const text = source.excerpt || source.content || ''

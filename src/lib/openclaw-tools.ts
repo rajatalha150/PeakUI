@@ -10,6 +10,10 @@ import type { WordDocumentInput, WordDocumentTemplate } from './word/word-schema
 import type { CsvDocumentInput } from './csv/csv-schema'
 import type { EmailDocumentInput } from './email/email-schema'
 import type { MarkdownDocumentInput } from './markdown/markdown-schema'
+import type { SlidesDocumentInput } from './slides/slides-schema'
+import type { ArchiveDocumentInput } from './archive/archive-schema'
+import type { CalendarDocumentInput } from './calendar/calendar-schema'
+import type { MermaidDocumentInput } from './mermaid/mermaid-schema'
 
 export interface OpenClawShellToolRequest {
   command: string
@@ -99,15 +103,23 @@ export interface OpenClawPdfDocumentToolRequest {
   }
 }
 
-export interface OpenClawWorkbookDocumentToolRequest extends WorkbookDocumentInput {}
+export type OpenClawWorkbookDocumentToolRequest = WorkbookDocumentInput
 
-export interface OpenClawWordDocumentToolRequest extends WordDocumentInput {}
+export type OpenClawWordDocumentToolRequest = WordDocumentInput
 
-export interface OpenClawCsvDocumentToolRequest extends CsvDocumentInput {}
+export type OpenClawCsvDocumentToolRequest = CsvDocumentInput
 
-export interface OpenClawEmailDocumentToolRequest extends EmailDocumentInput {}
+export type OpenClawEmailDocumentToolRequest = EmailDocumentInput
 
-export interface OpenClawMarkdownDocumentToolRequest extends MarkdownDocumentInput {}
+export type OpenClawMarkdownDocumentToolRequest = MarkdownDocumentInput
+
+export type OpenClawSlidesDocumentToolRequest = SlidesDocumentInput
+
+export type OpenClawArchiveDocumentToolRequest = ArchiveDocumentInput
+
+export type OpenClawCalendarDocumentToolRequest = CalendarDocumentInput
+
+export type OpenClawMermaidDocumentToolRequest = MermaidDocumentInput
 
 export interface OpenClawFetchSummarizeToolRequest {
   url: string
@@ -166,6 +178,22 @@ export type OpenClawToolRequest =
   | {
       name: 'markdown_document'
       request: OpenClawMarkdownDocumentToolRequest
+    }
+  | {
+      name: 'slides_document'
+      request: OpenClawSlidesDocumentToolRequest
+    }
+  | {
+      name: 'archive_document'
+      request: OpenClawArchiveDocumentToolRequest
+    }
+  | {
+      name: 'calendar_document'
+      request: OpenClawCalendarDocumentToolRequest
+    }
+  | {
+      name: 'mermaid_document'
+      request: OpenClawMermaidDocumentToolRequest
     }
   | {
       name: 'fetch_summarize'
@@ -228,6 +256,22 @@ export const OPENCLAW_MARKDOWN_DOCUMENT_TOOL_EXAMPLE = `<openclaw_tool name="mar
 {"title":"Activity Blueprint","filename":"activity-blueprint.md","content":"# Activity Blueprint\n\n## Product Vision\n...","description":"Create a downloadable Markdown version of the blueprint"}
 </openclaw_tool>`
 
+export const OPENCLAW_SLIDES_DOCUMENT_TOOL_EXAMPLE = `<openclaw_tool name="slides_document">
+{"title":"Q3 Review","filename":"q3-review.pptx","subtitle":"Quarterly business review","theme":{"primaryColor":"1E3A8A","accentColor":"0EA5E9"},"slides":[{"layout":"title","title":"Q3 Review","subtitle":"Quarterly business review"},{"layout":"bullets","title":"Highlights","bullets":["Revenue up 18%","NPS at 47","Three enterprise wins"]},{"layout":"two-column","title":"Risks & Mitigations","columns":[{"heading":"Risks","bullets":["Hiring lag","Supply chain"]},{"heading":"Mitigations","bullets":["Contractor pool","Dual sourcing"]}]},{"layout":"closing","title":"Thank you","body":"Questions?"}],"description":"Generate a polished Q3 review slide deck"}
+</openclaw_tool>`
+
+export const OPENCLAW_ARCHIVE_DOCUMENT_TOOL_EXAMPLE = `<openclaw_tool name="archive_document">
+{"title":"Q3 Bundle","filename":"q3-bundle.zip","entries":[{"name":"summary.md","mimeType":"text/markdown","content":"# Q3 Summary\n\nStrong quarter."},{"name":"notes.txt","mimeType":"text/plain","content":"Meeting notes from 9/30"}],"description":"Bundle the most recent Q3 artifacts into a single ZIP"}
+</openclaw_tool>`
+
+export const OPENCLAW_CALENDAR_DOCUMENT_TOOL_EXAMPLE = `<openclaw_tool name="calendar_document">
+{"title":"Project Kickoff","filename":"project-kickoff.ics","events":[{"uid":"kickoff-1","title":"Project Kickoff","description":"Discuss scope and timeline","location":"Zoom","start":"2026-07-01T15:00:00Z","end":"2026-07-01T16:00:00Z","organizer":"team@peakui.local","attendees":["client@example.com"]}],"description":"Create an ICS calendar invite for the kickoff meeting"}
+</openclaw_tool>`
+
+export const OPENCLAW_MERMAID_DOCUMENT_TOOL_EXAMPLE = `<openclaw_tool name="mermaid_document">
+{"title":"User Login Flow","filename":"user-login-flow.svg","diagram":"graph TD; A[User] --> B[Login Form]; B --> C{Valid?}; C -- Yes --> D[Dashboard]; C -- No --> B","format":"svg","description":"Render a Mermaid diagram of the user login flow as SVG"}
+</openclaw_tool>`
+
 export const OPENCLAW_FETCH_SUMMARIZE_TOOL_EXAMPLE = `<openclaw_tool name="fetch_summarize">
 {"url":"https://example.com/article","description":"Fetch and summarize the article"}
 </openclaw_tool>`
@@ -272,7 +316,54 @@ function isWordDocumentTemplate(value: unknown): value is WordDocumentTemplate {
   return value === 'report' || value === 'memo' || value === 'letter' || value === 'proposal' || value === 'contract' || value === 'resume' || value === 'checklist' || value === 'form' || value === 'meeting-notes'
 }
 
-const TOOL_BLOCK_PATTERN = /<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser|tax_return|pdf_document|workbook_document|word_document|csv_document|email_document|markdown_document|fetch_summarize)["']\s*>([\s\S]*?)<\/openclaw_tool>/i
+function isWorkbookTemplate(value: unknown): value is NonNullable<OpenClawWorkbookDocumentToolRequest['template']> {
+  return value === 'workbook'
+    || value === 'report'
+    || value === 'invoice'
+    || value === 'budget'
+    || value === 'timesheet'
+    || value === 'ledger'
+    || value === 'inventory'
+    || value === 'schedule'
+    || value === 'tracker'
+}
+
+const OPENCLAW_TOOL_NAMES = [
+  'shell',
+  'filesystem',
+  'web',
+  'code',
+  'browser',
+  'unified_browser',
+  'tax_return',
+  'pdf_document',
+  'workbook_document',
+  'word_document',
+  'csv_document',
+  'email_document',
+  'markdown_document',
+  'slides_document',
+  'archive_document',
+  'calendar_document',
+  'mermaid_document',
+  'fetch_summarize',
+] as const
+
+export type OpenClawToolName = typeof OPENCLAW_TOOL_NAMES[number]
+
+const TOOL_NAME_ALTERNATION = OPENCLAW_TOOL_NAMES.join('|')
+const TOOL_BLOCK_PATTERN = new RegExp(
+  `<openclaw_tool\\s+name=["'](${TOOL_NAME_ALTERNATION})["']\\s*>([\\s\\S]*?)<\\/openclaw_tool>`,
+  'i',
+)
+const STRIP_COMPLETE_TOOL_TAG = new RegExp(
+  `<openclaw_tool\\s+name=["'](${TOOL_NAME_ALTERNATION})["']\\s*>[\\s\\S]*?<\\/openclaw_tool>`,
+  'gi',
+)
+const STRIP_PARTIAL_TOOL_TAG = new RegExp(
+  `<openclaw_tool\\s+name=["'](${TOOL_NAME_ALTERNATION})["']\\s*>[\\s\\S]*`,
+  'gi',
+)
 const LEGACY_UWAF_TOOL_BLOCK_PATTERN = /<unified_browser>\s*([\s\S]*?)<\/unified_browser>/i
 
 function extractFirstJsonObject(raw: string): string | null {
@@ -361,10 +452,10 @@ function findToolBlock(content: string): { toolName: string; rawBlock: string; r
 /** Strip all complete and partial <openclaw_tool> tags from content. */
 export function stripAllToolTags(content: string): string {
   // Remove complete tool blocks first
-  let cleaned = content.replace(/<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser|tax_return|pdf_document|workbook_document|word_document|csv_document|email_document|markdown_document|fetch_summarize)["']\s*>[\s\S]*?<\/openclaw_tool>/gi, '')
+  let cleaned = content.replace(STRIP_COMPLETE_TOOL_TAG, '')
   cleaned = cleaned.replace(/<unified_browser>\s*[\s\S]*?<\/unified_browser>/gi, '')
   // Remove partial/incomplete tags (no closing tag)
-  cleaned = cleaned.replace(/<openclaw_tool\s+name=["'](shell|filesystem|web|code|browser|unified_browser|tax_return|pdf_document|workbook_document|word_document|csv_document|email_document|markdown_document|fetch_summarize)["']\s*>[\s\S]*/gi, '')
+  cleaned = cleaned.replace(STRIP_PARTIAL_TOOL_TAG, '')
   cleaned = cleaned.replace(/<unified_browser>\s*[\s\S]*/gi, '')
   // Remove orphaned opening tags
   cleaned = cleaned.replace(/<openclaw_tool[^>]*>/gi, '')
@@ -801,7 +892,7 @@ export function extractOpenClawToolRequest(content: string): {
             description: typeof parsed.description === 'string' && parsed.description.trim()
               ? parsed.description.trim()
               : undefined,
-            template: parsed.template,
+            template: isWorkbookTemplate(parsed.template) ? parsed.template : undefined,
             sheets,
             metadata: parsed.metadata && typeof parsed.metadata === 'object' ? parsed.metadata : undefined,
           },
@@ -950,6 +1041,122 @@ export function extractOpenClawToolRequest(content: string): {
               ? parsed.description.trim()
               : undefined,
             content: contentText.slice(0, 500_000),
+          },
+        },
+      }
+    }
+
+    if (toolName === 'slides_document') {
+      const parsed = parseToolJson<Partial<OpenClawSlidesDocumentToolRequest>>(block.rawJson)
+      if (!parsed) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
+      const slides = Array.isArray(parsed.slides) ? parsed.slides.slice(0, 60) : []
+      if (!title || slides.length === 0) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      return {
+        cleanedContent,
+        request: {
+          name: 'slides_document',
+          request: {
+            title: title.slice(0, 200),
+            subtitle: typeof parsed.subtitle === 'string' && parsed.subtitle.trim() ? parsed.subtitle.trim().slice(0, 240) : undefined,
+            author: typeof parsed.author === 'string' && parsed.author.trim() ? parsed.author.trim().slice(0, 160) : undefined,
+            company: typeof parsed.company === 'string' && parsed.company.trim() ? parsed.company.trim().slice(0, 160) : undefined,
+            theme: parsed.theme && typeof parsed.theme === 'object' ? parsed.theme : undefined,
+            filename: typeof parsed.filename === 'string' && parsed.filename.trim() ? parsed.filename.trim().slice(0, 180) : undefined,
+            description: typeof parsed.description === 'string' && parsed.description.trim() ? parsed.description.trim() : undefined,
+            slides,
+          },
+        },
+      }
+    }
+
+    if (toolName === 'archive_document') {
+      const parsed = parseToolJson<Partial<OpenClawArchiveDocumentToolRequest>>(block.rawJson)
+      if (!parsed) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
+      // Each entry must have a non-empty name and a string content; drop
+      // malformed entries so the ZIP renderer never crashes on undefined fields.
+      const rawEntries = Array.isArray(parsed.entries) ? parsed.entries.slice(0, 50) : []
+      const entries = rawEntries.filter((entry): entry is NonNullable<typeof rawEntries[number]> => {
+        if (!entry || typeof entry !== 'object') return false
+        const e = entry as unknown as Record<string, unknown>
+        return typeof e.name === 'string' && e.name.trim().length > 0
+          && typeof e.content === 'string'
+      })
+      if (!title || entries.length === 0) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      return {
+        cleanedContent,
+        request: {
+          name: 'archive_document',
+          request: {
+            title: title.slice(0, 200),
+            filename: typeof parsed.filename === 'string' && parsed.filename.trim() ? parsed.filename.trim().slice(0, 180) : undefined,
+            description: typeof parsed.description === 'string' && parsed.description.trim() ? parsed.description.trim() : undefined,
+            entries,
+          },
+        },
+      }
+    }
+
+    if (toolName === 'calendar_document') {
+      const parsed = parseToolJson<Partial<OpenClawCalendarDocumentToolRequest>>(block.rawJson)
+      if (!parsed) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
+      // Each event needs at least a start (uid/end are derived when missing).
+      // Drop events with no start so the ICS renderer never crashes.
+      const rawEvents = Array.isArray(parsed.events) ? parsed.events.slice(0, 200) : []
+      const events = rawEvents.filter((event): event is NonNullable<typeof rawEvents[number]> => {
+        if (!event || typeof event !== 'object') return false
+        const e = event as unknown as Record<string, unknown>
+        return typeof e.start === 'string' && e.start.trim().length > 0
+      })
+      if (events.length === 0) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      return {
+        cleanedContent,
+        request: {
+          name: 'calendar_document',
+          request: {
+            title: title ? title.slice(0, 200) : 'Calendar',
+            filename: typeof parsed.filename === 'string' && parsed.filename.trim() ? parsed.filename.trim().slice(0, 180) : undefined,
+            description: typeof parsed.description === 'string' && parsed.description.trim() ? parsed.description.trim() : undefined,
+            events,
+          },
+        },
+      }
+    }
+
+    if (toolName === 'mermaid_document') {
+      const parsed = parseToolJson<Partial<OpenClawMermaidDocumentToolRequest>>(block.rawJson)
+      if (!parsed) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      const diagram = typeof parsed.diagram === 'string' ? parsed.diagram.trim() : ''
+      if (!diagram) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      const title = typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim() : 'Diagram'
+      return {
+        cleanedContent,
+        request: {
+          name: 'mermaid_document',
+          request: {
+            title: title.slice(0, 200),
+            filename: typeof parsed.filename === 'string' && parsed.filename.trim() ? parsed.filename.trim().slice(0, 180) : undefined,
+            description: typeof parsed.description === 'string' && parsed.description.trim() ? parsed.description.trim() : undefined,
+            diagram: diagram.slice(0, 60_000),
+            format: parsed.format === 'png' ? 'png' : 'svg',
           },
         },
       }

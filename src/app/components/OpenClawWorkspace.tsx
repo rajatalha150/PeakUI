@@ -73,6 +73,10 @@ import {
   type OpenClawFilesystemToolRequest,
   type OpenClawMarkdownDocumentToolRequest,
   type OpenClawPdfDocumentToolRequest,
+  type OpenClawSlidesDocumentToolRequest,
+  type OpenClawArchiveDocumentToolRequest,
+  type OpenClawCalendarDocumentToolRequest,
+  type OpenClawMermaidDocumentToolRequest,
   type OpenClawTaxReturnToolRequest,
   type OpenClawToolRequest,
   type OpenClawUwafBrowserToolRequest,
@@ -84,6 +88,7 @@ import LiveBrowserView from './LiveBrowserView';
 import BrowserModal from './BrowserModal';
 import { reportClientError } from '@/lib/client-error-reporting';
 import type { CanvasArtifactRecord, CanvasArtifactRevisionRecord } from '@/lib/canvas-artifacts';
+import { isBinaryArtifact } from '@/lib/canvas-rendering';
 
 type OpenClawProvider = 'ollama' | 'openai-compatible';
 type ImageAttachmentMode = 'vision-only' | 'vision+ocr' | 'ocr-only';
@@ -287,7 +292,7 @@ interface OpenClawMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   hidden?: boolean;
-  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document' | 'csv_document' | 'email_document' | 'markdown_document' | 'fetch_summarize';
+  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document' | 'csv_document' | 'email_document' | 'markdown_document' | 'slides_document' | 'archive_document' | 'calendar_document' | 'mermaid_document' | 'fetch_summarize';
   thinking?: string;
   presentation?: ResponsePresentation;
   sources?: MessageSource[];
@@ -895,6 +900,22 @@ type PendingToolApproval =
   | (PendingToolApprovalBase & {
       kind: 'markdown_document';
       request: OpenClawMarkdownDocumentToolRequest & { sessionId: string; messageId?: string };
+    })
+  | (PendingToolApprovalBase & {
+      kind: 'slides_document';
+      request: OpenClawSlidesDocumentToolRequest & { sessionId: string; messageId?: string };
+    })
+  | (PendingToolApprovalBase & {
+      kind: 'archive_document';
+      request: OpenClawArchiveDocumentToolRequest & { sessionId: string; messageId?: string };
+    })
+  | (PendingToolApprovalBase & {
+      kind: 'calendar_document';
+      request: OpenClawCalendarDocumentToolRequest & { sessionId: string; messageId?: string };
+    })
+  | (PendingToolApprovalBase & {
+      kind: 'mermaid_document';
+      request: OpenClawMermaidDocumentToolRequest & { sessionId: string; messageId?: string };
     });
 
 type ToolApprovalResolution =
@@ -909,7 +930,11 @@ type ToolApprovalResolution =
   | WordDocumentToolResultEntry
   | CsvDocumentToolResultEntry
   | EmailDocumentToolResultEntry
-  | MarkdownDocumentToolResultEntry;
+  | MarkdownDocumentToolResultEntry
+  | SlidesDocumentToolResultEntry
+  | ArchiveDocumentToolResultEntry
+  | CalendarDocumentToolResultEntry
+  | MermaidDocumentToolResultEntry;
 
 interface WebToolResultEntry {
   query: string;
@@ -1002,6 +1027,58 @@ interface EmailDocumentToolResultEntry {
 }
 
 interface MarkdownDocumentToolResultEntry {
+  success: boolean;
+  title: string;
+  artifact?: {
+    id: string;
+    name: string;
+    mimeType: string;
+    size: number;
+    downloadUrl: string;
+  };
+  error?: string;
+}
+
+interface SlidesDocumentToolResultEntry {
+  success: boolean;
+  title: string;
+  artifact?: {
+    id: string;
+    name: string;
+    mimeType: string;
+    size: number;
+    downloadUrl: string;
+  };
+  error?: string;
+}
+
+interface ArchiveDocumentToolResultEntry {
+  success: boolean;
+  title: string;
+  artifact?: {
+    id: string;
+    name: string;
+    mimeType: string;
+    size: number;
+    downloadUrl: string;
+  };
+  error?: string;
+}
+
+interface CalendarDocumentToolResultEntry {
+  success: boolean;
+  title: string;
+  artifact?: {
+    id: string;
+    name: string;
+    mimeType: string;
+    size: number;
+    downloadUrl: string;
+  };
+  error?: string;
+}
+
+interface MermaidDocumentToolResultEntry {
   success: boolean;
   title: string;
   artifact?: {
@@ -1380,6 +1457,30 @@ function describeMarkdownDocumentRequest(request: OpenClawMarkdownDocumentToolRe
     : `Generating downloadable Markdown document: \`${request.filename || request.title}.md\``;
 }
 
+function describeSlidesDocumentRequest(request: OpenClawSlidesDocumentToolRequest) {
+  return request.description?.trim()
+    ? `Slide deck: ${request.description.trim()}`
+    : `Generating slide deck with ${request.slides.length} slides: \`${request.filename || request.title}.pptx\``;
+}
+
+function describeArchiveDocumentRequest(request: OpenClawArchiveDocumentToolRequest) {
+  return request.description?.trim()
+    ? `Archive: ${request.description.trim()}`
+    : `Bundling ${request.entries.length} files into \`${request.filename || request.title}.zip\``;
+}
+
+function describeCalendarDocumentRequest(request: OpenClawCalendarDocumentToolRequest) {
+  return request.description?.trim()
+    ? `Calendar event: ${request.description.trim()}`
+    : `Creating calendar event(s): \`${request.filename || request.title}.ics\``;
+}
+
+function describeMermaidDocumentRequest(request: OpenClawMermaidDocumentToolRequest) {
+  return request.description?.trim()
+    ? `Mermaid diagram: ${request.description.trim()}`
+    : `Rendering Mermaid diagram as ${request.format || 'svg'}: \`${request.filename || request.title}.${request.format || 'svg'}\``;
+}
+
 function normalizeToolSources(value: unknown): MessageSource[] {
   return normalizeMessageSources(value);
 }
@@ -1618,9 +1719,21 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
 ));
 
 function normalizeExtractedToolRequestName(value: unknown): OpenClawMessage['toolRequest'] {
-  return value === 'shell' || value === 'filesystem' || value === 'web' || value === 'code' || value === 'browser' || value === 'unified_browser' || value === 'tax_return' || value === 'pdf_document' || value === 'workbook_document' || value === 'word_document' || value === 'csv_document' || value === 'email_document' || value === 'markdown_document' || value === 'fetch_summarize'
-    ? value
-    : undefined;
+  // Whitelist must match OpenClawToolName in @/lib/openclaw-tools so all 18 tool
+  // names propagate to message.toolRequest. The original list omitted
+  // slides_document / archive_document / calendar_document / mermaid_document,
+  // which broke `message.toolRequest` for those tools even though dispatch and
+  // approval worked correctly.
+  const validToolNames = new Set<string>([
+    'shell', 'filesystem', 'web', 'code', 'browser', 'unified_browser',
+    'tax_return', 'pdf_document', 'workbook_document', 'word_document',
+    'csv_document', 'email_document', 'markdown_document',
+    'slides_document', 'archive_document', 'calendar_document',
+    'mermaid_document', 'fetch_summarize',
+  ])
+  return typeof value === 'string' && validToolNames.has(value)
+    ? value as OpenClawMessage['toolRequest']
+    : undefined
 }
 
 // Detects when an assistant message narrates an imminent tool action (e.g.
@@ -1957,6 +2070,26 @@ function getOpenClawToolRequestSignature(request: OpenClawToolRequest) {
   if (request.name === 'markdown_document') {
     const markdown = request.request as OpenClawMarkdownDocumentToolRequest
     return `markdown_document:${markdown.title.trim()}:${markdown.filename?.trim() || ''}:${(markdown.content || '').trim().slice(0, 2000)}`;
+  }
+
+  if (request.name === 'slides_document') {
+    const slides = request.request as OpenClawSlidesDocumentToolRequest
+    return `slides_document:${slides.title.trim()}:${slides.filename?.trim() || ''}:${slides.slides.length}`;
+  }
+
+  if (request.name === 'archive_document') {
+    const archive = request.request as OpenClawArchiveDocumentToolRequest
+    return `archive_document:${archive.title.trim()}:${archive.filename?.trim() || ''}:${archive.entries.length}`;
+  }
+
+  if (request.name === 'calendar_document') {
+    const calendar = request.request as OpenClawCalendarDocumentToolRequest
+    return `calendar_document:${(calendar.title ?? '').trim()}:${calendar.filename?.trim() || ''}:${calendar.events.length}`;
+  }
+
+  if (request.name === 'mermaid_document') {
+    const mermaid = request.request as OpenClawMermaidDocumentToolRequest
+    return `mermaid_document:${mermaid.title.trim()}:${mermaid.filename?.trim() || ''}:${mermaid.format || 'svg'}`;
   }
 
   if (request.name === 'filesystem') {
@@ -2587,6 +2720,106 @@ function formatMarkdownDocumentToolResult(entry: MarkdownDocumentToolResultEntry
 
   lines.push('', artifactDownloadInstruction(entry.artifact?.name ?? 'document.md'));
   lines.push('Present the .md download link first. Keep the user-facing response concise and do not restate the full Markdown contents unless the user explicitly asks for an inline summary.');
+  return lines.join('\n');
+}
+
+function formatSlidesDocumentToolResult(entry: SlidesDocumentToolResultEntry): string {
+  const lines = [
+    'Slide deck tool result:',
+    `Title: ${entry.title}`,
+    `Status: ${entry.success ? 'completed' : 'failed'}`,
+  ];
+  if (!entry.success) {
+    if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    lines.push('', 'Use this result to continue the task. Do not claim a slide deck was generated if this result failed.');
+    return lines.join('\n');
+  }
+  if (entry.artifact) {
+    lines.push(
+      `Artifact: ${entry.artifact.name}`,
+      `Artifact id: ${entry.artifact.id}`,
+      `Download URL: ${entry.artifact.downloadUrl}`,
+      `Mime type: ${entry.artifact.mimeType}`,
+      `Size: ${entry.artifact.size} bytes`,
+    );
+  }
+  lines.push('', artifactDownloadInstruction(entry.artifact?.name ?? 'deck.pptx'));
+  lines.push('Present the .pptx download link first.');
+  return lines.join('\n');
+}
+
+function formatArchiveDocumentToolResult(entry: ArchiveDocumentToolResultEntry): string {
+  const lines = [
+    'Archive tool result:',
+    `Title: ${entry.title}`,
+    `Status: ${entry.success ? 'completed' : 'failed'}`,
+  ];
+  if (!entry.success) {
+    if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    lines.push('', 'Use this result to continue the task. Do not claim a ZIP archive was generated if this result failed.');
+    return lines.join('\n');
+  }
+  if (entry.artifact) {
+    lines.push(
+      `Artifact: ${entry.artifact.name}`,
+      `Artifact id: ${entry.artifact.id}`,
+      `Download URL: ${entry.artifact.downloadUrl}`,
+      `Mime type: ${entry.artifact.mimeType}`,
+      `Size: ${entry.artifact.size} bytes`,
+    );
+  }
+  lines.push('', artifactDownloadInstruction(entry.artifact?.name ?? 'bundle.zip'));
+  lines.push('Present the .zip download link first.');
+  return lines.join('\n');
+}
+
+function formatCalendarDocumentToolResult(entry: CalendarDocumentToolResultEntry): string {
+  const lines = [
+    'Calendar tool result:',
+    `Title: ${entry.title}`,
+    `Status: ${entry.success ? 'completed' : 'failed'}`,
+  ];
+  if (!entry.success) {
+    if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    lines.push('', 'Use this result to continue the task. Do not claim a calendar event was generated if this result failed.');
+    return lines.join('\n');
+  }
+  if (entry.artifact) {
+    lines.push(
+      `Artifact: ${entry.artifact.name}`,
+      `Artifact id: ${entry.artifact.id}`,
+      `Download URL: ${entry.artifact.downloadUrl}`,
+      `Mime type: ${entry.artifact.mimeType}`,
+      `Size: ${entry.artifact.size} bytes`,
+    );
+  }
+  lines.push('', artifactDownloadInstruction(entry.artifact?.name ?? 'event.ics'));
+  lines.push('Present the .ics download link first.');
+  return lines.join('\n');
+}
+
+function formatMermaidDocumentToolResult(entry: MermaidDocumentToolResultEntry): string {
+  const lines = [
+    'Mermaid diagram tool result:',
+    `Title: ${entry.title}`,
+    `Status: ${entry.success ? 'completed' : 'failed'}`,
+  ];
+  if (!entry.success) {
+    if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    lines.push('', 'Use this result to continue the task. Do not claim a diagram was generated if this result failed.');
+    return lines.join('\n');
+  }
+  if (entry.artifact) {
+    lines.push(
+      `Artifact: ${entry.artifact.name}`,
+      `Artifact id: ${entry.artifact.id}`,
+      `Download URL: ${entry.artifact.downloadUrl}`,
+      `Mime type: ${entry.artifact.mimeType}`,
+      `Size: ${entry.artifact.size} bytes`,
+    );
+  }
+  lines.push('', artifactDownloadInstruction(entry.artifact?.name ?? 'diagram.svg'));
+  lines.push('Present the diagram download link first; the Canvas panel will render an inline preview.');
   return lines.join('\n');
 }
 
@@ -5963,6 +6196,327 @@ export default function OpenClawWorkspace({
     });
   };
 
+  const executeSlidesDocumentAction = async (
+    request: OpenClawSlidesDocumentToolRequest & { sessionId: string; messageId?: string },
+  ): Promise<SlidesDocumentToolResultEntry> => {
+    try {
+      const res = await fetch('/api/openclaw/slides-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          title: request.title || 'Generated Slides',
+          success: false,
+          error: typeof data.error === 'string' ? data.error : 'Slide deck generation failed',
+        };
+      }
+      const artifact = data.artifact && typeof data.artifact === 'object'
+        ? data.artifact as Record<string, unknown>
+        : null;
+      return {
+        title: request.title || 'Generated Slides',
+        success: data.success !== false,
+        artifact: artifact
+          && typeof artifact.id === 'string'
+          && typeof artifact.name === 'string'
+          && typeof artifact.mimeType === 'string'
+          && typeof artifact.size === 'number'
+          && typeof artifact.downloadUrl === 'string'
+          ? {
+              id: artifact.id,
+              name: artifact.name,
+              mimeType: artifact.mimeType,
+              size: artifact.size,
+              downloadUrl: artifact.downloadUrl,
+            }
+          : undefined,
+      };
+    } catch (error) {
+      return {
+        title: request.title || 'Generated Slides',
+        success: false,
+        error: error instanceof Error ? error.message : 'Slide deck generation failed',
+      };
+    }
+  };
+
+  const requestSlidesDocumentAction = async (
+    request: OpenClawSlidesDocumentToolRequest,
+    options: { messageId: string; sessionId: string },
+  ): Promise<SlidesDocumentToolResultEntry> => {
+    const payload = {
+      ...request,
+      sessionId: options.sessionId,
+      messageId: options.messageId,
+    };
+    const title = request.title || 'Generated Slides';
+
+    return await new Promise<SlidesDocumentToolResultEntry>(resolve => {
+      pendingApprovalResolverRef.current = resolve as (result: ToolApprovalResolution) => void;
+      setPendingApproval({
+        kind: 'slides_document',
+        title: 'Slide Deck Approval',
+        description: `Generate a slide deck titled "${title}" with ${request.slides.length} slides.`,
+        previewLabel: 'Slide structure preview',
+        previewContent: truncateApprovalPreview(
+          [
+            `Title: ${title}`,
+            `Filename: ${request.filename || `${title}.pptx`}`,
+            request.subtitle ? `Subtitle: ${request.subtitle}` : null,
+            `Slides: ${request.slides.length}`,
+            '',
+            JSON.stringify({ slides: request.slides }, null, 2).slice(0, 4000),
+          ].filter(Boolean).join('\n')
+        ),
+        messageId: options.messageId,
+        request: payload,
+      });
+    });
+  };
+
+  const executeArchiveDocumentAction = async (
+    request: OpenClawArchiveDocumentToolRequest & { sessionId: string; messageId?: string },
+  ): Promise<ArchiveDocumentToolResultEntry> => {
+    try {
+      const res = await fetch('/api/openclaw/archive-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          title: request.title || 'Generated Archive',
+          success: false,
+          error: typeof data.error === 'string' ? data.error : 'Archive generation failed',
+        };
+      }
+      const artifact = data.artifact && typeof data.artifact === 'object'
+        ? data.artifact as Record<string, unknown>
+        : null;
+      return {
+        title: request.title || 'Generated Archive',
+        success: data.success !== false,
+        artifact: artifact
+          && typeof artifact.id === 'string'
+          && typeof artifact.name === 'string'
+          && typeof artifact.mimeType === 'string'
+          && typeof artifact.size === 'number'
+          && typeof artifact.downloadUrl === 'string'
+          ? {
+              id: artifact.id,
+              name: artifact.name,
+              mimeType: artifact.mimeType,
+              size: artifact.size,
+              downloadUrl: artifact.downloadUrl,
+            }
+          : undefined,
+      };
+    } catch (error) {
+      return {
+        title: request.title || 'Generated Archive',
+        success: false,
+        error: error instanceof Error ? error.message : 'Archive generation failed',
+      };
+    }
+  };
+
+  const requestArchiveDocumentAction = async (
+    request: OpenClawArchiveDocumentToolRequest,
+    options: { messageId: string; sessionId: string },
+  ): Promise<ArchiveDocumentToolResultEntry> => {
+    const payload = {
+      ...request,
+      sessionId: options.sessionId,
+      messageId: options.messageId,
+    };
+    const title = request.title || 'Generated Archive';
+
+    return await new Promise<ArchiveDocumentToolResultEntry>(resolve => {
+      pendingApprovalResolverRef.current = resolve as (result: ToolApprovalResolution) => void;
+      setPendingApproval({
+        kind: 'archive_document',
+        title: 'Archive Approval',
+        description: `Bundle ${request.entries.length} entries into "${title}".`,
+        previewLabel: 'Archive preview',
+        previewContent: truncateApprovalPreview(
+          [
+            `Title: ${title}`,
+            `Filename: ${request.filename || `${title}.zip`}`,
+            `Entries: ${request.entries.length}`,
+            '',
+            JSON.stringify({ entries: request.entries.map(e => ({ name: e.name, mimeType: e.mimeType, bytes: typeof e.content === 'string' ? e.content.length : 0 })) }, null, 2),
+          ].filter(Boolean).join('\n')
+        ),
+        messageId: options.messageId,
+        request: payload,
+      });
+    });
+  };
+
+  const executeCalendarDocumentAction = async (
+    request: OpenClawCalendarDocumentToolRequest & { sessionId: string; messageId?: string },
+  ): Promise<CalendarDocumentToolResultEntry> => {
+    try {
+      const res = await fetch('/api/openclaw/calendar-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          title: request.title || 'Generated Calendar Event',
+          success: false,
+          error: typeof data.error === 'string' ? data.error : 'Calendar event generation failed',
+        };
+      }
+      const artifact = data.artifact && typeof data.artifact === 'object'
+        ? data.artifact as Record<string, unknown>
+        : null;
+      return {
+        title: request.title || 'Generated Calendar Event',
+        success: data.success !== false,
+        artifact: artifact
+          && typeof artifact.id === 'string'
+          && typeof artifact.name === 'string'
+          && typeof artifact.mimeType === 'string'
+          && typeof artifact.size === 'number'
+          && typeof artifact.downloadUrl === 'string'
+          ? {
+              id: artifact.id,
+              name: artifact.name,
+              mimeType: artifact.mimeType,
+              size: artifact.size,
+              downloadUrl: artifact.downloadUrl,
+            }
+          : undefined,
+      };
+    } catch (error) {
+      return {
+        title: request.title || 'Generated Calendar Event',
+        success: false,
+        error: error instanceof Error ? error.message : 'Calendar event generation failed',
+      };
+    }
+  };
+
+  const requestCalendarDocumentAction = async (
+    request: OpenClawCalendarDocumentToolRequest,
+    options: { messageId: string; sessionId: string },
+  ): Promise<CalendarDocumentToolResultEntry> => {
+    const payload = {
+      ...request,
+      sessionId: options.sessionId,
+      messageId: options.messageId,
+    };
+    const title = request.title || 'Generated Calendar Event';
+
+    return await new Promise<CalendarDocumentToolResultEntry>(resolve => {
+      pendingApprovalResolverRef.current = resolve as (result: ToolApprovalResolution) => void;
+      setPendingApproval({
+        kind: 'calendar_document',
+        title: 'Calendar Event Approval',
+        description: `Generate calendar with ${request.events.length} event${request.events.length === 1 ? '' : 's'} titled "${title}".`,
+        previewLabel: 'Calendar preview',
+        previewContent: truncateApprovalPreview(
+          [
+            `Title: ${title}`,
+            `Filename: ${request.filename || `${title}.ics`}`,
+            `Events: ${request.events.length}`,
+            '',
+            JSON.stringify({ events: request.events }, null, 2).slice(0, 4000),
+          ].filter(Boolean).join('\n')
+        ),
+        messageId: options.messageId,
+        request: payload,
+      });
+    });
+  };
+
+  const executeMermaidDocumentAction = async (
+    request: OpenClawMermaidDocumentToolRequest & { sessionId: string; messageId?: string },
+  ): Promise<MermaidDocumentToolResultEntry> => {
+    try {
+      const res = await fetch('/api/openclaw/mermaid-document', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          title: request.title || 'Generated Diagram',
+          success: false,
+          error: typeof data.error === 'string' ? data.error : 'Diagram generation failed',
+        };
+      }
+      const artifact = data.artifact && typeof data.artifact === 'object'
+        ? data.artifact as Record<string, unknown>
+        : null;
+      return {
+        title: request.title || 'Generated Diagram',
+        success: data.success !== false,
+        artifact: artifact
+          && typeof artifact.id === 'string'
+          && typeof artifact.name === 'string'
+          && typeof artifact.mimeType === 'string'
+          && typeof artifact.size === 'number'
+          && typeof artifact.downloadUrl === 'string'
+          ? {
+              id: artifact.id,
+              name: artifact.name,
+              mimeType: artifact.mimeType,
+              size: artifact.size,
+              downloadUrl: artifact.downloadUrl,
+            }
+          : undefined,
+      };
+    } catch (error) {
+      return {
+        title: request.title || 'Generated Diagram',
+        success: false,
+        error: error instanceof Error ? error.message : 'Diagram generation failed',
+      };
+    }
+  };
+
+  const requestMermaidDocumentAction = async (
+    request: OpenClawMermaidDocumentToolRequest,
+    options: { messageId: string; sessionId: string },
+  ): Promise<MermaidDocumentToolResultEntry> => {
+    const payload = {
+      ...request,
+      sessionId: options.sessionId,
+      messageId: options.messageId,
+    };
+    const title = request.title || 'Generated Diagram';
+
+    return await new Promise<MermaidDocumentToolResultEntry>(resolve => {
+      pendingApprovalResolverRef.current = resolve as (result: ToolApprovalResolution) => void;
+      setPendingApproval({
+        kind: 'mermaid_document',
+        title: 'Mermaid Diagram Approval',
+        description: `Render a Mermaid diagram titled "${title}" as ${request.format || 'svg'}.`,
+        previewLabel: 'Diagram source preview',
+        previewContent: truncateApprovalPreview(
+          [
+            `Title: ${title}`,
+            `Filename: ${request.filename || `${title}.${request.format || 'svg'}`}`,
+            `Format: ${request.format || 'svg'}`,
+            '',
+            request.diagram.slice(0, 4000),
+          ].filter(Boolean).join('\n')
+        ),
+        messageId: options.messageId,
+        request: payload,
+      });
+    });
+  };
+
   const executeFetchSummarizeAction = async (
     request: OpenClawFetchSummarizeToolRequest,
   ): Promise<FetchSummarizeToolResultEntry> => {
@@ -6069,6 +6623,26 @@ export default function OpenClawWorkspace({
 
       if (approval.kind === 'markdown_document') {
         resolve(await executeMarkdownDocumentAction(approval.request));
+        return;
+      }
+
+      if (approval.kind === 'slides_document') {
+        resolve(await executeSlidesDocumentAction(approval.request));
+        return;
+      }
+
+      if (approval.kind === 'archive_document') {
+        resolve(await executeArchiveDocumentAction(approval.request));
+        return;
+      }
+
+      if (approval.kind === 'calendar_document') {
+        resolve(await executeCalendarDocumentAction(approval.request));
+        return;
+      }
+
+      if (approval.kind === 'mermaid_document') {
+        resolve(await executeMermaidDocumentAction(approval.request));
         return;
       }
 
@@ -6199,6 +6773,42 @@ export default function OpenClawWorkspace({
           success: false,
           error: message,
         } satisfies MarkdownDocumentToolResultEntry);
+        return;
+      }
+
+      if (approval.kind === 'slides_document') {
+        resolve({
+          title: approval.request.title || 'Generated Slides',
+          success: false,
+          error: message,
+        } satisfies SlidesDocumentToolResultEntry);
+        return;
+      }
+
+      if (approval.kind === 'archive_document') {
+        resolve({
+          title: approval.request.title || 'Generated Archive',
+          success: false,
+          error: message,
+        } satisfies ArchiveDocumentToolResultEntry);
+        return;
+      }
+
+      if (approval.kind === 'calendar_document') {
+        resolve({
+          title: approval.request.title || 'Generated Calendar Event',
+          success: false,
+          error: message,
+        } satisfies CalendarDocumentToolResultEntry);
+        return;
+      }
+
+      if (approval.kind === 'mermaid_document') {
+        resolve({
+          title: approval.request.title || 'Generated Diagram',
+          success: false,
+          error: message,
+        } satisfies MermaidDocumentToolResultEntry);
         return;
       }
 
@@ -6340,6 +6950,42 @@ export default function OpenClawWorkspace({
         success: false,
         error: 'Markdown document generation rejected by user',
       } satisfies MarkdownDocumentToolResultEntry);
+      return;
+    }
+
+    if (approval.kind === 'slides_document') {
+      resolve({
+        title: approval.request.title || 'Generated Slides',
+        success: false,
+        error: 'Slide deck generation rejected by user',
+      } satisfies SlidesDocumentToolResultEntry);
+      return;
+    }
+
+    if (approval.kind === 'archive_document') {
+      resolve({
+        title: approval.request.title || 'Generated Archive',
+        success: false,
+        error: 'Archive generation rejected by user',
+      } satisfies ArchiveDocumentToolResultEntry);
+      return;
+    }
+
+    if (approval.kind === 'calendar_document') {
+      resolve({
+        title: approval.request.title || 'Generated Calendar Event',
+        success: false,
+        error: 'Calendar event generation rejected by user',
+      } satisfies CalendarDocumentToolResultEntry);
+      return;
+    }
+
+    if (approval.kind === 'mermaid_document') {
+      resolve({
+        title: approval.request.title || 'Generated Diagram',
+        success: false,
+        error: 'Diagram generation rejected by user',
+      } satisfies MermaidDocumentToolResultEntry);
       return;
     }
 
@@ -7383,7 +8029,15 @@ export default function OpenClawWorkspace({
                                         ? describeFetchSummarizeRequest(request.request)
                                         : request.name === 'markdown_document'
                                           ? describeMarkdownDocumentRequest(request.request)
-                                          : describeFilesystemRequest(request.request.action, request.request.path)
+                                          : request.name === 'slides_document'
+                                            ? describeSlidesDocumentRequest(request.request)
+                                            : request.name === 'archive_document'
+                                              ? describeArchiveDocumentRequest(request.request)
+                                              : request.name === 'calendar_document'
+                                                ? describeCalendarDocumentRequest(request.request)
+                                                : request.name === 'mermaid_document'
+                                                  ? describeMermaidDocumentRequest(request.request)
+                                                  : describeFilesystemRequest(request.request.action, request.request.path)
               : rawToolTagPresent
                 ? stripAllToolTags(assistantMessage.content)
                 : assistantMessage.content
@@ -7983,6 +8637,158 @@ export default function OpenClawWorkspace({
               id: randomUUID(),
               role: 'user',
               content: `Markdown document generation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Try again with a clear title and markdown body.`,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
+          continue;
+        }
+
+        if (request.name === 'slides_document') {
+          lastToolRequestSignature = effectiveToolSignature;
+          duplicateToolRequestCount = 0;
+          try {
+            setStreamPhase('tool-code');
+            const slidesResult = await requestSlidesDocumentAction(request.request, {
+              messageId: nextAssistantId,
+              sessionId: chatId,
+            });
+            setStreamPhase(null);
+            if (slidesResult.success) {
+              void loadCanvasArtifacts(chatId);
+            }
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatSlidesDocumentToolResult(slidesResult),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Slides tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Slide deck generation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}.`,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
+          continue;
+        }
+
+        if (request.name === 'archive_document') {
+          lastToolRequestSignature = effectiveToolSignature;
+          duplicateToolRequestCount = 0;
+          try {
+            setStreamPhase('tool-code');
+            const archiveResult = await requestArchiveDocumentAction(request.request, {
+              messageId: nextAssistantId,
+              sessionId: chatId,
+            });
+            setStreamPhase(null);
+            if (archiveResult.success) {
+              void loadCanvasArtifacts(chatId);
+            }
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatArchiveDocumentToolResult(archiveResult),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Archive tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Archive generation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}.`,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
+          continue;
+        }
+
+        if (request.name === 'calendar_document') {
+          lastToolRequestSignature = effectiveToolSignature;
+          duplicateToolRequestCount = 0;
+          try {
+            setStreamPhase('tool-code');
+            const calendarResult = await requestCalendarDocumentAction(request.request, {
+              messageId: nextAssistantId,
+              sessionId: chatId,
+            });
+            setStreamPhase(null);
+            if (calendarResult.success) {
+              void loadCanvasArtifacts(chatId);
+            }
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatCalendarDocumentToolResult(calendarResult),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Calendar tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Calendar event generation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}.`,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
+          continue;
+        }
+
+        if (request.name === 'mermaid_document') {
+          lastToolRequestSignature = effectiveToolSignature;
+          duplicateToolRequestCount = 0;
+          try {
+            setStreamPhase('tool-code');
+            const mermaidResult = await requestMermaidDocumentAction(request.request, {
+              messageId: nextAssistantId,
+              sessionId: chatId,
+            });
+            setStreamPhase(null);
+            if (mermaidResult.success) {
+              void loadCanvasArtifacts(chatId);
+            }
+            const toolResultMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatMermaidDocumentToolResult(mermaidResult),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Mermaid tool failed:', toolError);
+            const errorMessage: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Mermaid diagram generation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}.`,
               hidden: true,
               createdAt: new Date().toISOString(),
             };
@@ -11733,7 +12539,23 @@ export default function OpenClawWorkspace({
                     onDelete={async (id) => {
                       await deleteArtifactById(id);
                     }}
+                    onRefresh={() => {
+                      if (currentSessionId) {
+                        return loadCanvasArtifacts(currentSessionId, { query: canvasSearchQuery });
+                      }
+                      return Promise.resolve();
+                    }}
                     onDownload={(artifact) => {
+                      if (isBinaryArtifact(artifact)) {
+                        const a = document.createElement("a");
+                        a.href = `/api/canvas/artifacts/${artifact.id}/download`;
+                        a.download = artifact.name;
+                        a.rel = "noopener";
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        return;
+                      }
                       const blob = new Blob([artifact.content || ''], { type: artifact.mimeType });
                       const url = URL.createObjectURL(blob);
                       const a = document.createElement("a");

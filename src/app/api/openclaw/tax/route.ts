@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
     let pdfBytes: Buffer
     let outputKind = 'review'
     let filledFields: string[] = []
+    let template: { id: string } | null = null
     const warnings = [...draft.warnings]
 
     if (action === 'fill_pdf_form') {
@@ -85,6 +86,12 @@ export async function POST(request: NextRequest) {
     }
 
     const name = `${sanitizeFilename(`tax-${draft.taxYear}-${outputKind}`)}.pdf`
+    // For fill_pdf_form, link the filled PDF back to the source template so
+    // the new artifact's lineage (sourceArtifactId) records which PDF it was
+    // derived from. Without this, re-rendering or previewing loses the
+    // template reference.
+    const filledTemplate = template as { id: string } | null
+    const sourceArtifactId = action === 'fill_pdf_form' && filledTemplate?.id ? filledTemplate.id : null
     const artifact = await prisma.$transaction(tx => createPdfCanvasArtifact({
       tx,
       userId: access.userId,
@@ -94,6 +101,7 @@ export async function POST(request: NextRequest) {
       pdfBytes,
       bundleName: `Tax ${draft.taxYear}`,
       bundleRole: outputKind,
+      ...(sourceArtifactId ? { sourceArtifactId } : {}),
     }))
 
     return NextResponse.json({

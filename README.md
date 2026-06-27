@@ -31,8 +31,8 @@ Most AI chat interfaces send your prompts, documents, and browsing history to so
 | **Local models** | Ollama-first generation with health checks, model stop, exclusive switching, and context backoff |
 | **Remote providers** | OpenAI-compatible endpoints, including Hugging Face router, TGI, vLLM, and SGLang-style servers |
 | **Knowledge Base** | PostgreSQL-backed document index with semantic, keyword, hybrid RRF, source chips, and full-access mode |
-| **Canvas** | Compact artifact rows, modal previews, downloads, bundles, revisions, lineage, search, restore, and exports |
-| **Tools** | Shell, filesystem, code sandbox, public browser, UWAF Direct/Stealth browser, PDF/Word/Excel/CSV/Email artifact generation, and URL fetch-summarize with approval gates |
+| **Canvas** | Compact artifact rows, modal previews (PDF, image, markdown, code, table, chart, ZIP, ICS), source-editable binary artifacts, downloads, bundles, revisions, lineage, search, restore, exports, and a server-side preview endpoint for Excel/Word/email/slides/Mermaid inline rendering |
+| **Tools** | Shell, filesystem, code sandbox, public browser, UWAF Direct/Stealth browser, PDF/Word/Excel/PowerPoint/CSV/Email/Markdown/ZIP/ICS/Mermaid artifact generation, and URL fetch-summarize with approval gates |
 | **Automation** | Heartbeats, cron tasks, monitors, wake events, nudges, and guarded unattended local Ollama runs |
 | **Session intelligence** | Rolling summaries, context health, auto-continue modes, branches, branch compare, and analytics |
 
@@ -93,6 +93,10 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | [docs/markdown-document-workflow.md](docs/markdown-document-workflow.md) | Markdown document artifact workflow |
 | [docs/fetch-summarize-workflow.md](docs/fetch-summarize-workflow.md) | URL fetch and summarize workflow |
 | [docs/tax-pdf-workflow.md](docs/tax-pdf-workflow.md) | Tax document review workflow |
+| [docs/slides-document-workflow.md](docs/slides-document-workflow.md) | PowerPoint slide deck artifact workflow |
+| [docs/archive-document-workflow.md](docs/archive-document-workflow.md) | ZIP archive bundle artifact workflow |
+| [docs/calendar-document-workflow.md](docs/calendar-document-workflow.md) | ICS calendar event artifact workflow |
+| [docs/mermaid-document-workflow.md](docs/mermaid-document-workflow.md) | Mermaid diagram artifact workflow |
 | [docs/development-section-plan.md](docs/development-section-plan.md) | Development section plan (draft) |
 
 ---
@@ -124,8 +128,8 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | `/api/chats/[id]/branch` | Fork a session from a selected message |
 | `/api/settings` | Per-user app and WorkSpaces settings |
 | `/api/rag/*` | Knowledge Base upload, search, health, diagnostics |
-| `/api/canvas/artifacts*` | Canvas artifact list, create, edit, delete, revisions |
-| `/api/openclaw/*` | WorkSpaces workspace, tools, browser, document generation, fetch-summarize, and automation |
+| `/api/canvas/artifacts*` | Canvas artifact list, create, edit, delete, revisions, server-side preview, and downloads |
+| `/api/openclaw/*` | WorkSpaces workspace, tools, browser, document generation (PDF, Word, Excel, PowerPoint, CSV, Email, Markdown, ZIP, ICS, Mermaid), fetch-summarize, and automation |
 
 ---
 

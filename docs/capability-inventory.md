@@ -10,14 +10,31 @@ This makes it easier for the AI to choose the right tool for day-to-day requests
 
 ## Current Native Capabilities
 
-- `pdf_document`: Creates downloadable PDF Canvas artifacts for reports, memos, letters, checklists, invoices, forms, and general document drafts.
-- `workbook_document`: Creates downloadable Excel XLSX Canvas artifacts for spreadsheets, budgets, invoice workbooks, timesheets, ledgers, trackers, inventories, schedules, and multi-sheet analysis.
-- `word_document`: Creates downloadable Word DOCX Canvas artifacts for proposals, contracts, resumes, letters, memos, reports, policies, checklists, meeting notes, and form-style business documents.
+- `pdf_document`: Creates downloadable PDF Canvas artifacts for reports, memos, letters, checklists, invoices, forms, and general document drafts. Source-editable.
+- `workbook_document`: Creates downloadable Excel XLSX Canvas artifacts for spreadsheets, budgets, invoice workbooks, timesheets, ledgers, trackers, inventories, schedules, and multi-sheet analysis. Source-editable.
+- `word_document`: Creates downloadable Word DOCX Canvas artifacts for proposals, contracts, resumes, letters, memos, reports, policies, checklists, meeting notes, and form-style business documents. Source-editable.
 - `csv_document`: Creates downloadable CSV Canvas artifacts from structured row data for exports, reports, datasets, and quick spreadsheet interchange.
-- `email_document`: Creates downloadable `.eml` email draft Canvas artifacts with a subject, body, HTML styling, and optional attachments.
-- `markdown_document`: Creates downloadable Markdown `.md` Canvas artifacts from a full markdown body. Returns a clickable `/api/canvas/artifacts/<id>/download` link instead of a filesystem path.
-- `fetch_summarize`: Fetches a public web page and returns a concise summary with title, bullets, and a representative quote.
-- `tax_return`: Creates tax review PDFs and can fill uploaded AcroForm PDF templates from Knowledge Base tax documents.
+- `email_document`: Creates downloadable `.eml` email draft Canvas artifacts with a subject, body, HTML styling, and optional attachments. Source-editable.
+- `markdown_document`: Creates downloadable Markdown `.md` Canvas artifacts from a full markdown body. Returns a clickable `/api/canvas/artifacts/<id>/download` link instead of a filesystem path. Source-editable.
+- `slides_document`: Creates downloadable PowerPoint `.pptx` Canvas artifacts via `pptxgenjs`. Layouts include `title`, `section`, `content`, `bullets`, `two-column`, `quote`, and `closing`. Source-editable.
+- `archive_document`: Creates downloadable `.zip` Canvas artifacts via `archiver`. Each entry can be raw text or a base64-encoded binary payload.
+- `calendar_document`: Creates downloadable `.ics` Canvas artifacts via the `ics` package. Each event carries `uid`, `title`, `description`, `location`, `start`, `end`, `organizer`, and `attendees`; opens in macOS Calendar, Outlook, and Google Calendar.
+- `mermaid_document`: Renders a Mermaid diagram to `.svg` (default) or `.png` via `@mermaid-js/mermaid-cli` using the system Chromium bundled in the container. The artifact also carries the `.mmd` source so it remains re-editable and re-renderable.
+- `fetch_summarize`: Fetches a public web page and returns a concise summary with title, bullets, and a representative quote. Returns HTTP 502 on upstream failure (instead of HTTP 200 with `success: false`).
+- `tax_return`: Creates tax review PDFs and can fill uploaded AcroForm PDF templates from Knowledge Base tax documents. The filled artifact records the template `Document` as its source for lineage.
+
+## Tool Payload Validation
+
+Each document-generation tool runs its parsed payload through a normalization step that drops malformed entries before rendering. Common rules:
+
+- `workbook_document`: `template` is validated against the renderer-supported union; invalid values are stripped rather than passed through.
+- `archive_document`: entries without a `name` or `content` are filtered out.
+- `calendar_document`: events without a `start` are filtered out.
+- `mermaid_document`: an empty `diagram` rejects the request.
+
+## Tool Dispatch
+
+All registered tool names are enumerated in a single `OPENCLAW_TOOL_NAMES` constant in `src/lib/openclaw-tools.ts`. The tool-block parser regex, the `stripAllToolTags` regex, and the client-side `normalizeExtractedToolRequestName` helper are derived from that list, so adding a new tool is a one-line change in the array plus a parser branch. The system prompt also opens with an explicit tool-call format primer so the model always emits the `<openclaw_tool name="...">...</openclaw_tool>` wrapper.
 
 ## MCP Direction
 

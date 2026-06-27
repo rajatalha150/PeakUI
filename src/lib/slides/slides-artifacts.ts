@@ -6,15 +6,13 @@ import {
 import { serializeCanvasArtifact } from '@/lib/canvas-artifact-serialization'
 import { upsertCanvasArtifactRevision } from '@/lib/canvas-artifact-revisions'
 
-export const DOCX_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-
-export async function createWordCanvasArtifact(input: {
+export async function createSlidesCanvasArtifact(input: {
   tx: Prisma.TransactionClient
   userId: string
   sessionId: string
   messageId?: string | null
   name: string
-  documentBytes: Buffer
+  slidesBytes: Buffer
   bundleName?: string | null
   bundleRole?: string | null
   sourceArtifactId?: string | null
@@ -27,8 +25,9 @@ export async function createWordCanvasArtifact(input: {
     bundleRole?: string
   }
 }) {
-  const bundleId = input.messageId ?? null
+  const content = input.slidesBytes.toString('base64')
   let sourceArtifactId = input.sourceArtifactId ?? null
+  const bundleId = input.messageId ?? null
 
   if (input.source && !sourceArtifactId) {
     const sourceMetadata = computeCanvasArtifactMetadata({
@@ -40,8 +39,8 @@ export async function createWordCanvasArtifact(input: {
       sessionId: input.sessionId,
       messageId: input.messageId ?? null,
       bundleId,
-      bundleName: input.bundleName ?? 'Generated Word Document',
-      bundleRole: input.source.bundleRole ?? 'word-source',
+      bundleName: input.bundleName ?? 'Generated Slides',
+      bundleRole: input.source.bundleRole ?? 'slides-source',
     })
 
     const source = await input.tx.canvasArtifact.create({
@@ -56,7 +55,7 @@ export async function createWordCanvasArtifact(input: {
         messageId: input.messageId ?? null,
         userId: input.userId,
         previewKind: sourceMetadata.previewKind,
-        previewSummary: sourceMetadata.previewSummary || 'Word document source',
+        previewSummary: sourceMetadata.previewSummary || 'Slides source document',
         previewWidth: sourceMetadata.previewWidth,
         previewHeight: sourceMetadata.previewHeight,
         contentHash: sourceMetadata.contentHash,
@@ -76,33 +75,32 @@ export async function createWordCanvasArtifact(input: {
     sourceArtifactId = source.id
   }
 
-  const content = input.documentBytes.toString('base64')
   const metadata = computeCanvasArtifactMetadata({
     name: input.name,
     content,
-    mimeType: DOCX_MIME_TYPE,
-    kind: 'word',
-    extension: 'docx',
+    mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    kind: 'slides-deck',
+    extension: 'pptx',
     sessionId: input.sessionId,
     messageId: input.messageId ?? null,
     bundleId,
-    bundleName: input.bundleName ?? 'Generated Word Document',
-    bundleRole: input.bundleRole ?? 'generated-word',
+    bundleName: input.bundleName ?? 'Generated Slides',
+    bundleRole: input.bundleRole ?? 'generated-slides',
   })
 
   const created = await input.tx.canvasArtifact.create({
     data: {
       name: input.name,
       content,
-      mimeType: DOCX_MIME_TYPE,
-      kind: 'word',
-      extension: 'docx',
-      size: input.documentBytes.byteLength,
+      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      kind: 'slides-deck',
+      extension: 'pptx',
+      size: input.slidesBytes.byteLength,
       sessionId: input.sessionId,
       messageId: input.messageId ?? null,
       userId: input.userId,
       previewKind: metadata.previewKind,
-      previewSummary: metadata.previewSummary || 'Generated Word document',
+      previewSummary: metadata.previewSummary || 'Generated slide deck',
       previewWidth: metadata.previewWidth,
       previewHeight: metadata.previewHeight,
       contentHash: metadata.contentHash,

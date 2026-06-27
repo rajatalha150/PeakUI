@@ -25,6 +25,36 @@ export function isLargeArtifactContent(content: string): boolean {
   return content.length > CONTENT_PREVIEW_THRESHOLD
 }
 
+/**
+ * Mime prefixes whose Canvas artifacts store base64 in `content` and must be
+ * downloaded via `/api/canvas/artifacts/[id]/download` (which decodes correctly)
+ * rather than via `new Blob([content])`.
+ */
+const BINARY_MIME_PREFIXES = [
+  'application/pdf',
+  'application/zip',
+  'application/x-tar',
+  'application/gzip',
+  'application/x-gzip',
+  'application/x-7z-compressed',
+  'application/vnd.openxmlformats-officedocument.',
+  'application/vnd.ms-',
+  'application/octet-stream',
+  'message/',
+  'image/',
+  'audio/',
+  'video/',
+]
+
+const BINARY_MIME_EXACT = new Set<string>([
+  'text/calendar',
+])
+
+export function isBinaryArtifact(artifact: Pick<CanvasArtifactRecord, 'mimeType'>): boolean {
+  if (BINARY_MIME_EXACT.has(artifact.mimeType)) return true
+  return BINARY_MIME_PREFIXES.some(prefix => artifact.mimeType.startsWith(prefix))
+}
+
 export function buildArtifactExport(artifact: CanvasArtifactRecord, target: ArtifactExportTarget, content: string): { filename: string; mimeType: string; content: string } {
   const stem = artifact.name.replace(/\.[^.]+$/, '') || artifact.name
   const summary = artifact.previewSummary ? `${artifact.previewSummary}\n\n` : ''
@@ -56,6 +86,14 @@ export function buildArtifactExport(artifact: CanvasArtifactRecord, target: Arti
     }
   }
 
+  if (target === 'archive') {
+    return {
+      filename: `${stem}-export.txt`,
+      mimeType: 'text/plain',
+      content: [`Archive manifest for ${stem}`, '', summary, `Files: 1`, `---`, content].join('\n'),
+    }
+  }
+
   return {
     filename: `${stem}-report.md`,
     mimeType: 'text/markdown',
@@ -63,6 +101,18 @@ export function buildArtifactExport(artifact: CanvasArtifactRecord, target: Arti
   }
 }
 
+/**
+ * True when the artifact's body is meaningful as text the user can edit
+ * directly. Binary artifacts (PDF/Word/Excel/PPTX/ZIP/ICS/EML/images) instead
+ * expose a sibling source JSON artifact (via `sourceArtifactId`) that the
+ * Canvas panel follows to enter edit mode; their own `content` is base64.
+ */
 export function artifactSupportsTextEditing(artifact: CanvasArtifactRecord): boolean {
-  return !artifact.mimeType.startsWith('image/')
+  if (artifact.mimeType.startsWith('image/')) return false
+  if (isBinaryArtifact(artifact)) {
+    // Binary artifacts are editable only when a sibling source JSON exists.
+    return Boolean(artifact.sourceArtifactId)
+  }
+  // Pure-text artifacts are always editable.
+  return true
 }

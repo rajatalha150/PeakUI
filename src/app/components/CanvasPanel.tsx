@@ -23,7 +23,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import ArtifactPreviewContent from './ArtifactPreviewContent'
+import ArtifactPreviewContent, { BinaryPreview } from './ArtifactPreviewContent'
 import VirtualizedList from './VirtualizedList'
 import type { CanvasArtifactRecord, CanvasArtifactRevisionRecord } from '@/lib/canvas-artifacts'
 import {
@@ -40,9 +40,26 @@ import {
   artifactSupportsTextEditing,
   buildArtifactExport,
   formatBytes,
+  isBinaryArtifact,
   isLargeArtifactContent,
 } from '@/lib/canvas-rendering'
 import { downloadBlob } from './ChatMessageContent'
+
+const RENDERER_ENDPOINT_BY_KIND: Record<string, string> = {
+  pdf: '/api/openclaw/pdf-document',
+  word: '/api/openclaw/word-document',
+  workbook: '/api/openclaw/workbook-document',
+}
+
+function rendererEndpointForArtifact(artifact: CanvasArtifactRecord): string | null {
+  if (artifact.kind === 'pdf') return RENDERER_ENDPOINT_BY_KIND.pdf
+  if (artifact.kind === 'word') return RENDERER_ENDPOINT_BY_KIND.word
+  if (artifact.kind === 'workbook') return RENDERER_ENDPOINT_BY_KIND.workbook
+  if (artifact.presentationType === 'pdf') return RENDERER_ENDPOINT_BY_KIND.pdf
+  if (artifact.presentationType === 'word') return RENDERER_ENDPOINT_BY_KIND.word
+  if (artifact.presentationType === 'workbook') return RENDERER_ENDPOINT_BY_KIND.workbook
+  return null
+}
 
 export type { CanvasArtifactRecord as CanvasArtifactData }
 
@@ -56,6 +73,7 @@ interface CanvasPanelProps {
   onRestoreRevision?: (id: string, version: number) => Promise<CanvasArtifactRecord | null>
   onLoadMore?: () => Promise<void> | void
   onSearch?: (query: string) => Promise<void> | void
+  onRefresh?: () => Promise<void> | void
   hasMore?: boolean
   loading?: boolean
   error?: string | null
@@ -689,23 +707,21 @@ function ArtifactPreviewModal({
 
         <div style={{ padding: isPhone ? '10px' : '14px', overflow: 'auto', flex: 1, minHeight: 0, WebkitOverflowScrolling: 'touch' }}>
           {isOfficeDoc ? (
-            <div style={{ display: 'grid', gap: '12px', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '16px', background: 'var(--bg-secondary)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ display: 'grid', gap: '14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                 <span style={{ color: 'var(--accent-primary)' }}>{getArtifactIcon(artifact)}</span>
-                <div>
-                  <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{getArtifactTypeLabel(artifact)} document</div>
-                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-                    Browser-native inline preview is limited for generated Office files. Download to open the full formatted document.
-                  </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{getArtifactTypeLabel(artifact)} preview</div>
+                  {artifact.previewSummary && (
+                    <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>{artifact.previewSummary}</div>
+                  )}
                 </div>
+                <button type="button" onClick={onDownload} style={{ ...actionButtonStyle, width: 'fit-content' }}>
+                  <Download size={12} />
+                  Download {artifact.extension?.toUpperCase() || 'file'}
+                </button>
               </div>
-              {artifact.previewSummary && (
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{artifact.previewSummary}</div>
-              )}
-              <button type="button" onClick={onDownload} style={{ ...actionButtonStyle, width: 'fit-content' }}>
-                <Download size={12} />
-                Download {artifact.extension?.toUpperCase() || 'file'}
-              </button>
+              <BinaryPreview artifactId={artifact.id} />
             </div>
           ) : (
             <ArtifactPreviewContent
@@ -734,6 +750,7 @@ export default function CanvasPanel({
   onRestoreRevision,
   onLoadMore,
   onSearch,
+  onRefresh,
   hasMore = false,
   loading = false,
   error = null,
@@ -747,6 +764,7 @@ export default function CanvasPanel({
   const [historyOpenIds, setHistoryOpenIds] = React.useState<Set<string>>(new Set())
   const [editContentMap, setEditContentMap] = React.useState<Record<string, string>>({})
   const [editNameMap, setEditNameMap] = React.useState<Record<string, string>>({})
+  const [editTargetBinaryMap, setEditTargetBinaryMap] = React.useState<Record<string, string>>({})
   const [copiedIds, setCopiedIds] = React.useState<Set<string>>(new Set())
   const [savingIds, setSavingIds] = React.useState<Set<string>>(new Set())
   const [restoringIds, setRestoringIds] = React.useState<Set<string>>(new Set())
@@ -797,12 +815,26 @@ export default function CanvasPanel({
     await loadFullArtifact(artifact)
   }, [expandedIds, loadFullArtifact])
 
-  const startEdit = React.useCallback((artifact: CanvasArtifactRecord) => {
+  const startEdit = React.useCallback(async (artifact: CanvasArtifactRecord) => {
+    // If the artifact is binary but has a sibling source JSON, edit that
+    // instead so the user is changing the schema the renderer reads.
+    if (isBinaryArtifact(artifact) && artifact.sourceArtifactId) {
+      const sourceArtifact = artifacts.find(a => a.id === artifact.sourceArtifactId)
+      if (sourceArtifact) {
+        await loadFullArtifact(sourceArtifact)
+        setEditingIds(prev => new Set(prev).add(sourceArtifact.id))
+        const sourceFull = fullContentMap[sourceArtifact.id]
+        setEditContentMap(prev => ({ ...prev, [sourceArtifact.id]: sourceFull?.content ?? sourceArtifact.content ?? '' }))
+        setEditNameMap(prev => ({ ...prev, [sourceArtifact.id]: sourceArtifact.name }))
+        setEditTargetBinaryMap(prev => ({ ...prev, [sourceArtifact.id]: artifact.id }))
+        return
+      }
+    }
     setEditingIds(prev => new Set(prev).add(artifact.id))
     const content = fullContentMap[artifact.id]?.content ?? artifact.content ?? ''
     setEditContentMap(prev => ({ ...prev, [artifact.id]: content }))
     setEditNameMap(prev => ({ ...prev, [artifact.id]: artifact.name }))
-  }, [fullContentMap])
+  }, [artifacts, fullContentMap, loadFullArtifact])
 
   const cancelEdit = React.useCallback((id: string) => {
     setEditingIds(prev => {
@@ -811,6 +843,12 @@ export default function CanvasPanel({
       return next
     })
     setErrors(prev => ({ ...prev, [id]: null }))
+    setEditTargetBinaryMap(prev => {
+      if (!(id in prev)) return prev
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
   }, [])
 
   const saveEdit = React.useCallback(async (id: string) => {
@@ -821,34 +859,76 @@ export default function CanvasPanel({
       return
     }
 
+    const targetBinaryId = editTargetBinaryMap[id]
+    const targetBinary = targetBinaryId ? artifacts.find(a => a.id === targetBinaryId) : null
+
     setSavingIds(prev => new Set(prev).add(id))
     setErrors(prev => ({ ...prev, [id]: null }))
     try {
-      const updated = await onUpdate(id, content, name.trim())
-      setEditingIds(prev => {
-        const next = new Set(prev)
-        next.delete(id)
-        return next
-      })
-      if (updated) {
-        setFullContentMap(prev => ({ ...prev, [id]: updated }))
-        setRevisionsMap(prev => {
+      if (targetBinary) {
+        // Source-edit re-render flow: PUT edited JSON to source artifact, then
+        // POST it back to the renderer endpoint to mint a fresh binary.
+        await onUpdate(id, content, name.trim())
+        const endpoint = rendererEndpointForArtifact(targetBinary)
+        if (!endpoint) {
+          setErrors(prev => ({ ...prev, [id]: 'No renderer registered for this artifact type' }))
+          return
+        }
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(content)
+        } catch {
+          setErrors(prev => ({ ...prev, [id]: 'Source must be valid JSON to re-render' }))
+          return
+        }
+        const reRenderResponse = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...(parsed as Record<string, unknown>), artifactName: name.trim() }),
+        })
+        if (!reRenderResponse.ok) {
+          const detail = await reRenderResponse.text().catch(() => '')
+          throw new Error(detail || 'Renderer rejected the updated source')
+        }
+        setEditingIds(prev => {
+          const next = new Set(prev)
+          next.delete(id)
+          return next
+        })
+        setEditTargetBinaryMap(prev => {
           const next = { ...prev }
           delete next[id]
           return next
         })
+        if (onRefresh) await onRefresh()
       } else {
-        setFullContentMap(prev => {
-          const existing = prev[id]
-          if (!existing) return prev
-          return {
-            ...prev,
-            [id]: { ...existing, content, name: name.trim(), version: existing.version + 1 },
-          }
+        const updated = await onUpdate(id, content, name.trim())
+        setEditingIds(prev => {
+          const next = new Set(prev)
+          next.delete(id)
+          return next
         })
+        if (updated) {
+          setFullContentMap(prev => ({ ...prev, [id]: updated }))
+          setRevisionsMap(prev => {
+            const next = { ...prev }
+            delete next[id]
+            return next
+          })
+        } else {
+          setFullContentMap(prev => {
+            const existing = prev[id]
+            if (!existing) return prev
+            return {
+              ...prev,
+              [id]: { ...existing, content, name: name.trim(), version: existing.version + 1 },
+            }
+          })
+        }
       }
-    } catch {
-      setErrors(prev => ({ ...prev, [id]: 'Failed to save changes' }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save changes'
+      setErrors(prev => ({ ...prev, [id]: message }))
     } finally {
       setSavingIds(prev => {
         const next = new Set(prev)
@@ -856,7 +936,7 @@ export default function CanvasPanel({
         return next
       })
     }
-  }, [editContentMap, editNameMap, onUpdate])
+  }, [artifacts, editContentMap, editNameMap, editTargetBinaryMap, onRefresh, onUpdate])
 
   const handleCopy = React.useCallback(async (artifact: CanvasArtifactRecord) => {
     try {

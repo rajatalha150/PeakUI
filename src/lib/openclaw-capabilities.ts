@@ -7,6 +7,10 @@ import {
   OPENCLAW_TAX_RETURN_TOOL_EXAMPLE,
   OPENCLAW_WORKBOOK_DOCUMENT_TOOL_EXAMPLE,
   OPENCLAW_WORD_DOCUMENT_TOOL_EXAMPLE,
+  OPENCLAW_SLIDES_DOCUMENT_TOOL_EXAMPLE,
+  OPENCLAW_ARCHIVE_DOCUMENT_TOOL_EXAMPLE,
+  OPENCLAW_CALENDAR_DOCUMENT_TOOL_EXAMPLE,
+  OPENCLAW_MERMAID_DOCUMENT_TOOL_EXAMPLE,
 } from './openclaw-tools'
 
 export type OpenClawCapabilityAdapter = 'native' | 'http' | 'mcp'
@@ -100,6 +104,50 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
       'Provide the full markdown body in the content field. The result is a downloadable .md Canvas artifact with a clickable /api/canvas/artifacts/<id>/download link. Do NOT write markdown files to the filesystem as a workaround.',
     ],
     example: OPENCLAW_MARKDOWN_DOCUMENT_TOOL_EXAMPLE,
+  },
+  {
+    id: 'slides-document',
+    label: 'Slide deck generation',
+    adapter: 'native',
+    toolName: 'slides_document',
+    promptLines: [
+      'SLIDE DECK CAPABILITY: When the user asks for a slide deck, PowerPoint, or .pptx file, use the slides_document tool.',
+      'Provide a title and an array of slides with explicit layouts (title, section, content, bullets, two-column, quote, closing). The result is a downloadable .pptx artifact.',
+    ],
+    example: OPENCLAW_SLIDES_DOCUMENT_TOOL_EXAMPLE,
+  },
+  {
+    id: 'archive-document',
+    label: 'Archive (ZIP) bundle',
+    adapter: 'native',
+    toolName: 'archive_document',
+    promptLines: [
+      'ARCHIVE CAPABILITY: When the user asks to bundle, zip, or package multiple files together, use the archive_document tool.',
+      'Provide a list of entries (filename, mimeType, content). The result is a downloadable .zip artifact.',
+    ],
+    example: OPENCLAW_ARCHIVE_DOCUMENT_TOOL_EXAMPLE,
+  },
+  {
+    id: 'calendar-document',
+    label: 'ICS calendar event',
+    adapter: 'native',
+    toolName: 'calendar_document',
+    promptLines: [
+      'CALENDAR CAPABILITY: When the user asks to schedule a meeting, create an event, or produce an .ics file, use the calendar_document tool.',
+      'Provide one or more events with title, start, end, and optional location/attendees. The result is a downloadable .ics artifact.',
+    ],
+    example: OPENCLAW_CALENDAR_DOCUMENT_TOOL_EXAMPLE,
+  },
+  {
+    id: 'mermaid-document',
+    label: 'Mermaid diagram',
+    adapter: 'native',
+    toolName: 'mermaid_document',
+    promptLines: [
+      'MERMAID CAPABILITY: When the user asks for a flowchart, sequence diagram, ER diagram, or other Mermaid-rendered visualization, use the mermaid_document tool.',
+      'Provide the Mermaid source in the diagram field. The result is a downloadable .svg (or .png) artifact that renders inline in Canvas.',
+    ],
+    example: OPENCLAW_MERMAID_DOCUMENT_TOOL_EXAMPLE,
   },
   {
     id: 'fetch-summarize',
@@ -197,6 +245,22 @@ const CAPABILITY_KEYWORD_TRIGGERS: CapabilityTrigger[] = [
   {
     id: 'markdown-document',
     keywords: ['markdown', '.md', 'md file', 'markdown version', 'markdown export', 'convert to markdown'],
+  },
+  {
+    id: 'slides-document',
+    keywords: ['slide deck', 'slides', 'powerpoint', 'pptx', 'presentation', 'deck'],
+  },
+  {
+    id: 'archive-document',
+    keywords: ['zip', 'archive', 'bundle', 'package files', 'zip them up'],
+  },
+  {
+    id: 'calendar-document',
+    keywords: ['calendar event', '.ics', 'ical', 'ics file', 'schedule meeting', 'invite'],
+  },
+  {
+    id: 'mermaid-document',
+    keywords: ['mermaid', 'flowchart', 'sequence diagram', 'er diagram', 'class diagram', 'diagram'],
   },
   {
     id: 'fetch-summarize',

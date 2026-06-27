@@ -17,6 +17,7 @@ export async function createMarkdownCanvasArtifact(input: {
   markdownBytes: Buffer
   bundleName?: string | null
   bundleRole?: string | null
+  sourceArtifactId?: string | null
   source?: {
     name: string
     content: string
@@ -27,9 +28,9 @@ export async function createMarkdownCanvasArtifact(input: {
   }
 }) {
   const bundleId = input.messageId ?? null
-  let sourceArtifactId: string | null = null
+  let sourceArtifactId = input.sourceArtifactId ?? null
 
-  if (input.source) {
+  if (input.source && !sourceArtifactId) {
     const sourceMetadata = computeCanvasArtifactMetadata({
       name: input.source.name,
       content: input.source.content,

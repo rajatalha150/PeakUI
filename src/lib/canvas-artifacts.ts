@@ -128,15 +128,50 @@ export function isChartArtifact(artifact: Pick<CanvasArtifactRecord, 'previewKin
   return artifact.previewKind === 'chart' || artifact.presentationType === 'chart'
 }
 
+export function isSlidesArtifact(artifact: Pick<CanvasArtifactRecord, 'mimeType' | 'extension' | 'kind' | 'presentationType'>): boolean {
+  return artifact.presentationType === 'slides-deck'
+    || artifact.mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    || artifact.mimeType === 'application/vnd.ms-powerpoint'
+    || ['pptx', 'ppt'].includes(artifact.extension ?? '')
+    || artifact.kind === 'slides-deck'
+}
+
+export function isArchiveArtifact(artifact: Pick<CanvasArtifactRecord, 'mimeType' | 'extension' | 'kind' | 'presentationType'>): boolean {
+  return artifact.presentationType === 'archive'
+    || ['application/zip', 'application/x-tar', 'application/gzip', 'application/x-gzip'].includes(artifact.mimeType)
+    || ['zip', 'tar', 'tgz', 'gz'].includes(artifact.extension ?? '')
+    || artifact.kind === 'archive'
+}
+
+export function isCalendarArtifact(artifact: Pick<CanvasArtifactRecord, 'mimeType' | 'extension' | 'kind' | 'presentationType'>): boolean {
+  return artifact.presentationType === 'calendar'
+    || artifact.mimeType === 'text/calendar'
+    || artifact.extension === 'ics'
+    || artifact.kind === 'calendar'
+}
+
+export function isMermaidArtifact(artifact: Pick<CanvasArtifactRecord, 'mimeType' | 'extension' | 'kind' | 'presentationType'>): boolean {
+  return artifact.presentationType === 'diagram-mermaid'
+    || ['mmd', 'mermaid'].includes(artifact.extension ?? '')
+    || artifact.kind === 'diagram-mermaid'
+}
+
 export function inferArtifactKind(name: string, mimeType: string): string {
   if (mimeType.startsWith('image/')) return 'diagram'
   if (mimeType === 'application/pdf') return 'pdf'
   if (mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' || mimeType === 'application/vnd.ms-excel') return 'workbook'
   if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || mimeType === 'application/msword') return 'word'
+  if (mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' || mimeType === 'application/vnd.ms-powerpoint') return 'slides-deck'
+  if (mimeType === 'application/zip' || mimeType === 'application/x-tar' || mimeType === 'application/gzip') return 'archive'
+  if (mimeType === 'text/calendar') return 'calendar'
   if (mimeType === 'text/markdown') return 'markdown'
   const ext = name.split('.').pop()?.toLowerCase()
   if (['xlsx', 'xlsm', 'xls'].includes(ext || '')) return 'workbook'
   if (['docx', 'doc'].includes(ext || '')) return 'word'
+  if (['pptx', 'ppt'].includes(ext || '')) return 'slides-deck'
+  if (['zip', 'tar', 'tgz', 'gz'].includes(ext || '')) return 'archive'
+  if (['ics'].includes(ext || '')) return 'calendar'
+  if (['mmd', 'mermaid'].includes(ext || '')) return 'diagram-mermaid'
   if (['json', 'csv', 'tsv', 'xml', 'yaml', 'yml'].includes(ext || '')) return 'data'
   return 'file'
 }

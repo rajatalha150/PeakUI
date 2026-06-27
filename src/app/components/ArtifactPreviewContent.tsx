@@ -20,6 +20,219 @@ import {
 } from '@/lib/canvas-rendering'
 import { recordRenderMetric } from '@/lib/render-metrics'
 
+type PreviewPayload =
+  | { kind: 'spreadsheet'; sheets: Array<{ name: string; columns: string[]; rows: string[][] }> }
+  | { kind: 'document'; sections: Array<{ heading?: string; paragraphs: string[]; tables: Array<{ name: string; columns: string[]; rows: string[][] }> }> }
+  | { kind: 'email'; from: string; to: string; cc: string[]; subject: string; date: string; body: string; htmlBody?: string }
+  | { kind: 'slides'; slides: Array<{ title: string; bullets: string[] }> }
+  | { kind: 'mermaid'; source: string }
+  | { kind: 'unsupported'; reason: string }
+
+function SpreadsheetPreview({ sheets }: { sheets: Array<{ name: string; columns: string[]; rows: string[][] }> }) {
+  if (sheets.length === 0) {
+    return <div style={fallbackPreStyle}>Empty workbook</div>
+  }
+  return (
+    <div style={{ display: 'grid', gap: '14px' }}>
+      {sheets.map((sheet) => (
+        <div key={sheet.name} style={{ display: 'grid', gap: '6px' }}>
+          <div style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)' }}>{sheet.name}</div>
+          {sheet.columns.length > 0 ? (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.74rem' }}>
+                <thead>
+                  <tr>
+                    {sheet.columns.map((header, i) => (
+                      <th key={`${sheet.name}-h-${i}`} style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid var(--border-color)', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sheet.rows.map((row, rowIdx) => (
+                    <tr key={`${sheet.name}-r-${rowIdx}`}>
+                      {sheet.columns.map((_, cellIdx) => (
+                        <td key={`${sheet.name}-r-${rowIdx}-c-${cellIdx}`} style={{ padding: '6px 8px', borderBottom: '1px solid rgba(255,255,255,0.04)', verticalAlign: 'top' }}>
+                          {row[cellIdx] ?? ''}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <pre style={fallbackPreStyle}>{sheet.rows.map((r) => r.join('\t')).join('\n')}</pre>
+          )}
+          {sheet.rows.length >= 200 && (
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+              Showing the first 200 rows. Download for the full workbook.
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function DocumentPreview({ sections }: { sections: Array<{ heading?: string; paragraphs: string[]; tables: Array<{ name: string; columns: string[]; rows: string[][] }> }> }) {
+  if (sections.length === 0) {
+    return <div style={fallbackPreStyle}>Empty document</div>
+  }
+  return (
+    <div style={{ display: 'grid', gap: '12px' }}>
+      {sections.map((section, idx) => (
+        <div key={`sec-${idx}`} style={{ display: 'grid', gap: '6px' }}>
+          {section.heading && (
+            <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)' }}>{section.heading}</div>
+          )}
+          {section.paragraphs.map((para, pIdx) => (
+            <p key={`sec-${idx}-p-${pIdx}`} style={{ margin: 0, fontSize: '0.82rem', lineHeight: 1.55, color: 'var(--text-primary)' }}>{para}</p>
+          ))}
+          {section.tables.map((table, tIdx) => (
+            <SpreadsheetPreview key={`sec-${idx}-t-${tIdx}`} sheets={[table]} />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function EmailPreview({ email }: { email: PreviewPayload & { kind: 'email' } }) {
+  return (
+    <div style={{ display: 'grid', gap: '10px', border: '1px solid var(--border-color)', borderRadius: '10px', background: 'var(--bg-secondary)', padding: '14px' }}>
+      <div style={{ display: 'grid', gap: '4px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+        {email.from && <div><strong style={{ color: 'var(--text-primary)' }}>From:</strong> {email.from}</div>}
+        {email.to && <div><strong style={{ color: 'var(--text-primary)' }}>To:</strong> {email.to}</div>}
+        {email.cc.length > 0 && <div><strong style={{ color: 'var(--text-primary)' }}>Cc:</strong> {email.cc.join(', ')}</div>}
+        {email.subject && <div><strong style={{ color: 'var(--text-primary)' }}>Subject:</strong> {email.subject}</div>}
+        {email.date && <div><strong style={{ color: 'var(--text-primary)' }}>Date:</strong> {email.date}</div>}
+      </div>
+      <pre style={{ ...fallbackPreStyle, whiteSpace: 'pre-wrap' }}>{email.body || '(empty body)'}</pre>
+    </div>
+  )
+}
+
+function SlidesPreview({ slides }: { slides: Array<{ title: string; bullets: string[] }> }) {
+  if (slides.length === 0) {
+    return <div style={fallbackPreStyle}>No slide text could be extracted. Download the deck to view.</div>
+  }
+  return (
+    <div style={{ display: 'grid', gap: '10px' }}>
+      {slides.map((slide, idx) => (
+        <div key={`slide-${idx}`} style={{ border: '1px solid var(--border-color)', borderRadius: '10px', padding: '12px', background: 'var(--bg-secondary)' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '6px' }}>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 700 }}>SLIDE {idx + 1}</span>
+            <span style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)' }}>{slide.title}</span>
+          </div>
+          {slide.bullets.length > 0 ? (
+            <ul style={{ margin: 0, paddingLeft: '20px', fontSize: '0.78rem', color: 'var(--text-primary)' }}>
+              {slide.bullets.map((b, bIdx) => (
+                <li key={`s-${idx}-b-${bIdx}`} style={{ marginBottom: '3px' }}>{b}</li>
+              ))}
+            </ul>
+          ) : (
+            <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>(no body text extracted)</div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function MermaidPreview({ source }: { source: string }) {
+  const containerRef = React.useRef<HTMLDivElement>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [rendered, setRendered] = React.useState(false)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function render() {
+      try {
+        // Lazy-load mermaid from CDN. Avoids bundling ~700KB into the client.
+        // @ts-expect-error -- runtime CDN import is intentionally dynamic.
+        const mod: any = await import(/* webpackIgnore: true */ 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs')
+          .catch(() => null)
+        if (cancelled) return
+        if (!mod || !mod.default) {
+          setError('Mermaid renderer unavailable offline.')
+          return
+        }
+        const mermaid = mod.default
+        mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' })
+        const id = `mermaid-${Math.random().toString(36).slice(2)}`
+        const { svg } = await mermaid.render(id, source)
+        if (cancelled) return
+        if (containerRef.current) containerRef.current.innerHTML = svg
+        setRendered(true)
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Mermaid render failed')
+      }
+    }
+    void render()
+    return () => { cancelled = true }
+  }, [source])
+
+  return (
+    <div style={{ display: 'grid', gap: '10px' }}>
+      {error ? (
+        <pre style={fallbackPreStyle}>{source}</pre>
+      ) : (
+        <div ref={containerRef} style={{ minHeight: rendered ? 'auto' : '120px', display: 'flex', justifyContent: 'center', background: 'var(--bg-secondary)', borderRadius: '10px', padding: '12px' }}>
+          {!rendered && <span style={{ color: 'var(--text-secondary)', alignSelf: 'center' }}>Rendering diagram…</span>}
+        </div>
+      )}
+      <details>
+        <summary style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', cursor: 'pointer' }}>Show source</summary>
+        <pre style={{ ...fallbackPreStyle, marginTop: '6px' }}>{source}</pre>
+      </details>
+    </div>
+  )
+}
+
+function BinaryPreview({ artifactId }: { artifactId: string }) {
+  const [preview, setPreview] = React.useState<PreviewPayload | null>(null)
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+
+  React.useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    fetch(`/api/canvas/artifacts/${artifactId}/preview`)
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Preview failed (${res.status})`)
+        return (await res.json()) as { preview: PreviewPayload }
+      })
+      .then((data) => {
+        if (cancelled) return
+        setPreview(data.preview)
+        setLoading(false)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : 'Preview failed')
+        setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [artifactId])
+
+  if (loading) return <div style={{ ...fallbackPreStyle, color: 'var(--text-secondary)' }}>Loading preview…</div>
+  if (error) return <div style={{ ...fallbackPreStyle, color: 'var(--danger)' }}>{error}</div>
+  if (!preview || preview.kind === 'unsupported') {
+    return <div style={{ ...fallbackPreStyle, color: 'var(--text-secondary)' }}>Inline preview not available — download to view.</div>
+  }
+  if (preview.kind === 'spreadsheet') return <SpreadsheetPreview sheets={preview.sheets} />
+  if (preview.kind === 'document') return <DocumentPreview sections={preview.sections} />
+  if (preview.kind === 'email') return <EmailPreview email={preview} />
+  if (preview.kind === 'slides') return <SlidesPreview slides={preview.slides} />
+  if (preview.kind === 'mermaid') return <MermaidPreview source={preview.source} />
+  return null
+}
+
+export { BinaryPreview }
+
 const MarkdownRenderer = dynamic(() => import('./LazyMarkdownRenderer'), {
   loading: () => <div style={{ padding: '12px', color: 'var(--text-secondary)' }}>Loading markdown preview…</div>,
 })
@@ -254,6 +467,20 @@ export default function ArtifactPreviewContent({
     return (
       <MetricRender name="artifact-preview:markdown" detail={{ artifactId: artifact.id }}>
         <MarkdownRenderer content={content} />
+      </MetricRender>
+    )
+  }
+
+  if (
+    artifact.previewKind === 'spreadsheet'
+    || artifact.previewKind === 'document'
+    || artifact.previewKind === 'mermaid'
+    || artifact.mimeType === 'message/rfc822'
+    || artifact.presentationType === 'slides-deck'
+  ) {
+    return (
+      <MetricRender name={`artifact-preview:${artifact.previewKind ?? 'binary'}`} detail={{ artifactId: artifact.id }}>
+        <BinaryPreview artifactId={artifact.id} />
       </MetricRender>
     )
   }

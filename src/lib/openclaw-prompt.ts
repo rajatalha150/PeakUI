@@ -149,8 +149,22 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     toolLabels.length > 0
       ? `Active real tools for this turn: ${toolLabels.join(', ')}.`
       : 'No external tools are available for this turn beyond the context already attached.',
-    'At most one tool block is allowed in a single response. Never include two or more tool blocks in the same message; request the next tool only after the previous result arrives.',
-    'If you state or imply that you are about to use a tool (for example "fetching", "let me open", "next step: extract"), you MUST include that single tool block in the SAME message. Never end a message by describing or promising an action without the tool block — either emit exactly one tool block now or give the user a direct answer/clarification.',
+    // ─── Tool block primer ───────────────────────────────────────────────────
+    // The runtime parses tool calls from assistant messages using the wrapper
+    // syntax below. Every tool call MUST be wrapped this way — bare JSON,
+    // markdown-fenced JSON, or prose descriptions are NEVER valid. The model
+    // has historically dropped the wrapper for less-common tools (slides,
+    // archive, calendar, mermaid) and silently failed every retry. Keep this
+    // primer at the top of the prompt so the format is always visible.
+    'TOOL CALL FORMAT: To call any tool, emit exactly ONE block of the form:',
+    '<openclaw_tool name="TOOL_NAME">{"field":"value", ...}</openclaw_tool>',
+    'Rules: (1) The wrapper tag is mandatory — raw JSON is rejected as "invalid tool block".',
+    '(2) `name` must be one of the registered tool names listed in this prompt (e.g. `mermaid_document`, `pdf_document`, `filesystem`). A wrong or invented name is rejected.',
+    '(3) The JSON payload must match the documented field names for that tool — mismatched or guessed field names are rejected.',
+    '(4) Emit exactly one tool block per response. Never include two tool blocks in the same message; request the next tool only after the previous result arrives.',
+    '(5) If you say you are about to use a tool (e.g. "fetching", "next step: render"), the matching tool block MUST appear in the same message — do not end a message on a bare action description.',
+    '(6) If no tool is needed, give the final answer as plain text with no wrapper.',
+    // ────────────────────────────────────────────────────────────────────────
     'After each tool result arrives, decide whether to answer, ask one clarification, or request the next tool.',
     `Current model: ${context.model || 'unspecified'}.`,
   ];

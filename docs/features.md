@@ -67,11 +67,15 @@ WorkSpaces uses the shared file and image attachment system:
 WorkSpaces includes a collapsible Canvas panel that:
 - Displays generated artifacts as compact single-row items so generated files do not consume the full side rail
 - Provides Copy, Download, Preview, and Delete controls on each artifact row
-- Opens artifact previews in a modal for PDFs, images, markdown, code, tables, generated Word documents, Excel workbooks, and other Canvas files
+- Opens artifact previews in a modal for PDFs, images, markdown, code, tables, generated Word documents, Excel workbooks, slide decks, ZIP bundles, calendar events, Mermaid diagrams, and other Canvas files
 - Keeps the artifact list in a bounded scroll area so long Canvas sessions remain navigable
 - Enables single artifact downloads plus bundle-level JSON export/delete actions
 - Persists artifacts via the CanvasArtifact model and stores durable CanvasArtifactRevision snapshots on create, edit, and restore
 - Supports revision history, restore, lightweight revision comparison, lineage links, search, and cursor paging so large Canvas sessions are recoverable and navigable
+- **Source-editable binary artifacts**: PDF, Word, Excel, PowerPoint, and Mermaid artifacts expose their underlying JSON or `.mmd` source as a sibling `kind: 'data'` artifact. Clicking **Edit** on one of these artifacts opens the source JSON in the editor, and saving it re-renders the binary through the existing render endpoint. The previous binary is preserved as a revision and the source artifact remains the single point of truth for future re-renders.
+- **Server-side preview endpoint** (`/api/canvas/artifacts/<id>/preview`): binary artifacts are parsed server-side and returned as a normalized JSON shape so the Canvas modal can render real Excel tables (per-sheet, per-column), Word documents (per-section, paragraphs + tables), email drafts (parsed `.eml` headers + body), and slide decks (slide titles + bullet previews) inline. This replaces the previous "Browser-native inline preview is limited" fallback for binary types.
+- **Mermaid client-side rendering**: when the preview endpoint returns `{ kind: 'mermaid', source }`, the modal lazy-loads Mermaid from the CDN and renders the `.mmd` source as a live SVG. The same flow is used as the inline fallback when the server-side renderer is unavailable.
+- **Download correctness**: PDF, Excel, Word, PowerPoint, ZIP, ICS, email, and Mermaid downloads go through `/api/canvas/artifacts/<id>/download` (which decodes base64 correctly) instead of the previous inline Blob path that produced corrupt files for binary types.
 
 ### Task Modes
 
@@ -141,6 +145,10 @@ WorkSpaces includes a collapsible Canvas panel that:
 - **Email draft generation**: The `email_document` tool creates downloadable `.eml` Canvas artifacts with a styled HTML body, optional plain-text version, and optional attachments. Use it for formal emails, outreach templates, or replies instead of generating raw files manually.
 - **Web fetch and summarize**: The `fetch_summarize` tool fetches a public URL and returns a concise summary with title, bullet takeaways, and a representative quote. It uses the same public-HTTP and SSRF guardrails as the browser stack.
 - **Markdown document generation**: The `markdown_document` tool creates downloadable `.md` Canvas artifacts from a markdown body. Use it when the user asks for a Markdown file, `.md` export, or markdown version of any content. It returns a clickable `/api/canvas/artifacts/<id>/download` link and stores the file as a Canvas artifact instead of writing it to a workspace path.
+- **PowerPoint slide deck generation**: The `slides_document` tool creates real downloadable `.pptx` Canvas artifacts via `pptxgenjs`. Layouts include `title`, `section`, `content`, `bullets`, `two-column`, `quote`, and `closing`. Each slide supports title, subtitle, body, bullets, two columns of heading + bullets, and notes. See [Slides Document Workflow](slides-document-workflow.md).
+- **ZIP archive bundle generation**: The `archive_document` tool bundles multiple artifacts/files into a single `.zip` Canvas artifact via `archiver`. Each entry can carry raw text content or a base64-encoded binary payload and is rendered with the right MIME type on extract. See [Archive Document Workflow](archive-document-workflow.md).
+- **ICS calendar event generation**: The `calendar_document` tool produces a downloadable `.ics` Canvas artifact via the `ics` package. Each event supports `uid`, `title`, `description`, `location`, `start`, `end`, `allDay`, `organizer`, `attendees`, and `url`, and the artifact opens in macOS Calendar, Outlook, and Google Calendar. See [Calendar Document Workflow](calendar-document-workflow.md).
+- **Mermaid diagram generation**: The `mermaid_document` tool renders a Mermaid diagram to `.svg` (default) or `.png` via `@mermaid-js/mermaid-cli` using the system Chromium bundled in the container. The artifact also carries the `.mmd` source so it remains re-editable and re-renderable. See [Mermaid Document Workflow](mermaid-document-workflow.md).
 - **Tax PDF generation**: The `tax_return` tool creates downloadable tax review PDFs from enabled Knowledge Base folders and can best-effort fill uploaded AcroForm PDF templates. It reuses the same generic PDF artifact pipeline. See [Tax PDF Workflow](tax-pdf-workflow.md).
 - **Browser control**: Open public pages, inspect links/forms, stage fills, submit with approval, and extract content
 - **UWAF browser (Unified Web Agent Framework)**: Dual-mode browser engine supporting Direct (Clear Web) and Stealth (Tor-routed Dark Web) research modes
@@ -348,6 +356,12 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 - `lucide-react` for icons
 - `playwright-core` for headless browser automation (UWAF)
 - `turndown` for HTML → Markdown conversion (UWAF sanitizer)
+- `pptxgenjs` for PowerPoint slide deck generation
+- `archiver` for ZIP archive bundling
+- `ics` for calendar event generation
+- `exceljs` for Excel workbook parsing (preview endpoint)
+- `mammoth` for Word document parsing (preview endpoint)
+- `@mermaid-js/mermaid-cli` (mmdc) for Mermaid diagram rendering (uses the system Chromium)
 
 ### API Routes
 

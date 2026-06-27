@@ -15,6 +15,7 @@ export async function createEmailCanvasArtifact(input: {
   emlBytes: Buffer
   bundleName?: string | null
   bundleRole?: string | null
+  sourceArtifactId?: string | null
   source?: {
     name: string
     content: string
@@ -25,7 +26,7 @@ export async function createEmailCanvasArtifact(input: {
   }
 }) {
   const content = input.emlBytes.toString('base64')
-  let sourceArtifactId: string | null = null
+  let sourceArtifactId = input.sourceArtifactId ?? null
   const bundleId = input.messageId ?? null
 
   if (input.source && !sourceArtifactId) {

@@ -12,6 +12,10 @@ export type ArtifactPresentationType =
   | 'workbook'
   | 'word'
   | 'file'
+  | 'slides-deck'
+  | 'archive'
+  | 'calendar'
+  | 'diagram-mermaid'
 
 export type ArtifactPreviewKind =
   | 'file'
@@ -24,8 +28,11 @@ export type ArtifactPreviewKind =
   | 'diagram'
   | 'data'
   | 'slides'
+  | 'spreadsheet'
+  | 'document'
+  | 'mermaid'
 
-export type ArtifactExportTarget = 'memo' | 'report' | 'dev-handoff'
+export type ArtifactExportTarget = 'memo' | 'report' | 'dev-handoff' | 'archive'
 
 export interface CanvasArtifactComputedMetadata {
   previewKind: ArtifactPreviewKind
@@ -50,6 +57,10 @@ const WORKBOOK_EXTENSIONS = new Set(['xlsx', 'xlsm', 'xls'])
 const WORD_EXTENSIONS = new Set(['docx', 'doc'])
 const DATA_EXTENSIONS = new Set(['json', 'yaml', 'yml', 'xml'])
 const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown'])
+const SLIDES_EXTENSIONS = new Set(['pptx', 'ppt'])
+const ARCHIVE_EXTENSIONS = new Set(['zip', 'tar', 'tgz', 'gz'])
+const CALENDAR_EXTENSIONS = new Set(['ics'])
+const MERMAID_EXTENSIONS = new Set(['mmd', 'mermaid'])
 
 function hashContent(content: string): string {
   let hash = 2166136261
@@ -103,6 +114,34 @@ function inferPresentationType(name: string, mimeType: string, kind: string, con
     || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     || mimeType === 'application/msword'
   ) return 'word'
+  if (
+    kind === 'slides-deck'
+    || SLIDES_EXTENSIONS.has(extension)
+    || mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    || mimeType === 'application/vnd.ms-powerpoint'
+  ) return 'slides-deck'
+  if (
+    kind === 'archive'
+    || ARCHIVE_EXTENSIONS.has(extension)
+    || mimeType === 'application/zip'
+    || mimeType === 'application/x-tar'
+    || mimeType === 'application/gzip'
+    || mimeType === 'application/x-gzip'
+  ) return 'archive'
+  if (
+    kind === 'calendar'
+    || CALENDAR_EXTENSIONS.has(extension)
+    || mimeType === 'text/calendar'
+  ) return 'calendar'
+  if (
+    kind === 'diagram-mermaid'
+    || MERMAID_EXTENSIONS.has(extension)
+    || mimeType === 'image/svg+xml'
+    || mimeType === 'image/png'
+  ) {
+    // Distinguish actual Mermaid source from arbitrary SVG/PNG.
+    if (MERMAID_EXTENSIONS.has(extension) || lowerName.includes('mermaid')) return 'diagram-mermaid'
+  }
   if (mimeType.startsWith('image/')) {
     if (lowerName.includes('diagram')) return 'diagram'
     if (lowerName.includes('chart') || lowerName.includes('graph')) return 'chart'
@@ -126,8 +165,12 @@ function inferPresentationType(name: string, mimeType: string, kind: string, con
 
 function inferPreviewKind(presentationType: ArtifactPresentationType, mimeType: string, extension: string, kind: string): ArtifactPreviewKind {
   if (presentationType === 'pdf' || mimeType === 'application/pdf' || extension === 'pdf' || kind === 'pdf') return 'pdf'
-  if (presentationType === 'workbook' || WORKBOOK_EXTENSIONS.has(extension) || kind === 'workbook') return 'file'
-  if (presentationType === 'word' || WORD_EXTENSIONS.has(extension) || kind === 'word') return 'file'
+  if (presentationType === 'workbook' || WORKBOOK_EXTENSIONS.has(extension) || kind === 'workbook') return 'spreadsheet'
+  if (presentationType === 'word' || WORD_EXTENSIONS.has(extension) || kind === 'word') return 'document'
+  if (presentationType === 'slides-deck' || SLIDES_EXTENSIONS.has(extension) || kind === 'slides-deck') return 'slides'
+  if (presentationType === 'archive' || ARCHIVE_EXTENSIONS.has(extension) || kind === 'archive') return 'file'
+  if (presentationType === 'calendar' || CALENDAR_EXTENSIONS.has(extension) || kind === 'calendar') return 'file'
+  if (presentationType === 'diagram-mermaid' || MERMAID_EXTENSIONS.has(extension) || kind === 'diagram-mermaid') return 'mermaid'
   if (mimeType.startsWith('image/')) return 'image'
   if (presentationType === 'table') return 'table'
   if (presentationType === 'chart') return 'chart'
@@ -228,6 +271,9 @@ function inferExportTargets(presentationType: ArtifactPresentationType, previewK
   if (presentationType === 'workbook') return ['report', 'dev-handoff']
   if (presentationType === 'word') return ['memo', 'report']
   if (presentationType === 'code') return ['dev-handoff', 'report']
+  if (presentationType === 'slides-deck' || presentationType === 'calendar') return ['report']
+  if (presentationType === 'archive') return ['archive']
+  if (presentationType === 'diagram-mermaid') return ['report', 'dev-handoff']
   if (presentationType === 'report' || presentationType === 'slides' || presentationType === 'memo') return ['memo', 'report']
   if (presentationType === 'table' || presentationType === 'chart' || presentationType === 'data') return ['report', 'dev-handoff']
   return ['report']
@@ -239,7 +285,7 @@ export function parseArtifactExportTargets(value: string | null | undefined): Ar
     const parsed = JSON.parse(value)
     if (!Array.isArray(parsed)) return []
     return parsed.filter(
-      (entry): entry is ArtifactExportTarget => entry === 'memo' || entry === 'report' || entry === 'dev-handoff'
+      (entry): entry is ArtifactExportTarget => entry === 'memo' || entry === 'report' || entry === 'dev-handoff' || entry === 'archive'
     )
   } catch {
     return []
