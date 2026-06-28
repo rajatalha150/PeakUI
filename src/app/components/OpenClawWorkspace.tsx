@@ -8048,16 +8048,21 @@ export default function OpenClawWorkspace({
           if (
             (invalidToolBlock || promisedToolButStopped)
             && toolRound < MAX_TOOL_LOOP_ITERATIONS - 1
-            && missingToolNudgeCount < 2
+            && missingToolNudgeCount < 4
             && !controller.signal.aborted
           ) {
             missingToolNudgeCount += 1;
+            // NOTE: the recovery text intentionally does NOT contain a literal
+            // wrapper example. When the model sees a user message containing
+            // the wrapper substring it tends to repeat that exact text as its
+            // next response (pattern-matching on the example), which produces
+            // another "invalid tool block" instead of the intended call.
             const recoveryNotice: OpenClawMessage = {
               id: randomUUID(),
               role: 'user',
               content: invalidToolBlock
-                ? 'Your previous message contained an invalid or duplicate tool block. Emit exactly ONE valid <openclaw_tool> block to continue, or give your final answer in plain text if no tool is needed. Never include more than one tool block in a single message.'
-                : 'You described the next action (for example "UWAF Direct: ...") but did not include the tool block, so nothing ran. To actually run it, end your reply with exactly ONE tool block wrapped exactly like:\n<openclaw_tool name="TOOL_NAME">{ ...json args... }</openclaw_tool>\nFor browsing, TOOL_NAME is unified_browser. If no tool is needed, give the user the answer directly instead of only describing what you will do.',
+                ? 'Your last message did not contain a valid tool block — either the wrapper was malformed, incomplete, or duplicated. Re-emit exactly ONE complete tool call (the registered tool names and the exact wrapper format are listed in the system prompt). If no tool is needed, give your final answer directly in plain text instead of starting a wrapper.'
+                : 'You described what you were about to do (for example a browser action or document generation) but stopped before emitting the matching tool block. End your reply with the matching tool call. The wrapper format and registered tool names are listed in the system prompt. If no tool is needed, give your final answer directly in plain text instead of starting a wrapper.',
               hidden: true,
               createdAt: new Date().toISOString(),
             };
@@ -8070,12 +8075,24 @@ export default function OpenClawWorkspace({
 
           // Recovery nudges are exhausted but the model was clearly mid-action.
           // Surface a clear, visible pause instead of silently ending so the
-          // user understands why the run stopped and can resume it.
+          // user understands why the run stopped and can resume it. Include a
+          // short snippet of what the model said it was about to do so the
+          // next turn has context.
           if ((invalidToolBlock || promisedToolButStopped) && !controller.signal.aborted) {
+            const lastAssistantContent = normalizedAssistant.content.trim()
+            const intentSnippet = lastAssistantContent.length > 240
+              ? `${lastAssistantContent.slice(0, 240).trim()}…`
+              : lastAssistantContent
+            const pauseReason = invalidToolBlock
+              ? 'I tried to emit the tool call but it kept coming back malformed (likely the JSON got truncated).'
+              : 'I described the next step but never emitted the matching tool block.'
+            const pauseBody = intentSnippet
+              ? `${pauseReason} Last attempt: “${intentSnippet}” Reply "continue" and I'll try again from this point.`
+              : `${pauseReason} Reply "continue" and I'll try again.`
             const stallNotice: OpenClawMessage = {
               id: randomUUID(),
               role: 'assistant',
-              content: 'I described the next step but couldn\'t emit a clean tool call after a couple of tries, so I paused here instead of looping. Reply "continue" and I\'ll resume from this point.',
+              content: pauseBody,
               createdAt: new Date().toISOString(),
             };
             setChatHistory(prev => [...prev, stallNotice]);
