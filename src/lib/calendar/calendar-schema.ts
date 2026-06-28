@@ -57,8 +57,13 @@ function normalizeAttendee(value: unknown): CalendarAttendee | null {
 function normalizeEvent(value: unknown): CalendarEvent | null {
   if (!value || typeof value !== 'object') return null
   const record = value as Record<string, unknown>
-  const title = cleanString(record.title, 240)
+  // Accept common aliases for title (summary) and start (date/when/time) so
+  // a model that used natural iCalendar vocabulary still produces an event.
+  const title = cleanString(record.title, 240) ?? cleanString(record.summary, 240)
   const start = cleanString(record.start, 80)
+    ?? cleanString(record.date, 80)
+    ?? cleanString(record.when, 80)
+    ?? cleanString(record.time, 80)
   if (!title || !start) return null
   const statusValue = record.status
   const status: CalendarEvent['status'] = statusValue === 'confirmed' || statusValue === 'tentative' || statusValue === 'cancelled'

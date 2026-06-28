@@ -1051,17 +1051,47 @@ export function extractOpenClawToolRequest(content: string): {
       if (!parsed) {
         return { cleanedContent: stripAllToolTags(content) }
       }
-      const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
-      const slides = Array.isArray(parsed.slides) ? parsed.slides.slice(0, 60) : []
-      if (!title || slides.length === 0) {
+      // Accept common title aliases so a slightly-wrong payload still works.
+      const record0 = parsed as unknown as Record<string, unknown>
+      const rawTitle = (typeof parsed.title === 'string' && parsed.title.trim())
+        || (typeof record0.subject === 'string' && (record0.subject as string).trim())
+        || (typeof record0.name === 'string' && (record0.name as string).trim())
+        || ''
+      // Normalize each slide at parse time so a slide with `content` instead of
+      // `bullets` still flows through to the renderer with the right shape.
+      const rawSlides = Array.isArray(parsed.slides) ? parsed.slides.slice(0, 60) : []
+      const slides = rawSlides
+        .map(slide => {
+          if (!slide || typeof slide !== 'object') return null
+          const source = slide as unknown as Record<string, unknown>
+          const record: Record<string, unknown> = { ...source }
+          // Coerce `content` (string or array) into `bullets` so the schema
+          // normalizer does not silently drop the slide for missing `bullets`.
+          if (record.bullets === undefined && record.content !== undefined) {
+            if (Array.isArray(record.content)) {
+              record.bullets = record.content
+            } else if (typeof record.content === 'string') {
+              record.bullets = record.content
+                .split(/\r?\n/)
+                .map((line: string) => line.replace(/^\s*[•\-*]\s+/, '').trim())
+                .filter(Boolean)
+            }
+            delete record.content
+          }
+          return record as unknown as OpenClawSlidesDocumentToolRequest['slides'][number]
+        })
+        .filter((slide): slide is OpenClawSlidesDocumentToolRequest['slides'][number] => slide !== null)
+      if (slides.length === 0) {
         return { cleanedContent: stripAllToolTags(content) }
       }
+      const firstSlideTitle = typeof slides[0]?.title === 'string' ? slides[0].title.trim() : ''
+      const safeTitle = (rawTitle || firstSlideTitle || 'Untitled Deck').slice(0, 200)
       return {
         cleanedContent,
         request: {
           name: 'slides_document',
           request: {
-            title: title.slice(0, 200),
+            title: safeTitle,
             subtitle: typeof parsed.subtitle === 'string' && parsed.subtitle.trim() ? parsed.subtitle.trim().slice(0, 240) : undefined,
             author: typeof parsed.author === 'string' && parsed.author.trim() ? parsed.author.trim().slice(0, 160) : undefined,
             company: typeof parsed.company === 'string' && parsed.company.trim() ? parsed.company.trim().slice(0, 160) : undefined,
@@ -1080,15 +1110,31 @@ export function extractOpenClawToolRequest(content: string): {
         return { cleanedContent: stripAllToolTags(content) }
       }
       const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
-      // Each entry must have a non-empty name and a string content; drop
-      // malformed entries so the ZIP renderer never crashes on undefined fields.
-      const rawEntries = Array.isArray(parsed.entries) ? parsed.entries.slice(0, 50) : []
-      const entries = rawEntries.filter((entry): entry is NonNullable<typeof rawEntries[number]> => {
-        if (!entry || typeof entry !== 'object') return false
-        const e = entry as unknown as Record<string, unknown>
-        return typeof e.name === 'string' && e.name.trim().length > 0
-          && typeof e.content === 'string'
-      })
+      // Accept common aliases for the entries array (files, items, contents)
+      // and for per-entry content (data, body, text). Drop entries that are
+      // missing both `name` and a usable content string.
+      const parsedRecord = parsed as unknown as Record<string, unknown>
+      const rawEntries = (Array.isArray(parsed.entries) ? parsed.entries
+        : Array.isArray(parsedRecord.files) ? (parsedRecord.files as unknown[])
+          : Array.isArray(parsedRecord.items) ? (parsedRecord.items as unknown[])
+            : Array.isArray(parsedRecord.contents) ? (parsedRecord.contents as unknown[])
+              : []).slice(0, 200)
+      const entries = rawEntries
+        .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object')
+        .map(entry => {
+          const e = { ...entry }
+          if (typeof e.content !== 'string') {
+            const alias = e.data ?? e.body ?? e.text
+            if (typeof alias === 'string') e.content = alias
+          }
+          if (typeof e.name !== 'string') {
+            const alias = e.filename ?? e.path ?? e.file
+            if (typeof alias === 'string') e.name = alias
+          }
+          return e as unknown as OpenClawArchiveDocumentToolRequest['entries'][number]
+        })
+        .filter(entry => typeof entry.name === 'string' && entry.name.trim().length > 0
+          && typeof entry.content === 'string')
       if (!title || entries.length === 0) {
         return { cleanedContent: stripAllToolTags(content) }
       }
@@ -1113,13 +1159,25 @@ export function extractOpenClawToolRequest(content: string): {
       }
       const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
       // Each event needs at least a start (uid/end are derived when missing).
-      // Drop events with no start so the ICS renderer never crashes.
+      // Accept common start aliases (date, when, time) so a slightly-wrong
+      // payload still produces a renderable calendar file. Accept summary
+      // as alias for title.
       const rawEvents = Array.isArray(parsed.events) ? parsed.events.slice(0, 200) : []
-      const events = rawEvents.filter((event): event is NonNullable<typeof rawEvents[number]> => {
-        if (!event || typeof event !== 'object') return false
-        const e = event as unknown as Record<string, unknown>
-        return typeof e.start === 'string' && e.start.trim().length > 0
-      })
+      const events = rawEvents
+        .map(event => {
+          if (!event || typeof event !== 'object') return null
+          const e = { ...(event as unknown as Record<string, unknown>) }
+          if (typeof e.title !== 'string' && typeof e.summary === 'string') {
+            e.title = e.summary
+          }
+          if (typeof e.start !== 'string') {
+            const alias = e.date ?? e.when ?? e.time
+            if (typeof alias === 'string') e.start = alias
+          }
+          if (typeof e.start !== 'string' || !e.start.trim()) return null
+          return e as unknown as OpenClawCalendarDocumentToolRequest['events'][number]
+        })
+        .filter((event): event is OpenClawCalendarDocumentToolRequest['events'][number] => event !== null)
       if (events.length === 0) {
         return { cleanedContent: stripAllToolTags(content) }
       }
@@ -1142,7 +1200,13 @@ export function extractOpenClawToolRequest(content: string): {
       if (!parsed) {
         return { cleanedContent: stripAllToolTags(content) }
       }
-      const diagram = typeof parsed.diagram === 'string' ? parsed.diagram.trim() : ''
+      // Accept common aliases (code, source, mermaid, syntax) so a model that
+      // used a different natural name still produces a renderable diagram.
+      const rawDiagram = (parsed.diagram ?? (parsed as Record<string, unknown>).code
+        ?? (parsed as Record<string, unknown>).source
+        ?? (parsed as Record<string, unknown>).mermaid
+        ?? (parsed as Record<string, unknown>).syntax) as unknown
+      const diagram = typeof rawDiagram === 'string' ? rawDiagram.trim() : ''
       if (!diagram) {
         return { cleanedContent: stripAllToolTags(content) }
       }

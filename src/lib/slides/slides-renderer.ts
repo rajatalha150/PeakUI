@@ -1,4 +1,5 @@
 import PPTXGenJS from 'pptxgenjs'
+import JSZip from 'jszip'
 import type { NormalizedSlidesDocument, SlidesSlide } from './slides-schema'
 
 export async function renderSlidesDocument(document: NormalizedSlidesDocument): Promise<Buffer> {
@@ -14,32 +15,105 @@ export async function renderSlidesDocument(document: NormalizedSlidesDocument): 
   const fg = document.theme.textColor || '0F172A'
   const fontFace = document.theme.fontFace || 'Calibri'
 
-  pptx.defineSlideMaster({
-    title: 'BASE',
-    background: { color: bg },
-    objects: [
-      { rect: { x: 0, y: 0, w: 13.33, h: 0.4, fill: { color: primary } } },
-      { rect: { x: 0, y: 7.1, w: 13.33, h: 0.4, fill: { color: primary } } },
-    ],
-  })
+  // NOTE: We deliberately do NOT call `pptx.defineSlideMaster` here. pptxgenjs
+  // 3.12 has a known bug where iterating over slides in Content_Types.xml
+  // generation adds a `slideMaster{idx+1}.xml` Override per slide, but only
+  // `slideMaster1.xml` is actually written to the zip. Strict OOXML readers
+  // (Google Slides, Apple Keynote import) reject the resulting package
+  // because the Content_Types declarations don't match the on-disk files.
+  // Instead, each slide draws its own background bars via addShape.
+  pptx.defineLayout({ name: 'PEAKUI_BLANK', width: 13.33, height: 7.5 })
 
   for (const slide of document.slides) {
-    renderSlide(pptx, slide, { primary, accent, fg, fontFace })
+    renderSlide(pptx, slide, { primary, accent, bg, fg, fontFace })
   }
 
   const arrayBuffer = await pptx.write({ outputType: 'arraybuffer' })
-  return Buffer.from(arrayBuffer as ArrayBuffer)
+  const rawBuffer: Buffer = Buffer.from(arrayBuffer as ArrayBuffer)
+
+  // Defense in depth: even when defineSlideMaster is not used, strip any
+  // phantom slideMaster overrides from Content_Types.xml. This guarantees
+  // Google Slides / Keynote / Numbers can import the file without "package
+  // is invalid" errors.
+  return sanitizePptxContentTypes(rawBuffer)
+}
+
+/**
+ * Post-process a pptxgenjs-generated `.pptx` buffer so the
+ * `[Content_Types].xml` declarations match the files actually present in the
+ * zip. pptxgenjs 3.12 references a `slideMaster{idx+1}.xml` for every slide
+ * but only writes `slideMaster1.xml`, so we drop the phantom entries.
+ *
+ * Also drops any other Override entries whose PartName does not exist in the
+ * zip (defensive — covers future pptxgenjs regressions as well).
+ */
+async function sanitizePptxContentTypes(buffer: Buffer): Promise<Buffer> {
+  let zip: JSZip
+  try {
+    zip = await JSZip.loadAsync(buffer)
+  } catch {
+    return buffer
+  }
+
+  const contentTypesEntry = zip.file('[Content_Types].xml')
+  if (!contentTypesEntry) return buffer
+
+  const contentTypesXml = await contentTypesEntry.async('string')
+  // Build a set of PartNames that match actual zip entries. JSZip stores
+  // entries with their folder paths, so a PartName of "/ppt/slides/slide1.xml"
+  // maps to the zip entry "ppt/slides/slide1.xml" (no leading slash).
+  const existingPartNames = new Set<string>()
+  for (const name of Object.keys(zip.files)) {
+    if (!name || name.endsWith('/')) continue // skip directory placeholders
+    existingPartNames.add('/' + name.replace(/^\/+/, '').replace(/\\/g, '/'))
+  }
+
+  // The regex captures the full <Override ... /> element regardless of how
+  // many "/" characters appear inside the ContentType attribute. Earlier
+  // versions used `[^/]*` which stopped at the first "/" inside the URL-ish
+  // ContentType and silently matched nothing.
+  const overridePattern = /<Override\s+PartName="([^"]+)"[^>]*?\/>/g
+  let removed = 0
+  const sanitized = contentTypesXml.replace(overridePattern, (match, partName: string) => {
+    if (existingPartNames.has(partName)) return match
+    removed += 1
+    return ''
+  })
+
+  if (removed === 0) return buffer
+
+  zip.file('[Content_Types].xml', sanitized)
+  const out = await zip.generateAsync({
+    type: 'nodebuffer',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 6 },
+  })
+  return out
 }
 
 interface RenderContext {
   primary: string
   accent: string
+  bg: string
   fg: string
   fontFace: string
 }
 
 function renderSlide(pptx: PPTXGenJS, slide: SlidesSlide, ctx: RenderContext): void {
-  const s = pptx.addSlide({ masterName: 'BASE' })
+  // Use the blank layout so each slide draws its own background bars and we
+  // don't depend on pptxgenjs' slide-master support (which has a broken
+  // Content_Types.xml generator that Google Slides / Keynote reject).
+  const s = pptx.addSlide({ masterName: 'PEAKUI_BLANK' })
+
+  // Background fill (one rect over the whole slide) plus the two decorative
+  // top/bottom bars previously rendered via defineSlideMaster.
+  s.background = { color: ctx.bg }
+  s.addShape(pptx.ShapeType.rect, {
+    x: 0, y: 0, w: 13.33, h: 0.4, fill: { color: ctx.primary }, line: { color: ctx.primary, width: 0 },
+  })
+  s.addShape(pptx.ShapeType.rect, {
+    x: 0, y: 7.1, w: 13.33, h: 0.4, fill: { color: ctx.primary }, line: { color: ctx.primary, width: 0 },
+  })
 
   switch (slide.layout) {
     case 'title':
