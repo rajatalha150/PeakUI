@@ -36,6 +36,10 @@ Each document-generation tool runs its parsed payload through a normalization st
 
 All registered tool names are enumerated in a single `OPENCLAW_TOOL_NAMES` constant in `src/lib/openclaw-tools.ts`. The tool-block parser regex, the `stripAllToolTags` regex, and the client-side `normalizeExtractedToolRequestName` helper are derived from that list, so adding a new tool is a one-line change in the array plus a parser branch. The system prompt also opens with an explicit tool-call format primer so the model always emits the `<openclaw_tool name="...">...</openclaw_tool>` wrapper.
 
+## Tool-Call Recovery Loop
+
+When the model fails to emit a valid `<openclaw_tool>` wrapper (malformed JSON, incomplete wrapper, or narration like "I'll rebuild the deck..." without a wrapper), the chat runtime nudges the model up to **2 times** to retry. If both nudges fail, the runtime surfaces a visible pause notice naming the inferred tool (e.g. "It looked like you wanted to run slide deck generator (slides_document)"), the last artifact filename, the last description, and a short snippet of the model's last attempt — so the user can reply "continue" or rephrase without confusion. The narration-case nudge includes a short, tool-aware placeholder example (using `<placeholder>` markers, never real content) so the model has a concrete shape to mirror; the malformed-wrapper case intentionally does NOT include a wrapper example to prevent the model from pattern-matching on the example and repeating the failure. See `OpenClawWorkspace.tsx` for the loop (`missingToolNudgeCount`, `lastSuccessfulDocumentTool`, `buildRecoveryWrapperExample`) and `src/lib/openclaw-tools.ts` for the parser.
+
 ## MCP Direction
 
 MCP will be implemented as a curated extension path to help the AI learn and use new skills over time. The intended role is an inventory of approved day-to-day services, not arbitrary unreviewed tool execution.

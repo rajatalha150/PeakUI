@@ -2100,6 +2100,103 @@ function getOpenClawToolRequestSignature(request: OpenClawToolRequest) {
   return `${fallback.name}:${JSON.stringify(fallback.request).slice(0, 200)}`;
 }
 
+// Extracts the short human-readable description and filename from a document
+// tool request so the recovery/stall notice can tell the user which generator
+// the model was trying to re-run. Returns null for non-document tools.
+function describeDocumentToolRequest(request: OpenClawToolRequest): { description?: string; filename?: string } | null {
+  if (!isDocumentToolName(request.name)) return null
+  const payload = (request as unknown as { request?: Record<string, unknown> }).request
+  if (!payload || typeof payload !== 'object') return null
+  const description = typeof payload.description === 'string' && payload.description.trim()
+    ? payload.description.trim()
+    : undefined
+  const filename = typeof payload.filename === 'string' && payload.filename.trim()
+    ? payload.filename.trim()
+    : undefined
+  return { description, filename }
+}
+
+function isDocumentToolName(name: OpenClawToolRequest['name']): boolean {
+  return name === 'pdf_document'
+    || name === 'workbook_document'
+    || name === 'word_document'
+    || name === 'csv_document'
+    || name === 'email_document'
+    || name === 'markdown_document'
+    || name === 'slides_document'
+    || name === 'archive_document'
+    || name === 'calendar_document'
+    || name === 'mermaid_document'
+}
+
+// Human-friendly label for a tool name, used in the stall notice so the user
+// sees "slide deck" instead of "slides_document".
+function describeToolDisplayName(name: OpenClawToolRequest['name']): string {
+  switch (name) {
+    case 'pdf_document': return 'PDF generator'
+    case 'workbook_document': return 'Excel workbook generator'
+    case 'word_document': return 'Word document generator'
+    case 'csv_document': return 'CSV exporter'
+    case 'email_document': return 'email writer'
+    case 'markdown_document': return 'markdown writer'
+    case 'slides_document': return 'slide deck generator'
+    case 'archive_document': return 'archive builder'
+    case 'calendar_document': return 'calendar event generator'
+    case 'mermaid_document': return 'mermaid diagram renderer'
+    case 'web': return 'web research'
+    case 'shell': return 'shell command'
+    case 'code': return 'code execution'
+    case 'browser': return 'browser action'
+    case 'unified_browser': return 'UWAF browser action'
+    case 'filesystem': return 'filesystem tool'
+    case 'tax_return': return 'tax return generator'
+    case 'fetch_summarize': return 'URL summarizer'
+    default: return name
+  }
+}
+
+// Builds a SHORT placeholder wrapper example for the recovery nudge when the
+// model narrated a tool call in prose instead of wrapping it. The example uses
+// `<placeholder>` markers so the model can't just copy it verbatim — it has to
+// fill in real content for its task. The shape is tailored to the named tool
+// when known, with a generic fallback otherwise.
+function buildRecoveryWrapperExample(toolName: OpenClawToolRequest['name'] | undefined): string {
+  switch (toolName) {
+    case 'slides_document':
+      return '<openclaw_tool name="slides_document">{"title":"<deck title>","description":"<what the user asked for>","slides":[{"layout":"title","title":"<cover slide title>"},{"layout":"bullets","title":"<section title>","bullets":["<bullet 1>","<bullet 2>"]}]}</openclaw_tool>'
+    case 'pdf_document':
+      return '<openclaw_tool name="pdf_document">{"title":"<document title>","description":"<what the user asked for>","sections":[{"heading":"<section heading>","content":"<paragraph>"}]}</openclaw_tool>'
+    case 'workbook_document':
+      return '<openclaw_tool name="workbook_document">{"title":"<workbook title>","description":"<what the user asked for>","sheets":[{"name":"<sheet name>","columns":["<col a>","<col b>"],"rows":[["<row 1a>","<row 1b>"]]}]}</openclaw_tool>'
+    case 'word_document':
+      return '<openclaw_tool name="word_document">{"title":"<doc title>","description":"<what the user asked for>","sections":[{"heading":"<heading>","content":"<paragraph>"}]}</openclaw_tool>'
+    case 'csv_document':
+      return '<openclaw_tool name="csv_document">{"title":"<csv title>","description":"<what the user asked for>","columns":["<col a>","<col b>"],"rows":[["<row 1a>","<row 1b>"]]}</openclaw_tool>'
+    case 'email_document':
+      return '<openclaw_tool name="email_document">{"subject":"<email subject>","description":"<what the user asked for>","body":"<email body>","to":["<recipient@example.com>"]}</openclaw_tool>'
+    case 'markdown_document':
+      return '<openclaw_tool name="markdown_document">{"title":"<doc title>","description":"<what the user asked for>","content":"# <heading>\\n\\n<markdown body>"}</openclaw_tool>'
+    case 'archive_document':
+      return '<openclaw_tool name="archive_document">{"title":"<archive title>","description":"<what the user asked for>","entries":[{"name":"<file.txt>","mimeType":"text/plain","content":"<utf-8 content>"}]}</openclaw_tool>'
+    case 'calendar_document':
+      return '<openclaw_tool name="calendar_document">{"title":"<calendar title>","description":"<what the user asked for>","events":[{"uid":"<unique-id>","title":"<event title>","start":"<ISO 8601 start>","end":"<ISO 8601 end>"}]}</openclaw_tool>'
+    case 'mermaid_document':
+      return '<openclaw_tool name="mermaid_document">{"title":"<diagram title>","description":"<what the user asked for>","diagram":"graph TD; A[<node a>] --> B[<node b>]","format":"svg"}</openclaw_tool>'
+    case 'web':
+      return '<openclaw_tool name="web">{"query":"<search query>"}</openclaw_tool>'
+    case 'shell':
+      return '<openclaw_tool name="shell">{"command":"<command to run>","description":"<what it does>"}</openclaw_tool>'
+    case 'filesystem':
+      return '<openclaw_tool name="shell">{"command":"ls -la <path>","description":"<what you want to know>"}</openclaw_tool>'
+    case 'tax_return':
+      return '<openclaw_tool name="tax_return">{"action":"generate","folder":"<kb folder>","taxYear":"<YYYY>"}</openclaw_tool>'
+    case 'fetch_summarize':
+      return '<openclaw_tool name="fetch_summarize">{"url":"<https URL>","description":"<what to summarize>"}</openclaw_tool>'
+    default:
+      return '<openclaw_tool name="<registered tool name>">{"<field>":"<value>"}</openclaw_tool>'
+  }
+}
+
 function formatShellToolResult(entry: ShellOutputEntry): string {
   const lines = [
     'Shell command result:',
@@ -7918,6 +8015,14 @@ export default function OpenClawWorkspace({
       let lastToolRequestSignature: string | null = null;
       let duplicateToolRequestCount = 0;
       let missingToolNudgeCount = 0;
+      // Tracks the most recent successfully-executed document tool so the
+      // recovery/stall notice can tell the user which generator the model was
+      // trying to re-run. Only set when the tool returned success=true.
+      let lastSuccessfulDocumentTool: {
+        name: OpenClawToolRequest['name'];
+        description?: string;
+        filename?: string;
+      } | null = null;
       // Budget tracking. We only count rounds where a real tool actually ran
       // toward the productive limit, so recovery nudges and duplicate notices
       // no longer burn the budget and cut a task short. MAX_TOOL_LOOP_ITERATIONS
@@ -8048,21 +8153,34 @@ export default function OpenClawWorkspace({
           if (
             (invalidToolBlock || promisedToolButStopped)
             && toolRound < MAX_TOOL_LOOP_ITERATIONS - 1
-            && missingToolNudgeCount < 4
+            && missingToolNudgeCount < 2
             && !controller.signal.aborted
           ) {
             missingToolNudgeCount += 1;
-            // NOTE: the recovery text intentionally does NOT contain a literal
-            // wrapper example. When the model sees a user message containing
-            // the wrapper substring it tends to repeat that exact text as its
-            // next response (pattern-matching on the example), which produces
-            // another "invalid tool block" instead of the intended call.
+            // Recovery nudge strategy:
+            //   - For a malformed wrapper, ask the model to re-emit a clean
+            //     wrapper without showing a literal example. The model tends to
+            //     copy a wrapper example verbatim, which produces the same
+            //     malformed result.
+            //   - For narration (model described the action in prose but never
+            //     wrapped it), include a SHORT placeholder example using the
+            //     previously-tracked document tool name. Placeholders like
+            //     <title> and <slides> make it clear the example is a template
+            //     and not real content, while still giving the model something
+            //     concrete to pattern-match against.
+            let recoveryText: string
+            if (invalidToolBlock) {
+              recoveryText = 'Your last message did not contain a valid tool block — either the wrapper was malformed, incomplete, or duplicated. Re-emit exactly ONE complete tool call (the registered tool names and the exact wrapper format are listed in the system prompt). If no tool is needed, give your final answer directly in plain text instead of starting a wrapper.'
+            } else {
+              const hintTool = lastSuccessfulDocumentTool?.name
+              const hintLabel = hintTool ? describeToolDisplayName(hintTool) : 'the most relevant tool'
+              const exampleShape = buildRecoveryWrapperExample(hintTool)
+              recoveryText = `You described what you were about to do (for example a browser action or document generation) but stopped before emitting the matching tool block. The wrapper is mandatory — bare prose, fenced JSON, or partial wrappers are all rejected. End your reply with exactly ONE tool call wrapped like this (replace the placeholders with your actual content — do not copy this template verbatim):\n\n${exampleShape}\n\nUse the ${hintLabel} tool name if it matches the user's request. If no tool is needed, give your final answer directly in plain text instead of starting a wrapper.`
+            }
             const recoveryNotice: OpenClawMessage = {
               id: randomUUID(),
               role: 'user',
-              content: invalidToolBlock
-                ? 'Your last message did not contain a valid tool block — either the wrapper was malformed, incomplete, or duplicated. Re-emit exactly ONE complete tool call (the registered tool names and the exact wrapper format are listed in the system prompt). If no tool is needed, give your final answer directly in plain text instead of starting a wrapper.'
-                : 'You described what you were about to do (for example a browser action or document generation) but stopped before emitting the matching tool block. End your reply with the matching tool call. The wrapper format and registered tool names are listed in the system prompt. If no tool is needed, give your final answer directly in plain text instead of starting a wrapper.',
+              content: recoveryText,
               hidden: true,
               createdAt: new Date().toISOString(),
             };
@@ -8075,24 +8193,37 @@ export default function OpenClawWorkspace({
 
           // Recovery nudges are exhausted but the model was clearly mid-action.
           // Surface a clear, visible pause instead of silently ending so the
-          // user understands why the run stopped and can resume it. Include a
-          // short snippet of what the model said it was about to do so the
-          // next turn has context.
+          // user understands why the run stopped and can resume it. Include
+          // the tool name we believe the model was trying to call, the last
+          // snippet it emitted, and a fresh re-run prompt so the user can
+          // either continue or rephrase without confusion.
           if ((invalidToolBlock || promisedToolButStopped) && !controller.signal.aborted) {
             const lastAssistantContent = normalizedAssistant.content.trim()
             const intentSnippet = lastAssistantContent.length > 240
               ? `${lastAssistantContent.slice(0, 240).trim()}…`
               : lastAssistantContent
             const pauseReason = invalidToolBlock
-              ? 'I tried to emit the tool call but it kept coming back malformed (likely the JSON got truncated).'
+              ? 'I tried to emit the tool call but it kept coming back malformed (likely the JSON inside the wrapper was truncated or incomplete).'
               : 'I described the next step but never emitted the matching tool block.'
-            const pauseBody = intentSnippet
-              ? `${pauseReason} Last attempt: “${intentSnippet}” Reply "continue" and I'll try again from this point.`
-              : `${pauseReason} Reply "continue" and I'll try again.`
+            const inferredTool = lastSuccessfulDocumentTool?.name
+            const inferredToolLabel = inferredTool ? describeToolDisplayName(inferredTool) : 'the relevant tool'
+            const previousDescription = lastSuccessfulDocumentTool?.description?.trim()
+            const previousFilename = lastSuccessfulDocumentTool?.filename?.trim()
+            const lines: string[] = []
+            lines.push(pauseReason)
+            if (inferredTool) {
+              lines.push(`It looked like you wanted to run ${inferredToolLabel} (${inferredTool}).`)
+              if (previousFilename) lines.push(`Last artifact: \`${previousFilename}\`.`)
+              if (previousDescription) lines.push(`Last description: ${previousDescription}`)
+            }
+            if (intentSnippet) {
+              lines.push('', `Last attempt: “${intentSnippet}”`)
+            }
+            lines.push('', 'Reply "continue" to retry from the last assistant turn, or rephrase (e.g. "regenerate the deck with X") to start fresh.')
             const stallNotice: OpenClawMessage = {
               id: randomUUID(),
               role: 'assistant',
-              content: pauseBody,
+              content: lines.join('\n'),
               createdAt: new Date().toISOString(),
             };
             setChatHistory(prev => [...prev, stallNotice]);
@@ -8393,6 +8524,8 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (pdfResult.success) {
               void loadCanvasArtifacts(chatId);
+              const meta = describeDocumentToolRequest(request);
+              lastSuccessfulDocumentTool = { name: 'pdf_document', description: meta?.description, filename: meta?.filename };
             }
             const toolResultMessage: OpenClawMessage = {
               id: randomUUID(),
@@ -8431,6 +8564,8 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (workbookResult.success) {
               void loadCanvasArtifacts(chatId);
+              const meta = describeDocumentToolRequest(request);
+              lastSuccessfulDocumentTool = { name: 'workbook_document', description: meta?.description, filename: meta?.filename };
             }
             const toolResultMessage: OpenClawMessage = {
               id: randomUUID(),
@@ -8469,6 +8604,8 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (wordResult.success) {
               void loadCanvasArtifacts(chatId);
+              const meta = describeDocumentToolRequest(request);
+              lastSuccessfulDocumentTool = { name: 'word_document', description: meta?.description, filename: meta?.filename };
             }
             const toolResultMessage: OpenClawMessage = {
               id: randomUUID(),
@@ -8507,6 +8644,8 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (csvResult.success) {
               void loadCanvasArtifacts(chatId);
+              const meta = describeDocumentToolRequest(request);
+              lastSuccessfulDocumentTool = { name: 'csv_document', description: meta?.description, filename: meta?.filename };
             }
             const toolResultMessage: OpenClawMessage = {
               id: randomUUID(),
@@ -8545,6 +8684,8 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (emailResult.success) {
               void loadCanvasArtifacts(chatId);
+              const meta = describeDocumentToolRequest(request);
+              lastSuccessfulDocumentTool = { name: 'email_document', description: meta?.description, filename: meta?.filename };
             }
             const toolResultMessage: OpenClawMessage = {
               id: randomUUID(),
@@ -8618,6 +8759,8 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (markdownResult.success) {
               void loadCanvasArtifacts(chatId);
+              const meta = describeDocumentToolRequest(request);
+              lastSuccessfulDocumentTool = { name: 'markdown_document', description: meta?.description, filename: meta?.filename };
             }
             const toolResultMessage: OpenClawMessage = {
               id: randomUUID(),
@@ -8656,6 +8799,8 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (slidesResult.success) {
               void loadCanvasArtifacts(chatId);
+              const meta = describeDocumentToolRequest(request);
+              lastSuccessfulDocumentTool = { name: 'slides_document', description: meta?.description, filename: meta?.filename };
             }
             const toolResultMessage: OpenClawMessage = {
               id: randomUUID(),
@@ -8694,6 +8839,8 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (archiveResult.success) {
               void loadCanvasArtifacts(chatId);
+              const meta = describeDocumentToolRequest(request);
+              lastSuccessfulDocumentTool = { name: 'archive_document', description: meta?.description, filename: meta?.filename };
             }
             const toolResultMessage: OpenClawMessage = {
               id: randomUUID(),
@@ -8732,6 +8879,8 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (calendarResult.success) {
               void loadCanvasArtifacts(chatId);
+              const meta = describeDocumentToolRequest(request);
+              lastSuccessfulDocumentTool = { name: 'calendar_document', description: meta?.description, filename: meta?.filename };
             }
             const toolResultMessage: OpenClawMessage = {
               id: randomUUID(),
@@ -8770,6 +8919,8 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (mermaidResult.success) {
               void loadCanvasArtifacts(chatId);
+              const meta = describeDocumentToolRequest(request);
+              lastSuccessfulDocumentTool = { name: 'mermaid_document', description: meta?.description, filename: meta?.filename };
             }
             const toolResultMessage: OpenClawMessage = {
               id: randomUUID(),
