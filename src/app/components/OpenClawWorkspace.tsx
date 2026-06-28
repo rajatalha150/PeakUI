@@ -88,7 +88,7 @@ import LiveBrowserView from './LiveBrowserView';
 import BrowserModal from './BrowserModal';
 import { reportClientError } from '@/lib/client-error-reporting';
 import type { CanvasArtifactRecord, CanvasArtifactRevisionRecord } from '@/lib/canvas-artifacts';
-import { isBinaryArtifact } from '@/lib/canvas-rendering';
+import { isTextArtifactMimeType } from '@/lib/canvas-download';
 
 type OpenClawProvider = 'ollama' | 'openai-compatible';
 type ImageAttachmentMode = 'vision-only' | 'vision+ocr' | 'ocr-only';
@@ -3857,25 +3857,6 @@ export default function OpenClawWorkspace({
     }
   };
 
-  const downloadArtifactById = async (id: string, fallbackName?: string) => {
-    try {
-      const res = await fetch(`/api/canvas/artifacts/${id}`);
-      if (res.ok) {
-        const data = await res.json();
-        const blob = new Blob([data.artifact.content], { type: data.artifact.mimeType });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = data.artifact.name || fallbackName || 'artifact';
-        a.click();
-        URL.revokeObjectURL(url);
-        return data.artifact;
-      }
-    } catch (error) {
-      console.error("Failed to download artifact:", error);
-    }
-    return null;
-  };
   const deleteArtifactById = async (id: string) => {
     try {
       const res = await fetch(`/api/canvas/artifacts/${id}`, { method: "DELETE" });
@@ -12546,7 +12527,15 @@ export default function OpenClawWorkspace({
                       return Promise.resolve();
                     }}
                     onDownload={(artifact) => {
-                      if (isBinaryArtifact(artifact)) {
+                      // Match the server-side classifier in `lib/canvas-download`
+                      // so binary artifacts (PPTX, ZIP, PDF, DOCX, XLSX, EML, ...)
+                      // always anchor to the download route — which knows how to
+                      // base64-decode `content` back to bytes — and only genuinely
+                      // text artifacts (markdown, JSON, XML, SVG) go through the
+                      // Blob path. Using `isBinaryArtifact` here diverged from the
+                      // server whitelist and silently produced corrupt downloads
+                      // for tar/gz/7z/etc.
+                      if (!isTextArtifactMimeType(artifact.mimeType)) {
                         const a = document.createElement("a");
                         a.href = `/api/canvas/artifacts/${artifact.id}/download`;
                         a.download = artifact.name;

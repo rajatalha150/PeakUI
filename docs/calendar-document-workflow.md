@@ -55,6 +55,7 @@ Events without a `start` are filtered out before rendering so the resulting `.ic
 - MIME type `text/calendar`.
 - The `.ics` file opens in macOS Calendar, Microsoft Outlook, Google Calendar, Thunderbird, and any other iCalendar-compatible client.
 - The Canvas modal preview shows the event title, start, end, location, and organizer.
+- Stored as UTF-8 text in the DB; downloads via `/api/canvas/artifacts/<id>/download` serve the calendar bytes verbatim. A backward-compat path detects older rows that were stored as base64 and decodes them on read.
 
 ## Safety notes
 

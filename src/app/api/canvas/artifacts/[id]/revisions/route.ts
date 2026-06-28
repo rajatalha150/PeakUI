@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUserIdWithPermission } from '@/lib/request-auth'
+import { decodeArtifactContent } from '@/lib/canvas-download'
 import { CANVAS_ARTIFACT_CONTENT_LIMIT } from '@/lib/canvas-api'
 import {
   computeCanvasArtifactMetadata,
@@ -179,7 +180,7 @@ export async function POST(
           mimeType: revision.mimeType,
           kind: revision.kind,
           extension: revision.extension,
-          size: revision.size,
+          size: decodeArtifactContent(revision.content, revision.mimeType).byteLength,
           version: nextVersion,
           updatedAt: new Date(),
           previewKind: metadata.previewKind,

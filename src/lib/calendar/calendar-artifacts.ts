@@ -25,7 +25,11 @@ export async function createCalendarCanvasArtifact(input: {
     bundleRole?: string
   }
 }) {
-  const content = input.calendarBytes.toString('base64')
+  // Store ICS as UTF-8 text — the mime type is `text/calendar` and the
+  // download route serves text mime types as-is. Storing as base64 here
+  // would cause the download route to return the raw base64 string instead
+  // of the calendar bytes.
+  const content = input.calendarBytes.toString('utf8')
   let sourceArtifactId = input.sourceArtifactId ?? null
   const bundleId = input.messageId ?? null
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import ExcelJS from 'exceljs'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUserIdWithPermission } from '@/lib/request-auth'
+import { decodeArtifactContent } from '@/lib/canvas-download'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -26,24 +27,11 @@ export type PreviewPayload =
   | { kind: 'mermaid'; source: string }
   | { kind: 'unsupported'; reason: string }
 
-function decodeBase64(content: string): Buffer {
-  return Buffer.from(content.replace(/\s+/g, ''), 'base64')
-}
-
-function decodeArtifact(content: string, mimeType: string): Buffer {
-  const isBase64 =
-    mimeType === 'application/pdf'
-    || mimeType.startsWith('image/')
-    || mimeType === 'application/zip'
-    || mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    || mimeType === 'application/vnd.ms-excel'
-    || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    || mimeType === 'application/msword'
-    || mimeType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-    || mimeType === 'application/vnd.ms-powerpoint'
-    || mimeType === 'message/rfc822'
-  return isBase64 ? decodeBase64(content) : Buffer.from(content, 'utf8')
-}
+// `decodeArtifact` is retained as a thin alias for the shared classifier so
+// historical call sites that already-passed mime types keep working. New code
+// should call `decodeArtifactContent` from `lib/canvas-download` directly.
+const decodeArtifact = (content: string, mimeType: string): Buffer =>
+  decodeArtifactContent(content, mimeType)
 
 async function previewSpreadsheet(bytes: Buffer): Promise<PreviewSpreadsheetSheet[]> {
   const workbook = new ExcelJS.Workbook()

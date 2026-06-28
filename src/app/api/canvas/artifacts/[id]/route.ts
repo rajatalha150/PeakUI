@@ -8,6 +8,7 @@ import {
 } from '@/lib/canvas-artifact-metadata'
 import { upsertCanvasArtifactRevision } from '@/lib/canvas-artifact-revisions'
 import { serializeCanvasArtifact } from '@/lib/canvas-artifact-serialization'
+import { decodeArtifactContent } from '@/lib/canvas-download'
 
 const ARTIFACT_DETAIL_INCLUDE = {
   sourceArtifact: { select: { id: true, name: true, version: true } },
@@ -96,6 +97,11 @@ export async function PUT(
     const nextName = name ?? existing.name
     const nextContent = content ?? existing.content
     const nextVersion = existing.version + 1
+    // For binary mime types the stored `content` is base64; use the decoded
+    // byte length so the stored size matches the real artifact size.
+    const nextSize = content !== undefined
+      ? decodeArtifactContent(nextContent, existing.mimeType).byteLength
+      : existing.size
     const metadata = computeCanvasArtifactMetadata({
       name: nextName,
       content: nextContent,
@@ -117,7 +123,7 @@ export async function PUT(
         data: {
           name: nextName,
           content: nextContent,
-          size: content !== undefined ? Buffer.byteLength(content, 'utf8') : existing.size,
+          size: nextSize,
           version: nextVersion,
           updatedAt: new Date(),
           previewKind: metadata.previewKind,

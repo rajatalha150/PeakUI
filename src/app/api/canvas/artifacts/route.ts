@@ -12,6 +12,7 @@ import {
 } from '@/lib/canvas-artifact-metadata'
 import { upsertCanvasArtifactRevision } from '@/lib/canvas-artifact-revisions'
 import { serializeCanvasArtifact } from '@/lib/canvas-artifact-serialization'
+import { decodeArtifactContent } from '@/lib/canvas-download'
 import type { CanvasArtifactSavePayload } from '@/lib/canvas-artifacts'
 
 const ARTIFACT_LIST_SELECT = {
@@ -41,6 +42,15 @@ const ARTIFACT_LIST_SELECT = {
   derivedArtifacts: { select: { id: true, name: true, version: true } },
   _count: { select: { revisions: true } },
 } as const
+
+// For binary mime types the stored `content` is base64, so the byte length
+// of the string overstates the actual file size by ~37%. Use the decoded
+// length so quota checks, the UI's "Size: X" line, and revision diffs all
+// reflect the real artifact size.
+function artifactByteLength(content: string, mimeType: string | null): number {
+  const resolvedMime = mimeType || 'text/plain'
+  return decodeArtifactContent(content, resolvedMime).byteLength
+}
 
 function parseArtifactPayload(body: unknown): CanvasArtifactSavePayload | null {
   if (!body || typeof body !== 'object') return null
@@ -162,7 +172,7 @@ export async function POST(request: NextRequest) {
           mimeType: body.mimeType || 'text/plain',
           kind: body.kind || 'file',
           extension: body.extension || body.name.split('.').pop() || null,
-          size: Buffer.byteLength(body.content, 'utf8'),
+          size: artifactByteLength(body.content, body.mimeType ?? 'text/plain'),
           sessionId: body.sessionId,
           messageId: body.messageId || null,
           userId,

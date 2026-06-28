@@ -28,6 +28,7 @@ PeakUI's `csv_document` tool turns structured row data into a downloadable `.csv
 - A Canvas artifact with `kind: "data"` and `extension: "csv"`.
 - MIME type `text/csv` for direct download.
 - Rendered with proper CSV escaping and UTF-8 byte-order mark for Excel compatibility.
+- Stored as UTF-8 text in the DB; downloads via `/api/canvas/artifacts/<id>/download` serve the CSV bytes verbatim. A backward-compat path detects older rows that were stored as base64 and decodes them on read.
 
 ## Safety notes
 

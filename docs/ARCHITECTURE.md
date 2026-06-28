@@ -61,6 +61,7 @@ PostgreSQL
 - `src/lib/canvas-artifacts.ts` — artifact persistence and revisions.
 - `src/lib/canvas-artifact-metadata.ts` — presentation type / preview kind inference and export target resolution for binary + text artifacts.
 - `src/lib/canvas-rendering.ts` — preview/edit eligibility helpers (e.g. `isBinaryArtifact`, `artifactSupportsTextEditing`).
+- `src/lib/canvas-download.ts` — shared text/binary mime classifier (`isTextArtifactMimeType`) and base64 decoder (`decodeArtifactContent`) used by the download route, the preview route, the artifact POST/PUT/restore handlers, and the client-side download callbacks. The classifier is inverted (whitelists text mime types) so adding a new binary format never silently produces a corrupt download.
 - `src/lib/pdf/*`, `src/lib/word/*`, `src/lib/workbook/*`, `src/lib/email/*`, `src/lib/markdown/*`, `src/lib/csv/*` — per-format schema, renderer, and artifact creator.
 - `src/lib/slides/*`, `src/lib/archive/*`, `src/lib/calendar/*`, `src/lib/mermaid/*` — the four newer formats (PowerPoint, ZIP, ICS, Mermaid), each with the same schema → renderer → artifact creator → API route pipeline.
 - `src/app/api/canvas/artifacts/*` — artifact CRUD, download, and the server-side preview endpoint that parses binary artifacts into a normalized JSON shape for inline preview.

@@ -1,27 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUserIdWithPermission } from '@/lib/request-auth'
-
-function sanitizeDownloadName(name: string): string {
-  return (name.trim().split(/[\\/]/).pop() || 'artifact')
-    .replace(/[^\w.\- ()[\]]+/g, '_')
-    .slice(0, 180)
-}
-
-function decodeArtifactContent(content: string, mimeType: string): Buffer {
-  if (
-    mimeType === 'application/pdf'
-    || mimeType.startsWith('image/')
-    || mimeType === 'application/zip'
-    || mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    || mimeType === 'application/vnd.ms-excel'
-    || mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    || mimeType === 'application/msword'
-  ) {
-    return Buffer.from(content.replace(/\s+/g, ''), 'base64')
-  }
-  return Buffer.from(content, 'utf8')
-}
+import { decodeArtifactContent, sanitizeDownloadName } from '@/lib/canvas-download'
 
 export async function GET(
   request: NextRequest,

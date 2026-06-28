@@ -25,7 +25,11 @@ export async function createCsvCanvasArtifact(input: {
     bundleRole?: string
   }
 }) {
-  const content = input.csvBytes.toString('base64')
+  // Store CSV as UTF-8 text — the mime type is `text/csv` and the
+  // download route serves text mime types as-is (not base64-decoded).
+  // Storing as base64 here would cause the download route to return the
+  // raw base64 string instead of the CSV bytes (same bug as PPTX).
+  const content = input.csvBytes.toString('utf8')
   let sourceArtifactId = input.sourceArtifactId ?? null
   const bundleId = input.messageId ?? null
 
