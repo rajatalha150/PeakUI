@@ -83,6 +83,56 @@ function sanitizeArtifactName(name: string): string {
     .slice(0, 180)
 }
 
+// Rewrites markdown links that point to a wrong absolute URL but whose visible
+// text matches an artifact filename we know about. The model sometimes emits
+// links like `[deck.pptx](https://wrong-host/deck.pptx)` even though the
+// instruction says to use the relative `/api/canvas/artifacts/<id>/download`
+// URL. Without this rewrite the user clicks a 404. We only rewrite when:
+//   1. the link text or the URL's basename matches an artifact filename in
+//      `artifactsByName` (the URL basename is the most reliable signal because
+//      the model often keeps the filename in the URL even when the visible
+//      text gets decorated with emoji or rewording)
+//   2. the URL is NOT already a relative canvas download URL
+// Other absolute URLs are left alone so we don't accidentally rewrite a link
+// that was actually intentional (a real external URL, etc.).
+export function rewriteBrokenArtifactLinks(content: string, artifactsByName: Map<string, string>): string {
+  if (!artifactsByName.size) return content
+  return content.replace(
+    /\[([^\]]{1,180})\]\(([^)\s]+)\)/g,
+    (match, label: string, url: string) => {
+      // Already a correct relative download URL? Leave it.
+      if (url.startsWith(CANVAS_DOWNLOAD_PREFIX) && url.endsWith(CANVAS_DOWNLOAD_SUFFIX)) return match
+      // Only rewrite URLs that are clearly not intentional (absolute URLs,
+      // protocol-relative, or paths that look like the wrong server).
+      const looksWrong = /^https?:\/\//i.test(url) || url.startsWith('//') || url.endsWith('.pptx') || url.endsWith('.pdf')
+        || url.endsWith('.docx') || url.endsWith('.xlsx') || url.endsWith('.zip') || url.endsWith('.ics')
+      if (!looksWrong) return match
+      // First, try matching the link text (after stripping markdown decoration
+      // like *, _, `, and the leading "📥 Download ... (.ext)" wrapper).
+      const normalizedLabel = label.replace(/[*_`]/g, '').replace(/^\s*📥\s*/i, '').trim()
+      const downloadUrl = artifactsByName.get(normalizedLabel)
+        ?? artifactsByName.get(normalizedLabel.replace(/\s*\([.\w]+\)\s*$/, ''))
+        // Then try matching the basename of the URL itself — the model
+        // almost always keeps the filename intact in the URL even when it
+        // rewrites the visible link text.
+        ?? artifactsByName.get(extractUrlBasename(url))
+      if (!downloadUrl) return match
+      return `[${label}](${downloadUrl})`
+    }
+  )
+}
+
+function extractUrlBasename(url: string): string {
+  try {
+    // Strip query/fragment, take the path.
+    const withoutQuery = url.split('?')[0].split('#')[0]
+    const lastSlash = withoutQuery.lastIndexOf('/')
+    return lastSlash >= 0 ? withoutQuery.slice(lastSlash + 1) : withoutQuery
+  } catch {
+    return ''
+  }
+}
+
 export function extractServerArtifactDownloads(content: string): ServerArtifactDownload[] {
   const downloads: ServerArtifactDownload[] = []
   const seen = new Set<string>()
@@ -317,17 +367,22 @@ export const ChatMessageContent = React.memo(function ChatMessageContent({
   isLast,
   presentation,
   sources,
+  canvasArtifactNames,
 }: {
   content: string
   isStreaming: boolean
   isLast: boolean
   presentation?: ResponsePresentation
   sources?: MessageSource[]
+  canvasArtifactNames?: Map<string, string>
 }) {
   const start = React.useMemo(() => performance.now(), [content, presentation?.mode, presentation?.subject, presentation?.dataFormat])
   const normalizedContent = React.useMemo(
-    () => getParsedAssistantArtifacts(content, presentation, false).normalizedContent,
-    [content, presentation]
+    () => {
+      const base = getParsedAssistantArtifacts(content, presentation, false).normalizedContent
+      return canvasArtifactNames?.size ? rewriteBrokenArtifactLinks(base, canvasArtifactNames) : base
+    },
+    [content, presentation, canvasArtifactNames]
   )
 
   React.useEffect(() => {
@@ -353,6 +408,7 @@ export function AssistantDownloads({
   sessionId,
   messageId,
   onPersisted,
+  canvasArtifactNames,
 }: {
   content: string
   index: number
@@ -361,6 +417,7 @@ export function AssistantDownloads({
   sessionId?: string | null
   messageId?: string | null
   onPersisted?: (artifacts: { name: string; id: string }[]) => void
+  canvasArtifactNames?: Map<string, string>
 }) {
   const parsed = React.useMemo(
     () => getParsedAssistantArtifacts(content, presentation, showImages),

@@ -1538,6 +1538,7 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
   branchingEnabled,
   onBranchFromMessage,
   onCopyMessage,
+  canvasArtifactNames,
 }: {
   msg: OpenClawMessage;
   index: number;
@@ -1551,6 +1552,7 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
   branchingEnabled: boolean;
   onBranchFromMessage?: (messageId?: string, branchLabel?: string) => void;
   onCopyMessage?: (message: OpenClawMessage) => void;
+  canvasArtifactNames?: Map<string, string>;
 }) {
   const messageContent = typeof msg.content === 'string' ? msg.content : '';
   const messageThinking = typeof msg.thinking === 'string' ? msg.thinking : '';
@@ -1590,12 +1592,13 @@ const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
                 isLast={isLast}
                 presentation={msg.presentation}
                 sources={messageSources}
+                canvasArtifactNames={canvasArtifactNames}
               />
               {!isToolBridgeMessage && messageSources.length > 0 && (
                 <SourceChips sources={messageSources} />
               )}
               {!isToolBridgeMessage && messageContent.trim() && (
-                <AssistantDownloads content={messageContent} index={index} presentation={msg.presentation} sessionId={currentSessionId ?? undefined} messageId={msg.id} />
+                <AssistantDownloads content={messageContent} index={index} presentation={msg.presentation} sessionId={currentSessionId ?? undefined} messageId={msg.id} canvasArtifactNames={canvasArtifactNames} />
               )}
             </MessageRenderBoundary>
           ) : (
@@ -2649,7 +2652,14 @@ function formatTaxReturnToolResult(entry: TaxReturnToolResultEntry): string {
 }
 
 function artifactDownloadInstruction(artifactName: string): string {
-  return `When presenting the download link, output a markdown link using the artifact name as the link text and the EXACT relative Download URL below (for example: [${artifactName}](<URL>)). Do not add any domain or protocol prefix such as https://peakui.com; the URL must stay a relative path starting with /api/canvas/artifacts/.`;
+  return [
+    'DOWNLOAD LINK (mandatory): when presenting the download link, output the artifact name as the link text and the EXACT relative Download URL below.',
+    'Format: [' + artifactName + '](<URL>)',
+    'The URL MUST stay relative — start with /api/canvas/artifacts/ and contain NO protocol (no https://, no http://), NO domain (no gpt.dachicorp.com, peakui.com, localhost, or anything else), NO leading double slash (//), and NO path prefix like /workspace/ or /chat/.',
+    'If you copy the URL from this prompt, copy it character-for-character including the leading slash. An absolute URL like https://anything/file.pptx will NOT download — the browser will resolve it against the wrong host and return 404.',
+    'Example of CORRECT output: [' + artifactName + '](/api/canvas/artifacts/<id>/download)',
+    'Example of WRONG output (do not produce): [' + artifactName + '](https://gpt.dachicorp.com/' + artifactName + ')',
+  ].join(' ');
 }
 
 function formatPdfDocumentToolResult(entry: PdfDocumentToolResultEntry): string {
@@ -3565,6 +3575,27 @@ export default function OpenClawWorkspace({
     if (!currentSessionId) return null;
     return sanitizeOpenClawSessions(sessions).find(session => session.id === currentSessionId) ?? null;
   }, [currentSessionId, sessions]);
+  // Map of canvas artifact filename → relative download URL. Used to rewrite
+  // markdown links the model emits with the wrong absolute URL (e.g. it
+  // substitutes the user's deployment hostname instead of using
+  // `/api/canvas/artifacts/<id>/download`). Only includes filenames that look
+  // like a downloadable artifact (have an extension and a download URL).
+  const canvasArtifactNames = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const artifact of canvasArtifacts) {
+      if (!artifact.name || !artifact.id) continue
+      const trimmedName = artifact.name.trim()
+      if (!/\.[A-Za-z0-9]{1,6}$/.test(trimmedName)) continue
+      const downloadUrl = `/api/canvas/artifacts/${artifact.id}/download`
+      map.set(trimmedName, downloadUrl)
+      // Also key by basename without extension so a model link like
+      // "[Linux in the Enterprise.pptx]" still resolves via "Linux in the
+      // Enterprise" (filename without the .pptx suffix).
+      const basename = trimmedName.replace(/\.[A-Za-z0-9]{1,6}$/, '')
+      if (basename && !map.has(basename)) map.set(basename, downloadUrl)
+    }
+    return map
+  }, [canvasArtifacts])
   const effectiveSessionAutoContinueMode = currentSession?.autoContinueMode ?? draftSessionAutoContinueMode;
   const effectiveSessionAutoContinueMaxSteps = currentSession?.autoContinueMaxSteps ?? draftSessionAutoContinueMaxSteps;
   const continuationPending = useMemo(() => hasPendingContinuation(chatHistory), [chatHistory]);
@@ -9358,6 +9389,7 @@ export default function OpenClawWorkspace({
         branchingEnabled={settings?.openClawSessionBranchingEnabled !== false}
         onBranchFromMessage={handleBranchFromMessage}
         onCopyMessage={handleCopyMessage}
+        canvasArtifactNames={canvasArtifactNames}
       />
     );
   };
