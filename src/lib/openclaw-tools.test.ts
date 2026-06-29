@@ -231,4 +231,16 @@ describe('openclaw tool parsing', () => {
       expect(extracted.request?.name).toBe(name)
     }
   })
+
+  it('accepts filesystem payloads synthesized from prose narration (stat/read/list)', () => {
+    for (const action of ['stat', 'read', 'list'] as const) {
+      const payload = JSON.stringify({ action, path: '/home/raza/Downloads/foo.zip' })
+      const input = `<openclaw_tool name="filesystem">${payload}</openclaw_tool>`
+      const extracted = extractOpenClawToolRequest(input)
+      expect(extracted.request?.name).toBe('filesystem')
+      const req = extracted.request?.request as { action: string; path: string }
+      expect(req.action).toBe(action)
+      expect(req.path).toBe('/home/raza/Downloads/foo.zip')
+    }
+  })
 })

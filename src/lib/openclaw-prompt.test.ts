@@ -77,4 +77,16 @@ describe('buildOpenClawSystemPrompt', () => {
     const prompt = buildOpenClawSystemPrompt(rest)
     expect(prompt).not.toContain('WORKSPACE FILES GUI PANEL')
   })
+
+  it('includes rule (7) forbidding bare action narration', () => {
+    const prompt = buildOpenClawSystemPrompt(baseContext)
+    expect(prompt).toContain('NEVER end a message with bare action narration')
+    expect(prompt).toContain('(7)')
+  })
+
+  it('includes the RECOVERY BEHAVIOR block describing auto-recovery', () => {
+    const prompt = buildOpenClawSystemPrompt(baseContext)
+    expect(prompt).toContain('RECOVERY BEHAVIOR:')
+    expect(prompt).toContain('auto-recover by inferring a tool call from your prose')
+  })
 })

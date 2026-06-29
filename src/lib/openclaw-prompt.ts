@@ -164,7 +164,9 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     '(4) Emit exactly one tool block per response. Never include two tool blocks in the same message; request the next tool only after the previous result arrives.',
     '(5) If you say you are about to use a tool (e.g. "fetching", "next step: render"), the matching tool block MUST appear in the same message — do not end a message on a bare action description.',
     '(6) If no tool is needed, give the final answer as plain text with no wrapper.',
+    '(7) NEVER end a message with bare action narration. If you wrote "Inspecting path metadata: …" or "Let me check …" or "Next step: render the diagram", the matching <openclaw_tool> wrapper MUST follow in the SAME message. The runtime will auto-recover common patterns by re-running a second inference pass — but that recovery is best-effort and does not cover every phrasing. Always include the wrapper when you intend to call a tool.',
     // ────────────────────────────────────────────────────────────────────────
+    'RECOVERY BEHAVIOR: If you narrate a tool action without emitting the wrapper, the runtime will try to auto-recover by inferring a tool call from your prose. For high-confidence patterns (`filesystem`/`stat`/`read`/`list` with a clear path, `shell` with a back-quoted command, `web`/`fetch_summarize` with a URL or quoted query, `unified_browser` navigate-to-URL, `tax_return` with a year, and document regeneration describing the prior artifact) the runtime executes the inferred call directly. For other phrasings it appends a hidden user note asking you to retry with the wrapper. In either case the user sees the tool result and the next step — recovery is silent.',
     'After each tool result arrives, decide whether to answer, ask one clarification, or request the next tool.',
     `Current model: ${context.model || 'unspecified'}.`,
   ];

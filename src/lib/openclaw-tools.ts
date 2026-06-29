@@ -328,7 +328,7 @@ function isWorkbookTemplate(value: unknown): value is NonNullable<OpenClawWorkbo
     || value === 'tracker'
 }
 
-const OPENCLAW_TOOL_NAMES = [
+export const OPENCLAW_TOOL_NAMES = [
   'shell',
   'filesystem',
   'web',

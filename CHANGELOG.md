@@ -94,6 +94,25 @@ for the full surface, API, and client library reference.
 - Internal TODO, memory, and agent-instruction files from the public repository.
 - **WorkSpaces: chat inline download links rewritten to correct relative URL.** When the model emits a markdown download link with an absolute URL pointing at a wrong host (e.g. `[deck.pptx](https://gpt.dachicorp.com/deck.pptx)`), `ChatMessageContent` now matches the URL basename (and a normalized form of the link text) against the in-memory canvas artifact index and rewrites the href to `/api/canvas/artifacts/<id>/download` before rendering. This only fires when the URL already looks like an artifact (absolute URL, protocol-relative, or ends in a known document extension) so genuine external links (e.g. `[OpenAI](https://openai.com/about)`) are left alone. The system prompt for the tool result was also strengthened with explicit "do NOT produce" examples.
 
+## [0.13.1] - 2026-06-29 - Runtime Narration Recovery
+
+Fixes a long-standing failure mode where the model would describe an imminent tool call in prose (e.g. "Inspecting path metadata: /home/raza/Downloads/foo.zip" or "Running `df -h` to check disk.") and stop without emitting the matching `<openclaw_tool>` wrapper. Previously the runtime would burn two extra model invocations on a recovery nudge and then surface a "Reply continue to retry" stall notice. The runtime now infers the missing tool call from the prose and dispatches it directly.
+
+### Added
+- **`src/lib/openclaw-narration-recovery.ts`** — pure synthesizer covering `filesystem` (stat/read/list), `shell`, `code`, `web`, `fetch_summarize`, `unified_browser`, `tax_return`, and all 10 document tools (`pdf_document`, `workbook_document`, `word_document`, `csv_document`, `email_document`, `markdown_document`, `slides_document`, `archive_document`, `calendar_document`, `mermaid_document`). 38 unit tests cover canonical and edge-case narration patterns.
+- **System prompt primer rule (7) and a `RECOVERY BEHAVIOR` block** describing the auto-recovery layer so the model understands what to expect when it drops the wrapper, and is reminded never to end a message on bare narration.
+
+### Changed
+- **`OpenClawWorkspace` tool-loop** — when `detectMissingToolIntent` flags a missing wrapper, the runtime now tries `synthesizeToolCallFromNarration` first. If a high-confidence pattern matches (e.g. `Inspecting path metadata: /path` → `filesystem stat /path`, `Running \`df -h\`` → `shell df -h`, `navigating to https://...` → `unified_browser open <url>`, "regenerate it" → resubmit the prior document tool), the runtime dispatches the inferred call directly without a second model invocation. A small visible notice ("Auto-recovered `<tool>` call from prose narration") tells the user what happened.
+- **`lastSuccessfulDocumentTool` → `lastSuccessfulToolRequest`** — the recovery-layer hint now tracks ALL 18 tool kinds (not just documents) and persists the full prior request payload so the synthesizer can re-submit the same call when the narration says "regenerate it" / "render the same thing again".
+- **Path safety** — synthesized filesystem calls still go through `pathLooksLikeHostFilesystemTarget`; paths outside `/home`, `/tmp`, or the workspace's `allowedFilesystemPaths` are dropped and the runtime falls through to the nudge path.
+- **Shell metacharacter guard** — synthesized shell calls reject `|`, `&`, `;`, `<`, `>`, `$`, `(`, `)`, `\`, and newlines, so only safe inspection commands (e.g. `df -h`, `du -sh /tmp`, `ls -la /home`) are dispatched.
+- **`OPENCLAW_TOOL_NAMES` is now exported** from `src/lib/openclaw-tools.ts` so the synthesizer can validate names against the single source of truth.
+
+### Fixed
+- Models that dropped the `<openclaw_tool>` wrapper for `filesystem` `stat` calls (the most common bug surface) now have their intent recovered automatically — no more "Reply continue to retry" stalls.
+- The chat transcript example from the bug report (`Inspecting path metadata: /home/raza/Downloads/camera-planner-windows-main.zip` → no wrapper) now produces a `filesystem` `stat` call directly, instead of a recovery nudge that wasted two model invocations.
+
 ## [0.1.0] - 2026-06-17
 
 ### Added
