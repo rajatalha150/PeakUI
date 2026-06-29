@@ -72,13 +72,17 @@
 - Vision capability auto-detection per model
 - Multi-tab browsing and improved WorkSpaces continuity
 
-## In Progress
-
-### v0.13.0 - Polish and Public Release
-- Open-source under MIT License
-- Public documentation and standard project files
-- Scrubbed internal-only notes and legacy chat surface
-- Parameterized deployment configuration
+### v0.13.0 - Workspace Files Panel (Complete)
+- Sidebar entry + virtualized tree with ETag-aware reads
+- Type-dispatched preview (markdown / code / JSON / CSV / images / PDF / binary)
+- Full-size preview modal mirroring the Canvas artifact pattern
+- In-place editor with `If-Match` conflict detection (Reload / Overwrite / Save as copy)
+- Upload (50 MB / 100 files) + delete (recursive)
+- Multi-select + bulk ops (copy paths / zip / delete)
+- Right-click context menu + F2 rename + Move to…
+- Real-time SSE updates via `GET /events`; client reconnect-with-backoff
+- AI awareness: `WORKSPACE FILES GUI PANEL` block in system prompt + default `BOOT.md` / `TOOLS.md`
+- Public open-source release under MIT License, with `INSTALL.md`, `DEVELOPMENT.md`, `DEPLOYMENT.md`, `TROUBLESHOOTING.md`, and `docs/workspace-files-panel.md`
 
 ## Planned
 

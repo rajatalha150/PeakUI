@@ -5,9 +5,23 @@ All notable changes to PeakUI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.13.0] - 2026-06-29 - Workspace Files Panel (Phases 1-7)
 
-### Added
+This release ships WorkSpaces's **Workspace Files panel** end-to-end and
+prepares PeakUI for a wider public release. The panel is a right-rail GUI
+over the active workspace's on-disk state — virtualized tree, type-dispatched
+preview, in-place editor with ETag conflict detection, upload, delete,
+multi-select + bulk ops (copy paths / zip / delete), rename, move-to,
+right-click context menu, and live SSE-driven updates whenever the model
+or another tab mutates the workspace.
+
+Every mutation goes through the same `openclaw.use` + `openclaw.filesystem`
+permission gate that the model's filesystem / shell / code tools use, and
+every successful mutation publishes a `WorkspaceEvent` over the existing
+in-process pub/sub. See [docs/workspace-files-panel.md](docs/workspace-files-panel.md)
+for the full surface, API, and client library reference.
+
+### Added — Open Source Release
 - Public open-source release under MIT License.
 - `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, `CHANGELOG.md`, `CODE_OF_CONDUCT.md`, `.env.example`, `INSTALL.md`, `DEVELOPMENT.md`, and `docs/ARCHITECTURE.md`.
 - New WorkSpaces tools: `csv_document` export, `email_document` draft generation, `fetch_summarize` URL summarization, `markdown_document` artifact generation, and `word_document` meeting-notes template.
@@ -26,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI matrix now includes `windows-latest` alongside `ubuntu-latest`.
 - UWAF browser now keeps per-session memory of visited pages and searches (direct and stealth), with automatic pruning and cross-tab link resolution so the model can return to previous results instead of repeating searches.
 - UWAF browser actions now record per-tab snapshots and expose `new_tab/list_tabs/switch_tab/close_tab` consistently; the runtime context tells the model it is not limited to a single tab.
+
+### Added — Workspace Files Panel (Phases 1-5)
 - Workspace Files panel (Phase 1): new sidebar entry mounts a `WorkspaceFilesPanel` in the WorkSpaces right-rail. Lists the active workspace's directory tree via the new `GET /api/openclaw/workspaces/[id]/files` endpoint, with depth-limited recursive expansion and ETag-aware `GET .../files/raw` for content reads. Supports per-user, per-workspace sandboxed paths (`/mnt/openclaw/workspace/users/<userId>/workspaces/<slug>/`) and inherits the existing `openclaw.filesystem` permission gate. In-process pub/sub (`workspace-files-pubsub.ts`) is wired for future SSE-driven real-time updates.
 - Workspace Files panel (Phase 2): virtualized tree (`WorkspaceFileTree.tsx`, memoized rows, lazy-load on expand via `WorkspaceBreadcrumb`), inline preview router (`WorkspaceFilePreview.tsx`) with type-dispatched renderers for markdown, code (Prism via `LazySyntaxHighlighter`), JSON (pretty-printed), CSV, images (base64 data URL + zoom toggle), PDF (iframe), and binaries (download-only). Phase 2 ships the read-only MVP — write/edit, upload, delete, multi-select, and SSE-driven real-time refresh arrive in later phases.
 - Workspace Files panel (layout polish): the side-rail no longer hosts a narrow inline preview. Clicking a file now opens `WorkspaceFilePreviewModal`, a full-size dialog (`min(1100px, 96vw)` wide, `88vh` tall, blurred backdrop, click-outside + Escape to close) that mirrors the Canvas `ArtifactPreviewModal` pattern. Folder navigation is Explorer-style: clicking a folder changes `cwd` in place and `WorkspaceBreadcrumb` + a "← Back" button let the user step up. The tree (`flattenTreeRows`) now walks from `cwd`, reading the root listing from `rootEntriesByDirectory` and lazily loaded sub-trees from `childrenByDirectory`.
@@ -49,6 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Artifact source-artifact lineage.** All artifact creators (`workbook`, `word`, `csv`, `email`, `markdown`) now accept a `sourceArtifactId` input parameter, matching the existing PDF/slides/archive/calendar/mermaid creators. The tax `fill_pdf_form` route now records the template `Document` as the source artifact so re-rendering and preview carry the lineage forward.
 - **`fetch_summarize` HTTP semantics.** Failed upstream fetches now return HTTP 502 (bad gateway) instead of HTTP 200 with `success: false`, so client `response.ok` checks behave correctly.
 - **WorkSpaces system prompt primer.** The chat system prompt now begins with an explicit tool-call format primer (`<openclaw_tool name="...">...</openclaw_tool>`) so the model cannot forget the wrapper even on less-common tools. The previous prompt only showed the format inside capability-specific examples.
+
+### Added — Workspace Files Panel (Phases 6-7)
 - Workspace Files panel (Phase 6): right-click context menu on every tree row with Open / Rename / Copy path / Download / Move to / Delete actions; F2 keyboard shortcut enters in-place rename (Enter commits, Esc/blur cancels); in-place rename input is style-matched to the existing tree row; a new "Move to…" dialog (`WorkspaceMoveDialog.tsx`) reuses `WorkspaceFileTree` in a directories-only mode (`selectableKinds={['directory']}`) to pick any folder as the destination; the rename and move operations route through the existing `PATCH /api/openclaw/workspaces/[id]/files` `action: 'rename' | 'move'` endpoint.
 - Workspace Files panel (Phase 7): real-time updates via a new Server-Sent Events stream at `GET /api/openclaw/workspaces/[id]/events` (Node `ReadableStream<Uint8Array>` over the existing in-process pub/sub, 25s keepalive, `X-Accel-Buffering: no` for nginx). The panel subscribes on mount and schedules a debounced (150 ms) refetch of cwd + every expanded subdirectory on `tree.invalidated`, the parent on `file.created`/`file.modified`/`file.deleted`, and re-fetches the active file's content so the editor's ETag stays fresh. The client `subscribeWorkspaceEvents` reconnects with jittered exponential backoff (500 ms → 5 s, reset on each successful read) so a transient fetch failure does not permanently disable live updates. A new `WORKSPACE FILES GUI PANEL` block in the system prompt + the default `BOOT.md` / `TOOLS.md` templates teach the model that the panel mirrors live on-disk state and that paths in the panel are workspace-relative.
 

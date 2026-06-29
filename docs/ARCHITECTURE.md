@@ -28,6 +28,7 @@ PostgreSQL
 
 - `src/app/page.tsx` — app shell, renders WorkSpaces.
 - `src/app/components/OpenClawWorkspace.tsx` — main WorkSpaces surface.
+- `src/app/components/WorkspaceFilesPanel.tsx` — Workspace Files panel (right rail): tree, preview, editor, upload, multi-select, rename/move, context menu, SSE subscription. Sub-components live under `src/app/components/workspace-files/`.
 - `src/app/components/SettingsPanel.tsx` — per-user settings.
 - `src/app/components/KnowledgeBase.tsx` — RAG document dashboard.
 - `src/app/components/CanvasPanel.tsx` — artifact rail and previews.
@@ -65,6 +66,20 @@ PostgreSQL
 - `src/lib/pdf/*`, `src/lib/word/*`, `src/lib/workbook/*`, `src/lib/email/*`, `src/lib/markdown/*`, `src/lib/csv/*` — per-format schema, renderer, and artifact creator.
 - `src/lib/slides/*`, `src/lib/archive/*`, `src/lib/calendar/*`, `src/lib/mermaid/*` — the four newer formats (PowerPoint, ZIP, ICS, Mermaid), each with the same schema → renderer → artifact creator → API route pipeline.
 - `src/app/api/canvas/artifacts/*` — artifact CRUD, download, and the server-side preview endpoint that parses binary artifacts into a normalized JSON shape for inline preview.
+
+### Workspace Files Panel
+
+- `src/lib/workspace-files-types.ts` — shared types: `WorkspaceFileEntry`, `WorkspaceFileContent`, `WorkspaceEvent`, error codes.
+- `src/lib/workspace-files-pubsub.ts` — in-process publish / subscribe used by every mutation route.
+- `src/lib/workspace-files-events-encoder.ts` — SSE wire-format helpers (encoder + parser + keepalive bytes).
+- `src/lib/workspace-files-client.ts` — browser-side API client + SSE consumer with reconnect-with-backoff.
+- `src/app/api/openclaw/workspaces/[id]/files/route.ts` — `GET` (list), `POST` (write / mkdir), `PATCH` (rename / move), `DELETE`.
+- `src/app/api/openclaw/workspaces/[id]/files/raw/route.ts` — ETag-aware file reads.
+- `src/app/api/openclaw/workspaces/[id]/files/upload/route.ts` — multipart upload (50 MB / 100 files).
+- `src/app/api/openclaw/workspaces/[id]/files/download/route.ts` — single-file download with RFC 5987 filename.
+- `src/app/api/openclaw/workspaces/[id]/files/zip/route.ts` — bulk zip download (500 MB / 500 files).
+- `src/app/api/openclaw/workspaces/[id]/events/route.ts` — `text/event-stream` SSE stream over the pub/sub; 25 s keepalive; nginx-compatible headers.
+- `src/app/components/workspace-files/*` — `WorkspaceFileTree` (virtualized), `WorkspaceFilePreview`, `WorkspaceFileEditor`, `WorkspaceFileUpload`, `WorkspaceFileContextMenu`, `WorkspaceMoveDialog`, `WorkspaceConfirmDialog`, `WorkspaceBreadcrumb`, `file-display.ts`.
 
 ## Data Model
 

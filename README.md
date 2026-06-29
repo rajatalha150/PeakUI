@@ -28,6 +28,7 @@ Most AI chat interfaces send your prompts, documents, and browsing history to so
 | Area | What it does |
 |---|---|
 | **WorkSpaces** | Main agent shell for task threads, model selection, modes, tools, settings, and Knowledge Base |
+| **Workspace Files panel** | Right-rail GUI over the active workspace's files: virtualized tree, type-dispatched preview, in-place editor with ETag conflict detection, upload, multi-select + bulk ops (copy paths / zip / delete), rename, move-to, right-click context menu, and live SSE updates whenever the model writes a file |
 | **Local models** | Ollama-first generation with health checks, model stop, exclusive switching, and context backoff |
 | **Remote providers** | OpenAI-compatible endpoints, including Hugging Face router, TGI, vLLM, and SGLang-style servers |
 | **Knowledge Base** | PostgreSQL-backed document index with semantic, keyword, hybrid RRF, source chips, and full-access mode |
@@ -80,8 +81,11 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | [INSTALL.md](INSTALL.md) | Detailed installation for Linux, macOS, and Windows |
 | [WINDOWS-SETUP.md](WINDOWS-SETUP.md) | Windows Docker Desktop specific notes |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Local development, tests, lint, and Prisma workflow |
+| [DEPLOYMENT.md](DEPLOYMENT.md) | Production-style deployments, reverse-proxy config, backups, hardening |
+| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common errors by area with fix recipes |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | High-level system architecture |
 | [docs/features.md](docs/features.md) | Full feature reference |
+| [docs/workspace-files-panel.md](docs/workspace-files-panel.md) | Workspace Files panel — UI, API, SSE stream, client library |
 | [docs/settings-and-rag.md](docs/settings-and-rag.md) | Settings and Knowledge Base behavior |
 | [docs/workspaces-host-executor.md](docs/workspaces-host-executor.md) | Optional host shell executor setup |
 | [docs/capability-inventory.md](docs/capability-inventory.md) | Native tool capability inventory |
@@ -108,11 +112,16 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | `/mnt/openclaw/workspace` | Managed workspace path inside the app container |
 | `/tmp/peakui-openclaw-workspace` | Host-style alias for the managed workspace |
 | `src/app/components/OpenClawWorkspace.tsx` | Main WorkSpaces UI |
+| `src/app/components/WorkspaceFilesPanel.tsx` | Workspace Files panel (read / edit / upload / multi-select / rename / move) |
+| `src/app/components/workspace-files/` | Workspace Files panel sub-components (tree, preview, editor, upload, context menu, move dialog) |
 | `src/lib/chat-completion.ts` | Shared streaming completion pipeline |
 | `src/lib/chat-sessions.ts` | Session persistence, branching, summaries, analytics |
 | `src/lib/session-intelligence.ts` | Context management, analytics, continuation detection |
 | `src/lib/openclaw-automation*.ts` | Automation worker and unattended execution |
 | `src/lib/uwaf-*` | Unified browser, stealth/direct browsing, sanitization |
+| `src/lib/workspace-files-pubsub.ts` | In-process pub/sub for file-mutation events |
+| `src/lib/workspace-files-events-encoder.ts` | SSE wire-format encoder / parser for `/events` |
+| `src/lib/workspace-files-client.ts` | Browser-side Workspace Files API client |
 | `src/lib/rag.ts` | Knowledge Base retrieval and indexing logic |
 | `prisma/schema.prisma` | PostgreSQL data model |
 
@@ -130,6 +139,12 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | `/api/rag/*` | Knowledge Base upload, search, health, diagnostics |
 | `/api/canvas/artifacts*` | Canvas artifact list, create, edit, delete, revisions, server-side preview, and downloads |
 | `/api/openclaw/*` | WorkSpaces workspace, tools, browser, document generation (PDF, Word, Excel, PowerPoint, CSV, Email, Markdown, ZIP, ICS, Mermaid), fetch-summarize, and automation |
+| `/api/openclaw/workspaces/[id]/files` | Workspace Files panel — list (`GET`), write (`POST`), rename/move (`PATCH`), delete (`DELETE`) |
+| `/api/openclaw/workspaces/[id]/files/raw` | Read one workspace file (ETag-aware via `If-Match`) |
+| `/api/openclaw/workspaces/[id]/files/upload` | Multipart upload (50 MB / 100 files per request) |
+| `/api/openclaw/workspaces/[id]/files/download` | Single-file download with RFC 5987 filename |
+| `/api/openclaw/workspaces/[id]/files/zip` | Bulk zip download (500 MB / 500 files) |
+| `/api/openclaw/workspaces/[id]/events` | SSE stream of file-mutation events (Workspace Files panel live updates) |
 
 ---
 

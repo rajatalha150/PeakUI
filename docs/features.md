@@ -112,6 +112,20 @@ WorkSpaces includes a collapsible Canvas panel that:
 - **Branch comparison**: Branch families can be compared side-by-side, including summaries, rolling context, analytics, continuation mode, child-branch count, and latest outcome.
 - **Session analytics**: Each thread now tracks time span, message counts, assistant tokens, average TPS, sources, attachments, images, and tool-call counts by type.
 
+### Workspace Files Panel
+
+A right-rail GUI over the active workspace's on-disk state. The panel shares the same sandbox and permission gate as the model's filesystem / shell / code tools, so anything the model writes or uploads appears in the panel live, and anything the user does in the panel becomes visible to the model on the next turn. See [Workspace Files Panel](workspace-files-panel.md) for the full reference.
+
+- **Virtualized tree**: Lazy-loaded directory tree (`WorkspaceFileTree`) with memoized rows, Explorer-style navigation, breadcrumb + `← Back`, and a "← back to root" hint when a folder is empty.
+- **Type-dispatched preview** (`WorkspaceFilePreview`): markdown, code (Prism via `LazySyntaxHighlighter`), JSON (pretty-printed), CSV, images (base64 data URL + zoom toggle), PDF (iframe), and binaries (download-only). Opens in a full-size modal (`min(1100px, 96vw)` × `88vh`) with a blurred backdrop, click-outside + Escape to close.
+- **In-place editor** (`WorkspaceFileEditor`): Line-numbered editor with a dirty dot, `Cmd/Ctrl+S` to save, and an Edit/Preview toggle. Writes are `If-Match: <etag>` so concurrent edits surface a 412 banner with three actions — **Reload** (discard edits, re-fetch), **Overwrite** (force-save without `If-Match`), **Save as copy** (writes `<name>.edited.ext`).
+- **Upload + delete**: Drag-and-drop or click-to-pick upload (`WorkspaceFileUpload`, 50 MB / file, 100 files / request). Single-file download streams through `GET /files/download` with RFC 5987 UTF-8 filenames. Deletes land on `DELETE /files`; recursive when the path is a directory. `WorkspaceConfirmDialog` is shared by every confirm flow with Esc/Enter keybindings and a destructive red variant.
+- **Multi-select + bulk ops**: `Cmd/Ctrl+click` toggles, `Shift+click` ranges, plain click toggles-to-deselect, and `Cmd/Ctrl+A` (when focus is in the panel) selects every visible row. Selection toolbar: **Copy paths**, **Download zip** (500 MB / 500 files), **Delete**, **Clear**. Bulk delete auto-uses the recursive flag when any selected entry is a directory.
+- **Rename + move**: Right-click for the context menu, **F2** for in-place rename (Enter commits, Esc/blur cancels), **Move to…** opens `WorkspaceMoveDialog` which reuses the tree in a directories-only mode (`selectableKinds={['directory']}`) to pick the destination. Both actions route through `PATCH /files action: 'rename' | 'move'`.
+- **Right-click context menu**: Open / Rename / Copy path / Download / Move to / Delete. Open and Download are hidden for directories; Delete renders in red.
+- **Live SSE updates**: `GET /events` streams every successful mutation through the existing in-process pub/sub. The panel debounces (150 ms) and refetches the affected directories (and the active file, so the editor's ETag stays fresh). The client reconnects with jittered exponential backoff (500 ms → 5 s, reset on each successful read).
+- **AI awareness**: A `WORKSPACE FILES GUI PANEL` block in the chat system prompt + default `BOOT.md` / `TOOLS.md` sections teach the model that the panel is a live view of the same on-disk state and that paths in the panel are workspace-relative.
+
 ### Autonomous Scheduling
 
 - **Persistent automation worker**: A Node-side worker starts from `src/instrumentation.ts` and polls automation state every 30 seconds instead of relying on browser-local timers.
@@ -383,6 +397,12 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 - `/api/openclaw/uwaf-browser` - UWAF dual-mode browser execution (direct/stealth)
 - `/api/openclaw/uwaf-browser/request` - UWAF browser approval tokens for submit/research_batch
 - `/api/openclaw/uwaf-browser/status` - UWAF connection status (Direct IP, Tor reachability, Tor exit info)
+- `/api/openclaw/workspaces/[id]/files` - Workspace Files panel: list / write / rename / move / delete
+- `/api/openclaw/workspaces/[id]/files/raw` - ETag-aware file reads
+- `/api/openclaw/workspaces/[id]/files/upload` - Multipart upload (50 MB / 100 files)
+- `/api/openclaw/workspaces/[id]/files/download` - Single-file download (RFC 5987 filename)
+- `/api/openclaw/workspaces/[id]/files/zip` - Bulk zip download (500 MB / 500 files)
+- `/api/openclaw/workspaces/[id]/events` - SSE stream of file-mutation events
 
 ### Database Models
 
