@@ -44,6 +44,7 @@ import type { OllamaHealthSummary } from '@/lib/ollama-health';
 import ShellCommandModal from './ShellCommandModal';
 import ShellOutput from './ShellOutput';
 import CanvasPanel from './CanvasPanel';
+import WorkspaceFilesPanel from './WorkspaceFilesPanel';
 import ShellSettingsPanel from './ShellSettingsPanel';
 import ObjectUrlImage from './ObjectUrlImage';
 import { Settings } from 'lucide-react';
@@ -3296,6 +3297,9 @@ export default function OpenClawWorkspace({
       return false;
     }
   });
+  // Workspace Files panel — Phase 1 skeleton
+  const [workspaceFilesPanelKey] = useState(() => `workspace-files-${Math.random().toString(36).slice(2, 10)}`);
+  const [workspaceFilesError, setWorkspaceFilesError] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
   const pendingApprovalResolverRef = useRef<((result: ToolApprovalResolution) => void) | null>(null);
@@ -12813,6 +12817,19 @@ export default function OpenClawWorkspace({
                   />
                 )}
             </div>
+
+            {/* Workspace Files Panel — Phase 1: skeleton, list + read */}
+            <WorkspaceFilesPanel
+              key={workspaceFilesPanelKey}
+              workspaceId={currentWorkspaceId}
+              workspaceName={currentWorkspace?.name ?? 'No workspace selected'}
+              onError={(err) => setWorkspaceFilesError(err.message)}
+            />
+            {workspaceFilesError && (
+              <div style={{ padding: '0 12px 8px', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                Files panel: {workspaceFilesError}
+              </div>
+            )}
 
             {/* UWAF Network Hub Panel */}
             {uwafBrowserEnabled && (

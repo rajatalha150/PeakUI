@@ -1,0 +1,910 @@
+'use client'
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { CheckSquare, ChevronDown, ChevronUp, Copy, Download, Folder, Loader2, RefreshCw, Square, Trash2, X } from 'lucide-react'
+import WorkspaceFileTree from './workspace-files/WorkspaceFileTree'
+import { WorkspaceFilePreviewModal } from './workspace-files/WorkspaceFilePreview'
+import WorkspaceBreadcrumb from './workspace-files/WorkspaceBreadcrumb'
+import WorkspaceFileUpload from './workspace-files/WorkspaceFileUpload'
+import WorkspaceConfirmDialog from './workspace-files/WorkspaceConfirmDialog'
+import {
+  deleteWorkspacePath,
+  downloadWorkspaceFile,
+  downloadWorkspaceZipBlob,
+  listWorkspaceTree,
+  readWorkspaceFile,
+  uploadWorkspaceFiles,
+  type WorkspaceFilesError,
+} from '@/lib/workspace-files-client'
+import type {
+  WorkspaceFileContent,
+  WorkspaceFileEntry,
+  WorkspaceTreeResponse,
+} from '@/lib/workspace-files-types'
+import { parentPath } from './workspace-files/file-display'
+
+export interface WorkspaceFilesPanelProps {
+  workspaceId: string | null
+  workspaceName: string
+  initialCollapsed?: boolean
+  onError?: (error: WorkspaceFilesError) => void
+}
+
+const PANEL_COLLAPSED_STORAGE_KEY = 'openclaw.workspaceFiles.collapsed'
+const MAX_FILE_CONTENT_BYTES = 5_000_000
+
+const sectionStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  borderTop: '1px solid var(--border-color)',
+  background: 'var(--bg-primary)',
+}
+
+const headerStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  padding: '8px 12px',
+  gap: 8,
+}
+
+const headerLabelStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  fontWeight: 600,
+  fontSize: '0.82rem',
+  color: 'var(--text-primary)',
+}
+
+const headerMetaStyle: React.CSSProperties = {
+  fontSize: '0.74rem',
+  color: 'var(--text-secondary)',
+}
+
+const errorStyle: React.CSSProperties = {
+  padding: '6px 10px',
+  margin: '6px 12px',
+  borderRadius: 6,
+  background: 'rgba(239, 68, 68, 0.12)',
+  color: 'var(--text-primary)',
+  fontSize: '0.74rem',
+  border: '1px solid rgba(239, 68, 68, 0.3)',
+}
+
+const noticeStyle: React.CSSProperties = {
+  padding: '6px 10px',
+  margin: '6px 12px',
+  borderRadius: 6,
+  background: 'rgba(99, 102, 241, 0.12)',
+  color: 'var(--text-primary)',
+  fontSize: '0.74rem',
+  border: '1px solid rgba(99, 102, 241, 0.3)',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+}
+
+const placeholderStyle: React.CSSProperties = {
+  padding: '8px 12px',
+  fontSize: '0.74rem',
+  color: 'var(--text-secondary)',
+}
+
+const workspaceMetaStyle: React.CSSProperties = {
+  padding: '6px 10px',
+  fontSize: '0.7rem',
+  color: 'var(--text-secondary)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  borderBottom: '1px solid var(--border-color)',
+}
+
+const iconBtnBase: React.CSSProperties = {
+  width: 24,
+  height: 24,
+  borderRadius: 6,
+  border: '1px solid var(--border-color)',
+  background: 'var(--bg-secondary)',
+  color: 'var(--text-secondary)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer',
+  padding: 0,
+}
+
+interface ConfirmDeleteState {
+  paths: string[]
+  /** True when at least one path targets a directory — enables recursive removal. */
+  recursive: boolean
+}
+
+/**
+ * The Workspace Files side-rail panel. Renders only the tree + breadcrumb +
+ * summary; clicking a file opens a full-size modal preview, and clicking a
+ * folder navigates into it (Explorer-style with a back button). Multi-select
+ * powers bulk download-as-zip, bulk delete, and copy-paths.
+ */
+export default function WorkspaceFilesPanel({
+  workspaceId,
+  workspaceName,
+  initialCollapsed,
+  onError,
+}: WorkspaceFilesPanelProps) {
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof initialCollapsed === 'boolean') return initialCollapsed
+    if (typeof window === 'undefined') return false
+    try {
+      return window.localStorage.getItem(PANEL_COLLAPSED_STORAGE_KEY) === 'true'
+    } catch {
+      return false
+    }
+  })
+
+  // The "current directory" the tree is rooted at. Empty string = workspace root.
+  const [cwd, setCwd] = useState<string>('')
+  // Active file preview (modal). When non-null, the full-size modal renders.
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
+  const [activeFileContent, setActiveFileContent] = useState<WorkspaceFileContent | null>(null)
+  const [activeFileLoading, setActiveFileLoading] = useState(false)
+  const [activeFileError, setActiveFileError] = useState<string | null>(null)
+
+  // Tree state — entries keyed by absolute directory path. Root is keyed ''.
+  const [rootEntriesByDirectory, setRootEntriesByDirectory] = useState<Map<string, WorkspaceFileEntry[]>>(new Map())
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [loadingChildren, setLoadingChildren] = useState<Set<string>>(new Set())
+  const [childrenByDirectory, setChildrenByDirectory] = useState<Map<string, WorkspaceFileEntry[]>>(new Map())
+  const [loadingCwd, setLoadingCwd] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Phase 5 multi-select state.
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
+  const [anchorPath, setAnchorPath] = useState<string | null>(null)
+
+  // Phase 4 confirmation dialog state. When non-null, the confirm dialog renders.
+  const [confirmDelete, setConfirmDelete] = useState<ConfirmDeleteState | null>(null)
+  const [busyDelete, setBusyDelete] = useState(false)
+  const [busyZip, setBusyZip] = useState(false)
+
+  // Transient "operation running" notice (e.g. "Uploaded 3 files"). Cleared on
+  // the next interaction; lives long enough to be noticed after a fade.
+  const [notice, setNotice] = useState<string | null>(null)
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const lastLoadedWorkspaceIdRef = useRef<string | null>(null)
+  const visiblePathsRef = useRef<string[]>([])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PANEL_COLLAPSED_STORAGE_KEY, collapsed ? 'true' : 'false')
+    } catch {
+      /* ignore */
+    }
+  }, [collapsed])
+
+  useEffect(() => () => {
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
+  }, [])
+
+  // When the workspace changes, all per-workspace state is reset.
+  useEffect(() => {
+    if (workspaceId && lastLoadedWorkspaceIdRef.current !== workspaceId) {
+      setRootEntriesByDirectory(new Map())
+      setExpanded(new Set())
+      setChildrenByDirectory(new Map())
+      setLoadingChildren(new Set())
+      setCwd('')
+      setActiveFilePath(null)
+      setActiveFileContent(null)
+      setActiveFileError(null)
+      setError(null)
+      setSelectedPaths(new Set())
+      setAnchorPath(null)
+      setConfirmDelete(null)
+      setNotice(null)
+    }
+  }, [workspaceId])
+
+  // Cwd navigation clears the selection — handled inside navigateCwd() to
+  // avoid the set-state-in-effect lint rule. (Resetting selection when the
+  // current directory changes is the canonical intent of "navigate".)
+
+  const flashNotice = useCallback((message: string) => {
+    setNotice(message)
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
+    noticeTimerRef.current = setTimeout(() => setNotice(null), 3500)
+  }, [])
+
+  /** Load the listing at `path` and store it in rootEntriesByDirectory. */
+  const loadDirectory = useCallback(
+    async (path: string): Promise<WorkspaceTreeResponse | null> => {
+      if (!workspaceId) return null
+      const data = await listWorkspaceTree(workspaceId, { path, depth: 1 })
+      setRootEntriesByDirectory(prev => {
+        const next = new Map(prev)
+        next.set(path, data.entries)
+        return next
+      })
+      return data
+    },
+    [workspaceId]
+  )
+
+  /** Load the cwd listing — also tracks loading state + errors. */
+  const refreshCwd = useCallback(async () => {
+    if (!workspaceId) return
+    setLoadingCwd(true)
+    setError(null)
+    try {
+      await loadDirectory(cwd)
+      lastLoadedWorkspaceIdRef.current = workspaceId
+    } catch (err) {
+      const e = err as WorkspaceFilesError
+      setError(e.message || 'Failed to load workspace files')
+      onError?.(e)
+    } finally {
+      setLoadingCwd(false)
+    }
+  }, [workspaceId, cwd, loadDirectory, onError])
+
+  // Load the cwd listing when the panel becomes visible, when the workspace
+  // changes, or when the user navigates to a directory we haven't cached yet.
+  /* eslint-disable react-hooks/set-state-in-effect -- canonical "load on prop change" effect; refreshCwd sets the in-flight flag and runs the fetch asynchronously */
+  useEffect(() => {
+    if (collapsed || !workspaceId) return
+    if (rootEntriesByDirectory.has(cwd)) return
+    void refreshCwd()
+  }, [collapsed, workspaceId, cwd, rootEntriesByDirectory, refreshCwd])
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  const requestChildren = useCallback(
+    async (path: string) => {
+      if (!workspaceId) return
+      if (childrenByDirectory.has(path) || rootEntriesByDirectory.has(path)) return
+      setLoadingChildren(prev => {
+        if (prev.has(path)) return prev
+        const next = new Set(prev)
+        next.add(path)
+        return next
+      })
+      try {
+        const data = await listWorkspaceTree(workspaceId, { path, depth: 1 })
+        setChildrenByDirectory(prev => {
+          const next = new Map(prev)
+          next.set(path, data.entries)
+          return next
+        })
+      } catch (err) {
+        const e = err as WorkspaceFilesError
+        setError(e.message || `Failed to list ${path}`)
+        onError?.(e)
+        setExpanded(prev => {
+          if (!prev.has(path)) return prev
+          const next = new Set(prev)
+          next.delete(path)
+          return next
+        })
+      } finally {
+        setLoadingChildren(prev => {
+          if (!prev.has(path)) return prev
+          const next = new Set(prev)
+          next.delete(path)
+          return next
+        })
+      }
+    },
+    [workspaceId, childrenByDirectory, rootEntriesByDirectory, onError]
+  )
+
+  const handleToggleDirectory = useCallback((path: string) => {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(path)) {
+        next.delete(path)
+      } else {
+        next.add(path)
+      }
+      return next
+    })
+  }, [])
+
+  // The current visible-row list lets us implement shift-range selection.
+  // The tree publishes this via the onVisiblePathsChange callback before
+  // each render; we read it back inside handleSelectRow.
+  const handleSelectRow = useCallback(
+    (path: string, modifiers: { shift: boolean; meta: boolean }) => {
+      const visible = visiblePathsRef.current
+      if (modifiers.shift) {
+        const anchor = anchorPath ?? path
+        const anchorIndex = visible.indexOf(anchor)
+        const pathIndex = visible.indexOf(path)
+        if (anchorIndex === -1 || pathIndex === -1) {
+          setSelectedPaths(new Set([path]))
+          setAnchorPath(path)
+          return
+        }
+        const [start, end] = anchorIndex < pathIndex
+          ? [anchorIndex, pathIndex]
+          : [pathIndex, anchorIndex]
+        const next = new Set<string>()
+        for (let i = start; i <= end; i += 1) {
+          const candidate = visible[i]
+          if (candidate !== undefined) next.add(candidate)
+        }
+        setSelectedPaths(next)
+        return
+      }
+      if (modifiers.meta) {
+        setSelectedPaths(prev => {
+          const next = new Set(prev)
+          if (next.has(path)) next.delete(path)
+          else next.add(path)
+          return next
+        })
+        setAnchorPath(path)
+        return
+      }
+      // Plain click: single-select; clicking an already-selected item
+      // deselects so the user can clear by clicking again.
+      setSelectedPaths(prev => {
+        if (prev.size === 1 && prev.has(path)) return new Set()
+        return new Set([path])
+      })
+      setAnchorPath(path)
+    },
+    [anchorPath]
+  )
+
+  // Cmd/Ctrl+A while the panel area is focused selects all currently visible
+  // paths. The Cmd+A shortcut is intercepted at the document level so the
+  // tree doesn't have to manage it.
+  useEffect(() => {
+    if (!workspaceId) return
+    function onKey(event: KeyboardEvent) {
+      const meta = event.metaKey || event.ctrlKey
+      if (!meta || event.key.toLowerCase() !== 'a') return
+      const target = event.target as HTMLElement | null
+      if (!target || !target.closest('[data-workspace-files-panel]')) return
+      const visible = visiblePathsRef.current
+      if (visible.length === 0) return
+      event.preventDefault()
+      setSelectedPaths(new Set(visible))
+      setAnchorPath(visible[visible.length - 1] ?? null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [workspaceId])
+
+  const handleActivateFile = useCallback((path: string) => {
+    setActiveFilePath(path)
+    setActiveFileError(null)
+  }, [])
+
+  /** Navigate to a new cwd. Centralizes the "leaving this view means the
+   *  selection is stale" reset so we don't run a separate effect. */
+  const navigateCwd = useCallback((path: string) => {
+    setCwd(prev => {
+      if (prev === path) return prev
+      // Drop the selection as a side-effect of navigation, avoiding a
+      // set-state-in-effect lint error.
+      setSelectedPaths(new Set())
+      setAnchorPath(null)
+      return path
+    })
+  }, [])
+
+  const handleEnterDirectory = useCallback((path: string) => {
+    navigateCwd(path)
+  }, [navigateCwd])
+
+  const handleActivateRow = useCallback(() => {
+    // Double-click on a file → onActivateFile already fired; double-click on
+    // a directory → onEnterDirectory already fired. Nothing else for now.
+  }, [])
+
+  const handleBreadcrumbNavigate = useCallback((path: string) => {
+    navigateCwd(path)
+  }, [navigateCwd])
+
+  const handleClosePreview = useCallback(() => {
+    setActiveFilePath(null)
+    setActiveFileContent(null)
+    setActiveFileError(null)
+  }, [])
+
+  const requestActiveContent = useCallback(
+    async (path: string) => {
+      if (!workspaceId) return
+      setActiveFileLoading(true)
+      setActiveFileError(null)
+      try {
+        const content = await readWorkspaceFile(workspaceId, path)
+        setActiveFileContent(content)
+        setActiveFilePath(path)
+      } catch (err) {
+        const e = err as WorkspaceFilesError
+        setActiveFileError(e.message || `Failed to read ${path}`)
+        setActiveFileContent(null)
+      } finally {
+        setActiveFileLoading(false)
+      }
+    },
+    [workspaceId]
+  )
+
+  const handleEditorSaved = useCallback(() => {
+    // Editor saved — refresh cwd so the size/mtime update in the tree,
+    // and reload the active file content so Preview mode reflects the
+    // saved version.
+    if (cwd) {
+      void loadDirectory(cwd).catch(() => {/* surface elsewhere */})
+    }
+    if (activeFilePath) {
+      void requestActiveContent(activeFilePath)
+    }
+  }, [cwd, activeFilePath, loadDirectory, requestActiveContent])
+
+  const handleUpload = useCallback(
+    async (inputs: { file: File; targetPath: string }[]) => {
+      if (!workspaceId) return
+      try {
+        const response = await uploadWorkspaceFiles(
+          workspaceId,
+          inputs.map(f => ({ path: f.targetPath, file: f.file }))
+        )
+        flashNotice(`Uploaded ${response.uploaded.length} file${response.uploaded.length === 1 ? '' : 's'}`)
+        await loadDirectory(cwd).catch(() => {/* surfaced elsewhere */})
+      } catch (err) {
+        const e = err as WorkspaceFilesError
+        setError(e.message || 'Upload failed')
+        onError?.(e)
+      }
+    },
+    [workspaceId, cwd, loadDirectory, onError, flashNotice]
+  )
+
+  const handleCopyPaths = useCallback(async () => {
+    if (selectedPaths.size === 0) return
+    const lines = Array.from(selectedPaths).sort().join('\n')
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(lines)
+      } else {
+        // Fallback for non-secure-context browsers.
+        const ta = document.createElement('textarea')
+        ta.value = lines
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      flashNotice(`Copied ${selectedPaths.size} path${selectedPaths.size === 1 ? '' : 's'} to clipboard`)
+      setSelectedPaths(new Set())
+    } catch (err) {
+      const e = err as Error
+      setError(e.message || 'Failed to copy paths')
+    }
+  }, [selectedPaths, flashNotice])
+
+  const handleDownloadZip = useCallback(async () => {
+    if (!workspaceId || selectedPaths.size === 0) return
+    setBusyZip(true)
+    try {
+      const paths = Array.from(selectedPaths).sort()
+      const blob = await downloadWorkspaceZipBlob(workspaceId, paths)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'workspace-files.zip'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 5_000)
+      flashNotice(`Downloaded ${paths.length} item${paths.length === 1 ? '' : 's'} as zip`)
+    } catch (err) {
+      const e = err as WorkspaceFilesError
+      setError(e.message || 'Failed to download zip')
+      onError?.(e)
+    } finally {
+      setBusyZip(false)
+    }
+  }, [workspaceId, selectedPaths, onError, flashNotice])
+
+  const handleDownloadOne = useCallback(
+    async (path: string) => {
+      if (!workspaceId) return
+      try {
+        const response = await downloadWorkspaceFile(workspaceId, path)
+        const blob = await response.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        const baseName = path.split('/').pop() ?? path
+        a.download = baseName
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        setTimeout(() => URL.revokeObjectURL(url), 5_000)
+      } catch (err) {
+        const e = err as WorkspaceFilesError
+        setError(e.message || `Failed to download ${path}`)
+        onError?.(e)
+      }
+    },
+    [workspaceId, onError]
+  )
+
+  const handleAskDelete = useCallback(
+    (paths: string[]) => {
+      if (paths.length === 0) return
+      // Determine if any selected path is a directory in the cwd listing.
+      // (We only check cwd; sub-directory selections are also recursive.)
+      const cwdEntries = rootEntriesByDirectory.get(cwd) ?? []
+      const recursive = paths.some(p => cwdEntries.some(e => e.path === p && e.kind === 'directory'))
+      setConfirmDelete({ paths: [...paths].sort(), recursive })
+    },
+    [rootEntriesByDirectory, cwd]
+  )
+
+  const handleConfirmDelete = useCallback(async () => {
+    if (!workspaceId || !confirmDelete) return
+    setBusyDelete(true)
+    try {
+      // Walk each path; directories get recursive=true so the server
+      // removes their contents too. Files are non-recursive.
+      for (const target of confirmDelete.paths) {
+        const isDirectory = confirmDelete.recursive && (
+          target === cwd ||
+          (rootEntriesByDirectory.get('') ?? []).some(e => e.path === target && e.kind === 'directory') ||
+          (rootEntriesByDirectory.get(cwd) ?? []).some(e => e.path === target && e.kind === 'directory')
+        )
+        await deleteWorkspacePath(workspaceId, target, isDirectory)
+      }
+      flashNotice(
+        `Deleted ${confirmDelete.paths.length} item${confirmDelete.paths.length === 1 ? '' : 's'}`
+      )
+      setSelectedPaths(new Set())
+      setConfirmDelete(null)
+      await loadDirectory(cwd).catch(() => {/* surfaced elsewhere */})
+    } catch (err) {
+      const e = err as WorkspaceFilesError
+      setError(e.message || 'Delete failed')
+      onError?.(e)
+    } finally {
+      setBusyDelete(false)
+    }
+  }, [
+    workspaceId,
+    confirmDelete,
+    cwd,
+    rootEntriesByDirectory,
+    loadDirectory,
+    onError,
+    flashNotice,
+  ])
+
+  const hasSelection = selectedPaths.size > 0
+
+  const summary = useMemo(() => {
+    const entries = rootEntriesByDirectory.get(cwd) ?? []
+    if (!entries.length && !loadingCwd) return ''
+    const fileCount = entries.filter(e => e.kind === 'file').length
+    const dirCount = entries.filter(e => e.kind === 'directory').length
+    return `${dirCount} folder${dirCount !== 1 ? 's' : ''}, ${fileCount} file${fileCount !== 1 ? 's' : ''}`
+  }, [rootEntriesByDirectory, cwd, loadingCwd])
+
+  const cwdParent = useMemo(() => (cwd ? parentPath(cwd) : null), [cwd])
+  const canGoUp = cwdParent !== null
+
+  const overSizeError = useMemo(() => {
+    if (!activeFileContent) return null
+    if (activeFileContent.size > MAX_FILE_CONTENT_BYTES) {
+      return `File is ${(activeFileContent.size / 1024 / 1024).toFixed(1)} MB — inline preview is limited to ${(MAX_FILE_CONTENT_BYTES / 1024 / 1024).toFixed(0)} MB. Use Download to view it.`
+    }
+    return null
+  }, [activeFileContent])
+
+  return (
+    <div data-workspace-files-panel style={sectionStyle}>
+      <div style={headerStyle}>
+        <div style={headerLabelStyle}>
+          <Folder size={14} />
+          <span>Workspace Files</span>
+          {summary && <span style={headerMetaStyle}>{summary}</span>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <button
+            type="button"
+            onClick={() => void refreshCwd()}
+            disabled={loadingCwd || !workspaceId}
+            title="Refresh"
+            aria-label="Refresh workspace files"
+            style={iconBtnBase}
+          >
+            <RefreshCw size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setCollapsed(prev => !prev)}
+            title={collapsed ? 'Expand Workspace Files' : 'Collapse Workspace Files'}
+            aria-label={collapsed ? 'Expand Workspace Files' : 'Collapse Workspace Files'}
+            style={iconBtnBase}
+          >
+            {collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+          </button>
+        </div>
+      </div>
+
+      {!collapsed && (
+        <>
+          {workspaceId && (
+            <div style={workspaceMetaStyle}>
+              <div>
+                <strong style={{ color: 'var(--text-primary)' }}>{workspaceName}</strong>
+              </div>
+              <div style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: '0.66rem' }}>
+                <span title="Workspace root" style={{ opacity: 0.7 }}>{cwd || '/'}</span>
+              </div>
+            </div>
+          )}
+          {error && (
+            <div style={errorStyle}>
+              <X size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+              {error}
+            </div>
+          )}
+          {notice && (
+            <div style={noticeStyle}>
+              <CheckSquare size={11} />
+              {notice}
+            </div>
+          )}
+          {!workspaceId && (
+            <div style={placeholderStyle}>Select a workspace to load files.</div>
+          )}
+          {workspaceId && (
+            <>
+              <WorkspaceBreadcrumb path={cwd} onNavigate={handleBreadcrumbNavigate} />
+              <div
+                style={{
+                  minHeight: 220,
+                  maxHeight: '52vh',
+                  display: 'flex',
+                  flexDirection: 'column',
+                }}
+              >
+                <WorkspaceFileTree
+                  cwd={cwd}
+                  rootEntriesByDirectory={rootEntriesByDirectory}
+                  expanded={expanded}
+                  loadingChildren={loadingChildren}
+                  childrenByDirectory={childrenByDirectory}
+                  selectedPaths={selectedPaths}
+                  onVisiblePathsChange={paths => {
+                    visiblePathsRef.current = paths
+                  }}
+                  onActivateFile={handleActivateFile}
+                  onEnterDirectory={handleEnterDirectory}
+                  onToggleDirectory={handleToggleDirectory}
+                  onSelectRow={handleSelectRow}
+                  onRequestChildren={requestChildren}
+                  onActivateRow={handleActivateRow}
+                  loadingRoot={loadingCwd && rootEntriesByDirectory.size === 0}
+                  height="100%"
+                />
+              </div>
+
+              {hasSelection && (
+                <div
+                  data-workspace-files-selection
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 12px',
+                    borderTop: '1px solid var(--border-color)',
+                    background: 'var(--bg-secondary)',
+                    fontSize: '0.74rem',
+                  }}
+                >
+                  <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                    {selectedPaths.size} selected
+                  </span>
+                  <div style={{ flex: 1 }} />
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyPaths()}
+                    title="Copy paths to clipboard"
+                    aria-label="Copy paths to clipboard"
+                    style={iconBtnBase}
+                  >
+                    <Copy size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadZip()}
+                    disabled={busyZip}
+                    title="Download selection as zip"
+                    aria-label="Download selection as zip"
+                    style={iconBtnBase}
+                  >
+                    {busyZip ? <Loader2 size={12} className="spin" /> : <Download size={12} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAskDelete(Array.from(selectedPaths))}
+                    disabled={busyDelete}
+                    title="Delete selection"
+                    aria-label="Delete selection"
+                    style={{
+                      ...iconBtnBase,
+                      color: 'var(--text-primary)',
+                      background: 'rgba(239, 68, 68, 0.16)',
+                      border: '1px solid rgba(239, 68, 68, 0.4)',
+                    }}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPaths(new Set())}
+                    title="Clear selection"
+                    aria-label="Clear selection"
+                    style={iconBtnBase}
+                  >
+                    <Square size={12} />
+                  </button>
+                </div>
+              )}
+
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 12px',
+                  borderTop: hasSelection ? 'none' : '1px solid var(--border-color)',
+                  background: 'var(--bg-primary)',
+                }}
+              >
+                <WorkspaceFileUpload cwd={cwd} disabled={loadingCwd} onUpload={handleUpload} />
+                {activeFilePath && (
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadOne(activeFilePath)}
+                    title={`Download ${activeFilePath}`}
+                    aria-label={`Download ${activeFilePath}`}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '3px 8px',
+                      borderRadius: 5,
+                      border: '1px solid var(--border-color)',
+                      background: 'var(--bg-secondary)',
+                      color: 'var(--text-primary)',
+                      cursor: 'pointer',
+                      fontSize: '0.72rem',
+                    }}
+                  >
+                    <Download size={11} />
+                    Download
+                  </button>
+                )}
+                <div style={{ flex: 1 }} />
+                {cwd && (
+                  <button
+                    type="button"
+                    onClick={() => handleAskDelete([cwd])}
+                    title={`Delete folder ${cwd}`}
+                    aria-label={`Delete folder ${cwd}`}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '3px 8px',
+                      borderRadius: 5,
+                      border: '1px solid rgba(239, 68, 68, 0.4)',
+                      background: 'rgba(239, 68, 68, 0.12)',
+                      color: 'var(--text-primary)',
+                      cursor: 'pointer',
+                      fontSize: '0.72rem',
+                    }}
+                  >
+                    <Trash2 size={11} />
+                    Delete folder
+                  </button>
+                )}
+              </div>
+
+              {canGoUp && cwdParent !== null && (
+                <div
+                  style={{
+                    padding: '6px 12px',
+                    borderTop: '1px solid var(--border-color)',
+                    fontSize: '0.72rem',
+                    color: 'var(--text-secondary)',
+                    display: 'flex',
+                    gap: 8,
+                    alignItems: 'center',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setCwd(cwdParent)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '3px 8px',
+                      borderRadius: 4,
+                      border: '1px solid var(--border-color)',
+                      background: 'var(--bg-secondary)',
+                      color: 'var(--text-primary)',
+                      cursor: 'pointer',
+                      fontSize: '0.72rem',
+                    }}
+                  >
+                    ← Back to {cwdParent || 'workspace root'}
+                  </button>
+                  <span style={{ opacity: 0.7 }}>{cwd || '/'}</span>
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
+
+      {workspaceId && (
+        <WorkspaceFilePreviewModal
+          workspaceId={workspaceId}
+          path={activeFilePath}
+          content={activeFileContent}
+          loading={activeFileLoading}
+          error={activeFileError}
+          onClose={handleClosePreview}
+          onRequestContent={requestActiveContent}
+          onSaved={handleEditorSaved}
+        />
+      )}
+
+      {overSizeError && activeFileContent && (
+        <div style={errorStyle}>
+          <X size={11} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+          {overSizeError}
+        </div>
+      )}
+
+      <WorkspaceConfirmDialog
+        open={confirmDelete !== null}
+        title={confirmDelete && confirmDelete.paths.length > 1 ? 'Delete multiple items?' : 'Delete this item?'}
+        message={
+          confirmDelete
+            ? [
+                `About to delete ${confirmDelete.paths.length} item${confirmDelete.paths.length === 1 ? '' : 's'}:`,
+                ...confirmDelete.paths.slice(0, 12).map(p => `  • ${p}`),
+                confirmDelete.paths.length > 12 ? `  …and ${confirmDelete.paths.length - 12} more` : '',
+                confirmDelete.recursive
+                  ? '\nFolders will be removed recursively. This cannot be undone.'
+                  : '\nThis cannot be undone.',
+              ]
+                .filter(Boolean)
+                .join('\n')
+            : ''
+        }
+        destructive
+        confirmLabel={busyDelete ? 'Deleting…' : 'Delete'}
+        cancelLabel="Cancel"
+        onConfirm={() => void handleConfirmDelete()}
+        onCancel={() => {
+          if (busyDelete) return
+          setConfirmDelete(null)
+        }}
+      />
+    </div>
+  )
+}
