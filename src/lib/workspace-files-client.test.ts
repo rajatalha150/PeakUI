@@ -138,6 +138,14 @@ describe('workspace-files-client', () => {
     expect(calls[0].init?.method).toBe('PATCH')
   })
 
+  it('renameWorkspacePath PATCHes the move payload with action "move"', async () => {
+    mockResponseFactory = () => new Response(JSON.stringify({ from: 'a/b', to: 'c/d' }), { status: 200 })
+    await renameWorkspacePath('w-1', { action: 'move', from: 'a/b', to: 'c/d' })
+    expect(calls[0].init?.method).toBe('PATCH')
+    const body = JSON.parse(calls[0].init?.body as string)
+    expect(body).toEqual({ action: 'move', from: 'a/b', to: 'c/d' })
+  })
+
   it('deleteWorkspacePath includes recursive flag when true', async () => {
     mockResponseFactory = () => new Response(JSON.stringify({ deleted: true, path: 'a' }), { status: 200 })
     await deleteWorkspacePath('w-1', 'a', true)
@@ -193,4 +201,50 @@ describe('workspace-files-client', () => {
     expect(calls[0].url).toContain('/api/openclaw/workspaces/w-1/events')
     expect(events).toContain('tree.invalidated')
   })
+
+  it('subscribeWorkspaceEvents reconnects with backoff after a transient fetch failure', async () => {
+    // First attempt: fetch throws (network failure). Second attempt: a clean
+    // SSE stream emitting a single event. The reconnect should fire within
+    // ~750ms (initial backoff 500ms + jitter up to 250ms).
+    let attempt = 0
+    const originalMock = globalThis.fetch
+    globalThis.fetch = vi.fn(async (_input, init) => {
+      attempt++
+      if (attempt === 1) {
+        throw new Error('simulated network failure')
+      }
+      const encoder = new TextEncoder()
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode('data: {"kind":"file.modified","path":"b","at":2}\n\n'))
+          controller.close()
+        },
+      })
+      return new Response(stream, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    }) as unknown as typeof fetch
+
+    const errorEvents: Event[] = []
+    const events: string[] = []
+    const controller = subscribeWorkspaceEvents(
+      'w-reconnect',
+      e => events.push(e.kind),
+      err => errorEvents.push(err),
+    )
+
+    // Wait long enough for the 500ms backoff + jitter to elapse and the
+    // second attempt to settle.
+    await new Promise(r => setTimeout(r, 1200))
+    controller.abort()
+    await new Promise(r => setTimeout(r, 30))
+
+    globalThis.fetch = originalMock
+
+    expect(attempt).toBeGreaterThanOrEqual(2)
+    expect(events).toContain('file.modified')
+    // The transient failure should have surfaced as at least one error.
+    expect(errorEvents.length).toBeGreaterThanOrEqual(1)
+  }, 5_000)
 })

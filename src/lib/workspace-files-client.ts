@@ -171,6 +171,11 @@ export async function downloadWorkspaceFile(workspaceId: string, path: string): 
  * Opens a Server-Sent Events stream to /events for the workspace. Returns an
  * AbortController so the caller can close the connection on unmount. Each
  * parsed WorkspaceEvent is forwarded to onEvent.
+ *
+ * Reconnect: a transient fetch failure or stream-end schedules a reconnect
+ * with jittered exponential backoff (500ms → 5s). The loop terminates when
+ * the caller's AbortController fires. Each successful fetch (one that yields
+ * parsed events) resets the backoff so a long-lived stream stays long-lived.
  */
 export function subscribeWorkspaceEvents(
   workspaceId: string,
@@ -180,7 +185,29 @@ export function subscribeWorkspaceEvents(
   const controller = new AbortController()
   const url = `/api/openclaw/workspaces/${encodeURIComponent(workspaceId)}/events`
 
-  void (async () => {
+  // Backoff bounds. The first reconnect waits 500ms; each subsequent failure
+  // doubles the wait up to 5s. A successful read (one that parsed at least
+  // one event) resets the wait back to the minimum.
+  const MIN_BACKOFF_MS = 500
+  const MAX_BACKOFF_MS = 5_000
+  let backoff = MIN_BACKOFF_MS
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let stopped = false
+
+  const scheduleReconnect = () => {
+    if (stopped || controller.signal.aborted) return
+    const jitter = Math.floor(Math.random() * 250)
+    const delay = Math.min(MAX_BACKOFF_MS, backoff) + jitter
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      void runOnce()
+    }, delay)
+    backoff = Math.min(MAX_BACKOFF_MS, backoff * 2)
+  }
+
+  const runOnce = async (): Promise<void> => {
+    if (stopped || controller.signal.aborted) return
+    let receivedAny = false
     try {
       const response = await fetch(url, {
         credentials: 'same-origin',
@@ -189,6 +216,7 @@ export function subscribeWorkspaceEvents(
       })
       if (!response.ok || !response.body) {
         if (onError) onError(new Event('error'))
+        scheduleReconnect()
         return
       }
       const reader = response.body.getReader()
@@ -211,6 +239,7 @@ export function subscribeWorkspaceEvents(
             try {
               const event = JSON.parse(dataLine) as WorkspaceEvent
               onEvent(event)
+              receivedAny = true
             } catch {
               // Malformed event — skip rather than crash the stream.
             }
@@ -218,11 +247,29 @@ export function subscribeWorkspaceEvents(
           boundary = buffer.indexOf('\n\n')
         }
       }
+      // Stream ended cleanly (server closed). Treat as a transient blip and
+      // reconnect — unless the caller aborted.
+      if (controller.signal.aborted || stopped) return
+      scheduleReconnect()
     } catch (error) {
       if ((error as { name?: string }).name === 'AbortError') return
       if (onError) onError(error as Event)
+      scheduleReconnect()
+    } finally {
+      // A successful read resets the backoff so future failures don't carry
+      // accumulated delay.
+      if (receivedAny) backoff = MIN_BACKOFF_MS
     }
-  })()
+  }
 
+  controller.signal.addEventListener('abort', () => {
+    stopped = true
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+  }, { once: true })
+
+  void runOnce()
   return controller
 }

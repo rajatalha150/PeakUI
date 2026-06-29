@@ -7,21 +7,28 @@ import { WorkspaceFilePreviewModal } from './workspace-files/WorkspaceFilePrevie
 import WorkspaceBreadcrumb from './workspace-files/WorkspaceBreadcrumb'
 import WorkspaceFileUpload from './workspace-files/WorkspaceFileUpload'
 import WorkspaceConfirmDialog from './workspace-files/WorkspaceConfirmDialog'
+import WorkspaceFileContextMenu, {
+  type WorkspaceContextMenuAction,
+} from './workspace-files/WorkspaceFileContextMenu'
+import WorkspaceMoveDialog from './workspace-files/WorkspaceMoveDialog'
 import {
   deleteWorkspacePath,
   downloadWorkspaceFile,
   downloadWorkspaceZipBlob,
   listWorkspaceTree,
   readWorkspaceFile,
+  renameWorkspacePath,
+  subscribeWorkspaceEvents,
   uploadWorkspaceFiles,
   type WorkspaceFilesError,
 } from '@/lib/workspace-files-client'
 import type {
+  WorkspaceEvent,
   WorkspaceFileContent,
   WorkspaceFileEntry,
   WorkspaceTreeResponse,
 } from '@/lib/workspace-files-types'
-import { parentPath } from './workspace-files/file-display'
+import { fileBaseName, joinPath, parentPath } from './workspace-files/file-display'
 
 export interface WorkspaceFilesPanelProps {
   workspaceId: string | null
@@ -168,6 +175,18 @@ export default function WorkspaceFilesPanel({
   const [busyDelete, setBusyDelete] = useState(false)
   const [busyZip, setBusyZip] = useState(false)
 
+  // Phase 6 rename/move/context-menu state.
+  const [contextMenu, setContextMenu] = useState<{
+    path: string
+    kind: 'file' | 'directory'
+    x: number
+    y: number
+  } | null>(null)
+  const [renameTarget, setRenameTarget] = useState<{ path: string; initialName: string } | null>(null)
+  const [renameValue, setRenameValue] = useState<string>('')
+  const [moveTarget, setMoveTarget] = useState<{ path: string; kind: 'file' | 'directory' } | null>(null)
+  const [busyMove, setBusyMove] = useState(false)
+
   // Transient "operation running" notice (e.g. "Uploaded 3 files"). Cleared on
   // the next interaction; lives long enough to be noticed after a fade.
   const [notice, setNotice] = useState<string | null>(null)
@@ -175,6 +194,14 @@ export default function WorkspaceFilesPanel({
 
   const lastLoadedWorkspaceIdRef = useRef<string | null>(null)
   const visiblePathsRef = useRef<string[]>([])
+
+  // Phase 7 SSE subscription bookkeeping.
+  const subscriptionRef = useRef<AbortController | null>(null)
+  const pendingRefetchesRef = useRef<Set<string>>(new Set())
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const expandedRef = useRef<Set<string>>(new Set())
+  const cwdRef = useRef<string>('')
+  const activeFilePathRef = useRef<string | null>(null)
 
   useEffect(() => {
     try {
@@ -186,7 +213,15 @@ export default function WorkspaceFilesPanel({
 
   useEffect(() => () => {
     if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    subscriptionRef.current?.abort()
   }, [])
+
+  // Mirror `expanded` into a ref so the SSE onEvent handler can read the
+  // current value without re-subscribing on every expand.
+  useEffect(() => {
+    expandedRef.current = expanded
+  }, [expanded])
 
   // When the workspace changes, all per-workspace state is reset.
   useEffect(() => {
@@ -203,7 +238,12 @@ export default function WorkspaceFilesPanel({
       setSelectedPaths(new Set())
       setAnchorPath(null)
       setConfirmDelete(null)
+      setContextMenu(null)
+      setRenameTarget(null)
+      setRenameValue('')
+      setMoveTarget(null)
       setNotice(null)
+      pendingRefetchesRef.current.clear()
     }
   }, [workspaceId])
 
@@ -587,6 +627,235 @@ export default function WorkspaceFilesPanel({
     flashNotice,
   ])
 
+  // Phase 6 — single-path copy, rename, move handlers.
+
+  const handleCopyOne = useCallback(
+    async (path: string) => {
+      if (!workspaceId) return
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(path)
+        } else {
+          const ta = document.createElement('textarea')
+          ta.value = path
+          ta.style.position = 'fixed'
+          ta.style.opacity = '0'
+          document.body.appendChild(ta)
+          ta.select()
+          document.execCommand('copy')
+          document.body.removeChild(ta)
+        }
+        flashNotice(`Copied ${path} to clipboard`)
+      } catch (err) {
+        const e = err as Error
+        setError(e.message || 'Failed to copy path')
+      }
+    },
+    [workspaceId, flashNotice]
+  )
+
+  const enterRenameMode = useCallback((path: string) => {
+    setRenameTarget({ path, initialName: fileBaseName(path) })
+    setRenameValue(fileBaseName(path))
+    setSelectedPaths(new Set([path]))
+  }, [])
+
+  const handleRenameChange = useCallback((value: string) => {
+    setRenameValue(value)
+  }, [])
+
+  const handleRenameCommit = useCallback(
+    async (newName: string) => {
+      if (!workspaceId || !renameTarget) return
+      const fromPath = renameTarget.path
+      const trimmed = newName.trim()
+      if (!trimmed) {
+        setRenameTarget(null)
+        return
+      }
+      if (trimmed === renameTarget.initialName) {
+        setRenameTarget(null)
+        return
+      }
+      const parent = parentPath(fromPath)
+      const toPath = joinPath(parent, trimmed)
+      setBusyMove(true)
+      try {
+        await renameWorkspacePath(workspaceId, { action: 'rename', from: fromPath, to: toPath })
+        flashNotice(`Renamed to ${trimmed}`)
+        setRenameTarget(null)
+        // Refresh both the source parent and the (possibly different) new
+        // parent so the tree reflects both ends of the move.
+        await loadDirectory(parent || '').catch(() => {/* surfaced elsewhere */})
+        if (parent !== (parentPath(toPath) || '') && parentPath(toPath)) {
+          await loadDirectory(parentPath(toPath)).catch(() => {/* surfaced elsewhere */})
+        }
+        // If the renamed file was the active preview, update the active path.
+        if (activeFilePath === fromPath) {
+          setActiveFilePath(toPath)
+        }
+      } catch (err) {
+        const e = err as WorkspaceFilesError
+        setError(e.message || 'Rename failed')
+        onError?.(e)
+      } finally {
+        setBusyMove(false)
+      }
+    },
+    [workspaceId, renameTarget, activeFilePath, loadDirectory, onError, flashNotice]
+  )
+
+  const handleRenameCancel = useCallback(() => {
+    setRenameTarget(null)
+    setRenameValue('')
+  }, [])
+
+  // Listen for F2 → rename requests dispatched by the tree's custom event
+  // (the tree fires `workspace-files:request-rename` when a row's onRename
+  // is called, so we don't need a new prop wired through). We also expose
+  // an explicit enterRename helper that the context menu's "Rename" item
+  // calls directly.
+  useEffect(() => {
+    function onRequestRename(event: Event) {
+      const detail = (event as CustomEvent<{ path: string; name: string }>).detail
+      if (detail?.path) enterRenameMode(detail.path)
+    }
+    document.addEventListener('workspace-files:request-rename', onRequestRename)
+    return () => {
+      document.removeEventListener('workspace-files:request-rename', onRequestRename)
+    }
+  }, [enterRenameMode])
+
+  const handleContextMenuPick = useCallback(
+    (path: string, kind: 'file' | 'directory') => (action: WorkspaceContextMenuAction) => {
+      setContextMenu(null)
+      switch (action) {
+        case 'open':
+          if (kind === 'file') handleActivateFile(path)
+          break
+        case 'rename':
+          enterRenameMode(path)
+          break
+        case 'copy-path':
+          void handleCopyOne(path)
+          break
+        case 'download':
+          if (kind === 'file') void handleDownloadOne(path)
+          break
+        case 'move':
+          setMoveTarget({ path, kind })
+          break
+        case 'delete':
+          handleAskDelete([path])
+          break
+      }
+    },
+    [handleActivateFile, enterRenameMode, handleCopyOne, handleDownloadOne, handleAskDelete]
+  )
+
+  const handleMoveCommit = useCallback(
+    async (destinationDir: string) => {
+      if (!workspaceId || !moveTarget) return
+      const fromPath = moveTarget.path
+      const toPath = joinPath(destinationDir, fileBaseName(fromPath))
+      if (toPath === fromPath) {
+        setMoveTarget(null)
+        return
+      }
+      setBusyMove(true)
+      try {
+        await renameWorkspacePath(workspaceId, { action: 'move', from: fromPath, to: toPath })
+        flashNotice(`Moved to ${destinationDir || '/'}`)
+        setMoveTarget(null)
+        // Refresh both source and destination parents so the tree reflects both ends.
+        const fromParent = parentPath(fromPath) || ''
+        const toParent = destinationDir
+        await loadDirectory(fromParent).catch(() => {/* surfaced elsewhere */})
+        if (toParent !== fromParent) {
+          await loadDirectory(toParent).catch(() => {/* surfaced elsewhere */})
+        }
+        if (activeFilePath === fromPath) {
+          setActiveFilePath(toPath)
+        }
+      } catch (err) {
+        const e = err as WorkspaceFilesError
+        setError(e.message || 'Move failed')
+        onError?.(e)
+      } finally {
+        setBusyMove(false)
+      }
+    },
+    [workspaceId, moveTarget, activeFilePath, loadDirectory, onError, flashNotice]
+  )
+
+  // Phase 7 — SSE-driven live updates. The events route is created by this
+  // phase; on every workspace change we re-subscribe.
+  useEffect(() => {
+    if (!workspaceId) return
+    // Debounced refetch helper shared by every event kind.
+    const enqueueRefetch = (dir: string) => {
+      pendingRefetchesRef.current.add(dir)
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = setTimeout(() => {
+        const dirs = Array.from(pendingRefetchesRef.current)
+        pendingRefetchesRef.current.clear()
+        for (const d of dirs) {
+          void loadDirectory(d).catch(() => {/* surfaced elsewhere */})
+        }
+      }, 150)
+    }
+    const onEvent = (event: WorkspaceEvent) => {
+      if (event.kind === 'tree.invalidated') {
+        // Broad refresh: cwd + every currently expanded dir.
+        enqueueRefetch('')
+        const cwdNow = cwdRef.current
+        if (cwdNow) enqueueRefetch(cwdNow)
+        for (const d of expandedRef.current) enqueueRefetch(d)
+        return
+      }
+      if (!event.path) return
+      const parent = parentPath(event.path)
+      enqueueRefetch(parent || '')
+      if (event.kind === 'file.created' || event.kind === 'file.modified') {
+        if (activeFilePathRef.current === event.path) {
+          void requestActiveContent(event.path)
+        }
+      } else if (event.kind === 'file.deleted') {
+        if (activeFilePathRef.current === event.path) {
+          setActiveFilePath(null)
+          setActiveFileContent(null)
+          setActiveFileError(null)
+        }
+      }
+    }
+    const controller = subscribeWorkspaceEvents(
+      workspaceId,
+      onEvent,
+      // onError is silently ignored — the client has built-in reconnect
+      // with backoff, so transient failures are recovered automatically.
+      undefined
+    )
+    subscriptionRef.current = controller
+    return () => {
+      controller.abort()
+      if (subscriptionRef.current === controller) {
+        subscriptionRef.current = null
+      }
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+        debounceTimerRef.current = null
+      }
+    }
+    // We deliberately do NOT include `cwd`/`activeFilePath` in deps; the SSE
+    // handler reads them through refs so we don't resubscribe on every change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaceId])
+
+  // Mirror cwd + activeFilePath into refs so the SSE onEvent handler can
+  // read the current value without re-subscribing on every change.
+  useEffect(() => { cwdRef.current = cwd }, [cwd])
+  useEffect(() => { activeFilePathRef.current = activeFilePath }, [activeFilePath])
+
   const hasSelection = selectedPaths.size > 0
 
   const summary = useMemo(() => {
@@ -684,6 +953,11 @@ export default function WorkspaceFilesPanel({
                   loadingChildren={loadingChildren}
                   childrenByDirectory={childrenByDirectory}
                   selectedPaths={selectedPaths}
+                  renameTargetPath={renameTarget?.path ?? null}
+                  renameValue={renameValue}
+                  onRenameChange={handleRenameChange}
+                  onRenameCommit={handleRenameCommit}
+                  onRenameCancel={handleRenameCancel}
                   onVisiblePathsChange={paths => {
                     visiblePathsRef.current = paths
                   }}
@@ -693,6 +967,9 @@ export default function WorkspaceFilesPanel({
                   onSelectRow={handleSelectRow}
                   onRequestChildren={requestChildren}
                   onActivateRow={handleActivateRow}
+                  onContextMenu={(path, kind, x, y) =>
+                    setContextMenu({ path, kind, x, y })
+                  }
                   loadingRoot={loadingCwd && rootEntriesByDirectory.size === 0}
                   height="100%"
                 />
@@ -903,6 +1180,32 @@ export default function WorkspaceFilesPanel({
         onCancel={() => {
           if (busyDelete) return
           setConfirmDelete(null)
+        }}
+      />
+
+      <WorkspaceFileContextMenu
+        open={contextMenu !== null}
+        position={contextMenu ? { x: contextMenu.x, y: contextMenu.y } : null}
+        kind={contextMenu?.kind ?? 'file'}
+        onPick={
+          contextMenu
+            ? handleContextMenuPick(contextMenu.path, contextMenu.kind)
+            : () => {/* no-op when closed */}
+        }
+        onClose={() => setContextMenu(null)}
+      />
+
+      <WorkspaceMoveDialog
+        open={moveTarget !== null}
+        fromPath={moveTarget?.path ?? ''}
+        loadDirectory={async path => {
+          const data = await listWorkspaceTree(workspaceId!, { path, depth: 1 })
+          return { entries: data.entries }
+        }}
+        onMove={destination => void handleMoveCommit(destination)}
+        onCancel={() => {
+          if (busyMove) return
+          setMoveTarget(null)
         }}
       />
     </div>

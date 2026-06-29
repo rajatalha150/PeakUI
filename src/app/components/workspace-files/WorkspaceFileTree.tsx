@@ -1,6 +1,6 @@
 'use client'
 
-import { memo, useCallback, useEffect, useMemo } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronRight, File, Folder, Loader2 } from 'lucide-react'
 import VirtualizedList from '../VirtualizedList'
 import type {
@@ -41,6 +41,8 @@ interface FlattenOptions {
   childrenByDirectory: ReadonlyMap<string, WorkspaceFileEntry[]>
   /** Tree of all known entries — keyed by directory path. The root is keyed ''. */
   rootEntriesByDirectory: ReadonlyMap<string, WorkspaceFileEntry[]>
+  /** Optional filter: only render rows whose kind is in this set. */
+  selectableKinds?: ReadonlyArray<'file' | 'directory'>
 }
 
 /**
@@ -56,6 +58,7 @@ export function flattenTreeRows({
   loadingChildren,
   childrenByDirectory,
   rootEntriesByDirectory,
+  selectableKinds,
 }: FlattenOptions): WorkspaceTreeRow[] {
   const rows: WorkspaceTreeRow[] = []
 
@@ -70,6 +73,8 @@ export function flattenTreeRows({
         : childrenByDirectory.get(absoluteDir) ?? []
     for (const entry of entries) {
       const path = joinPath(absoluteDir, entry.name)
+      // Apply the optional kind filter — used by the Move dialog (directories only).
+      if (selectableKinds && !selectableKinds.includes(entry.kind)) continue
       if (entry.kind === 'directory') {
         const isExpanded = expanded.has(path)
         const isLoading = loadingChildren.has(path)
@@ -122,6 +127,12 @@ export interface WorkspaceFileTreeProps {
   onActivateFile: (path: string) => void
   /** Called when the user clicks a directory row — change cwd into it. */
   onEnterDirectory: (path: string) => void
+  /**
+   * Optional alternative handler invoked on a directory row single-click
+   * instead of onEnterDirectory. Used by the Move dialog: clicking a folder
+   * here means "select this as destination", not "navigate into it".
+   */
+  onActivateDirectory?: (path: string) => void
   /** Called when the user toggles a directory's inline expansion. */
   onToggleDirectory: (path: string) => void
   /** Called when a row's selection state changes (single-click). */
@@ -135,6 +146,21 @@ export interface WorkspaceFileTreeProps {
   onRequestChildren: (path: string) => void
   /** Called when the user double-clicks a row. */
   onActivateRow: (path: string, kind: 'file' | 'directory') => void
+  /** Optional right-click handler. Suppresses the native menu. */
+  onContextMenu?: (path: string, kind: 'file' | 'directory', x: number, y: number) => void
+  /** Path of the row currently in rename mode (renders an input instead of a span). */
+  renameTargetPath?: string | null
+  /** Initial value for the rename input. */
+  renameValue?: string
+  onRenameChange?: (value: string) => void
+  onRenameCommit?: (newName: string) => void
+  onRenameCancel?: () => void
+  /**
+   * If set, only rows whose kind is in this list are clickable for selection
+   * and the directory-chevron expansion control is hidden. Used by the Move
+   * dialog to display directories-only.
+   */
+  selectableKinds?: ReadonlyArray<'file' | 'directory'>
   /** True when the top-level listing is loading. */
   loadingRoot?: boolean
   /** Optional height for the scroll viewport; falls back to 100% of parent. */
@@ -150,25 +176,41 @@ function TreeRowImpl({
   row,
   selected,
   showPathOnHover,
+  isRenaming,
+  renameValue,
   onSelect,
   onEnter,
   onToggle,
   onActivate,
   onRequestChildren,
+  onContextMenu,
+  onRenameChange,
+  onRenameCommit,
+  onRenameCancel,
+  onRenameStart,
 }: {
   row: WorkspaceTreeRow
   selected: boolean
   showPathOnHover: boolean
+  isRenaming: boolean
+  renameValue: string
   onSelect: (modifiers: { shift: boolean; meta: boolean }) => void
   onEnter: () => void
   onToggle: () => void
   onActivate: () => void
   onRequestChildren: () => void
+  onContextMenu: ((event: React.MouseEvent) => void) | undefined
+  onRenameChange: ((value: string) => void) | undefined
+  onRenameCommit: ((newName: string) => void) | undefined
+  onRenameCancel: (() => void) | undefined
+  onRenameStart: (() => void) | undefined
 }) {
   const indent = 8 + row.depth * 14
 
   const handleClick = useCallback(
     (event: React.MouseEvent) => {
+      // Don't change selection while renaming — that would yank focus.
+      if (isRenaming) return
       onSelect({ shift: event.shiftKey, meta: event.metaKey || event.ctrlKey })
       // For directories, single click ALSO enters the folder. This is the
       // Explorer-like behavior. Hold shift/ctrl to multi-select.
@@ -176,10 +218,22 @@ function TreeRowImpl({
         onEnter()
       }
     },
-    [onSelect, onEnter, row.kind]
+    [onSelect, onEnter, row.kind, isRenaming]
   )
 
-  const handleDoubleClick = useCallback(() => onActivate(), [onActivate])
+  const handleDoubleClick = useCallback(() => {
+    if (isRenaming) return
+    onActivate()
+  }, [onActivate, isRenaming])
+
+  const handleContextMenu = useCallback(
+    (event: React.MouseEvent) => {
+      if (!onContextMenu) return
+      event.preventDefault()
+      onContextMenu(event)
+    },
+    [onContextMenu]
+  )
 
   if (row.kind === 'directory') {
     return (
@@ -191,7 +245,14 @@ function TreeRowImpl({
         tabIndex={0}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
+        onContextMenu={handleContextMenu}
         onKeyDown={event => {
+          if (isRenaming) return
+          if (event.key === 'F2') {
+            event.preventDefault()
+            onRenameStart?.()
+            return
+          }
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault()
             onEnter()
@@ -244,10 +305,19 @@ function TreeRowImpl({
           )}
         </button>
         <Folder size={13} color="var(--accent-color, #6366f1)" style={{ flexShrink: 0 }} />
-        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {row.name}
-        </span>
-        {row.hasChildren && row.childCount > 0 && (
+        {isRenaming ? (
+          <RenameInput
+            initialValue={renameValue}
+            onChange={onRenameChange}
+            onCommit={onRenameCommit}
+            onCancel={onRenameCancel}
+          />
+        ) : (
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {row.name}
+          </span>
+        )}
+        {!isRenaming && row.hasChildren && row.childCount > 0 && (
           <span style={{ fontSize: '0.66rem', color: 'var(--text-secondary)' }}>{row.childCount}</span>
         )}
       </div>
@@ -262,7 +332,14 @@ function TreeRowImpl({
       tabIndex={0}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
+      onContextMenu={handleContextMenu}
       onKeyDown={event => {
+        if (isRenaming) return
+        if (event.key === 'F2') {
+          event.preventDefault()
+          onRenameStart?.()
+          return
+        }
         if (event.key === 'Enter') {
           event.preventDefault()
           onActivate()
@@ -285,13 +362,79 @@ function TreeRowImpl({
       }}
     >
       <File size={12} color="var(--text-secondary)" style={{ flexShrink: 0 }} />
-      <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {row.name}
-      </span>
-      {row.size !== undefined && (
+      {isRenaming ? (
+        <RenameInput
+          initialValue={renameValue}
+          onChange={onRenameChange}
+          onCommit={onRenameCommit}
+          onCancel={onRenameCancel}
+        />
+      ) : (
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {row.name}
+        </span>
+      )}
+      {!isRenaming && row.size !== undefined && (
         <span style={{ fontSize: '0.66rem', color: 'var(--text-secondary)' }}>{humanFileSize(row.size)}</span>
       )}
     </div>
+  )
+}
+
+function RenameInput({
+  initialValue,
+  onChange,
+  onCommit,
+  onCancel,
+}: {
+  initialValue: string
+  onChange?: (value: string) => void
+  onCommit?: (newName: string) => void
+  onCancel?: () => void
+}) {
+  // Local state seeded from initialValue on mount. The parent re-keys the
+  // input (via a parent re-mount) when a different row enters rename mode,
+  // so we don't need to re-sync from props here.
+  const [value, setValue] = useState(initialValue)
+  return (
+    <input
+      autoFocus
+      value={value}
+      onClick={event => event.stopPropagation()}
+      onDoubleClick={event => event.stopPropagation()}
+      onChange={event => {
+        setValue(event.target.value)
+        onChange?.(event.target.value)
+      }}
+      onBlur={() => onCancel?.()}
+      onKeyDown={event => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          event.stopPropagation()
+          const trimmed = value.trim()
+          if (trimmed && onCommit) onCommit(trimmed)
+          else onCancel?.()
+        } else if (event.key === 'Escape') {
+          event.preventDefault()
+          event.stopPropagation()
+          onCancel?.()
+        }
+      }}
+      aria-label="Rename"
+      style={{
+        flex: 1,
+        minWidth: 0,
+        height: 20,
+        padding: '0 4px',
+        fontSize: '0.78rem',
+        fontFamily: 'inherit',
+        background: 'var(--bg-primary)',
+        color: 'var(--text-primary)',
+        border: '1px solid var(--accent-color, #6366f1)',
+        borderRadius: 3,
+        outline: 'none',
+      }}
+    />
   )
 }
 
@@ -306,24 +449,29 @@ function WorkspaceFileTreeImpl({
   selectedPaths,
   onActivateFile,
   onEnterDirectory,
+  onActivateDirectory,
   onToggleDirectory,
   onSelectRow,
   onRequestChildren,
   onActivateRow,
   onVisiblePathsChange,
+  onContextMenu,
+  renameTargetPath,
+  renameValue,
+  onRenameChange,
+  onRenameCommit,
+  onRenameCancel,
+  selectableKinds,
   loadingRoot,
   height = '100%',
   showPathOnHover = true,
   emptyMessage = 'Empty workspace',
 }: WorkspaceFileTreeProps) {
   const rows = useMemo(
-    () => flattenTreeRows({ cwd, expanded, loadingChildren, childrenByDirectory, rootEntriesByDirectory }),
-    [cwd, expanded, loadingChildren, childrenByDirectory, rootEntriesByDirectory]
+    () => flattenTreeRows({ cwd, expanded, loadingChildren, childrenByDirectory, rootEntriesByDirectory, selectableKinds }),
+    [cwd, expanded, loadingChildren, childrenByDirectory, rootEntriesByDirectory, selectableKinds]
   )
 
-  // Publish the visible row order back to the parent — the panel uses it to
-  // implement shift-range selection and Cmd+A across the currently rendered
-  // (and expanded) entries.
   useEffect(() => {
     if (!onVisiblePathsChange) return
     onVisiblePathsChange(rows.map(row => row.path))
@@ -338,9 +486,11 @@ function WorkspaceFileTreeImpl({
 
   const handleEnter = useCallback(
     (row: WorkspaceTreeRow) => () => {
-      if (row.kind === 'directory') onEnterDirectory(row.path)
+      if (row.kind !== 'directory') return
+      if (onActivateDirectory) onActivateDirectory(row.path)
+      else onEnterDirectory(row.path)
     },
-    [onEnterDirectory]
+    [onEnterDirectory, onActivateDirectory]
   )
 
   const handleToggle = useCallback(
@@ -355,7 +505,6 @@ function WorkspaceFileTreeImpl({
       if (row.kind === 'file') {
         onActivateFile(row.path)
       } else {
-        // Double-click on a directory navigates into it.
         onEnterDirectory(row.path)
         onActivateRow(row.path, 'directory')
       }
@@ -370,15 +519,37 @@ function WorkspaceFileTreeImpl({
     [onRequestChildren]
   )
 
+  const handleContextMenu = useCallback(
+    (row: WorkspaceTreeRow) => (event: React.MouseEvent) => {
+      if (!onContextMenu) return
+      onContextMenu(row.path, row.kind, event.clientX, event.clientY)
+    },
+    [onContextMenu]
+  )
+
+  const handleRenameStart = useCallback(
+    (row: WorkspaceTreeRow) => () => {
+      // Defer to the parent by clearing the rename-target path; the panel
+      // will set it and re-render the row with the input. The parent
+      // exposes this via onRenameChange's first call; here we just signal.
+      // We use a custom event on the document for this loose coupling so we
+      // don't have to thread yet another prop.
+      document.dispatchEvent(new CustomEvent('workspace-files:request-rename', { detail: { path: row.path, name: row.name } }))
+    },
+    []
+  )
+
   useEffect(() => {
     // Whenever expanded set changes to include a directory whose children we
-    // haven't fetched yet, request them.
+    // haven't fetched yet, request them. Skip when we're in directory-only
+    // mode (the Move dialog doesn't need lazy-loaded children).
+    if (selectableKinds && selectableKinds.length === 1 && selectableKinds[0] === 'directory') return
     for (const path of expanded) {
       if (!childrenByDirectory.has(path)) {
         onRequestChildren(path)
       }
     }
-  }, [expanded, childrenByDirectory, onRequestChildren])
+  }, [expanded, childrenByDirectory, onRequestChildren, selectableKinds])
 
   if (loadingRoot && rows.length === 0) {
     return (
@@ -432,11 +603,18 @@ function WorkspaceFileTreeImpl({
             row={row}
             selected={selectedPaths.has(row.path)}
             showPathOnHover={showPathOnHover}
+            isRenaming={renameTargetPath === row.path}
+            renameValue={renameTargetPath === row.path ? renameValue ?? row.name : ''}
             onSelect={handleSelect(row)}
             onEnter={handleEnter(row)}
             onToggle={handleToggle(row)}
             onActivate={handleActivate(row)}
             onRequestChildren={handleRequestChildren(row)}
+            onContextMenu={onContextMenu ? handleContextMenu(row) : undefined}
+            onRenameChange={renameTargetPath === row.path ? onRenameChange : undefined}
+            onRenameCommit={renameTargetPath === row.path ? onRenameCommit : undefined}
+            onRenameCancel={renameTargetPath === row.path ? onRenameCancel : undefined}
+            onRenameStart={handleRenameStart(row)}
           />
         )}
         estimateItemHeight={ROW_HEIGHT}

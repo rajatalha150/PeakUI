@@ -63,4 +63,18 @@ describe('buildOpenClawSystemPrompt', () => {
     })
     expect(prompt).toContain('PDF DOCUMENT CAPABILITY')
   })
+
+  it('includes the workspace files GUI panel section when workspace context is provided', () => {
+    const prompt = buildOpenClawSystemPrompt(baseContext)
+    expect(prompt).toContain('WORKSPACE FILES GUI PANEL')
+    expect(prompt).toContain('workspace-relative')
+    expect(prompt).toContain('events stream')
+  })
+
+  it('omits the workspace files GUI panel section when no workspace context is provided', () => {
+    const { workspace, ...rest } = baseContext
+    void workspace
+    const prompt = buildOpenClawSystemPrompt(rest)
+    expect(prompt).not.toContain('WORKSPACE FILES GUI PANEL')
+  })
 })

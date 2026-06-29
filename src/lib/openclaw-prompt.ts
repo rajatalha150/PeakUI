@@ -373,6 +373,15 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
       `- skills path: ${workspace.hostPath}/skills`,
     );
 
+    lines.push(
+      'WORKSPACE FILES GUI PANEL:',
+      `- A "Workspace Files" panel is mounted in the PeakUI sidebar for this workspace.`,
+      `- The panel lists files as a virtualized tree with breadcrumb, inline preview, edit, upload, multi-select, rename, and delete.`,
+      `- The panel subscribes to the workspace's events stream; any file the model creates, edits, renames, or deletes through the filesystem, shell, or code tools appears in the panel live.`,
+      `- Paths in the panel are workspace-relative. Refer to files by workspace-relative path (e.g. "skills/release-checklist.md") when discussing panel content.`,
+      `- The panel is a viewer over the same on-disk state your tools write to — it is not a separate copy.`,
+    );
+
     if (workspace.toolsInstructions?.trim()) {
       lines.push(
         'TOOLS.md CONTENT:',

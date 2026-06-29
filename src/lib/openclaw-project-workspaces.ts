@@ -29,6 +29,12 @@ const DEFAULT_BOOT_CONTENT = `# BOOT.md
 ## Notes
 - This file is loaded into WorkSpaces as workspace startup guidance.
 - Keep it short, operational, and specific to this workspace.
+
+## GUI Panel Awareness
+- A "Workspace Files" panel in the PeakUI sidebar mirrors this workspace's files in real time.
+- Any write, edit, rename, or delete you perform through the filesystem, shell, or code tools is reflected in the panel automatically.
+- When the user opens or references a file from the panel, address it by its workspace-relative path.
+- If the user is actively interacting with the panel (uploading, multi-selecting, dragging), do not race them by writing the same files from a tool in parallel — let the panel's write settle first, then continue.
 `
 
 const DEFAULT_TOOLS_CONTENT = `# TOOLS.md
@@ -41,6 +47,12 @@ const DEFAULT_TOOLS_CONTENT = `# TOOLS.md
 ## Available Patterns
 - Keep prompt templates in \`skills/\`.
 - Keep reusable notes, checklists, and operating conventions here.
+
+## File Editing Surfaces
+- The user can view, edit, rename, move, upload, multi-select, and delete workspace files from the sidebar GUI panel.
+- Prefer the filesystem tool for non-interactive writes and shell for hosted scripts; use the GUI panel only when the user is interacting directly.
+- If the user's latest message references a file the panel is showing (e.g. "the SKILL.md I opened"), no reload is required — the panel reactively picks up content via the workspace events stream.
+- Binary files (images, archives, anything not text/*) are previewed via a Download button rather than inline.
 `
 
 const DEFAULT_SKILLS_README = `# Skills Library
