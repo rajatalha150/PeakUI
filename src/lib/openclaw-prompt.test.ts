@@ -84,6 +84,13 @@ describe('buildOpenClawSystemPrompt', () => {
     expect(prompt).toContain('(7)')
   })
 
+  it('includes rule (8) forbidding off-topic pivot', () => {
+    const prompt = buildOpenClawSystemPrompt(baseContext)
+    expect(prompt).toContain('(8)')
+    expect(prompt).toContain("Stay on the user")
+    expect(prompt).toContain('do not pivot to an unrelated topic')
+  })
+
   it('includes the RECOVERY BEHAVIOR block describing auto-recovery', () => {
     const prompt = buildOpenClawSystemPrompt(baseContext)
     expect(prompt).toContain('RECOVERY BEHAVIOR:')

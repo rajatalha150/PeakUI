@@ -1,8 +1,9 @@
 'use client'
 
 import { Minimize2, Loader, Wifi, WifiOff } from 'lucide-react'
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { useLiveBrowserConnection } from './useLiveBrowserConnection'
+import LiveBrowserViewport from './LiveBrowserViewport'
 
 interface BrowserModalProps {
   sessionId: string
@@ -40,6 +41,7 @@ export default function BrowserModal({
     sendInterrupt,
     sendResume,
     noteActivity,
+    requestFocus,
   } = useLiveBrowserConnection({
     sessionId,
     mode,
@@ -77,11 +79,12 @@ export default function BrowserModal({
           ? 'You have control of the browser'
           : 'AI is controlling the browser. Use Take Over to interact.'
 
-  const signalActivity = () => {
+  const signalActivity = useCallback(() => {
     if (interrupted) {
       noteActivity()
     }
-  }
+    requestFocus()
+  }, [interrupted, noteActivity, requestFocus])
 
   return (
     <div
@@ -203,14 +206,7 @@ export default function BrowserModal({
         onKeyDown={signalActivity}
         onTouchStart={signalActivity}
       >
-        <div
-          ref={setViewportElement}
-          style={{
-            width: '100%',
-            height: '100%',
-            background: '#111',
-          }}
-        />
+        <LiveBrowserViewport ref={setViewportElement} />
         {status !== 'live' && (
           <div style={{
             position: 'absolute',

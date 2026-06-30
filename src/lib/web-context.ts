@@ -819,6 +819,11 @@ export async function fetchPublicWebPage(
   fallbackTitle = '',
   options: { signal?: AbortSignal } = {},
 ): Promise<MessageSource | null> {
+  // Phase 3 of the web-trust plan: callers that want to *force* a particular
+  // strategy can call `fetchAsReadableText` directly (it auto-upgrades to
+  // browser when the fast path returns an empty shell). We keep this
+  // function as the canonical fast-path entry point since most callers want
+  // the cheap HTTPS fetch and don't need browser rendering.
   const safeUrl = await assertPublicHttpUrl(rawUrl)
 
   try {

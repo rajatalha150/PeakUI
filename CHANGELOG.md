@@ -5,6 +5,30 @@ All notable changes to PeakUI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-06-29 - Web Trust: Browser-Grade Fetch, Persistent Identity, Live-Browser Focus Fix
+
+This release makes the AI's web access ChatGPT-grade by combining a browser-grade fetch path for JavaScript-rendered sites (SEC EDGAR XBRL viewer, GitHub blobs, modern SPAs) with a first-party persistent identity layer so a returning direct-mode user keeps their cookies, locale, timezone, and login state across sessions. A new opt-in CAPTCHA/WAF solver adapter sits alongside the strategy layer for sites that gate access behind Cloudflare Turnstile or hCaptcha. The live-browser UX also gets the click-glitch fix that previously pulled DOM focus off the noVNC canvas within ~1 second of clicking the search bar.
+
+### Added — Browser-grade fetch (Phase 3, Option A)
+- **`src/lib/web-fetch-strategy.ts`** — new dispatcher with explicit `fast` and `browser` strategies plus an auto-detect path. Calls `fetchPublicWebPage` first; if the excerpt is short (<200 chars) and the body contains ≥2 `<script>` tags the call is upgraded to a Playwright render. Decisions are cached per host for 10 minutes (`clearStrategyCache` for tests). The browser path navigates with `domcontentloaded` + `networkidle`, settles 250 ms, reads `document.body.innerText`, and detects Cloudflare / DDoS-Guard / hCaptcha interstitials via `looksLikeChallengePage`.
+- **`src/lib/captcha-solver.ts`** — opt-in 2captcha / anti-captcha adapter. No-ops when `CAPTCHA_PROVIDER` / `CAPTCHA_API_KEY` env vars are unset, so the surface stays minimal until the operator opts in. Per-user budget is tracked in `Map<userId, { spentUsd, resetAt }>` and capped by `CAPTCHA_BUDGET_USD_PER_USER` (default $5) and `CAPTCHA_BUDGET_RESET_HOURS` (default 24 h). `solveCaptchaIfConfigured`, `getCaptchaSolverConfig`, `getRemainingBudget` exported.
+- **`src/app/api/openclaw/fetch-summarize/route.ts`** — switched to `fetchAsReadableText` with the caller's userId so identity-hydrated browser fetches benefit from persistent state.
+- 8 regression tests across `web-fetch-strategy.test.ts` (4 tests: fast / browser / cached / JS-required detector) and `captcha-solver.test.ts` (4 tests: no-op without config, "none" provider, budget cap enforced, challenge heuristics).
+
+### Added — First-party identity layer (Phase 4, Option C)
+- **`src/lib/uwaf-identity.ts`** — per-(userId, sessionId, mode) record persisted to `${PEAKUI_IDENTITY_ROOT:-/var/lib/peakui/identity}/<userId>/<sessionId>/<mode>/`. API: `getOrCreateIdentity`, `deleteIdentity`, `loadCookies` / `saveCookies`, `applyIdentityToContext`, `identityToFingerprint`. The deterministic seed key `${userId}:${sessionId}` keeps UA / locale / timezone / viewport stable across reconnections. `applyIdentityToContext` calls `addCookies` and injects an `addInitScript` that locks `Intl.DateTimeFormat().resolvedOptions().timeZone` to the record's timezone.
+- **`src/app/api/openclaw/identity` — `DELETE` route** — rotates the persistent identity (deletes the directory and resets the seed) so the next direct-mode session regenerates a fresh fingerprint and starts with no cookies. Gated by `openclaw.use` + `openclaw.uwaf`.
+- **Live-browser context integration** — `uwaf-pool.ts createManagedSession` and `closeManagedSession` now hydrate direct contexts with the user's persistent identity on launch and flush cookies back to disk on close. A returning direct-mode user keeps their login state across reconnections.
+- 8 unit tests in `uwaf-identity.test.ts` cover creation, idempotency, distinct-per-mode records, cookie round-trip, empty-load, corruption tolerance, deterministic fingerprint, and `deleteIdentity` removes the directory.
+
+### Fixed — Live-browser click glitch (Phase 2)
+- **Search-bar focus was stolen back within ~1 s of clicking.** Root cause: `PAGE_POLL_INTERVAL_MS = 1000` in `live-browser-server.ts` broadcast a `page` event every second, causing `LiveBrowserView` to re-render its wrapper div, which pulled DOM focus off the noVNC canvas. Polling now skips while `session.interrupted` is true (the user has control) and resumes on interrupt-off. The forced `broadcastPageState(true)` on resume covers the case where the URL/title changed while polling was paused.
+- **`src/app/components/LiveBrowserViewport.tsx`** — new memoized `forwardRef` component wrapping the noVNC canvas so React reconciliation in parents (`currentUrl`, `title`, `status`, the AI ACTIVE / YOU HAVE CONTROL badge) does not steal canvas focus. `LiveBrowserView.tsx` and `BrowserModal.tsx` were updated to use it.
+- **`useLiveBrowserConnection.ts`** — new `requestFocus()` callback exposed via the hook. `LiveBrowserView` calls it from the wrapper's `signalActivity` handler so every mousedown pulls focus onto the canvas deterministically.
+
+### Changed — Model guidance (Phase 1)
+- **Rule (8) appended to the openclaw system prompt** forbidding off-topic pivots: "If the user's most recent message is a follow-up to a prior turn, do not pivot to an unrelated topic (VPN setup, anonymity, censorship workarounds, etc.) just because a search returned results on that topic. If you cannot answer from the prior turn, say so and ask the user to clarify rather than chase a tangent." Addresses the prior session's bug where the model pivoted from a follow-up question to an unrelated VPN / anonymity guide after EDGAR search returned. `openclaw-prompt.test.ts` gained an assertion for the new rule.
+
 ## [0.13.0] - 2026-06-29 - Workspace Files Panel (Phases 1-7)
 
 This release ships WorkSpaces's **Workspace Files panel** end-to-end and

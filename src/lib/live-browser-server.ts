@@ -125,9 +125,14 @@ function startAutoResumeTimer(session: BrowserControlSession): void {
 function setInterrupted(session: BrowserControlSession, interrupted: boolean): void {
   session.interrupted = interrupted
   if (interrupted) {
+    stopPagePolling(session)
     startAutoResumeTimer(session)
   } else {
     clearAutoResumeTimer(session)
+    ensurePagePolling(session)
+    // Force a one-shot broadcast so the client UI catches up to whatever the
+    // user did while they were in control.
+    void broadcastPageState(session, true)
   }
   sendState(session)
 }
@@ -176,6 +181,11 @@ async function broadcastPageState(session: BrowserControlSession, force = false)
 
 function ensurePagePolling(session: BrowserControlSession): void {
   if (session.pagePollInterval) return
+  // While the user has control (interrupted=true), stop polling so the React
+  // UI doesn't re-render every second and steal DOM focus from the noVNC
+  // canvas. The user's own interactions update the page metadata via separate
+  // channels (or not at all, which is fine while they're typing).
+  if (session.interrupted) return
 
   session.pagePollInterval = setInterval(() => {
     void broadcastPageState(session)

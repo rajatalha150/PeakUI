@@ -886,6 +886,24 @@ async function closeManagedSession(contextId: string): Promise<void> {
 
   uwafPoolState.sessions.delete(contextId)
 
+  // Phase 4 of the web-trust plan: flush cookies to the per-user identity
+  // jar so a returning direct-mode user keeps their login state.
+  if (managed.context && managed.mode === 'direct') {
+    try {
+      const [userId, sessionId] = contextId.split(':', 2) as [string, string]
+      if (userId && sessionId) {
+        const { getOrCreateIdentity, saveCookies } = await import('./uwaf-identity')
+        const record = await getOrCreateIdentity(userId, sessionId, managed.mode)
+        const cookies = await managed.context.cookies().catch(() => [])
+        if (Array.isArray(cookies)) {
+          await saveCookies(record, cookies as Parameters<typeof saveCookies>[1])
+        }
+      }
+    } catch {
+      /* best-effort */
+    }
+  }
+
   await managed.context.close().catch(() => {})
   await managed.browser.close().catch(() => {})
   await terminateChildProcess(managed.x11vncProcess)
@@ -951,6 +969,22 @@ async function createManagedSession(
 
     if (mode === 'stealth' && fingerprint) {
       await applyStealthInitScript(context, fingerprint, stealthProfile)
+    }
+
+    // Phase 4 of the web-trust plan: in `direct` mode, hydrate the context
+    // with the user's persistent identity (cookies + locale + timezone) so a
+    // returning visitor looks like the same person across sessions.
+    if (mode === 'direct') {
+      try {
+        const [userId, sessionId] = contextId.split(':', 2) as [string, string]
+        if (userId && sessionId) {
+          const { getOrCreateIdentity, applyIdentityToContext } = await import('./uwaf-identity')
+          const identityRecord = await getOrCreateIdentity(userId, sessionId, mode)
+          await applyIdentityToContext(context, identityRecord)
+        }
+      } catch {
+        /* best-effort */
+      }
     }
 
     let activePage: Page | null = null

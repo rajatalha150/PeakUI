@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
-import { fetchPublicWebPage } from '@/lib/web-context'
+import { fetchAsReadableText } from '@/lib/web-fetch-strategy'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'url is required' }, { status: 400 })
     }
 
-    const source = await fetchPublicWebPage(url, '', { signal: request.signal })
+    const source = await fetchAsReadableText(url, { signal: request.signal, userId: access.auth.user.id })
     if (!source) {
       return NextResponse.json(
         { success: false, url, error: 'Could not fetch or extract the page.' },

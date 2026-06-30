@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { ChevronDown, ChevronUp, Loader, Wifi, WifiOff } from 'lucide-react'
 import { type LiveBrowserConnectionStatus, useLiveBrowserConnection } from './useLiveBrowserConnection'
+import LiveBrowserViewport from './LiveBrowserViewport'
 
 interface LiveBrowserViewProps {
   sessionId: string
@@ -37,6 +38,7 @@ export default function LiveBrowserView({
     sendInterrupt,
     sendResume,
     noteActivity,
+    requestFocus,
   } = useLiveBrowserConnection({
     sessionId,
     mode,
@@ -70,11 +72,14 @@ export default function LiveBrowserView({
           ? 'You have control of the browser'
           : 'AI is controlling the browser. Use Take Over to interact.'
 
-  const signalActivity = () => {
+  const signalActivity = useCallback(() => {
     if (interrupted) {
       noteActivity()
     }
-  }
+    // Re-focus the noVNC canvas on every interaction so React re-renders
+    // (which can yank DOM focus back to the wrapper) don't break typing.
+    requestFocus()
+  }, [interrupted, noteActivity, requestFocus])
 
   return (
     <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border-color)' }}>
@@ -146,15 +151,7 @@ export default function LiveBrowserView({
             onKeyDown={signalActivity}
             onTouchStart={signalActivity}
           >
-            <div
-              ref={setViewportElement}
-              style={{
-                width: '100%',
-                height: '100%',
-                minHeight: 200,
-                background: '#111',
-              }}
-            />
+            <LiveBrowserViewport ref={setViewportElement} />
             {status !== 'live' && (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.75rem', opacity: 0.8, padding: 12 }}>
                 {statusMessage}

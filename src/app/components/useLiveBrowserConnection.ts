@@ -320,5 +320,18 @@ export function useLiveBrowserConnection({
     sendInterrupt: () => sendControlMessage({ type: 'interrupt' }),
     sendResume: () => sendControlMessage({ type: 'resume' }),
     noteActivity: () => sendControlMessage({ type: 'activity' }),
+    /**
+     * Pull DOM focus onto the noVNC canvas. The React wrapper around the
+     * canvas re-renders roughly once a second (page metadata from the
+     * server); if focus is on the wrapper when a re-render happens it gets
+     * pulled off the canvas. Calling this on every wrapper mousedown makes
+     * the focus "sticky" — the user keeps focus as long as they keep
+     * interacting.
+     */
+    requestFocus: () => {
+      const rfb = rfbRef.current
+      if (!rfb) return
+      try { rfb.focus() } catch { /* ignore */ }
+    },
   }
 }
