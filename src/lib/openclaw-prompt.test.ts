@@ -96,4 +96,21 @@ describe('buildOpenClawSystemPrompt', () => {
     expect(prompt).toContain('RECOVERY BEHAVIOR:')
     expect(prompt).toContain('auto-recover by inferring a tool call from your prose')
   })
+
+  it('routes plain searches to the web tool and reserves unified_browser for nav/JS/forms/login', () => {
+    const prompt = buildOpenClawSystemPrompt({
+      ...baseContext,
+      uwafBrowserMode: 'direct',
+      internetToolEnabled: true,
+    })
+    // The old, wrong rule must be gone.
+    expect(prompt).not.toContain('prefer unified_browser over the background web tool')
+    // The new rule must be present and must explicitly say `web` is preferred for plain searches.
+    expect(prompt).toContain('prefer the lightweight `web` tool')
+    // And it must enumerate the legitimate unified_browser use cases so we don't regress them.
+    expect(prompt).toContain('Reserve `unified_browser` for')
+    expect(prompt).toContain('step-by-step navigation')
+    expect(prompt).toContain('JS-heavy pages')
+    expect(prompt).toContain('form interaction or login')
+  })
 })

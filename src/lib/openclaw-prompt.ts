@@ -305,7 +305,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
       lines.push(
         'UNIFIED BROWSER CAPABILITY: You have access to a dual-mode shared browser that the user can watch live and take over when help is needed.',
         `Current default mode: ${modeLabel}.`,
-        'For web searches, public page visits, and source gathering, prefer unified_browser over the background web tool so the user can see what you are opening.',
+        'For plain web searches ("what is the latest X", "find me Y", "look up Z", news lookups, market data, statistics, quotes), prefer the lightweight `web` tool — it returns clean text snippets and does not flood the next turn with a full browser page. Reserve `unified_browser` for cases that actually need a real browser: step-by-step navigation through a site, JS-heavy pages that need real browser rendering, form interaction or login, multi-page workflows with click/extract cycles, or when the user explicitly wants to watch and take over the live browser.',
         'Direct mode uses standard web access for public sites (.com, .org, .edu, etc.).',
         'Stealth mode routes all traffic through the Tor network for anonymous research, including .onion addresses.',
         '.onion URLs are ONLY accessible in Stealth mode. If you see an .onion URL, switch to Stealth mode.',

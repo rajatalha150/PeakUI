@@ -5,6 +5,26 @@ All notable changes to PeakUI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.1] - 2026-06-26 - Guard Against Oversized unified_browser Tool Results
+
+Fixes the "model picked the wrong tool and crashed on a 25K-char SERP" failure mode. Two layered guards, no behavior change for legitimate unified_browser use.
+
+### Changed — Prompt rule at `openclaw-prompt.ts`
+- **Replaces** "prefer unified_browser over the background web tool so the user can see what you are opening" (which caused the model to reach for the heavy Playwright path for plain "find me Y" searches).
+- **New rule**: for plain web searches (news, market data, statistics, quotes, "what is the latest X"), use the lightweight `web` tool — clean text snippets, no full browser page. Reserve `unified_browser` for the cases that actually need a real browser: step-by-step navigation, JS-heavy pages, form interaction or login, multi-page workflows with click/extract cycles, or when the user explicitly wants to take over the live browser. All legitimate uses are enumerated in the new wording.
+
+### Changed — `formatUwafBrowserToolResult` extracted + size-capped
+- **New module** `src/lib/openclaw-tool-results.ts` holds the formatter and the `UwafBrowserToolResultEntry` type. `OpenClawWorkspace.tsx` now imports from it. Makes the formatter unit-testable.
+- **Page text cap**: 6,000 chars for non-search actions (`open`, `click`, `extract`, `research_batch`), 2,000 chars for `action === 'search'`. When truncated, an explicit marker `[... N more characters truncated; full content visible in the live browser pane]` is appended. The model can call `unified_browser action=extract mode=text` if it really needs more.
+- **Link list cap**: max 60 entries. Strips `data:image` / `;base64,` URLs (inlined base64 image blobs) and oversized URLs > 2,000 chars (redirect chains / session internals). Real navigation targets are preserved.
+- **Untouched**: failure path (already terse), forms, tables, tabs, batch research preview, all metadata fields. The model still sees everything it needs to answer — just not the noise.
+- **End-to-end check**: a 25K-char Brave SERP fixture with 80 mixed links now produces a tool result under 8K chars, with 40 real search-result links preserved and a clear truncation marker.
+
+### Tests
+- 1 new test in `openclaw-prompt.test.ts` confirming the old rule is gone and the new rule enumerates every legitimate unified_browser use case.
+- 30 new tests in `openclaw-tool-results.test.ts` covering: truncateWithMarker math, compactLinks filtering + capping, isJunkLinkUrl classification, action-based text caps, markdown fallback, failure-path passthrough, structural sections (forms/tables/tabs/batchResults), and the end-to-end 25K SERP fixture.
+- **401 total tests pass, 0 regressions.**
+
 ## [0.15.0] - 2026-06-26 - Parallelize Sequential Search Bottlenecks
 
 This release cuts the user-visible latency of "search the web" workflows from ~15-30 s to ~5-10 s on cold start. The wins come from three targeted parallelism changes plus a per-tool-call fetch timeout. No behavior change for the model — same `searchAttempts` array, same result shape, same side effects. The user just gets an answer faster.
