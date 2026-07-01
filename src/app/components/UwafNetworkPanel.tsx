@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Globe, Shield, Wifi, WifiOff, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react'
+import { panelIconButtonStyle } from './panelIconButton'
 
 const NETWORK_STATUS_STORAGE_KEY = 'peakui-uwaf-network-status'
 const PENDING_STATUS_RETRY_MS = 2000
@@ -127,15 +128,7 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
           <button
             type="button"
             onClick={() => setCollapsed(current => !current)}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--text-secondary)',
-              padding: 2,
-              display: 'flex',
-              alignItems: 'center',
-            }}
+            style={panelIconButtonStyle('networkHub')}
             title={collapsed ? 'Expand network hub' : 'Collapse network hub'}
           >
             {collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
@@ -144,15 +137,7 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
             type="button"
             onClick={handleRefresh}
             disabled={loading}
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: loading ? 'wait' : 'pointer',
-              color: 'var(--text-secondary)',
-              padding: 2,
-              display: 'flex',
-              alignItems: 'center',
-            }}
+            style={panelIconButtonStyle('networkHub', { loading })}
             title="Run full stealth verification"
           >
             <RefreshCw size={12} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />

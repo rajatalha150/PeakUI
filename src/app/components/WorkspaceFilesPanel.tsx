@@ -29,6 +29,7 @@ import type {
   WorkspaceTreeResponse,
 } from '@/lib/workspace-files-types'
 import { fileBaseName, joinPath, parentPath } from './workspace-files/file-display'
+import { panelIconButtonStyle } from './panelIconButton'
 
 export interface WorkspaceFilesPanelProps {
   workspaceId: string | null
@@ -892,7 +893,7 @@ export default function WorkspaceFilesPanel({
             disabled={loadingCwd || !workspaceId}
             title="Refresh"
             aria-label="Refresh workspace files"
-            style={iconBtnBase}
+            style={panelIconButtonStyle('workspaceFiles', { loading: loadingCwd })}
           >
             <RefreshCw size={12} />
           </button>
@@ -901,7 +902,7 @@ export default function WorkspaceFilesPanel({
             onClick={() => setCollapsed(prev => !prev)}
             title={collapsed ? 'Expand Workspace Files' : 'Collapse Workspace Files'}
             aria-label={collapsed ? 'Expand Workspace Files' : 'Collapse Workspace Files'}
-            style={iconBtnBase}
+            style={panelIconButtonStyle('workspaceFiles')}
           >
             {collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
           </button>

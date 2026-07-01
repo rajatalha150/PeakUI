@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react'
 import { ChevronDown, ChevronUp, Loader, Wifi, WifiOff } from 'lucide-react'
 import { type LiveBrowserConnectionStatus, useLiveBrowserConnection } from './useLiveBrowserConnection'
 import LiveBrowserViewport from './LiveBrowserViewport'
+import { panelIconButtonStyle } from './panelIconButton'
 
 interface LiveBrowserViewProps {
   sessionId: string
@@ -97,20 +98,7 @@ export default function LiveBrowserView({
           <button
             onClick={() => setMinimized(v => !v)}
             title={minimized ? 'Expand' : 'Minimize'}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 20,
-              height: 20,
-              borderRadius: 4,
-              border: '1px solid var(--border-color)',
-              background: 'transparent',
-              color: 'var(--text-secondary)',
-              cursor: 'pointer',
-              padding: 0,
-              transition: 'all 0.15s ease',
-            }}
+            style={panelIconButtonStyle('liveBrowser')}
           >
             {minimized ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
           </button>

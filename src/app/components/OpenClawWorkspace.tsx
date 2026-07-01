@@ -91,6 +91,7 @@ import {
 import UwafNetworkPanel from './UwafNetworkPanel';
 import LiveBrowserView from './LiveBrowserView';
 import BrowserModal from './BrowserModal';
+import { panelIconButtonStyle } from './panelIconButton';
 import { reportClientError } from '@/lib/client-error-reporting';
 import type { CanvasArtifactRecord, CanvasArtifactRevisionRecord } from '@/lib/canvas-artifacts';
 import { isTextArtifactMimeType } from '@/lib/canvas-download';
@@ -12781,19 +12782,7 @@ export default function OpenClawWorkspace({
                     type="button"
                     onClick={() => setCanvasMinimized(prev => !prev)}
                     title={canvasMinimized ? 'Expand Canvas' : 'Minimize Canvas'}
-                    style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: 6,
-                      border: '1px solid var(--border-color)',
-                      background: 'var(--bg-secondary)',
-                      color: 'var(--text-secondary)',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
+                    style={panelIconButtonStyle('canvas')}
                   >
                     {canvasMinimized ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
                   </button>
