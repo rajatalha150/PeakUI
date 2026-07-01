@@ -40,13 +40,25 @@ interface UwafNetworkPanelProps {
   currentMode: 'direct' | 'stealth'
   onModeChange: (mode: 'direct' | 'stealth') => void
   disabled?: boolean
+  /**
+   * Controlled expand state. Owned by the parent (OpenClawWorkspace) so the
+   * "max 2 expanded" accordion rule can be enforced centrally.
+   */
+  isExpanded: boolean
+  /** Toggle handler wired up by the parent to flip `isExpanded`. */
+  onToggleExpand: () => void
 }
 
-export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }: UwafNetworkPanelProps) {
+export default function UwafNetworkPanel({
+  currentMode,
+  onModeChange,
+  disabled,
+  isExpanded,
+  onToggleExpand,
+}: UwafNetworkPanelProps) {
   const [status, setStatus] = useState<UwafStatus | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [collapsed, setCollapsed] = useState(false)
 
   const fetchStatus = useCallback(async (level: 'cached' | 'quick' | 'preflight' = 'quick', options?: { force?: boolean; silent?: boolean }) => {
     if (!options?.silent) setLoading(true)
@@ -119,20 +131,12 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        marginBottom: collapsed ? 0 : 8,
+        marginBottom: isExpanded ? 8 : 0,
       }}>
         <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           Network Hub
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <button
-            type="button"
-            onClick={() => setCollapsed(current => !current)}
-            style={panelIconButtonStyle('networkHub')}
-            title={collapsed ? 'Expand network hub' : 'Collapse network hub'}
-          >
-            {collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
-          </button>
           <button
             type="button"
             onClick={handleRefresh}
@@ -142,10 +146,18 @@ export default function UwafNetworkPanel({ currentMode, onModeChange, disabled }
           >
             <RefreshCw size={12} style={{ animation: loading ? 'spin 1s linear infinite' : 'none' }} />
           </button>
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            style={panelIconButtonStyle('networkHub')}
+            title={isExpanded ? 'Collapse network hub' : 'Expand network hub'}
+          >
+            {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </button>
         </div>
       </div>
 
-      {!collapsed && (
+      {isExpanded && (
         <>
           <div style={{
             display: 'flex',

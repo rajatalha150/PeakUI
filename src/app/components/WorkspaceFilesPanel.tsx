@@ -34,11 +34,17 @@ import { panelIconButtonStyle } from './panelIconButton'
 export interface WorkspaceFilesPanelProps {
   workspaceId: string | null
   workspaceName: string
-  initialCollapsed?: boolean
+  /**
+   * Controlled expand state. When true the panel body renders; when false
+   * only the header is shown. The parent (OpenClawWorkspace) owns this
+   * state and enforces the "max 2 expanded" accordion rule.
+   */
+  isExpanded: boolean
+  /** Toggle handler wired up by the parent to flip `isExpanded`. */
+  onToggleExpand: () => void
   onError?: (error: WorkspaceFilesError) => void
 }
 
-const PANEL_COLLAPSED_STORAGE_KEY = 'openclaw.workspaceFiles.collapsed'
 const MAX_FILE_CONTENT_BYTES = 5_000_000
 
 const sectionStyle: React.CSSProperties = {
@@ -138,19 +144,10 @@ interface ConfirmDeleteState {
 export default function WorkspaceFilesPanel({
   workspaceId,
   workspaceName,
-  initialCollapsed,
+  isExpanded,
+  onToggleExpand,
   onError,
 }: WorkspaceFilesPanelProps) {
-  const [collapsed, setCollapsed] = useState<boolean>(() => {
-    if (typeof initialCollapsed === 'boolean') return initialCollapsed
-    if (typeof window === 'undefined') return false
-    try {
-      return window.localStorage.getItem(PANEL_COLLAPSED_STORAGE_KEY) === 'true'
-    } catch {
-      return false
-    }
-  })
-
   // The "current directory" the tree is rooted at. Empty string = workspace root.
   const [cwd, setCwd] = useState<string>('')
   // Active file preview (modal). When non-null, the full-size modal renders.
@@ -203,14 +200,6 @@ export default function WorkspaceFilesPanel({
   const expandedRef = useRef<Set<string>>(new Set())
   const cwdRef = useRef<string>('')
   const activeFilePathRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(PANEL_COLLAPSED_STORAGE_KEY, collapsed ? 'true' : 'false')
-    } catch {
-      /* ignore */
-    }
-  }, [collapsed])
 
   useEffect(() => () => {
     if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current)
@@ -294,10 +283,10 @@ export default function WorkspaceFilesPanel({
   // changes, or when the user navigates to a directory we haven't cached yet.
   /* eslint-disable react-hooks/set-state-in-effect -- canonical "load on prop change" effect; refreshCwd sets the in-flight flag and runs the fetch asynchronously */
   useEffect(() => {
-    if (collapsed || !workspaceId) return
+    if (!isExpanded || !workspaceId) return
     if (rootEntriesByDirectory.has(cwd)) return
     void refreshCwd()
-  }, [collapsed, workspaceId, cwd, rootEntriesByDirectory, refreshCwd])
+  }, [isExpanded, workspaceId, cwd, rootEntriesByDirectory, refreshCwd])
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const requestChildren = useCallback(
@@ -899,17 +888,17 @@ export default function WorkspaceFilesPanel({
           </button>
           <button
             type="button"
-            onClick={() => setCollapsed(prev => !prev)}
-            title={collapsed ? 'Expand Workspace Files' : 'Collapse Workspace Files'}
-            aria-label={collapsed ? 'Expand Workspace Files' : 'Collapse Workspace Files'}
+            onClick={onToggleExpand}
+            title={isExpanded ? 'Collapse Workspace Files' : 'Expand Workspace Files'}
+            aria-label={isExpanded ? 'Collapse Workspace Files' : 'Expand Workspace Files'}
             style={panelIconButtonStyle('workspaceFiles')}
           >
-            {collapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+            {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </button>
         </div>
       </div>
 
-      {!collapsed && (
+      {isExpanded && (
         <>
           {workspaceId && (
             <div style={workspaceMetaStyle}>

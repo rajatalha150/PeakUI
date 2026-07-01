@@ -91,7 +91,7 @@ import {
 import UwafNetworkPanel from './UwafNetworkPanel';
 import LiveBrowserView from './LiveBrowserView';
 import BrowserModal from './BrowserModal';
-import { panelIconButtonStyle } from './panelIconButton';
+import { MAX_EXPANDED_PANELS, panelIconButtonStyle, readExpandedPanels, writeExpandedPanels, type PanelId } from './panelIconButton';
 import { reportClientError } from '@/lib/client-error-reporting';
 import type { CanvasArtifactRecord, CanvasArtifactRevisionRecord } from '@/lib/canvas-artifacts';
 import { isTextArtifactMimeType } from '@/lib/canvas-download';
@@ -101,7 +101,6 @@ type ImageAttachmentMode = 'vision-only' | 'vision+ocr' | 'ocr-only';
 const MOBILE_BREAKPOINT = 960;
 const HUMAN_BROWSER_ASSIST_TIMEOUT_MS = 10 * 60 * 1000;
 const SESSION_PAGE_SIZE = 15;
-const OPENCLAW_CANVAS_MINIMIZED_STORAGE = 'peakui-openclaw-canvas-minimized';
 const OPENCLAW_MODEL_FAVORITES_STORAGE = 'peakui-openclaw-model-favorites';
 const IMAGE_ATTACHMENT_MODE_OPTIONS: Array<{ value: ImageAttachmentMode; label: string }> = [
   { value: 'vision-only', label: 'Vision only' },
@@ -3294,14 +3293,6 @@ export default function OpenClawWorkspace({
   const [canvasSearchQuery, setCanvasSearchQuery] = useState('');
   const [canvasLoading, setCanvasLoading] = useState(false);
   const [canvasError, setCanvasError] = useState<string | null>(null);
-  const [canvasMinimized, setCanvasMinimized] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    try {
-      return window.localStorage.getItem(OPENCLAW_CANVAS_MINIMIZED_STORAGE) === 'true';
-    } catch {
-      return false;
-    }
-  });
   // Workspace Files panel — Phase 1 skeleton
   const [workspaceFilesPanelKey] = useState(() => `workspace-files-${Math.random().toString(36).slice(2, 10)}`);
   const [workspaceFilesError, setWorkspaceFilesError] = useState<string | null>(null);
@@ -3326,14 +3317,6 @@ export default function OpenClawWorkspace({
   useEffect(() => {
     browserInterruptedRef.current = browserInterrupted;
   }, [browserInterrupted]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(OPENCLAW_CANVAS_MINIMIZED_STORAGE, canvasMinimized ? 'true' : 'false');
-    } catch {
-      // Ignore storage errors; minimizing is only a UI preference.
-    }
-  }, [canvasMinimized]);
 
   useEffect(() => {
     try {
@@ -3511,6 +3494,80 @@ export default function OpenClawWorkspace({
   const browserEnabled = browserMode !== 'deny';
   const uwafBrowserSettingMode = effectiveToolAccess?.uwafBrowserMode ?? 'deny';
   const uwafBrowserEnabled = uwafBrowserSettingMode !== 'deny';
+
+  // ---------------------------------------------------------------------
+  // Side-rail panel accordion (max 2 expanded).
+  //
+  // The truth about which panels are expanded lives here so the cap can be
+  // enforced across all four panels. `expandedPanels` is an array ordered
+  // by most-recently-toggled: index 0 is the oldest (LRU), the last
+  // element is the most recent. Capped at MAX_EXPANDED_PANELS.
+  // ---------------------------------------------------------------------
+  const [expandedPanels, setExpandedPanels] = useState<PanelId[]>(() => {
+    if (typeof window === 'undefined') return [];
+    // Initial read can't know the runtime mounted set yet (it depends on
+    // settings, internet toggle, session id), so we read a superset and
+    // trust the intersection-on-restore step inside `effectiveExpanded`.
+    return readExpandedPanels(window.localStorage, [
+      'canvas',
+      'workspaceFiles',
+      'networkHub',
+      'liveBrowser',
+    ]);
+  });
+
+  const liveBrowserVisible = Boolean(
+    internetEnabled
+    && uwafBrowserEnabled
+    && settings?.openClawUwafLiveBrowser
+    && currentSessionId
+    && browserLiveStatus !== 'failed'
+    && !browserModalOpen,
+  );
+  const networkHubVisible = uwafBrowserEnabled;
+
+  const mountedPanels = useMemo<PanelId[]>(() => {
+    const result: PanelId[] = ['canvas', 'workspaceFiles'];
+    if (networkHubVisible) result.push('networkHub');
+    if (liveBrowserVisible) result.push('liveBrowser');
+    return result;
+  }, [networkHubVisible, liveBrowserVisible]);
+
+  // Intersect the persisted set with what's actually mounted. A user who
+  // turned off the internet toggle should not see LiveBrowser silently come
+  // back expanded on the next page load.
+  const effectiveExpanded = useMemo<PanelId[]>(() => {
+    const mountedSet = new Set(mountedPanels)
+    return expandedPanels.filter(panel => mountedSet.has(panel)).slice(0, MAX_EXPANDED_PANELS)
+  }, [expandedPanels, mountedPanels])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    writeExpandedPanels(window.localStorage, expandedPanels);
+  }, [expandedPanels]);
+
+  const isPanelExpanded = useCallback(
+    (panel: PanelId) => effectiveExpanded.includes(panel),
+    [effectiveExpanded],
+  );
+
+  const togglePanel = useCallback((panel: PanelId) => {
+    setExpandedPanels(prev => {
+      const idx = prev.indexOf(panel);
+      if (idx >= 0) {
+        // Already expanded: just collapse it.
+        return prev.filter(p => p !== panel);
+      }
+      // Not expanded: add at the end (most recent), then trim to cap. The
+      // trimmed element is the oldest = LRU auto-collapse.
+      const next = [...prev, panel];
+      if (next.length > MAX_EXPANDED_PANELS) {
+        next.shift();
+      }
+      return next;
+    });
+  }, []);
+
   const allowedFilesystemPaths = useMemo(() => {
     if (!settings?.openClawAllowedPaths) return [];
     return settings.openClawAllowedPaths
@@ -12780,14 +12837,15 @@ export default function OpenClawWorkspace({
                   </div>
                   <button
                     type="button"
-                    onClick={() => setCanvasMinimized(prev => !prev)}
-                    title={canvasMinimized ? 'Expand Canvas' : 'Minimize Canvas'}
+                    onClick={() => togglePanel('canvas')}
+                    title={isPanelExpanded('canvas') ? 'Minimize Canvas' : 'Expand Canvas'}
+                    aria-label={isPanelExpanded('canvas') ? 'Minimize Canvas' : 'Expand Canvas'}
                     style={panelIconButtonStyle('canvas')}
                   >
-                    {canvasMinimized ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+                    {isPanelExpanded('canvas') ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                   </button>
                 </div>
-                {!canvasMinimized && (
+                {isPanelExpanded('canvas') && (
                   <CanvasPanel
                     key={currentSessionId ?? 'draft-canvas'}
                     artifacts={canvasArtifacts}
@@ -12915,6 +12973,8 @@ export default function OpenClawWorkspace({
               key={workspaceFilesPanelKey}
               workspaceId={currentWorkspaceId}
               workspaceName={currentWorkspace?.name ?? 'No workspace selected'}
+              isExpanded={isPanelExpanded('workspaceFiles')}
+              onToggleExpand={() => togglePanel('workspaceFiles')}
               onError={(err) => setWorkspaceFilesError(err.message)}
             />
             {workspaceFilesError && (
@@ -12928,6 +12988,8 @@ export default function OpenClawWorkspace({
               <UwafNetworkPanel
                 currentMode={uwafBrowserMode}
                 onModeChange={switchUwafBrowserMode}
+                isExpanded={isPanelExpanded('networkHub')}
+                onToggleExpand={() => togglePanel('networkHub')}
               />
             )}
 
@@ -12942,6 +13004,8 @@ export default function OpenClawWorkspace({
                 onInterruptChange={setBrowserInterrupted}
                 onStatusChange={setBrowserLiveStatus}
                 enabled={true}
+                isExpanded={isPanelExpanded('liveBrowser')}
+                onToggleExpand={() => togglePanel('liveBrowser')}
               />
             ) : null}
 

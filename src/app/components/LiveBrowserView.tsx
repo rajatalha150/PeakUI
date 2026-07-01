@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { useCallback } from 'react'
 import { ChevronDown, ChevronUp, Loader, Wifi, WifiOff } from 'lucide-react'
 import { type LiveBrowserConnectionStatus, useLiveBrowserConnection } from './useLiveBrowserConnection'
 import LiveBrowserViewport from './LiveBrowserViewport'
@@ -16,6 +16,13 @@ interface LiveBrowserViewProps {
   onStatusChange?: (status: LiveBrowserConnectionStatus) => void
   enabled?: boolean
   autoResumeMs?: number
+  /**
+   * Controlled expand state. Owned by the parent (OpenClawWorkspace) so the
+   * "max 2 expanded" accordion rule can be enforced centrally.
+   */
+  isExpanded: boolean
+  /** Toggle handler wired up by the parent to flip `isExpanded`. */
+  onToggleExpand: () => void
 }
 
 export default function LiveBrowserView({
@@ -27,9 +34,9 @@ export default function LiveBrowserView({
   onStatusChange,
   enabled = true,
   autoResumeMs = 120000,
+  isExpanded,
+  onToggleExpand,
 }: LiveBrowserViewProps) {
-  const [minimized, setMinimized] = useState(false)
-
   const {
     status,
     interrupted,
@@ -96,16 +103,17 @@ export default function LiveBrowserView({
             </div>
           )}
           <button
-            onClick={() => setMinimized(v => !v)}
-            title={minimized ? 'Expand' : 'Minimize'}
+            onClick={onToggleExpand}
+            title={isExpanded ? 'Minimize' : 'Expand'}
+            aria-label={isExpanded ? 'Minimize live browser' : 'Expand live browser'}
             style={panelIconButtonStyle('liveBrowser')}
           >
-            {minimized ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+            {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </button>
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: minimized ? 0 : 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: isExpanded ? 6 : 0 }}>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 6px', borderRadius: 4, fontSize: '0.62rem', fontWeight: 600, background: modeBadge.bg, color: modeBadge.color, border: modeBadge.border }}>
           {mode === 'stealth' ? '🛡' : '🌐'} {modeBadge.label}
         </div>
@@ -130,7 +138,7 @@ export default function LiveBrowserView({
         )}
       </div>
 
-      {!minimized && (
+      {isExpanded && (
         <>
           <div
             style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border-color)', position: 'relative', background: '#111', aspectRatio: '16/9' }}

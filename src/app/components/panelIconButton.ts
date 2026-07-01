@@ -8,6 +8,36 @@ import type { CSSProperties } from 'react'
  */
 export type PanelTint = 'canvas' | 'workspaceFiles' | 'networkHub' | 'liveBrowser'
 
+/**
+ * Stable identity for each side-rail panel. Identical to `PanelTint` so a
+ * single union drives both the button color and the expand/collapse state
+ * registry in `OpenClawWorkspace`.
+ */
+export type PanelId = PanelTint
+
+export const PANEL_IDS: readonly PanelId[] = [
+  'canvas',
+  'workspaceFiles',
+  'networkHub',
+  'liveBrowser',
+] as const
+
+/** Maximum number of side-rail panels that may be expanded at once. */
+export const MAX_EXPANDED_PANELS = 2
+
+/**
+ * localStorage key for the persisted set of expanded panels. Single key for
+ * the whole rail so the cap and ordering stay consistent across all four
+ * panels. Stored value is a JSON array of `PanelId` strings.
+ */
+export const SIDE_RAIL_EXPANDED_STORAGE_KEY = 'openclaw.sideRail.expandedPanels'
+
+/** Type guard for a value parsed from localStorage. */
+export function isPanelId(value: unknown): value is PanelId {
+  return typeof value === 'string'
+    && (PANEL_IDS as readonly string[]).includes(value)
+}
+
 export interface PanelIconButtonOptions {
   /**
    * When true (e.g. a refresh button while a fetch is in flight), the cursor
@@ -65,6 +95,64 @@ export function panelIconButtonStyle(
   }
 }
 
+/**
+ * Read the persisted set of expanded panel IDs from localStorage. Always
+ * intersects with `mounted` so a panel the user has disabled (e.g. turned
+ * off the internet toggle hiding the live browser) does not silently come
+ * back expanded. The returned array preserves the original order so the
+ * caller can use it directly as the initial expanded set.
+ */
+export function readExpandedPanels(
+  storage: Pick<Storage, 'getItem'> | null | undefined,
+  mounted: readonly PanelId[],
+): PanelId[] {
+  if (!storage) return []
+  let raw: string | null = null
+  try {
+    raw = storage.getItem(SIDE_RAIL_EXPANDED_STORAGE_KEY)
+  } catch {
+    return []
+  }
+  if (!raw) return []
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(parsed)) return []
+  const mountedSet = new Set(mounted)
+  const seen = new Set<PanelId>()
+  const result: PanelId[] = []
+  for (const candidate of parsed) {
+    if (!isPanelId(candidate)) continue
+    if (!mountedSet.has(candidate)) continue
+    if (seen.has(candidate)) continue
+    seen.add(candidate)
+    result.push(candidate)
+    if (result.length >= MAX_EXPANDED_PANELS) break
+  }
+  return result
+}
+
+/**
+ * Persist the current expanded set. Silently no-ops if storage is
+ * unavailable (private mode, quota, etc.). The cap is enforced on write so
+ * the stored shape can never represent an invalid state.
+ */
+export function writeExpandedPanels(
+  storage: Pick<Storage, 'setItem'> | null | undefined,
+  expanded: readonly PanelId[],
+): void {
+  if (!storage) return
+  const capped = expanded.slice(0, MAX_EXPANDED_PANELS)
+  try {
+    storage.setItem(SIDE_RAIL_EXPANDED_STORAGE_KEY, JSON.stringify(capped))
+  } catch {
+    /* best-effort */
+  }
+}
+
 function hexToRgba(hex: string, alpha: number): string {
   const normalized = hex.replace('#', '')
   const r = parseInt(normalized.slice(0, 2), 16)
@@ -73,4 +161,4 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }
 
-export const __test__ = { hexToRgba, TINTS }
+export const __test__ = { hexToRgba, TINTS, readExpandedPanels, writeExpandedPanels }
