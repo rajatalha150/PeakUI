@@ -36,6 +36,44 @@ const MAX_DIRECT_SEARCH_PROVIDER_ATTEMPTS = 2
 const MAX_STEALTH_SEARCH_PROVIDER_ATTEMPTS = 3
 const DIRECT_SEARCH_PROVIDER_TIMEOUT_MS = 18_000
 const STEALTH_SEARCH_PROVIDER_TIMEOUT_MS = 22_000
+// Hard ceiling for any single provider attempt inside executeSearch's
+// fallback chain. The full per-provider timeout (18-22s) is the *cap* the
+// provider may consume; this is the wall budget we allow it before we move
+// on to the next provider. Set tight enough that a slow provider doesn't
+// burn the whole user-visible latency budget — 8s is enough for the JS
+// render + waitForMatchingSelectors (5s) on any working search engine.
+// Single-provider setups (preferredProviderId) are exempt — we trust the
+// caller's choice and let it use the full providerTimeoutMs.
+const PER_PROVIDER_FALLBACK_BUDGET_MS = 8_000
+
+/**
+ * Race a promise against a wall-clock deadline. On timeout, resolves with
+ * `{ timedOut: true }` — the in-flight work is intentionally not aborted
+ * (Playwright page operations don't always honor an external signal
+ * cleanly), but the caller is freed to move on.
+ *
+ * The in-flight promise's eventual settlement is suppressed via a no-op
+ * catch so we never see an unhandled rejection. If it later resolves, the
+ * value is dropped; if it later rejects, the error is logged at debug
+ * level.
+ */
+async function runWithTimeout<T extends object>(work: Promise<T>, budgetMs: number): Promise<(T & { timedOut: false }) | { timedOut: true }> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<{ timedOut: true }>(resolve => {
+    timer = setTimeout(() => resolve({ timedOut: true }), budgetMs)
+  })
+  const result = await Promise.race<{ timedOut: true } | T>([work, timeout])
+  if (timer) clearTimeout(timer)
+  if ('timedOut' in result && result.timedOut) return result
+  // Suppress late settlement of the in-flight work so we never get an
+  // unhandled rejection (the underlying operations may have already thrown
+  // — Playwright page.goto is the common case — and we don't want to
+  // surface that to the caller after we already moved on).
+  work.catch(error => {
+    console.debug(`runWithTimeout: in-flight work rejected after timeout: ${error instanceof Error ? error.message : String(error)}`)
+  })
+  return { ...(result as T), timedOut: false }
+}
 
 const LOGIN_PATTERNS = [
   /\blog in\b/i,
@@ -1101,35 +1139,86 @@ async function executeSearch(
   for (const provider of providers) {
     const startedAt = Date.now()
     const requestedUrl = provider.resultsUrl(query)
-    let observation = await navigateToUrl(page, requestedUrl, mode, takeScreenshot, {
-      since: startedAt,
-      stealthProfile,
-      timeoutMs: providerTimeoutMs,
-      observations: [
-        `Issued a ${provider.label} query for: ${query}`,
-        ...(curatedEntryPoints.length > 0 && mode === 'stealth'
-          ? [`Approved stealth search providers: ${providers.map(entry => entry.label).join(', ')}`]
-          : []),
-      ],
-    })
-    // Many search engines render results via JS. Give their result selectors a
-    // short window to appear before evaluating the page.
-    await waitForMatchingSelectors(page, provider.resultSelectors, 5000)
-    let resultCount = await countMatchingSelectors(page, provider.resultSelectors)
-    let evaluation = evaluateSearchObservation(observation, query, provider, resultCount)
-
-    if (!evaluation.success) {
-      const usedForm = await maybeUseSearchForm(page, provider, query).catch(() => false)
-      if (usedForm) {
-        observation = await observePage(page, mode, takeScreenshot, {
+    const budgetMs = Math.min(providerTimeoutMs, PER_PROVIDER_FALLBACK_BUDGET_MS)
+    let attempt = await runWithTimeout(
+      (async () => {
+        let observation = await navigateToUrl(page, requestedUrl, mode, takeScreenshot, {
           since: startedAt,
-          observations: [...evaluation.observations, `Retried the query through the ${provider.label} on-page search form.`],
           stealthProfile,
+          timeoutMs: budgetMs,
+          observations: [
+            `Issued a ${provider.label} query for: ${query}`,
+            ...(curatedEntryPoints.length > 0 && mode === 'stealth'
+              ? [`Approved stealth search providers: ${providers.map(entry => entry.label).join(', ')}`]
+              : []),
+          ],
         })
-        resultCount = await countMatchingSelectors(page, provider.resultSelectors)
-        evaluation = evaluateSearchObservation(observation, query, provider, resultCount)
+        // Many search engines render results via JS. Give their result selectors a
+        // short window to appear before evaluating the page.
+        await waitForMatchingSelectors(page, provider.resultSelectors, 5000)
+        let resultCount = await countMatchingSelectors(page, provider.resultSelectors)
+        let evaluation = evaluateSearchObservation(observation, query, provider, resultCount)
+
+        if (!evaluation.success) {
+          const usedForm = await maybeUseSearchForm(page, provider, query).catch(() => false)
+          if (usedForm) {
+            observation = await observePage(page, mode, takeScreenshot, {
+              since: startedAt,
+              observations: [...evaluation.observations, `Retried the query through the ${provider.label} on-page search form.`],
+              stealthProfile,
+            })
+            resultCount = await countMatchingSelectors(page, provider.resultSelectors)
+            evaluation = evaluateSearchObservation(observation, query, provider, resultCount)
+          }
+        }
+
+        return { observation, evaluation, resultCount, timedOut: false }
+      })(),
+      budgetMs,
+    )
+    if (attempt.timedOut) {
+      const failureDetail = `Search provider "${provider.label}" exceeded the ${budgetMs}ms per-attempt budget.`
+      const failureObservation: PageObservation = {
+        url: requestedUrl,
+        title: '',
+        text: '',
+        html: '',
+        markdown: '',
+        links: [],
+        forms: [],
+        tables: [],
+        jsErrors: [],
+        networkErrors: [],
+        tabs: [],
+        activeTabIndex: 0,
+        pageSignature: '',
+        observations: [`Provider "${provider.label}" timed out after ${budgetMs}ms.`],
+        antiBotDetected: false,
+        loginDetected: false,
       }
+      const failureEvaluation = evaluateSearchObservation(failureObservation, query, provider, 0)
+      recordSearchProviderOutcome({
+        providerId: provider.id,
+        mode,
+        durationMs: Date.now() - startedAt,
+        success: false,
+        antiBotDetected: false,
+        loginDetected: false,
+        resultCount: 0,
+        useful: false,
+        error: failureDetail,
+      })
+      attempts.push({
+        provider,
+        observation: failureObservation,
+        evaluation: failureEvaluation,
+        resultCount: 0,
+        requestedUrl,
+      })
+      continue
     }
+
+    const { observation, evaluation, resultCount } = attempt
 
     recordSearchProviderOutcome({
       providerId: provider.id,
@@ -1699,3 +1788,12 @@ export function getUwafBrowserSession(userId: string, sessionId: string, mode: B
 }
 
 export { assertPublicHttpUrl }
+
+/**
+ * Test-only export. Exposes private helpers so unit tests can verify
+ * the per-provider timeout behaviour without spinning up Playwright.
+ */
+export const __test__ = {
+  runWithTimeout,
+  PER_PROVIDER_FALLBACK_BUDGET_MS,
+}

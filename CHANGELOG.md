@@ -5,6 +5,30 @@ All notable changes to PeakUI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-06-26 - Parallelize Sequential Search Bottlenecks
+
+This release cuts the user-visible latency of "search the web" workflows from ~15-30 s to ~5-10 s on cold start. The wins come from three targeted parallelism changes plus a per-tool-call fetch timeout. No behavior change for the model — same `searchAttempts` array, same result shape, same side effects. The user just gets an answer faster.
+
+### Changed — Provider fallback parallelism (`searchPublicWeb`)
+- **Configured-tier race**: when 2+ paid providers (Google, Brave, SearXNG) are configured, the first two are now raced in parallel via `Promise.allSettled` instead of falling through sequentially. The winner returns; the loser's result is discarded. 2 is the safe bound — typical configs are 0-2 paid providers, and 3 concurrent paid API calls is right at the rate-limit cliff.
+- **Single-provider branch**: when only 1 provider is configured, behavior is unchanged (single sequential call). The parallel code path adds no value for 1 provider and the overhead is wasted.
+- **3rd+ configured providers**: fall through sequentially as a safety net for the rare 3-provider case.
+- **Always-on tier** (DuckDuckGo → Bing): stays sequential because both are free and don't rate-limit us, and the user wants the first result.
+
+### Changed — Query-variant parallelism (`buildWebContext`)
+- **3 query variants × 8 s each used to serialize to ~24 s** (`generateSearchQueries` produces up to 3 variants — original + comparison sides + focused keyword). Now run in parallel via `Promise.allSettled` for ~8 s total. The dedup/seenUrls merge is still sequential. Each variant respects the caller's `AbortSignal` — aborting propagates through.
+
+### Changed — Per-provider timeout in `executeSearch`
+- **`PER_PROVIDER_FALLBACK_BUDGET_MS = 8_000`** — hard ceiling on any single provider attempt inside the `executeSearch` fallback chain. The full per-provider timeout (18-22 s) is still the cap the provider *may* consume; this is the wall budget we *allow* it before we move to the next. The new `runWithTimeout` helper races the per-provider body against a 8 s deadline. On timeout, the provider is recorded as a `failureDetail: 'Search provider "<x>" exceeded the 8000ms per-attempt budget.'` and we move on. The 8 s budget is enough for the JS render + `waitForMatchingSelectors` (5 s) on any working search engine — slow providers get cut. Single-provider setups (`preferredProviderId` set) are exempt and use the full `providerTimeoutMs`.
+
+### Changed — Per-tool-call fetch timeout (`fetch-summarize`)
+- **`FETCH_TOOL_TIMEOUT_MS = 45_000`** — tighter inner budget inside the 60 s `maxDuration` ceiling. If `fetchAsReadableText` hangs (e.g. Playwright context is wedged), the route now returns a clean **504** with `error: "Fetch timed out after 45s. The site may be slow or blocking automated access."` instead of a generic 500. The catch path distinguishes `AbortError` / `TimeoutError` from generic failures and returns the appropriate status code (504 vs 500).
+
+### Test coverage
+- **`src/lib/web-context.test.ts`** (new) — 5 tests: empty-query fast path, offline shape, configured-tier single-provider branch, configured-tier parallel race (call spread <50 ms, wall <500 ms for 300 ms latency), fallthrough to always-on tier, and `buildWebContext` query-variant parallelism (call spread <100 ms, wall <N × latency).
+- **`src/lib/uwaf-browser.test.ts`** (new) — 5 tests: `runWithTimeout` happy path, timeout path, late-rejection suppression, budget constant sanity, zero-budget edge case.
+- **`src/app/api/openclaw/fetch-summarize/route.test.ts`** (new) — 9 tests: missing/empty url, auth delegation, null-fetch 502, success 200, TimeoutError 504, AbortError 504, generic 500, signal/userId wiring, response shape.
+
 ## [0.14.0] - 2026-06-29 - Web Trust: Browser-Grade Fetch, Persistent Identity, Live-Browser Focus Fix
 
 This release makes the AI's web access ChatGPT-grade by combining a browser-grade fetch path for JavaScript-rendered sites (SEC EDGAR XBRL viewer, GitHub blobs, modern SPAs) with a first-party persistent identity layer so a returning direct-mode user keeps their cookies, locale, timezone, and login state across sessions. A new opt-in CAPTCHA/WAF solver adapter sits alongside the strategy layer for sites that gate access behind Cloudflare Turnstile or hCaptcha. The live-browser UX also gets the click-glitch fix that previously pulled DOM focus off the noVNC canvas within ~1 second of clicking the search bar.

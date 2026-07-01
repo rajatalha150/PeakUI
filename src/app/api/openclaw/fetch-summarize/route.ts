@@ -5,6 +5,13 @@ import { fetchAsReadableText } from '@/lib/web-fetch-strategy'
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
+// Inner fetch budget. The Next.js `maxDuration` above is 60s and is the
+// hard wall-clock cap; this is a tighter per-call budget that lets us
+// surface a useful error message instead of a generic 504 when the
+// Playwright context wedges. 45s = 60s outer - 15s headroom for routing,
+// auth, JSON serialization, etc.
+const FETCH_TOOL_TIMEOUT_MS = 45_000
+
 function splitSentences(text: string): string[] {
   return text
     .replace(/([.!?])\s+/g, '$1\n')
@@ -33,7 +40,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'url is required' }, { status: 400 })
     }
 
-    const source = await fetchAsReadableText(url, { signal: request.signal, userId: access.auth.user.id })
+    const source = await fetchAsReadableText(url, {
+      // Combine the request's natural abort signal with our tighter inner
+      // budget. Either one aborting will cancel the fetch.
+      signal: AbortSignal.any([
+        request.signal,
+        AbortSignal.timeout(FETCH_TOOL_TIMEOUT_MS),
+      ]),
+      userId: access.auth.user.id,
+    })
     if (!source) {
       return NextResponse.json(
         { success: false, url, error: 'Could not fetch or extract the page.' },
@@ -55,10 +70,23 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('[openclaw/fetch-summarize] POST error:', error)
+    // Distinguish timeout from generic failure. AbortSignal.timeout()
+    // throws a DOMException with name "TimeoutError" (or "AbortError" in
+    // older runtimes); the request's own signal abort surfaces as
+    // "AbortError" too. Either way the user gets a clear, actionable
+    // message instead of a generic 500.
+    const isAbort = error instanceof Error && (
+      error.name === 'AbortError'
+      || error.name === 'TimeoutError'
+      || /aborted|timeout/i.test(error.message)
+    )
+    const message = isAbort
+      ? `Fetch timed out after ${Math.round(FETCH_TOOL_TIMEOUT_MS / 1000)}s. The site may be slow or blocking automated access.`
+      : (error instanceof Error ? error.message : 'Fetch and summarize failed')
     return NextResponse.json({
       success: false,
       url,
-      error: error instanceof Error ? error.message : 'Fetch and summarize failed',
-    }, { status: 500 })
+      error: message,
+    }, { status: isAbort ? 504 : 500 })
   }
 }

@@ -759,59 +759,95 @@ export async function searchPublicWeb(
   if (!cleanQuery) return []
 
   const maxResults = Math.min(Math.max(options.maxResults ?? MAX_SEARCH_RESULTS, 1), 10)
+  const signal = options.signal
 
-  // Try Google Programmable Search if configured
-  if (GOOGLE_SEARCH_API_KEY && GOOGLE_SEARCH_CX) {
+  // Build the list of *configured* providers. These are the ones with API
+  // keys / endpoints set in the environment — they typically have rate
+  // limits and (sometimes) per-query cost, so we want to be deliberate
+  // about how many we hit at once. The always-on tier (DDG, Bing) is
+  // separate because they have no rate limit worth worrying about.
+  const configuredProviders: Array<{ label: string; search: typeof searchGoogle }> = []
+  if (GOOGLE_SEARCH_API_KEY && GOOGLE_SEARCH_CX) configuredProviders.push({ label: 'Google', search: searchGoogle })
+  if (BRAVE_API_KEY) configuredProviders.push({ label: 'Brave', search: searchBrave })
+  if (SEARXNG_URL) configuredProviders.push({ label: 'SearXNG', search: searchSearxng })
+
+  // Race the top 2 configured providers in parallel. 2 is the safe bound:
+  // typical configs are 0-2 paid providers, and 3 concurrent paid API
+  // calls is right at the rate-limit cliff. If only 1 is configured, fall
+  // through to sequential for that single call (the race adds no value
+  // and the parallel code path is wasted overhead).
+  if (configuredProviders.length >= 2) {
+    const [first, second] = configuredProviders
+    const settled = await Promise.allSettled([
+      safeSearch(first.search, cleanQuery, maxResults, signal, first.label),
+      safeSearch(second.search, cleanQuery, maxResults, signal, second.label),
+    ])
+    for (const result of settled) {
+      if (result.status === 'fulfilled' && result.value.length > 0) {
+        return result.value
+      }
+    }
+  } else if (configuredProviders.length === 1) {
+    const only = configuredProviders[0]
     try {
-      const results = await searchGoogle(cleanQuery, maxResults, options.signal)
+      const results = await only.search(cleanQuery, maxResults, signal)
       if (results.length > 0) return results
     } catch (error) {
-      if (options.signal?.aborted) throw error
-      console.warn('Google search failed:', error)
+      if (signal?.aborted) throw error
+      console.warn(`${only.label} search failed:`, error)
     }
   }
 
-  // Try Brave API if configured
-  if (BRAVE_API_KEY) {
+  // Remaining configured providers (3rd, 4th, ...) fall through
+  // sequentially. In practice this branch is rare (most deployments have
+  // 0-2 paid providers) but we keep the safety net.
+  for (let i = 2; i < configuredProviders.length; i += 1) {
+    const provider = configuredProviders[i]
     try {
-      const results = await searchBrave(cleanQuery, maxResults, options.signal)
+      const results = await provider.search(cleanQuery, maxResults, signal)
       if (results.length > 0) return results
     } catch (error) {
-      if (options.signal?.aborted) throw error
-      console.warn('Brave search failed:', error)
+      if (signal?.aborted) throw error
+      console.warn(`${provider.label} search failed:`, error)
     }
   }
 
-  // Try SearXNG if configured
-  if (SEARXNG_URL) {
-    try {
-      const results = await searchSearxng(cleanQuery, maxResults, options.signal)
-      if (results.length > 0) return results
-    } catch (error) {
-      if (options.signal?.aborted) throw error
-      console.warn('SearXNG search failed:', error)
-    }
-  }
-
-  // Try DuckDuckGo
+  // Always-on tier: DuckDuckGo, then Bing. Sequential — they're free,
+  // they don't rate-limit us, and we want the result of one before
+  // deciding whether to hit the other.
   try {
-    const results = await searchDuckDuckGo(cleanQuery, maxResults, options.signal)
+    const results = await searchDuckDuckGo(cleanQuery, maxResults, signal)
     if (results.length > 0) return results
   } catch (error) {
-    if (options.signal?.aborted) throw error
+    if (signal?.aborted) throw error
     console.warn('DuckDuckGo search failed, falling back to Bing:', error)
   }
 
-  // Final fallback: Bing
   try {
-    const results = await searchBing(cleanQuery, maxResults, options.signal)
+    const results = await searchBing(cleanQuery, maxResults, signal)
     if (results.length > 0) return results
   } catch (error) {
-    if (options.signal?.aborted) throw error
+    if (signal?.aborted) throw error
     console.warn('Bing search failed:', error)
   }
 
   return []
+}
+
+async function safeSearch(
+  fn: (query: string, maxResults: number, signal?: AbortSignal) => Promise<PublicWebSearchResult[]>,
+  query: string,
+  maxResults: number,
+  signal: AbortSignal | undefined,
+  label: string,
+): Promise<PublicWebSearchResult[]> {
+  try {
+    return await fn(query, maxResults, signal)
+  } catch (error) {
+    if (signal?.aborted) throw error
+    console.warn(`${label} search failed:`, error)
+    return []
+  }
 }
 
 export async function fetchPublicWebPage(
@@ -947,19 +983,28 @@ export async function buildWebContext(
   const allSearchResults: PublicWebSearchResult[] = []
   const seenUrls = new Set<string>()
 
-  for (const sq of searchQueries) {
-    try {
-      const results = await searchPublicWeb(sq, { maxResults: Math.ceil(maxResults / searchQueries.length) + 2, signal: options.signal })
-      for (const r of results) {
-        const normalized = r.url.split('#')[0]
-        if (!seenUrls.has(normalized)) {
-          seenUrls.add(normalized)
-          allSearchResults.push(r)
-        }
+  // Run each query variant in parallel — they don't share a Playwright
+  // page (searchPublicWeb only makes outbound HTTPS calls), so racing
+  // them is safe. Three variants × 8s each serializes to ~24s; parallel
+  // is ~8s. The dedup/seenUrls merge is still sequential below.
+  const settledSearches = await Promise.allSettled(
+    searchQueries.map(sq => searchPublicWeb(sq, {
+      maxResults: Math.ceil(maxResults / searchQueries.length) + 2,
+      signal: options.signal,
+    })),
+  )
+  for (const settled of settledSearches) {
+    if (settled.status === 'rejected') {
+      if (options.signal?.aborted) throw settled.reason
+      console.warn(`Search query failed:`, settled.reason)
+      continue
+    }
+    for (const r of settled.value) {
+      const normalized = r.url.split('#')[0]
+      if (!seenUrls.has(normalized)) {
+        seenUrls.add(normalized)
+        allSearchResults.push(r)
       }
-    } catch (error) {
-      if (options.signal?.aborted) throw error
-      console.warn(`Search query "${sq}" failed:`, error)
     }
   }
 
@@ -999,4 +1044,19 @@ export async function buildWebContext(
     context: sources.length > 0 ? buildContext(cleanQuery, sources) : '',
     sources: sources.slice(0, maxResults),
   }
+}
+
+/**
+ * Test-only re-exports. The provider functions are not part of the
+ * public API, but tests need to swap them out to assert the
+ * configured-tier parallelism behaviour. Use `vi.spyOn` on these to
+ * intercept calls from inside `searchPublicWeb`.
+ */
+export const __test__ = {
+  searchGoogle,
+  searchBrave,
+  searchSearxng,
+  searchDuckDuckGo,
+  searchBing,
+  safeSearch,
 }
