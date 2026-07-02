@@ -243,4 +243,77 @@ describe('openclaw tool parsing', () => {
       expect(req.path).toBe('/home/raza/Downloads/foo.zip')
     }
   })
+
+  it('does not promote a hallucinated <unified_browser> with XML child elements to a tool extraction', () => {
+    // Models occasionally emit Anthropic SDK-style tool calls
+    // (`<unified_browser><parameter name="action">open</parameter>...`)
+    // or function_calls wrappers. These are not legacy tool calls —
+    // the body is XML, not JSON, and the parser must reject them.
+    const input = [
+      'Let me check the price action.',
+      '<unified_browser>',
+      '<parameter name="action">open</parameter>',
+      '<parameter name="url">https://stockanalysis.com/stocks/pltr/</parameter>',
+      '<parameter name="description">Check today\'s PLTR price action</parameter>',
+      '</unified_browser>',
+      'After the page loads I will report back.',
+    ].join('\n')
+
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request).toBeUndefined()
+    // The user-visible text must NOT leak the raw broken XML.
+    expect(extracted.cleanedContent).not.toContain('<parameter')
+    expect(extracted.cleanedContent).not.toContain('<unified_browser>')
+    expect(extracted.cleanedContent).toContain('Let me check the price action.')
+    expect(extracted.cleanedContent).toContain('After the page loads I will report back.')
+  })
+
+  it('strips well-known malformed tool-call formats (Anthropic SDK, Qwen, etc.) from cleaned content', () => {
+    const cases: Array<{ label: string; input: string; mustNotContain: string[] }> = [
+      {
+        label: 'Anthropic function_calls wrapper',
+        input: '<tool_call>\n<function_calls>\n<invoke name="web">\n<parameter name="query">x</parameter>\n</invoke>\n</function_calls>\nDone.',
+        mustNotContain: ['<function_calls>', '<invoke', '<parameter', '<tool_call>', '</invoke>'],
+      },
+      {
+        label: 'Qwen-style tool_call tokens',
+        input: 'Hi<|tool_call|>stuff<|tool_call_end|>there<|end_of_turn|>',
+        mustNotContain: ['<|tool_call|>', '<|tool_call_end|>', '<|end_of_turn|>'],
+      },
+      {
+        label: 'antml namespace',
+        input: 'Pre<antml:function_calls>oops</antml:function_calls>post',
+        mustNotContain: ['<antml:function_calls>', '</antml:function_calls>'],
+      },
+      {
+        label: 'bare orphaned closing tags',
+        input: 'a</invoke>b</parameter>c</function_calls>d',
+        mustNotContain: ['</invoke>', '</parameter>', '</function_calls>'],
+      },
+    ]
+    for (const testCase of cases) {
+      const cleaned = stripAllToolTags(testCase.input)
+      for (const fragment of testCase.mustNotContain) {
+        expect(cleaned, `${testCase.label}: should not contain ${fragment}`).not.toContain(fragment)
+      }
+    }
+  })
+
+  it('still parses a correctly formed modern <openclaw_tool> after stripping junk wrappers', () => {
+    const input = [
+      'Some prose.',
+      '<function_calls>',
+      '<openclaw_tool name="web">{"query":"palantir stock"}</openclaw_tool>',
+      '</function_calls>',
+      'More prose.',
+    ].join('\n')
+
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request?.name).toBe('web')
+    if (extracted.request?.name !== 'web') throw new Error('Expected web request')
+    expect(extracted.request.request.query).toBe('palantir stock')
+    expect(extracted.cleanedContent).toContain('Some prose.')
+    expect(extracted.cleanedContent).toContain('More prose.')
+    expect(extracted.cleanedContent).not.toContain('<function_calls>')
+  })
 })

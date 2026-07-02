@@ -370,6 +370,19 @@ const STRIP_PARTIAL_TOOL_TAG = new RegExp(
   `<openclaw_tool\\s+name=["'](${TOOL_NAME_ALTERNATION})["']\\s*>[\\s\\S]*`,
   'gi',
 )
+// Legacy UWAF tool block pattern. Captures the whole body between
+// the legacy tags; the parser then runs `extractFirstJsonObject` to
+// pull the first JSON object out (in case the model accidentally
+// concatenated multiple tool calls in one legacy block).
+//
+// We do NOT require the body to start with `{` here — that check
+// happens after the match, by verifying that `extractFirstJsonObject`
+// returns a non-null result. This way a hallucinated
+// `<unified_browser>` containing XML child elements (e.g.
+// `<parameter name="...">...</parameter>` from a different SDK's
+// tool-call convention) is still captured, but its body fails the
+// JSON parse downstream and the call falls back to prose-only
+// recovery instead of being promoted to a tool extraction.
 const LEGACY_UWAF_TOOL_BLOCK_PATTERN = /<unified_browser>\s*([\s\S]*?)<\/unified_browser>/i
 
 function extractFirstJsonObject(raw: string): string | null {
@@ -445,6 +458,20 @@ function findToolBlock(content: string): { toolName: string; rawBlock: string; r
 
   const legacyMatch = content.match(LEGACY_UWAF_TOOL_BLOCK_PATTERN)
   if (legacyMatch) {
+    // Reject legacy matches whose body is not parseable as a JSON
+    // object. This prevents a hallucinated `<unified_browser>` block
+    // containing XML child elements (e.g. `<parameter>` from a
+    // different SDK's tool-call convention) from being promoted to
+    // a tool extraction — the prose should fall through to the
+    // narration-recovery path instead. The block is still stripped
+    // by `stripAllToolTags` so the user never sees it as raw text.
+    const body = legacyMatch[1]?.trim() || ''
+    if (!body.startsWith('{') && !body.startsWith('[')) {
+      return null
+    }
+    if (!parseToolJson(legacyMatch[1])) {
+      return null
+    }
     return {
       toolName: 'unified_browser',
       rawBlock: legacyMatch[0],
@@ -463,12 +490,52 @@ export function stripAllToolTags(content: string): string {
   // Remove partial/incomplete tags (no closing tag)
   cleaned = cleaned.replace(STRIP_PARTIAL_TOOL_TAG, '')
   cleaned = cleaned.replace(/<unified_browser>\s*[\s\S]*/gi, '')
+  // Strip well-known malformed tool-call formats the model occasionally
+  // hallucinates. These are different SDK conventions (Anthropic,
+  // Qwen, etc.) and must never reach the user as visible text.
+  cleaned = cleaned.replace(/<function_calls>[\s\S]*?<\/function_calls>/gi, '')
+  cleaned = cleaned.replace(/<function_calls>[\s\S]*/gi, '')
+  cleaned = cleaned.replace(/<invoke\s+[^>]*>[\s\S]*?<\/invoke>/gi, '')
+  cleaned = cleaned.replace(/<invoke\s+[^>]*>[\s\S]*/gi, '')
+  cleaned = cleaned.replace(/<parameter\s+[^>]*>[\s\S]*?<\/parameter>/gi, '')
+  cleaned = cleaned.replace(/<parameter\s+[^>]*>[\s\S]*/gi, '')
+  cleaned = cleaned.replace(/<antml:function_calls>[\s\S]*?<\/antml:function_calls>/gi, '')
+  cleaned = cleaned.replace(/<antml:function_calls>[\s\S]*/gi, '')
+  cleaned = cleaned.replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
+  cleaned = cleaned.replace(/<tool_call>[\s\S]*/gi, '')
+  cleaned = cleaned.replace(/<tool_use>[\s\S]*?<\/tool_use>/gi, '')
+  cleaned = cleaned.replace(/<tool_use>[\s\S]*/gi, '')
+  // Strip the bare closing tokens that leak from those formats.
+  cleaned = cleaned.replace(/<\/invoke>/gi, '')
+  cleaned = cleaned.replace(/<\/parameter>/gi, '')
+  cleaned = cleaned.replace(/<\/antml:function_calls>/gi, '')
+  cleaned = cleaned.replace(/<\|tool_call\|>/gi, '')
+  cleaned = cleaned.replace(/<\|tool_call_begin\|>/gi, '')
+  cleaned = cleaned.replace(/<\|tool_call_end\|>/gi, '')
+  cleaned = cleaned.replace(/<\|end_of_turn\|>/gi, '')
+  cleaned = cleaned.replace(/<\|endoftext\|>/gi, '')
+  cleaned = cleaned.replace(/<\|eot_id\|>/gi, '')
+  cleaned = cleaned.replace(/<\|startoftext\|>/gi, '')
+  cleaned = cleaned.replace(/<\|begin_of_text\|>/gi, '')
+  cleaned = cleaned.replace(/<\|im_end\|>/gi, '')
+  cleaned = cleaned.replace(/<\|im_start\|>/gi, '')
+  cleaned = cleaned.replace(/<\|end_header_id\|>/gi, '')
+  cleaned = cleaned.replace(/<\|start_header_id\|>/gi, '')
+  // Strip orphan opening tags from the well-known tool-call formats
+  // so the user never sees a bare `<tool_call>`, `<function_calls>`,
+  // or `<tool_use>` in the cleaned chat text.
+  cleaned = cleaned.replace(/<tool_use>/gi, '')
+  cleaned = cleaned.replace(/<tool_use\s+[^>]*>/gi, '')
+  cleaned = cleaned.replace(/<tool_call>/gi, '')
+  cleaned = cleaned.replace(/<tool_call\s+[^>]*>/gi, '')
   // Remove orphaned opening tags
   cleaned = cleaned.replace(/<openclaw_tool[^>]*>/gi, '')
   cleaned = cleaned.replace(/<unified_browser>/gi, '')
+  cleaned = cleaned.replace(/<function_calls>/gi, '')
   // Remove orphaned closing tags
   cleaned = cleaned.replace(/<\/openclaw_tool>/gi, '')
   cleaned = cleaned.replace(/<\/unified_browser>/gi, '')
+  cleaned = cleaned.replace(/<\/function_calls>/gi, '')
   return cleaned.replace(/\n{3,}/g, '\n\n').trim()
 }
 

@@ -181,3 +181,18 @@ describe('buildOpenClawSystemPrompt — stealth templates block wiring', () => {
     expect(prompt).not.toContain('Stealth query templates')
   })
 })
+
+describe('buildOpenClawSystemPrompt — tool format hygiene', () => {
+  it('explicitly tells the model to NOT use other SDK tool-call formats', () => {
+    const prompt = buildOpenClawSystemPrompt(baseContext)
+    // The prompt must mention each well-known hallucinated format so
+    // the model recognizes them as rejected and avoids emitting them.
+    expect(prompt).toContain('<tool_call>')
+    expect(prompt).toContain('<function_calls>')
+    expect(prompt).toContain('<invoke')
+    expect(prompt).toContain('<parameter')
+    expect(prompt).toContain('<|tool_call|>')
+    expect(prompt).toContain('<|im_start|>')
+    expect(prompt).toContain('<|end_of_turn|>')
+  })
+})
