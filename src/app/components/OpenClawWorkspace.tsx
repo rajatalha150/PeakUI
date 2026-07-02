@@ -10319,7 +10319,7 @@ export default function OpenClawWorkspace({
       <aside className={`openclaw-rail${railCollapsed ? ' is-collapsed' : ''}${isMobileViewport ? ' is-mobile-drawer' : ''}${isMobileViewport && mobileRailOpen ? ' is-mobile-open' : ''}`}>
         {!railCollapsed && (
           <>
-            <div style={{ padding: '18px 24px', display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'space-between' }}>
+            <div style={{ padding: '10px 12px 8px', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'space-between' }}>
               <button
                 type="button"
                 onClick={() => {
@@ -10331,7 +10331,7 @@ export default function OpenClawWorkspace({
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '12px',
+                  gap: '10px',
                   minWidth: 0,
                   background: 'transparent',
                   border: 'none',
@@ -10341,12 +10341,12 @@ export default function OpenClawWorkspace({
                   fontFamily: 'inherit',
                 }}
               >
-                <div style={{ position: 'relative', width: '85px', height: '85px', flexShrink: 0 }}>
-                  <Image src="/logo.png" alt="PeakUI" fill style={{ objectFit: 'contain' }} sizes="85px" />
+                <div style={{ position: 'relative', width: '40px', height: '40px', flexShrink: 0 }}>
+                  <Image src="/logo.png" alt="PeakUI" fill style={{ objectFit: 'contain' }} sizes="40px" />
                 </div>
                 <div>
-                  <h2 style={{ fontSize: '1.2rem', margin: 0 }}>PeakUI</h2>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px' }}>
+                  <h2 style={{ fontSize: '1.05rem', margin: 0, lineHeight: 1.15 }}>PeakUI</h2>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--success)', display: 'flex', alignItems: 'center', gap: '5px', marginTop: '2px' }}>
                     <div className="status-indicator"></div> Engine Online
                   </div>
                 </div>
@@ -10362,24 +10362,24 @@ export default function OpenClawWorkspace({
               </button>
             </div>
 
-            <div style={{ padding: '0 12px 8px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <div style={{ padding: '0 8px 6px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
               <div className={`nav-item${showingKnowledgeBase ? ' active' : ''}`} onClick={() => {
                 closeMobileChrome();
                 onNavigateToKnowledgeBase?.();
-              }} title="Go to Knowledge Base">
-                <Database size={18} /> <span className="sidebar-label">Knowledge Base (RAG)</span>
+              }} title="Go to Knowledge Base" style={{ margin: '0 4px', padding: '5px 10px', gap: '8px', fontSize: '0.88rem' }}>
+                <Database size={16} /> <span className="sidebar-label">Knowledge Base (RAG)</span>
               </div>
               <div className={`nav-item${!showingKnowledgeBase && !showingSettings ? ' active' : ''}`} onClick={() => {
                 closeMobileChrome();
                 onNavigateToWorkspace?.();
-              }} title="Go to WorkSpaces">
-                <Wand2 size={18} /> <span className="sidebar-label">WorkSpaces</span>
+              }} title="Go to WorkSpaces" style={{ margin: '0 4px', padding: '5px 10px', gap: '8px', fontSize: '0.88rem' }}>
+                <Wand2 size={16} /> <span className="sidebar-label">WorkSpaces</span>
               </div>
               <div className={`nav-item${showingSettings ? ' active' : ''}`} onClick={() => {
                 closeMobileChrome();
                 onNavigateToSettings?.();
-              }} title="Settings">
-                <Settings size={18} /> <span className="sidebar-label">Settings</span>
+              }} title="Settings" style={{ margin: '0 4px', padding: '5px 10px', gap: '8px', fontSize: '0.88rem' }}>
+                <Settings size={16} /> <span className="sidebar-label">Settings</span>
               </div>
             </div>
           </>
@@ -10453,7 +10453,7 @@ export default function OpenClawWorkspace({
             <div className="openclaw-rail-scroll" onClick={() => {
               if (sessionMenuOpen) setSessionMenuOpen(null);
               if (createMenuOpen) setCreateMenuOpen(false);
-            }}>
+            }} style={{ padding: '8px 8px 12px', gap: '8px' }}>
               <div className="openclaw-card openclaw-card-sessions" style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
