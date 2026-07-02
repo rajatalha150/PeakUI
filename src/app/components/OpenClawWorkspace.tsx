@@ -104,6 +104,29 @@ const MOBILE_BREAKPOINT = 960;
 const HUMAN_BROWSER_ASSIST_TIMEOUT_MS = 10 * 60 * 1000;
 const SESSION_PAGE_SIZE = 15;
 const OPENCLAW_MODEL_FAVORITES_STORAGE = 'peakui-openclaw-model-favorites';
+
+/**
+ * Parse a fetch() response body as JSON, but degrade gracefully when
+ * the server returned a non-JSON body (e.g. a Next.js 500 HTML page
+ * from an unhandled error in the route handler). Without this, a
+ * single 500 would surface to the model as the opaque string
+ * `Unexpected token '<', "<html>...is not valid JSON`, which is
+ * useless and pollutes the next reasoning turn. With this, the caller
+ * gets `{}` and can fall back to a clean `res.status`-based error.
+ */
+async function safeJson<T extends Record<string, unknown> = Record<string, unknown>>(
+  res: Response,
+): Promise<T> {
+  const contentType = res.headers.get('content-type') || ''
+  if (!contentType.includes('application/json')) {
+    return {} as T
+  }
+  try {
+    return (await res.json()) as T
+  } catch {
+    return {} as T
+  }
+}
 const IMAGE_ATTACHMENT_MODE_OPTIONS: Array<{ value: ImageAttachmentMode; label: string }> = [
   { value: 'vision-only', label: 'Vision only' },
   { value: 'vision+ocr', label: 'Vision + OCR' },
@@ -5254,7 +5277,7 @@ export default function OpenClawWorkspace({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
+      const data = await safeJson<{ error?: string; reason?: string; requiresApproval?: boolean; allowed?: boolean; description?: string; approvalToken?: string }>(res)
 
       if (!res.ok) {
         throw new Error(data.error || 'UWAF browser request failed');
@@ -5396,7 +5419,51 @@ export default function OpenClawWorkspace({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
+      // Use safeJson so a Next.js 5xx HTML page does not surface to the
+      // model as `Unexpected token '<', "<html>...`; the route's own
+      // `if (!res.ok)` branch below will then format a clean error.
+      // The runtime shape is UwafBrowserResult, but safeJson returns {}
+      // when the body is non-JSON, so we use a permissive type here and
+      // rely on the existing typeof/Array.isArray guards.
+      const data = await safeJson<Record<string, unknown>>(res) as Partial<{
+        action: string
+        currentUrl: string
+        title: string
+        text: string
+        links: unknown[]
+        forms: unknown[]
+        tables: unknown[]
+        markdown: string
+        mode: 'direct' | 'stealth'
+        stealthProfile: 'normal' | 'high'
+        source: 'clear_web' | 'dark_web'
+        success: boolean
+        error: string
+        requestedUrl: string
+        requestedQuery: string
+        finalUrl: string
+        redirected: boolean
+        httpStatus: number
+        queryMatched: boolean
+        resultCount: number
+        antiBotDetected: boolean
+        loginDetected: boolean
+        jsErrors: string[]
+        networkErrors: string[]
+        failureCode: string
+        failureDetail: string
+        pageChanged: boolean
+        navigationChanged: boolean
+        selectorMatched: boolean
+        waitTimedOut: boolean
+        searchEngine: string
+        searchProviderId: string
+        searchAttempts: unknown[]
+        tabs: unknown[]
+        activeTabIndex: number
+        observations: string[]
+        batchResults: unknown
+      }>
 
       if (!res.ok) {
         return {
@@ -5404,8 +5471,8 @@ export default function OpenClawWorkspace({
           currentUrl: typeof data.currentUrl === 'string' ? data.currentUrl : '',
           title: typeof data.title === 'string' ? data.title : '',
           text: typeof data.text === 'string' ? data.text : '',
-          links: Array.isArray(data.links) ? data.links : [],
-          forms: Array.isArray(data.forms) ? data.forms : [],
+          links: Array.isArray(data.links) ? data.links as UwafBrowserToolResultEntry['links'] : [],
+          forms: Array.isArray(data.forms) ? data.forms as UwafBrowserToolResultEntry['forms'] : [],
           mode: (payload.browserMode as 'direct' | 'stealth') || 'direct',
           source: payload.browserMode === 'stealth' ? 'dark_web' as const : 'clear_web' as const,
           success: false,
@@ -5419,17 +5486,17 @@ export default function OpenClawWorkspace({
       }
 
       return {
-        action: data.action,
-        currentUrl: data.currentUrl || '',
-        title: data.title || '',
-        text: data.text || data.markdown || '',
-        links: data.links || [],
-        forms: data.forms || [],
-        tables: data.tables || [],
-        markdown: data.markdown || '',
-        mode: data.mode || 'direct',
+        action: typeof data.action === 'string' ? data.action : '',
+        currentUrl: typeof data.currentUrl === 'string' ? data.currentUrl : '',
+        title: typeof data.title === 'string' ? data.title : '',
+        text: typeof data.text === 'string' ? data.text : (typeof data.markdown === 'string' ? data.markdown : ''),
+        links: Array.isArray(data.links) ? data.links as UwafBrowserToolResultEntry['links'] : [],
+        forms: Array.isArray(data.forms) ? data.forms as UwafBrowserToolResultEntry['forms'] : [],
+        tables: Array.isArray(data.tables) ? data.tables as UwafBrowserToolResultEntry['tables'] : [],
+        markdown: typeof data.markdown === 'string' ? data.markdown : '',
+        mode: data.mode === 'stealth' ? 'stealth' : 'direct',
         stealthProfile: data.stealthProfile === 'high' ? 'high' : data.stealthProfile === 'normal' ? 'normal' : undefined,
-        source: data.source || 'clear_web',
+        source: data.source === 'dark_web' ? 'dark_web' : 'clear_web',
         success: data.success !== false,
         error: typeof data.error === 'string' ? data.error : undefined,
         requestedUrl: typeof data.requestedUrl === 'string' ? data.requestedUrl : undefined,
@@ -5461,12 +5528,12 @@ export default function OpenClawWorkspace({
                 && typeof attempt.resultCount === 'number';
             })
           : [],
-        tabs: Array.isArray(data.tabs) ? data.tabs : [],
+        tabs: Array.isArray(data.tabs) ? data.tabs as UwafBrowserToolResultEntry['tabs'] : [],
         activeTabIndex: typeof data.activeTabIndex === 'number' ? data.activeTabIndex : undefined,
         observations: Array.isArray(data.observations)
           ? data.observations.filter((item: unknown): item is string => typeof item === 'string')
           : [],
-        batchResults: data.batchResults,
+        batchResults: data.batchResults as UwafBrowserToolResultEntry['batchResults'],
       };
     } catch (error) {
       return {
