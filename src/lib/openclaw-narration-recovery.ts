@@ -146,6 +146,13 @@ export function synthesizeToolCallFromNarration(
   const browser = synthesizeUnifiedBrowser(cleaned)
   if (browser) return browser
 
+  // Unified browser — page-name recovery (fallback when prose names a
+  // sub-page of the same site as the last successful tool call but no URL
+  // is in the prose). This catches the high-frequency "I'll proceed to
+  // the X page" failure mode without a second model invocation.
+  const browserByName = synthesizeUnifiedBrowserByPageName(cleaned, ctx)
+  if (browserByName) return browserByName
+
   // Filesystem — highest-frequency bug surface per the chat transcript; runs
   // after shell so commands with embedded paths go to shell first.
   const filesystem = synthesizeFilesystem(cleaned, allowedPaths)
@@ -346,6 +353,156 @@ function synthesizeUnifiedBrowser(content: string): NarrationRecovery | null {
     args: { url, description: 'auto-recovered from prose narration' },
     matchedPattern: 'unified_browser.url',
   }
+}
+
+/**
+ * Site → page-name → URL-shape catalog. Used by the page-name recovery
+ * synthesizer below to turn prose like "open the dark pool flow page" into
+ * a real `unified_browser action=open` call when the prior tool was on the
+ * same site.
+ *
+ * Kept short on purpose: the goal is to recover the high-frequency
+ * failure mode where the model says "I'll proceed to the X page" without
+ * naming a URL, *not* to memorize every page on every site. Add to it
+ * as new failure modes surface.
+ */
+const KNOWN_SITE_PAGES: ReadonlyArray<{
+  site: RegExp
+  pages: ReadonlyArray<{ name: RegExp; buildPath: (content: string) => string | null }>
+}> = [
+  {
+    site: /^https?:\/\/(?:www\.)?whalestream\.com\//i,
+    pages: [
+      {
+        name: /\b(?:the\s+)?top\s+options\s+(?:whale\s+)?flow(?:\s+page)?\b/i,
+        buildPath: () => '/market-data/top-options-flow',
+      },
+      {
+        name: /\b(?:the\s+)?(?:top\s+)?dark\s*pool(?:\s+(?:and|&)\s+(?:equit(?:y|ies)\s+)?(?:whale\s+)?flow)?(?:\s+(?:scanner|page))?\b/i,
+        buildPath: () => '/market-data/top-dark-pool-flow',
+      },
+      {
+        name: /\b(?:the\s+)?top\s+open\s+interest(?:\s+(?:changes|change|movements?))?\b/i,
+        buildPath: () => '/market-data/top-open-interest',
+      },
+      {
+        name: /\b(?:the\s+)?(?:news|ipo\s+calendar|earnings\s+calendar)(?:\s+(?:page|tab))?\b/i,
+        buildPath: (content) => {
+          if (/\bnews\b/i.test(content)) return '/market-data/news'
+          if (/\bipo\s+calendar\b/i.test(content)) return '/market-data/ipo-calendar'
+          if (/\b(?:earnings|quarterly\s+earnings)\s+calendar\b/i.test(content)) return '/market-data/earnings-calendar'
+          return null
+        },
+      },
+      {
+        name: /\b(?:the\s+)?([A-Z]{1,5})\s+market\s+(?:activity\s+)?tracker\b/i,
+        buildPath: (content) => {
+          const m = content.match(/\b([A-Z]{1,5})\b/)
+          return m ? `/market-tracker/${m[1].toUpperCase()}` : null
+        },
+      },
+    ],
+  },
+  {
+    site: /^https?:\/\/(?:www\.)?unusualwhales\.com\//i,
+    pages: [
+      {
+        name: /\b(?:the\s+)?([A-Z]{1,5})\s+institutions?(?:\s+(?:page|tab))?\b/i,
+        buildPath: (content) => {
+          const m = content.match(/\b([A-Z]{1,5})\b/)
+          return m ? `/stock/${m[1].toUpperCase()}/institutions` : null
+        },
+      },
+      {
+        name: /\b(?:the\s+)?([A-Z]{1,5})\s+overview\b/i,
+        buildPath: (content) => {
+          const m = content.match(/\b([A-Z]{1,5})\b/)
+          return m ? `/stock/${m[1].toUpperCase()}/overview` : null
+        },
+      },
+      {
+        name: /\b(?:the\s+)?live\s+options\s+flow\b/i,
+        buildPath: () => '/live-options-flow',
+      },
+      {
+        name: /\b(?:the\s+)?dashboard\b/i,
+        buildPath: () => '/dashboard',
+      },
+    ],
+  },
+  {
+    site: /^https?:\/\/(?:html\.)?duckduckgo\.com\//i,
+    pages: [
+      {
+        name: /\bsearch(?:\s+(?:results|page))?\s+for\s+["“”'`]([^"“”'`\n]+)["“”'`]/i,
+        buildPath: (content) => {
+          const m = content.match(/for\s+["“”'`]([^"“”'`\n]+)["“”'`]/i)
+          return m ? `/?q=${encodeURIComponent(m[1].trim())}&ia=web` : null
+        },
+      },
+    ],
+  },
+  {
+    site: /^https?:\/\/(?:www\.)?holdingschannel\.com\//i,
+    pages: [
+      {
+        name: /\b(?:the\s+)?([A-Z]{1,5})\s+institutional\s+(?:ownership|holders?)\b/i,
+        buildPath: (content) => {
+          const m = content.match(/\b([A-Z]{1,5})\b/)
+          return m ? `/institutional/holders-of-${m[1].toLowerCase()}/` : null
+        },
+      },
+    ],
+  },
+]
+
+/**
+ * Recover a `unified_browser action=open` call from prose that *names* a
+ * page on the same site as the last successful tool. This is the safety
+ * net for the failure mode where the model says "I'll proceed to the dark
+ * pool flow page now" without ever emitting a URL.
+ *
+ * Requires the prior tool to be a `unified_browser` action with a `url`
+ * field — we resolve the new URL against the prior URL's origin so this
+ * cannot accidentally point at a different site. If the page name doesn't
+ * match any known shape, or the prior tool isn't `unified_browser`, or
+ * the prior URL is from a site we don't have a catalog for, returns null
+ * and the runtime falls through to the existing recovery-nudge path.
+ */
+function synthesizeUnifiedBrowserByPageName(
+  content: string,
+  ctx: NarrationRecoveryContext,
+): NarrationRecovery | null {
+  if (!ctx.lastSuccessfulToolRequest) return null
+  if (ctx.lastSuccessfulToolRequest.name !== 'unified_browser') return null
+  const prev = ctx.lastSuccessfulToolRequest.request as { action?: string; url?: string } | undefined
+  const prevUrl = prev?.url
+  if (!prevUrl || typeof prevUrl !== 'string') return null
+
+  for (const catalog of KNOWN_SITE_PAGES) {
+    if (!catalog.site.test(prevUrl)) continue
+    for (const page of catalog.pages) {
+      if (!page.name.test(content)) continue
+      const path = page.buildPath(content)
+      if (!path) continue
+      let resolved: string
+      try {
+        resolved = new URL(path, prevUrl).toString()
+      } catch {
+        continue
+      }
+      return {
+        toolName: 'unified_browser',
+        args: {
+          action: 'open',
+          url: resolved,
+          description: 'auto-recovered page name from prose narration',
+        },
+        matchedPattern: 'unified_browser.pageName',
+      }
+    }
+  }
+  return null
 }
 
 function synthesizeTaxReturn(content: string): NarrationRecovery | null {

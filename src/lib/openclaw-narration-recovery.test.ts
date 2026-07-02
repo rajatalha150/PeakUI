@@ -156,6 +156,139 @@ describe('synthesizeToolCallFromNarration — unified_browser', () => {
   })
 })
 
+describe('synthesizeToolCallFromNarration — unified_browser page-name recovery', () => {
+  const WHALESTREAM_PRIOR = {
+    name: 'unified_browser' as const,
+    request: {
+      action: 'open',
+      url: 'https://www.whalestream.com/market-data/top-options-flow?flow=all',
+    },
+  }
+  const UNUSUAL_WHALES_PRIOR = {
+    name: 'unified_browser' as const,
+    request: { action: 'open', url: 'https://unusualwhales.com/dashboard' },
+  }
+  const HOLDINGS_PRIOR = {
+    name: 'unified_browser' as const,
+    request: { action: 'open', url: 'https://www.holdingschannel.com/' },
+  }
+
+  it('recovers "the dark pool flow page" on WhaleStream (the user bug case)', () => {
+    const r = synthesizeToolCallFromNarration(
+      'I can continue. I was waiting for each page result to come back before calling the next tool. The last tool result just arrived, so I\'ll proceed to the dark pool flow page now.',
+      { lastSuccessfulToolRequest: WHALESTREAM_PRIOR },
+    )
+    expect(r?.toolName).toBe('unified_browser')
+    expect((r?.args as { url: string }).url).toBe(
+      'https://www.whalestream.com/market-data/top-dark-pool-flow',
+    )
+    expect(r?.matchedPattern).toBe('unified_browser.pageName')
+  })
+
+  it('recovers "open the SPY market tracker" on WhaleStream', () => {
+    const r = synthesizeToolCallFromNarration(
+      'Now opening the SPY market tracker to pull the OI table.',
+      { lastSuccessfulToolRequest: WHALESTREAM_PRIOR },
+    )
+    expect((r?.args as { url: string }).url).toBe(
+      'https://www.whalestream.com/market-tracker/SPY',
+    )
+  })
+
+  it('recovers "the top options flow" on WhaleStream', () => {
+    const r = synthesizeToolCallFromNarration(
+      'Going back to the top options flow to compare.',
+      { lastSuccessfulToolRequest: WHALESTREAM_PRIOR },
+    )
+    expect((r?.args as { url: string }).url).toBe(
+      'https://www.whalestream.com/market-data/top-options-flow',
+    )
+  })
+
+  it('recovers "the META institutions page" on Unusual Whales', () => {
+    const r = synthesizeToolCallFromNarration(
+      'Let me check the META institutions page for recent 13F changes.',
+      { lastSuccessfulToolRequest: UNUSUAL_WHALES_PRIOR },
+    )
+    expect((r?.args as { url: string }).url).toBe(
+      'https://unusualwhales.com/stock/META/institutions',
+    )
+  })
+
+  it('recovers "the META overview" on Unusual Whales', () => {
+    const r = synthesizeToolCallFromNarration(
+      'Opening the META overview tab now.',
+      { lastSuccessfulToolRequest: UNUSUAL_WHALES_PRIOR },
+    )
+    expect((r?.args as { url: string }).url).toBe(
+      'https://unusualwhales.com/stock/META/overview',
+    )
+  })
+
+  it('recovers "the NVDA institutional ownership" on HoldingsChannel', () => {
+    const r = synthesizeToolCallFromNarration(
+      'Pulling the NVDA institutional ownership page to see top holders.',
+      { lastSuccessfulToolRequest: HOLDINGS_PRIOR },
+    )
+    expect((r?.args as { url: string }).url).toBe(
+      'https://www.holdingschannel.com/institutional/holders-of-nvda/',
+    )
+  })
+
+  it('returns null when the last successful tool was not unified_browser', () => {
+    const r = synthesizeToolCallFromNarration(
+      'I\'ll proceed to the dark pool flow page now.',
+      {
+        lastSuccessfulToolRequest: {
+          name: 'web',
+          request: { query: 'something else', description: '' },
+        },
+      },
+    )
+    // Should not synthesize a unified_browser call when the prior context
+    // is the wrong tool. (May be null, or may match another synthesizer —
+    // we only assert it's not a pageName recovery for the wrong context.)
+    expect(
+      r === null || r.matchedPattern !== 'unified_browser.pageName',
+    ).toBe(true)
+  })
+
+  it('returns null when the page name is not in any known catalog entry', () => {
+    const r = synthesizeToolCallFromNarration(
+      'I\'ll proceed to the mastodon page now.',
+      { lastSuccessfulToolRequest: WHALESTREAM_PRIOR },
+    )
+    expect(r).toBeNull()
+  })
+
+  it('returns null when the prior URL is from a site not in the catalog', () => {
+    const r = synthesizeToolCallFromNarration(
+      'I\'ll proceed to the dark pool flow page now.',
+      {
+        lastSuccessfulToolRequest: {
+          name: 'unified_browser',
+          request: { action: 'open', url: 'https://example.com/random' },
+        },
+      },
+    )
+    expect(r).toBeNull()
+  })
+
+  it('buildOpenClawToolRequestFromNarration maps the pageName recovery to action=open', () => {
+    const r = synthesizeToolCallFromNarration(
+      'proceed to the dark pool flow page now.',
+      { lastSuccessfulToolRequest: WHALESTREAM_PRIOR },
+    )
+    expect(r).not.toBeNull()
+    const req = buildOpenClawToolRequestFromNarration(r!)
+    expect(req?.name).toBe('unified_browser')
+    expect((req?.request as { action: string; url: string }).action).toBe('open')
+    expect((req?.request as { url: string }).url).toBe(
+      'https://www.whalestream.com/market-data/top-dark-pool-flow',
+    )
+  })
+})
+
 describe('synthesizeToolCallFromNarration — tax_return', () => {
   it('matches "generating tax return for 2024"', () => {
     const r = synthesizeToolCallFromNarration('Generating tax return for 2024 now.')

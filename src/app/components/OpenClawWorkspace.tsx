@@ -89,6 +89,7 @@ import {
   buildOpenClawToolRequestFromNarration,
   synthesizeToolCallFromNarration,
 } from '@/lib/openclaw-narration-recovery';
+import { buildNarrationNudgeText } from '@/lib/openclaw-narration-nudge';
 import UwafNetworkPanel from './UwafNetworkPanel';
 import LiveBrowserView from './LiveBrowserView';
 import BrowserModal from './BrowserModal';
@@ -8082,10 +8083,13 @@ export default function OpenClawWorkspace({
             if (invalidToolBlock) {
               recoveryText = 'Your last message did not contain a valid tool block — either the wrapper was malformed, incomplete, or duplicated. Re-emit exactly ONE complete tool call (the registered tool names and the exact wrapper format are listed in the system prompt). If no tool is needed, give your final answer directly in plain text instead of starting a wrapper.'
             } else {
-              const hintTool = lastSuccessfulToolRequest?.name
-              const hintLabel = hintTool ? describeToolDisplayName(hintTool) : 'the most relevant tool'
-              const exampleShape = buildRecoveryWrapperExample(hintTool)
-              recoveryText = `You described what you were about to do (for example a browser action or document generation) but stopped before emitting the matching tool block. The wrapper is mandatory — bare prose, fenced JSON, or partial wrappers are all rejected. End your reply with exactly ONE tool call wrapped like this (replace the placeholders with your actual content — do not copy this template verbatim):\n\n${exampleShape}\n\nUse the ${hintLabel} tool name if it matches the user's request. If no tool is needed, give your final answer directly in plain text instead of starting a wrapper.`
+              recoveryText = buildNarrationNudgeText({
+                lastSuccessfulToolRequest: lastSuccessfulToolRequest
+                  ? { name: lastSuccessfulToolRequest.name, request: lastSuccessfulToolRequest.request }
+                  : null,
+                proseContent: normalizedAssistant.content,
+                invalidToolBlock: false,
+              })
             }
             const recoveryNotice: OpenClawMessage = {
               id: randomUUID(),
