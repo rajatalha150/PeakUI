@@ -363,3 +363,157 @@ describe('formatUwafBrowserToolResult — end-to-end crash fixture', () => {
     expect(out).toContain('Title: Search Results')
   })
 })
+
+describe('humanizeUwafFailureCode', () => {
+  it('returns null for empty or null inputs', () => {
+    expect(__test__.humanizeUwafFailureCode(null)).toBeNull()
+    expect(__test__.humanizeUwafFailureCode(undefined)).toBeNull()
+    expect(__test__.humanizeUwafFailureCode('')).toBeNull()
+    expect(__test__.humanizeUwafFailureCode('   ')).toBeNull()
+  })
+
+  it('humanizes tor_unavailable with the canonical guidance keyword', () => {
+    const out = __test__.humanizeUwafFailureCode('tor_unavailable')
+    expect(out?.short).toContain('Tor proxy is unreachable')
+    expect(out?.detail).toContain('TOR_PROXY_URL')
+  })
+
+  it('humanizes timeout differently for .onion vs clear-web', () => {
+    const clear = __test__.humanizeUwafFailureCode('timeout', { isOnion: false })
+    const onion = __test__.humanizeUwafFailureCode('timeout', { isOnion: true })
+    expect(clear?.short).toContain('site did not respond')
+    expect(onion?.short).toContain('.onion site did not respond')
+  })
+
+  it('humanizes anti_bot_detected with the wait_for_user next step', () => {
+    const out = __test__.humanizeUwafFailureCode('anti_bot_detected')
+    expect(out?.short).toContain('CAPTCHA')
+    expect(out?.detail).toContain('wait_for_user')
+  })
+
+  it('humanizes login_required with the wait_for_user next step', () => {
+    const out = __test__.humanizeUwafFailureCode('login_required')
+    expect(out?.detail).toContain('wait_for_user')
+  })
+
+  it('humanizes onion_not_found with the v3 length reminder', () => {
+    const out = __test__.humanizeUwafFailureCode('onion_not_found')
+    expect(out?.short).toContain('.onion address is unreachable')
+    expect(out?.detail).toContain('v3 .onion is 56')
+    expect(out?.detail).toContain('verified unreachable after 2 attempts')
+  })
+
+  it('humanizes search_failed + zero results as "all providers returned zero"', () => {
+    const out = __test__.humanizeUwafFailureCode('search_failed', { resultCount: 0 })
+    expect(out?.short).toContain('zero results')
+    expect(out?.detail).toContain('Direct mode')
+  })
+
+  it('humanizes search_failed + non-zero results as "results did not match"', () => {
+    const out = __test__.humanizeUwafFailureCode('search_failed', { resultCount: 5 })
+    expect(out?.short).toContain('did not produce a usable results page')
+  })
+
+  it('humanizes empty_response', () => {
+    const out = __test__.humanizeUwafFailureCode('empty_response')
+    expect(out?.short).toContain('empty body')
+  })
+
+  it('humanizes homepage_bounce', () => {
+    const out = __test__.humanizeUwafFailureCode('homepage_bounce')
+    expect(out?.short).toContain('search homepage')
+  })
+
+  it('humanizes unknown codes with a generic message that quotes the original', () => {
+    const out = __test__.humanizeUwafFailureCode('mystery_code')
+    expect(out?.short).toContain('failed')
+    expect(out?.detail).toContain('mystery_code')
+  })
+})
+
+describe('formatUwafBrowserToolResult — failure-path humanization', () => {
+  it('emits a "What this means" + "Next step" block for tor_unavailable', () => {
+    const out = formatUwafBrowserToolResult(buildBaseEntry({
+      action: 'search',
+      mode: 'stealth',
+      source: 'dark_web',
+      success: false,
+      failureCode: 'tor_unavailable',
+      error: 'Tor proxy is down',
+      currentUrl: '',
+      title: '',
+    }))
+    expect(out).toContain('What this means:')
+    expect(out).toContain('Tor proxy is unreachable')
+    expect(out).toContain('Next step:')
+    expect(out).toContain('TOR_PROXY_URL')
+  })
+
+  it('emits a "verified unreachable after 2 attempts" detail for onion_not_found', () => {
+    const out = formatUwafBrowserToolResult(buildBaseEntry({
+      action: 'open',
+      mode: 'stealth',
+      source: 'dark_web',
+      success: false,
+      failureCode: 'onion_not_found',
+      currentUrl: 'http://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion/',
+      title: 'Ahmia',
+    }))
+    expect(out).toContain('verified unreachable after 2 attempts')
+  })
+})
+
+describe('formatUwafBrowserToolResult — clustered results digest', () => {
+  it('emits a "Clustered results" section with categories when the digest is present', () => {
+    const out = formatUwafBrowserToolResult(buildBaseEntry({
+      action: 'search',
+      mode: 'stealth',
+      source: 'dark_web',
+      success: true,
+      currentUrl: 'https://ahmia.fi/search/?q=foo',
+      title: 'Ahmia',
+      links: [
+        { index: 0, text: 'A', url: 'http://a.onion/' },
+        { index: 1, text: 'B', url: 'http://b.onion/' },
+      ],
+      clusteredResults: {
+        categories: {
+          market: [
+            { url: 'http://a.onion/', title: 'Dark Market', snippet: 'vendor listings', category: 'market', providerId: 'ahmia', rank: 1 },
+          ],
+          forum: [
+            { url: 'http://b.onion/', title: 'Discussion Board', snippet: 'forum threads', category: 'forum', providerId: 'onionway', rank: 1 },
+          ],
+          'link-list': [],
+          news: [],
+          service: [],
+          unknown: [],
+        },
+        total: 2,
+        presentCategories: ['market', 'forum'],
+        dedupStats: { input: 4, unique: 2, dropped: 2 },
+        providersUsed: ['ahmia', 'onionway'],
+      },
+    }))
+    expect(out).toContain('Clustered results (2 unique after dedup of 4')
+    expect(out).toContain('providers: ahmia, onionway')
+    expect(out).toContain('[market]')
+    expect(out).toContain('Dark Market -> http://a.onion/')
+    expect(out).toContain('[forum]')
+  })
+
+  it('does not emit the clustered section when total is zero', () => {
+    const out = formatUwafBrowserToolResult(buildBaseEntry({
+      action: 'search',
+      success: true,
+      clusteredResults: {
+        categories: { market: [], forum: [], 'link-list': [], news: [], service: [], unknown: [] },
+        total: 0,
+        presentCategories: [],
+        dedupStats: { input: 0, unique: 0, dropped: 0 },
+        providersUsed: [],
+      },
+    }))
+    expect(out).not.toContain('Clustered results')
+  })
+})

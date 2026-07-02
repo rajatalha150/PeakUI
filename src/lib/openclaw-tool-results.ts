@@ -120,6 +120,26 @@ export interface UwafBrowserToolResultEntry {
     links: Array<{ index: number; text: string; url: string }>;
     depth: number;
   }>;
+  /**
+   * Optional clustered result digest for stealth searches. Mirrors the
+   * shape on `UwafBrowserResult.clusteredResults` (uwaf-browser.ts).
+   * When present, the formatter renders a compact, category-grouped
+   * bullet list in addition to the full link list above.
+   */
+  clusteredResults?: {
+    categories: Record<string, Array<{
+      url: string;
+      title: string;
+      snippet: string;
+      category: string;
+      providerId: string;
+      rank: number;
+    }>>;
+    total: number;
+    presentCategories: string[];
+    dedupStats: { input: number; unique: number; dropped: number };
+    providersUsed: string[];
+  };
 }
 
 /**
@@ -135,6 +155,124 @@ function isJunkLinkUrl(url: string): boolean {
   if (lower.includes(';base64,')) return true
   if (url.length > MAX_LINK_URL_LENGTH) return true
   return false
+}
+
+/**
+ * Human-readable guidance for a `failureCode` value produced by the
+ * unified_browser runtime. The raw codes are technical and the model
+ * can't reliably distinguish "Tor is down" from "Ahmia is anti-botting
+ * us" from "the .onion is dead" without help.
+ *
+ * Returns a `{ short, detail }` pair:
+ *   - `short`: a one-line summary the model can quote to the user.
+ *   - `detail`: actionable guidance including the next step the model
+ *               should usually take (use a different provider, switch
+ *               modes, request human takeover, etc.).
+ *
+ * The failure code set is the union of `UwafFailureCode` in
+ * `uwaf-browser.ts:100-114` plus the onion-resolution codes in
+ * `uwaf-pool.ts:135-144`. Unrecognized codes fall through to a
+ * generic "search did not succeed" message so the model still gets
+ * something useful.
+ */
+export interface UwafFailureGuidance {
+  short: string
+  detail: string
+}
+
+export function humanizeUwafFailureCode(
+  code: string | undefined | null,
+  context: { mode?: 'direct' | 'stealth'; resultCount?: number; isOnion?: boolean } = {},
+): UwafFailureGuidance | null {
+  if (!code) return null
+  const normalized = code.trim().toLowerCase()
+  if (!normalized) return null
+  switch (normalized) {
+    case 'tor_unavailable':
+      return {
+        short: 'The Tor proxy is unreachable from this container.',
+        detail: 'Verify `tor-proxy` is healthy and `TOR_PROXY_URL` resolves to a reachable SOCKS5 endpoint. Direct mode still works for clear-web research.',
+      }
+    case 'timeout':
+      return {
+        short: context.isOnion
+          ? 'The .onion site did not respond within the configured budget.'
+          : 'The site did not respond within the configured budget.',
+        detail: 'Tor circuits can take 5-30 seconds to build for new destinations. Try again, or switch to a different approved provider via `providerId`.',
+      }
+    case 'anti_bot_detected':
+      return {
+        short: 'The destination presented a CAPTCHA or anti-bot challenge.',
+        detail: 'Use `wait_for_user` to let the user solve it, or switch to a different approved provider.',
+      }
+    case 'login_required':
+      return {
+        short: 'The destination requires authentication.',
+        detail: 'Use `wait_for_user` to let the user sign in, then resume from the observed page state.',
+      }
+    case 'connection_refused':
+      return {
+        short: context.isOnion
+          ? 'The .onion service refused the connection.'
+          : 'The site refused the connection.',
+        detail: 'The destination may be offline. Try a different approved entry point, or use `wait_for_user` if the user can verify the URL.',
+      }
+    case 'onion_not_found':
+      return {
+        short: 'The .onion address is unreachable or no longer exists.',
+        detail: 'Verify the address — v3 .onion is 56 characters, lowercase a-z and 2-7 only. Address verified unreachable after 2 attempts.',
+      }
+    case 'navigation_failed':
+      return {
+        short: 'The page failed to load.',
+        detail: 'The destination may be down or blocking automated access. Try a different approved entry point, or switch to Direct mode if the topic is also indexed on the clear web.',
+      }
+    case 'homepage_bounce':
+      return {
+        short: 'The search request bounced back to a search homepage.',
+        detail: 'The provider may have rate-limited or rejected the query phrasing. Try a different query, or switch to another approved provider.',
+      }
+    case 'search_failed':
+      if ((context.resultCount ?? 0) === 0) {
+        return {
+          short: 'All approved providers returned zero results for this query.',
+          detail: 'Try a different query phrasing. If the topic is also indexed on the clear web, switch to Direct mode.',
+        }
+      }
+      return {
+        short: 'The search did not produce a usable results page.',
+        detail: 'The provider loaded a page but the result blocks did not match the query strongly enough. Try a different provider, or refine the query.',
+      }
+    case 'empty_response':
+      return {
+        short: 'The destination returned an empty body.',
+        detail: 'The site may be offline or blocking automated access. Try a different approved entry point.',
+      }
+    case 'invalid_onion_host':
+      return {
+        short: 'The .onion URL is malformed.',
+        detail: 'v3 .onion is 56 characters, lowercase a-z and 2-7 only. Verify the address.',
+      }
+    default:
+      return {
+        short: 'The browser action failed.',
+        detail: `Unrecognized failure code: "${code}". Use a different approved provider, or switch modes if the topic is also available on the clear web.`,
+      }
+  }
+}
+
+/**
+ * Detect whether a URL is an .onion address. Used to pick the right
+ * humanized message for the failure code (e.g. "The .onion site did
+ * not respond" vs "The site did not respond").
+ */
+function isOnionUrlLocal(url: string | undefined): boolean {
+  if (!url) return false
+  try {
+    return new URL(url).hostname.toLowerCase().endsWith('.onion')
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -207,6 +345,18 @@ export function formatUwafBrowserToolResult(entry: UwafBrowserToolResultEntry): 
     }
     if (entry.failureDetail?.trim() && entry.failureDetail.trim() !== entry.error?.trim()) {
       lines.push(`Detail: ${entry.failureDetail.trim()}`);
+    }
+    // Human-readable guidance keyed off the failure code. This is the
+    // actionable text the model uses to decide the next step (switch
+    // providers, use wait_for_user, switch modes, etc.).
+    const guidance = humanizeUwafFailureCode(entry.failureCode, {
+      mode: entry.mode,
+      resultCount: entry.resultCount,
+      isOnion: isOnionUrlLocal(entry.requestedUrl) || isOnionUrlLocal(entry.finalUrl) || isOnionUrlLocal(entry.currentUrl),
+    });
+    if (guidance) {
+      lines.push('', `What this means: ${guidance.short}`);
+      lines.push(`Next step: ${guidance.detail}`);
     }
     if (entry.searchAttempts && entry.searchAttempts.length > 0) {
       lines.push('', 'Provider attempts:');
@@ -294,6 +444,27 @@ export function formatUwafBrowserToolResult(entry: UwafBrowserToolResultEntry): 
     });
   }
 
+  // Clustered-result digest (stealth searches). The full link list
+  // above is still emitted; this section is the structured shortcut
+  // the model can read first to skip rank-1 spam and find the
+  // strongest surviving rows.
+  if (entry.clusteredResults && entry.clusteredResults.total > 0) {
+    const cr = entry.clusteredResults
+    lines.push(
+      '',
+      `Clustered results (${cr.total} unique after dedup of ${cr.dedupStats.input}, providers: ${cr.providersUsed.join(', ')}):`,
+    )
+    for (const category of cr.presentCategories) {
+      const rows = cr.categories[category]
+      if (!rows || rows.length === 0) continue
+      lines.push(`  [${category}]`)
+      for (const row of rows.slice(0, 5)) {
+        const snippet = row.snippet ? ` — ${row.snippet.slice(0, 160)}` : ''
+        lines.push(`  - ${row.title} -> ${row.url}${snippet}`)
+      }
+    }
+  }
+
   if (entry.forms.length > 0) {
     lines.push('', 'Forms:');
     entry.forms.forEach(form => {
@@ -362,4 +533,5 @@ export const __test__ = {
   truncateWithMarker,
   compactLinks,
   isJunkLinkUrl,
+  humanizeUwafFailureCode,
 }

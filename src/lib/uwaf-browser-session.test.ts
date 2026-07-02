@@ -234,3 +234,76 @@ describe('uwaf browser cross-tab link resolution', () => {
     expect(retrieved?.visitedPages[0].url).toBe('https://example.com/lookup')
   })
 })
+
+describe('uwaf browser reopen_recent', () => {
+  it('resolves a URL from searchHistory by index', async () => {
+    const { resolveReopenRecentTarget } = await import('./uwaf-browser')
+    const session = makeSession({
+      searchHistory: [
+        {
+          query: 'leaked documents',
+          mode: 'stealth',
+          providerId: 'ahmia',
+          providerLabel: 'Ahmia',
+          resultCount: 5,
+          success: true,
+          topUrls: ['http://a.onion/x', 'http://b.onion/y'],
+          searchedAt: new Date().toISOString(),
+        },
+      ],
+    })
+    expect(resolveReopenRecentTarget(session, 'search', 0)).toBe('http://a.onion/x')
+  })
+
+  it('resolves a URL from tabSnapshots by index', async () => {
+    const { resolveReopenRecentTarget } = await import('./uwaf-browser')
+    const session = makeSession({
+      tabSnapshots: [
+        { tabIndex: 0, url: 'http://a.onion/x', title: 'A', links: [], forms: [], active: true },
+        { tabIndex: 1, url: 'http://b.onion/y', title: 'B', links: [], forms: [], active: false },
+      ],
+    })
+    expect(resolveReopenRecentTarget(session, 'tab', 1)).toBe('http://b.onion/y')
+  })
+
+  it('throws when recentKind is missing', async () => {
+    const { resolveReopenRecentTarget } = await import('./uwaf-browser')
+    expect(() => resolveReopenRecentTarget(makeSession(), undefined, 0)).toThrow(/recentKind/)
+  })
+
+  it('throws when recentIndex is missing', async () => {
+    const { resolveReopenRecentTarget } = await import('./uwaf-browser')
+    expect(() => resolveReopenRecentTarget(makeSession(), 'search', undefined)).toThrow(/recentIndex/)
+  })
+
+  it('throws when the search entry has no top URLs (zero-result search)', async () => {
+    const { resolveReopenRecentTarget } = await import('./uwaf-browser')
+    const session = makeSession({
+      searchHistory: [
+        {
+          query: 'no results',
+          mode: 'stealth',
+          providerId: 'ahmia',
+          providerLabel: 'Ahmia',
+          resultCount: 0,
+          success: false,
+          topUrls: [],
+          searchedAt: new Date().toISOString(),
+        },
+      ],
+    })
+    expect(() => resolveReopenRecentTarget(session, 'search', 0)).toThrow(/no top result URLs/)
+  })
+
+  it('throws when the search index is out of range', async () => {
+    const { resolveReopenRecentTarget } = await import('./uwaf-browser')
+    const session = makeSession({ searchHistory: [] })
+    expect(() => resolveReopenRecentTarget(session, 'search', 5)).toThrow(/no search entry/)
+  })
+
+  it('throws when the tab index is out of range', async () => {
+    const { resolveReopenRecentTarget } = await import('./uwaf-browser')
+    const session = makeSession({ tabSnapshots: [] })
+    expect(() => resolveReopenRecentTarget(session, 'tab', 5)).toThrow(/no tab entry/)
+  })
+})

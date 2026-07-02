@@ -12,6 +12,7 @@ export type ServerStreamStatus =
   | 'tool-filesystem'
   | 'tool-browser'
   | 'tool-uwaf-browser'
+  | 'tool-uwaf-browser-stealth'
 
 export type UiStreamPhase = 'preparing-context' | ServerStreamStatus
 
@@ -59,6 +60,8 @@ export function getStreamPhaseLabel(phase: UiStreamPhase | null): string {
       return 'Browsing page...'
     case 'tool-uwaf-browser':
       return 'Browsing page...'
+    case 'tool-uwaf-browser-stealth':
+      return 'Routing through Tor...'
     default:
       return 'Preparing response...'
   }

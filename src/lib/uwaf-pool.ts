@@ -1349,7 +1349,8 @@ export async function checkOnionResolution(rawUrl: string, profile: StealthProfi
     checkedAt,
     url: parsed.href,
     hostname: parsed.hostname,
-    ...lastError.classified,
+    failureCode: lastError.classified.failureCode,
+    error: `${lastError.classified.error || 'Address unreachable.'} Address verified unreachable after 2 attempts.`,
   }
 }
 

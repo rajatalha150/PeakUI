@@ -53,7 +53,7 @@ export interface OpenClawBrowserToolRequest {
 }
 
 export interface OpenClawUwafBrowserToolRequest {
-  action: 'search' | 'open' | 'click' | 'type' | 'press' | 'wait_for_selector' | 'scroll' | 'back' | 'forward' | 'new_tab' | 'list_tabs' | 'switch_tab' | 'close_tab' | 'select' | 'hover' | 'extract_table' | 'research_batch' | 'fill' | 'submit' | 'extract' | 'wait_for_user'
+  action: 'search' | 'open' | 'click' | 'type' | 'press' | 'wait_for_selector' | 'scroll' | 'back' | 'forward' | 'new_tab' | 'list_tabs' | 'switch_tab' | 'close_tab' | 'select' | 'hover' | 'extract_table' | 'research_batch' | 'fill' | 'submit' | 'extract' | 'wait_for_user' | 'reopen_recent'
   query?: string
   providerId?: string
   url?: string
@@ -73,6 +73,11 @@ export interface OpenClawUwafBrowserToolRequest {
   deltaY?: number
   optionValue?: string
   optionLabel?: string
+  /** reopen_recent: which list to reopen from. 'search' picks a prior
+   *  search result URL by index; 'tab' picks a prior tab snapshot. */
+  recentKind?: 'search' | 'tab'
+  /** reopen_recent: 0-based index into searchHistory or tabSnapshots. */
+  recentIndex?: number
   description?: string
 }
 
@@ -298,6 +303,7 @@ function isUwafAction(value: unknown): value is OpenClawUwafBrowserToolRequest['
     || value === 'submit'
     || value === 'extract'
     || value === 'wait_for_user'
+    || value === 'reopen_recent'
 }
 
 function isUwafBrowserMode(value: unknown): value is 'direct' | 'stealth' {
@@ -754,6 +760,14 @@ export function extractOpenClawToolRequest(content: string): {
         request.optionLabel = parsed.optionLabel.trim()
       }
 
+      if (parsed.recentKind === 'search' || parsed.recentKind === 'tab') {
+        request.recentKind = parsed.recentKind
+      }
+
+      if (typeof parsed.recentIndex === 'number' && Number.isInteger(parsed.recentIndex) && parsed.recentIndex >= 0) {
+        request.recentIndex = parsed.recentIndex
+      }
+
       if (
         (action === 'search' && !request.query)
         || (action === 'open' && !request.url)
@@ -765,6 +779,7 @@ export function extractOpenClawToolRequest(content: string): {
         || (action === 'select' && (!request.selector || (!request.optionValue && !request.optionLabel)))
         || (action === 'hover' && !request.selector)
         || (action === 'research_batch' && !request.url)
+        || (action === 'reopen_recent' && (!request.recentKind || request.recentIndex === undefined))
       ) {
         return { cleanedContent: stripAllToolTags(content) }
       }

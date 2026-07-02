@@ -8367,8 +8367,9 @@ export default function OpenClawWorkspace({
           }
           lastToolRequestSignature = effectiveToolSignature;
           duplicateToolRequestCount = 0;
+          const uwafBrowserMode = (request.request as { browserMode?: 'stealth' | 'direct' } | undefined)?.browserMode;
           try {
-            setStreamPhase('tool-uwaf-browser');
+            setStreamPhase(uwafBrowserMode === 'stealth' ? 'tool-uwaf-browser-stealth' : 'tool-uwaf-browser');
             const uwafResult = await requestUwafBrowserAction(request.request as OpenClawUwafBrowserToolRequest, {
               messageId: nextAssistantId,
               sessionId: chatId,

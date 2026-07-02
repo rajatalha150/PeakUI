@@ -29,6 +29,7 @@ const VALID_ACTIONS: UwafBrowserRequest['action'][] = [
   'research_batch',
   'fill',
   'submit',
+  'reopen_recent',
 ]
 
 function describeRequestTarget(body: Record<string, unknown>): string | undefined {
@@ -199,6 +200,8 @@ export async function POST(request: NextRequest) {
   if (typeof body.deltaY === 'number' && Number.isFinite(body.deltaY)) uwafRequest.deltaY = body.deltaY
   if (typeof body.optionValue === 'string' && body.optionValue.trim()) uwafRequest.optionValue = body.optionValue.trim()
   if (typeof body.optionLabel === 'string' && body.optionLabel.trim()) uwafRequest.optionLabel = body.optionLabel.trim()
+  if (body.recentKind === 'search' || body.recentKind === 'tab') uwafRequest.recentKind = body.recentKind
+  if (typeof body.recentIndex === 'number' && Number.isInteger(body.recentIndex) && body.recentIndex >= 0) uwafRequest.recentIndex = body.recentIndex
 
   const resolvedStealthProfile = resolveStealthProfileForRequest(uwafRequest, getDefaultStealthProfile())
   if (requestBrowserMode === 'stealth') {

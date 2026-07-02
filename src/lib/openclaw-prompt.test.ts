@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildOpenClawSystemPrompt } from './openclaw-prompt'
+import { buildOpenClawSystemPrompt, buildUwafStealthTemplatesBlock } from './openclaw-prompt'
 
 const baseContext = {
   provider: 'ollama' as const,
@@ -112,5 +112,72 @@ describe('buildOpenClawSystemPrompt', () => {
     expect(prompt).toContain('step-by-step navigation')
     expect(prompt).toContain('JS-heavy pages')
     expect(prompt).toContain('form interaction or login')
+  })
+})
+
+describe('buildUwafStealthTemplatesBlock', () => {
+  it('returns a non-empty block in stealth mode', () => {
+    const block = buildUwafStealthTemplatesBlock()
+    expect(block.length).toBeGreaterThan(0)
+    expect(block).toContain('Stealth query templates')
+  })
+
+  it('includes all six template categories', () => {
+    const block = buildUwafStealthTemplatesBlock()
+    expect(block).toContain('Journalism:')
+    expect(block).toContain('Leaks & archives:')
+    expect(block).toContain('Conspiracies & suppressed:')
+    expect(block).toContain('Underground communities:')
+    expect(block).toContain('OSINT & threat intel:')
+    expect(block).toContain('General dark-web research:')
+  })
+
+  it('renders each template as a quoted string (starts and ends with a double quote)', () => {
+    const block = buildUwafStealthTemplatesBlock()
+    // Pull out a few canonical templates and assert they are quoted.
+    expect(block).toContain('"leaked government documents archive onion"')
+    expect(block).toContain('"ransomware leak site"')
+    expect(block).toContain('"exclusive invite-only forum onion"')
+    expect(block).toContain('"dark web footprint search company"')
+  })
+
+  it('ends with the do-not-invent-phrasings reminder', () => {
+    const block = buildUwafStealthTemplatesBlock()
+    expect(block).toContain('Do not invent new query phrasings when a template matches')
+  })
+})
+
+describe('buildOpenClawSystemPrompt — stealth templates block wiring', () => {
+  function promptWithStealthMode(overrides: Partial<typeof baseContext> = {}) {
+    return buildOpenClawSystemPrompt({
+      ...baseContext,
+      ...overrides,
+      uwafBrowserMode: 'stealth',
+      internetToolEnabled: true,
+    })
+  }
+
+  it('includes the stealth templates block when mode is stealth', () => {
+    const prompt = promptWithStealthMode()
+    expect(prompt).toContain('Stealth query templates')
+    expect(prompt).toContain('"leaked government documents archive onion"')
+  })
+
+  it('omits the stealth templates block when mode is direct', () => {
+    const prompt = buildOpenClawSystemPrompt({
+      ...baseContext,
+      uwafBrowserMode: 'direct',
+      internetToolEnabled: true,
+    })
+    expect(prompt).not.toContain('Stealth query templates')
+  })
+
+  it('omits the stealth templates block when UWAF is denied', () => {
+    const prompt = buildOpenClawSystemPrompt({
+      ...baseContext,
+      uwafBrowserMode: 'deny',
+      internetToolEnabled: true,
+    })
+    expect(prompt).not.toContain('Stealth query templates')
   })
 })

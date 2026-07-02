@@ -99,6 +99,94 @@ function queryMatchesToolIntent(query: string | undefined, keywords: string[]): 
   return keywords.some(keyword => normalized.includes(keyword.toLowerCase()))
 }
 
+/**
+ * Curated query templates to bias the model toward phrasing that
+ * succeeds on real .onion search engines. Injected into the
+ * UNIFIED BROWSER CAPABILITY block when the active mode is stealth.
+ * Empty string in any other mode — callers should not include it.
+ *
+ * Templates are grouped by intent so the model can pick the closest
+ * match without inventing new phrasings. They are quoted verbatim so
+ * the model can copy them straight into the `query` field.
+ */
+export function buildUwafStealthTemplatesBlock(): string {
+  const groups: Array<{ label: string; queries: string[] }> = [
+    {
+      label: 'Journalism',
+      queries: [
+        'investigative journalism whistleblower secure drop',
+        'journalist anonymous tip drop box tor',
+        'leaked government documents archive onion',
+        'leaked corporate documents insider source',
+        'press freedom censorship circumvention tor',
+        'war crimes evidence archive dark web',
+      ],
+    },
+    {
+      label: 'Leaks & archives',
+      queries: [
+        'wiki mirror leaked archive',
+        'cryptome mirror onion',
+        'paradise papers offshore leaks',
+        'panama papers searchable database',
+        'diplomatic cables archive tor',
+        'military leaks archive',
+        'ransomware victim leak site',
+        'stolen data search engine',
+      ],
+    },
+    {
+      label: 'Conspiracies & suppressed',
+      queries: [
+        'declassified documents archive onion',
+        'hidden history archive tor',
+        'suppressed science research forum',
+        'alternative media censorship resistant',
+        'conspiracy discussion forum tor',
+        'UFO disclosure documents leaked',
+        'secret society documents archive',
+      ],
+    },
+    {
+      label: 'Underground communities',
+      queries: [
+        'exclusive invite-only forum onion',
+        'hacking forum dark web 2026',
+        'intelligence sharing forum tor',
+        'anonymous chatroom dark web',
+        'protest coordination tor',
+      ],
+    },
+    {
+      label: 'OSINT & threat intel',
+      queries: [
+        'breach database lookup email',
+        'dark web footprint search company',
+        'threat actor forum monitoring',
+        'malware sample exchange tor',
+        'stolen credentials market reviews',
+      ],
+    },
+    {
+      label: 'General dark-web research',
+      queries: [
+        'market news finance stocks',
+        'leaked database forum 2026',
+        'carding market reviews',
+        'ransomware leak site',
+      ],
+    },
+  ]
+  const lines: string[] = [
+    'Stealth query templates (use when the user\'s intent matches):',
+  ]
+  for (const group of groups) {
+    lines.push(`- ${group.label}: ${group.queries.map(query => `"${query}"`).join(', ')}.`)
+  }
+  lines.push('Prefer the closest template to the user\'s stated intent. Do not invent new query phrasings when a template matches.')
+  return lines.join('\n')
+}
+
 export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): string {
   const providerLabel = context.provider === 'openai-compatible'
     ? 'an external OpenAI-compatible provider'
@@ -312,9 +400,10 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
         'The unified browser renders pages with a real browser engine and returns sanitized Markdown content with tables extracted. The live browser is the visual browsing surface; static page screenshots are not used.',
         'Browser results now include evidence fields such as redirects, search-result counts, anti-bot/login detection, tab state, and recent JS/network failures. Treat those fields as authoritative.',
         `Use this exact format:\n${OPENCLAW_UWAF_BROWSER_TOOL_EXAMPLE}`,
-        'Supported unified_browser actions: search, open, click, type, press, wait_for_selector, scroll, back, forward, new_tab, list_tabs, switch_tab, close_tab, select, hover, extract, extract_table, research_batch, fill, submit, wait_for_user.',
+        'Supported unified_browser actions: search, open, click, type, press, wait_for_selector, scroll, back, forward, new_tab, list_tabs, switch_tab, close_tab, select, hover, extract, extract_table, research_batch, fill, submit, wait_for_user, reopen_recent.',
         `search: Search inside the visible shared browser. Direct mode can rotate among clear-web engines. Stealth mode rotates only among the approved onion-search providers configured for this deployment: ${stealthProviderLine || 'Ahmia'}. There is no stealth fallback to general clear-web engines.`,
         'open: Navigate to a URL. Returns page content, links, forms, and tables.',
+        'reopen_recent: Reopen a prior result without re-running the search. Pass {recentKind: "search", recentIndex: N} to navigate to the top URL from searchHistory[N], or {recentKind: "tab", recentIndex: N} to navigate to tabSnapshots[N]. Use this instead of repeating a search when the prior result is still valid.',
         'click: Follow a link by index or text from the last opened page.',
         'type: Fill a specific selector directly when form indexing is too weak.',
         'press: Send a key like Enter, Tab, or Escape, optionally scoped to a selector.',
@@ -347,6 +436,9 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
           'UWAF RUNTIME CONTEXT:',
           context.uwafRuntimeContext.trim(),
         );
+      }
+      if (uwafBrowserMode === 'stealth') {
+        lines.push(buildUwafStealthTemplatesBlock());
       }
     } else {
       lines.push('UNIFIED BROWSER: available for direct or Tor-routed browsing and search. Use one unified_browser tool block per response.');

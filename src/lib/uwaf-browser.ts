@@ -20,6 +20,29 @@ import {
   type UwafSearchAttempt,
   type UwafSearchProvider,
 } from './uwaf-search-providers'
+import {
+  dedupeAndClusterResults,
+  type SearchResultCategory,
+} from './uwaf-result-parser'
+
+/** Serializable shape of a clustered result digest that flows back to
+ *  the model. Matches the per-category lists the parser produces, but
+ *  the categories are an object keyed by the category name so JSON
+ *  consumers can iterate without an extra layer of indirection. */
+export interface UwafClusteredResults {
+  categories: Record<SearchResultCategory, Array<{
+    url: string
+    title: string
+    snippet: string
+    category: SearchResultCategory
+    providerId: string
+    rank: number
+  }>>
+  total: number
+  presentCategories: SearchResultCategory[]
+  dedupStats: { input: number; unique: number; dropped: number }
+  providersUsed: string[]
+}
 
 const MAX_TEXT_CHARS = 30_000
 const MAX_LINKS = 50
@@ -134,6 +157,7 @@ export type UwafAction =
   | 'submit'
   | 'extract'
   | 'wait_for_user'
+  | 'reopen_recent'
 
 export interface UwafBrowserRequest {
   action: UwafAction
@@ -157,6 +181,11 @@ export interface UwafBrowserRequest {
   deltaY?: number
   optionValue?: string
   optionLabel?: string
+  /** reopen_recent: which list to reopen from. 'search' picks a prior
+   *  search result URL by index; 'tab' picks a prior tab snapshot. */
+  recentKind?: 'search' | 'tab'
+  /** reopen_recent: 0-based index into searchHistory or tabSnapshots. */
+  recentIndex?: number
 }
 
 export interface UwafBrowserLink {
@@ -231,6 +260,16 @@ export interface UwafBrowserResult {
   tabs?: UwafBrowserTab[]
   activeTabIndex?: number
   observations?: string[]
+  /**
+   * Optional clustered result digest for stealth searches. When the
+   * search succeeded (or partially succeeded across multiple providers),
+   * the runtime parses each provider's result rows, dedupes by
+   * canonical URL, classifies them into categories, and emits a
+   * compact digest for the model. The full page markdown is still
+   * available via the `text` / `markdown` fields; this is the
+   * structured shortcut.
+   */
+  clusteredResults?: UwafClusteredResults
 }
 
 export interface UwafBatchResult {
@@ -975,6 +1014,7 @@ function toResult(
     submitted?: { url: string; method: 'GET' | 'POST'; fieldCount: number }
     batchResults?: UwafBatchResult[]
     textOverride?: string
+    clusteredResults?: UwafClusteredResults
   } = {},
 ): UwafBrowserResult {
   return {
@@ -1019,6 +1059,7 @@ function toResult(
     tabs: observation.tabs,
     activeTabIndex: observation.activeTabIndex,
     observations: observation.observations,
+    clusteredResults: options.clusteredResults,
   }
 }
 
@@ -1098,6 +1139,128 @@ async function navigateToUrl(
   })
 }
 
+/**
+ * Pure resolver for `action: 'reopen_recent'`. Pulls a URL from prior
+ * session state (searchHistory or tabSnapshots) by 0-based index and
+ * returns the absolute URL to navigate to, or throws with a clear
+ * message on a missing entry.
+ *
+ * Kept as a standalone exported function so the session-state code
+ * path can be unit-tested without spinning up Playwright.
+ */
+export function resolveReopenRecentTarget(
+  session: UwafBrowserSession,
+  kind: 'search' | 'tab' | undefined,
+  index: number | undefined,
+): string {
+  if (kind === undefined || index === undefined) {
+    throw new Error('reopen_recent requires recentKind and recentIndex.')
+  }
+  if (kind === 'search') {
+    const entry = session.searchHistory[index]
+    const url = entry?.topUrls?.[0]
+    if (!url && entry) {
+      throw new Error(`reopen_recent: search at index ${index} recorded no top result URLs.`)
+    }
+    if (!url) {
+      throw new Error(
+        `reopen_recent: no search entry at index ${index}. Session has ${session.searchHistory.length} entries.`,
+      )
+    }
+    return url
+  }
+  const tab = session.tabSnapshots[index]
+  if (!tab?.url) {
+    throw new Error(
+      `reopen_recent: no tab entry at index ${index}. Session has ${session.tabSnapshots.length} entries.`,
+    )
+  }
+  return tab.url
+}
+
+/**
+ * Best-effort writer that turns a finished search into an entry on
+ * the `dark-web-searches.md` workspace note. Skipped for direct mode
+ * (the note is dark-web specific) and for empty queries. The caller
+ * is expected to swallow any thrown error.
+ */
+async function writeDarkWebNoteIfApplicable(input: {
+  session: UwafBrowserSession
+  query: string
+  mode: BrowserMode
+  stealthProfile: StealthProfile
+  provider: UwafSearchProvider
+  resultCount: number
+  attempts: Array<{ provider: UwafSearchProvider; observation: PageObservation }>
+  success: boolean
+  failureCode?: string
+  startedAt: number
+}): Promise<void> {
+  if (input.mode !== 'stealth') return
+  if (!input.query.trim()) return
+  const { recordDarkWebSearchNote } = await import('./openclaw-workspace')
+  const observations = input.attempts.map(entry => ({
+    provider: entry.provider,
+    observation: entry.observation,
+    query: input.query,
+  }))
+  const { cluster, dedupStats } = dedupeAndClusterResults(observations)
+  const topResults = cluster.presentCategories
+    .flatMap(category => cluster.categories[category])
+    .slice(0, 10)
+    .map(result => ({
+      url: result.url,
+      title: result.title,
+      snippet: result.snippet,
+      category: result.category,
+    }))
+  await recordDarkWebSearchNote({
+    searchedAt: new Date().toISOString(),
+    mode: 'stealth',
+    stealthProfile: input.stealthProfile,
+    providerId: input.provider.id,
+    providerLabel: input.provider.label,
+    resultCount: input.success ? dedupStats.unique : input.resultCount,
+    durationMs: Date.now() - input.startedAt,
+    query: input.query,
+    topResults,
+    success: input.success,
+    failureCode: input.failureCode,
+  })
+}
+
+/**
+ * Build the clustered-result digest for a finished search.
+ *
+ * Walks the per-provider attempts and asks the result parser to pull
+ * rows from each provider's observation, dedup by canonical URL, and
+ * group by category. Used for both the success and the partial-failure
+ * paths in `executeSearch` so the model always sees the strongest
+ * surviving rows.
+ */
+function buildClusteredResults(
+  attempts: Array<{ provider: UwafSearchProvider; observation: PageObservation }>,
+  query: string,
+): UwafClusteredResults | undefined {
+  const observations = attempts
+    .filter(entry => entry.observation.links.length > 0 || entry.observation.markdown.length > 0)
+    .map(entry => ({
+      provider: entry.provider,
+      observation: entry.observation,
+      query,
+    }))
+  if (observations.length === 0) return undefined
+  const { cluster, dedupStats } = dedupeAndClusterResults(observations)
+  const providersUsed = Array.from(new Set(observations.map(o => o.provider.id)))
+  return {
+    categories: cluster.categories,
+    total: cluster.total,
+    presentCategories: cluster.presentCategories,
+    dedupStats,
+    providersUsed,
+  }
+}
+
 async function executeSearch(
   session: UwafBrowserSession,
   page: Page,
@@ -1128,6 +1291,7 @@ async function executeSearch(
     ? STEALTH_SEARCH_PROVIDER_TIMEOUT_MS
     : DIRECT_SEARCH_PROVIDER_TIMEOUT_MS
   const curatedEntryPoints = mode === 'stealth' ? getCuratedStealthEntryPoints() : []
+  const searchStartedAt = Date.now()
   const attempts: Array<{
     provider: UwafSearchProvider
     observation: PageObservation
@@ -1137,13 +1301,13 @@ async function executeSearch(
   }> = []
 
   for (const provider of providers) {
-    const startedAt = Date.now()
+    const providerStartedAt = Date.now()
     const requestedUrl = provider.resultsUrl(query)
     const budgetMs = Math.min(providerTimeoutMs, PER_PROVIDER_FALLBACK_BUDGET_MS)
     let attempt = await runWithTimeout(
       (async () => {
         let observation = await navigateToUrl(page, requestedUrl, mode, takeScreenshot, {
-          since: startedAt,
+          since: providerStartedAt,
           stealthProfile,
           timeoutMs: budgetMs,
           observations: [
@@ -1163,7 +1327,7 @@ async function executeSearch(
           const usedForm = await maybeUseSearchForm(page, provider, query).catch(() => false)
           if (usedForm) {
             observation = await observePage(page, mode, takeScreenshot, {
-              since: startedAt,
+              since: providerStartedAt,
               observations: [...evaluation.observations, `Retried the query through the ${provider.label} on-page search form.`],
               stealthProfile,
             })
@@ -1200,7 +1364,7 @@ async function executeSearch(
       recordSearchProviderOutcome({
         providerId: provider.id,
         mode,
-        durationMs: Date.now() - startedAt,
+        durationMs: Date.now() - providerStartedAt,
         success: false,
         antiBotDetected: false,
         loginDetected: false,
@@ -1223,7 +1387,7 @@ async function executeSearch(
     recordSearchProviderOutcome({
       providerId: provider.id,
       mode,
-      durationMs: Date.now() - startedAt,
+      durationMs: Date.now() - providerStartedAt,
       success: evaluation.success,
       antiBotDetected: observation.antiBotDetected,
       loginDetected: observation.loginDetected,
@@ -1253,6 +1417,20 @@ async function executeSearch(
       const topUrls = observation.links.slice(0, 5).map(link => link.url)
       recordSearchHistory(session, query, provider, resultCount, true, topUrls)
       commitObservationToSession(session, observation, 'search')
+      const clusteredResults = buildClusteredResults(attempts, query)
+      // Best-effort: write the dark-web note before returning. The
+      // writer is never allowed to fail the search.
+      await writeDarkWebNoteIfApplicable({
+        session,
+        query,
+        mode,
+        stealthProfile,
+        provider,
+        resultCount,
+        attempts,
+        success: true,
+        startedAt: searchStartedAt,
+      }).catch(() => undefined)
       return toResult('search', mode, observation, {
         success: true,
         requestedUrl,
@@ -1262,6 +1440,7 @@ async function executeSearch(
         searchEngine: provider.label,
         searchProviderId: provider.id,
         searchAttempts,
+        clusteredResults,
       })
     }
   }
@@ -1281,6 +1460,27 @@ async function executeSearch(
     recordSearchHistory(session, query, fallback.provider, fallback.resultCount, false)
     commitObservationToSession(session, fallback.observation, 'search')
   }
+
+  // Even on the failure path, attempt to cluster whatever rows did
+  // render. If two of three providers hit anti-bot, the third one
+  // may have produced 4 useful rows — show them.
+  const clusteredResults = buildClusteredResults(attempts, query)
+
+  // Best-effort: write the dark-web note even for failed searches, so
+  // the user can see what they tried and what came back. The writer
+  // never fails the search.
+  await writeDarkWebNoteIfApplicable({
+    session,
+    query,
+    mode,
+    stealthProfile,
+    provider: fallback.provider,
+    resultCount: fallback.resultCount,
+    attempts,
+    success: false,
+    failureCode: fallback.evaluation.failureCode,
+    startedAt: searchStartedAt,
+  }).catch(() => undefined)
 
   return toResult('search', mode, fallback.observation, {
     success: false,
@@ -1302,6 +1502,7 @@ async function executeSearch(
       failureCode: entry.evaluation.failureCode,
       failureDetail: entry.evaluation.failureDetail,
     })),
+    clusteredResults,
   })
 }
 
@@ -1384,6 +1585,24 @@ export async function runUwafBrowserAction(
       if (observation.screenshot) pushScreenshot(session, observation.screenshot)
       return toResult('open', mode, observation, {
         requestedUrl: request.url,
+        pageChanged: observation.pageSignature !== beforeSignature,
+        navigationChanged: observation.url !== beforeUrl,
+      })
+    }
+
+    case 'reopen_recent': {
+      // Pull a URL from prior session state (searchHistory[recentIndex] or
+      // tabSnapshots[recentIndex]) and navigate to it. Lets the model
+      // return to a prior result without re-running the search.
+      const targetUrl = resolveReopenRecentTarget(session, request.recentKind, request.recentIndex)
+      const since = Date.now()
+      const beforeUrl = page.url()
+      const beforeSignature = await page.title().catch(() => '')
+      const observation = await navigateToUrl(page, targetUrl, mode, takeScreenshot, { since, stealthProfile })
+      commitObservationToSession(session, observation, 'open')
+      if (observation.screenshot) pushScreenshot(session, observation.screenshot)
+      return toResult('reopen_recent', mode, observation, {
+        requestedUrl: targetUrl,
         pageChanged: observation.pageSignature !== beforeSignature,
         navigationChanged: observation.url !== beforeUrl,
       })
