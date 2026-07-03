@@ -42,7 +42,7 @@ describe('getShellCommandDecision', () => {
   })
 
   it('maps host-style managed workspace paths into the container workspace mount', () => {
-    expect(resolveContainerShellCwd('/tmp/peakui-openclaw-workspace/notes')).toBe(`${getOpenClawWorkspaceContainerRoot()}/notes`)
+    expect(resolveContainerShellCwd('~/.peakui/workspace/notes')).toBe(`${getOpenClawWorkspaceContainerRoot()}/notes`)
   })
 
   it('does not let container shell default to the PeakUI app runtime directory', () => {

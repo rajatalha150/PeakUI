@@ -38,7 +38,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
       - OPENCLAW_HOST_HOME_DIR=${OPENCLAW_HOST_HOME_DIR:-/home}
       - OPENCLAW_HOST_TMP_DIR=${OPENCLAW_HOST_TMP_DIR:-/tmp}
-      - OPENCLAW_HOST_WORKSPACE_DIR=${OPENCLAW_HOST_WORKSPACE_DIR:-/tmp/peakui-openclaw-workspace}
+      - OPENCLAW_HOST_WORKSPACE_DIR=${OPENCLAW_HOST_WORKSPACE_DIR:-/home/raza/.peakui/workspace}
       - OPENCLAW_HOST_EXECUTOR_URL=${OPENCLAW_HOST_EXECUTOR_URL:-http://127.0.0.1:4318}
       - OPENCLAW_HOST_EXECUTOR_TOKEN=${OPENCLAW_HOST_EXECUTOR_TOKEN:-}
       - TOR_PROXY_URL=${TOR_PROXY_URL:-socks5://localhost:9050}
@@ -57,7 +57,7 @@ services:
     volumes:
       - ${OPENCLAW_HOST_HOME_DIR:-/home}:/mnt/openclaw/home:ro
       - ${OPENCLAW_HOST_TMP_DIR:-/tmp}:/mnt/openclaw/tmp:ro
-      - ${OPENCLAW_HOST_WORKSPACE_DIR:-/tmp/peakui-openclaw-workspace}:/mnt/openclaw/workspace
+      - ${OPENCLAW_HOST_WORKSPACE_DIR:-/home/raza/.peakui/workspace}:/mnt/openclaw/workspace:rw
       - app_runtime:/var/lib/peakui
 
 volumes:

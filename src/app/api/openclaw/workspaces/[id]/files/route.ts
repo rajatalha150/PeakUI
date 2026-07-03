@@ -41,6 +41,10 @@ function isPathSafe(relativePath: string): boolean {
 async function resolveWorkspace(authUserId: string, workspaceId: string) {
   const record = await getOpenClawWorkspaceById(authUserId, workspaceId)
   if (!record) return null
+  // Ensure the workspace container path exists before any route resolves paths
+  // against it. On a fresh bind mount or after host restart the directory may
+  // be missing even though the metadata file exists on the persistent volume.
+  await fs.mkdir(record.containerPath, { recursive: true })
   return record
 }
 
@@ -169,7 +173,13 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
   const absolutePath = path.join(workspace.containerPath, relativePath)
   // Path safety double-check: ensure realpath (if it exists) is inside the workspace container.
-  const realWorkspaceRoot = await fs.realpath(workspace.containerPath).catch(() => workspace.containerPath)
+  const realWorkspaceRoot = await fs.realpath(workspace.containerPath).catch(async () => {
+    // If the container path does not yet exist (e.g. empty bind mount before
+    // first scaffold), create it and resolve again so the safety check below
+    // has a real root to compare against.
+    await fs.mkdir(workspace.containerPath, { recursive: true })
+    return fs.realpath(workspace.containerPath)
+  })
   let realTarget = absolutePath
   try {
     realTarget = await fs.realpath(absolutePath)
@@ -178,7 +188,12 @@ export async function GET(request: NextRequest, context: RouteContext) {
     // traversal attempts via realpath of the parent.
     const realParent = await fs.realpath(path.dirname(absolutePath)).catch(() => null)
     if (realParent && !realParent.startsWith(realWorkspaceRoot + path.sep) && realParent !== realWorkspaceRoot) {
-      return badRequest('Path is outside the workspace', 'outside_workspace', 403)
+      return badRequest(
+        `Path is outside the workspace: ${relativePath}`,
+        'outside_workspace',
+        403,
+        `Workspace root: ${workspace.containerPath} (resolved: ${realWorkspaceRoot}), parent: ${realParent}`,
+      )
     }
     return NextResponse.json(
       buildResponse(workspace, relativePath, [], false),
@@ -186,7 +201,12 @@ export async function GET(request: NextRequest, context: RouteContext) {
     )
   }
   if (!realTarget.startsWith(realWorkspaceRoot + path.sep) && realTarget !== realWorkspaceRoot) {
-    return badRequest('Path is outside the workspace', 'outside_workspace', 403)
+    return badRequest(
+      `Path is outside the workspace: ${relativePath}`,
+      'outside_workspace',
+      403,
+      `Workspace root: ${workspace.containerPath} (resolved: ${realWorkspaceRoot}), target: ${realTarget}`,
+    )
   }
 
   const CAP = 500
@@ -231,10 +251,18 @@ export async function POST(request: NextRequest, context: RouteContext) {
   }
 
   const absolutePath = path.join(workspace.containerPath, relativePath)
-  const realWorkspaceRoot = await fs.realpath(workspace.containerPath).catch(() => workspace.containerPath)
+  const realWorkspaceRoot = await fs.realpath(workspace.containerPath).catch(async () => {
+    await fs.mkdir(workspace.containerPath, { recursive: true })
+    return fs.realpath(workspace.containerPath)
+  })
   const realParent = await fs.realpath(path.dirname(absolutePath)).catch(() => null)
   if (!realParent || (!realParent.startsWith(realWorkspaceRoot + path.sep) && realParent !== realWorkspaceRoot)) {
-    return badRequest('Path is outside the workspace', 'outside_workspace', 403)
+    return badRequest(
+      `Path is outside the workspace: ${relativePath}`,
+      'outside_workspace',
+      403,
+      `Workspace root: ${workspace.containerPath} (resolved: ${realWorkspaceRoot}), parent: ${realParent}`,
+    )
   }
 
   // Optional If-Match optimistic concurrency control on writes. The client
@@ -349,16 +377,29 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return badRequest('from and to must be safe workspace-relative paths', 'invalid_path', 400)
   }
 
-  const realWorkspaceRoot = await fs.realpath(workspace.containerPath).catch(() => workspace.containerPath)
+  const realWorkspaceRoot = await fs.realpath(workspace.containerPath).catch(async () => {
+    await fs.mkdir(workspace.containerPath, { recursive: true })
+    return fs.realpath(workspace.containerPath)
+  })
   const fromAbs = path.join(workspace.containerPath, from)
   const toAbs = path.join(workspace.containerPath, to)
   const realFrom = await fs.realpath(fromAbs).catch(() => null)
   if (!realFrom || (!realFrom.startsWith(realWorkspaceRoot + path.sep) && realFrom !== realWorkspaceRoot)) {
-    return badRequest('from path is outside the workspace', 'outside_workspace', 403)
+    return badRequest(
+      `Path is outside the workspace: ${from}`,
+      'outside_workspace',
+      403,
+      `Workspace root: ${workspace.containerPath} (resolved: ${realWorkspaceRoot}), from: ${realFrom}`,
+    )
   }
   const realToParent = await fs.realpath(path.dirname(toAbs)).catch(() => null)
   if (!realToParent || (!realToParent.startsWith(realWorkspaceRoot + path.sep) && realToParent !== realWorkspaceRoot)) {
-    return badRequest('to path is outside the workspace', 'outside_workspace', 403)
+    return badRequest(
+      `Path is outside the workspace: ${to}`,
+      'outside_workspace',
+      403,
+      `Workspace root: ${workspace.containerPath} (resolved: ${realWorkspaceRoot}), to parent: ${realToParent}`,
+    )
   }
 
   try {
@@ -396,11 +437,19 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return badRequest('path is required and must be a safe workspace-relative path', 'invalid_path', 400)
   }
 
-  const realWorkspaceRoot = await fs.realpath(workspace.containerPath).catch(() => workspace.containerPath)
+  const realWorkspaceRoot = await fs.realpath(workspace.containerPath).catch(async () => {
+    await fs.mkdir(workspace.containerPath, { recursive: true })
+    return fs.realpath(workspace.containerPath)
+  })
   const absolutePath = path.join(workspace.containerPath, relativePath)
   const real = await fs.realpath(absolutePath).catch(() => null)
   if (!real || (!real.startsWith(realWorkspaceRoot + path.sep) && real !== realWorkspaceRoot)) {
-    return badRequest('Path is outside the workspace', 'outside_workspace', 403)
+    return badRequest(
+      `Path is outside the workspace: ${relativePath}`,
+      'outside_workspace',
+      403,
+      `Workspace root: ${workspace.containerPath} (resolved: ${realWorkspaceRoot}), target: ${real}`,
+    )
   }
 
   const recursive = request.nextUrl.searchParams.get('recursive') === 'true'

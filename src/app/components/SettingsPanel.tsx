@@ -148,14 +148,14 @@ const INITIAL_SETTINGS: UserSettings = {
   shellExecutionTarget: 'container',
   shellExecutionMode: 'ask-first',
   shellAllowedCommands: '',
-  shellHostAllowedRoots: '/tmp/peakui-openclaw-workspace',
+  shellHostAllowedRoots: '~/.peakui/workspace',
   shellHostAllowedEnvVars: 'PATH\nHOME\nUSER\nSHELL\nLANG\nTERM',
   shellHostMaxTimeoutMs: 60000,
   shellHostMaxOutputBytes: 262144,
   openClawFileAccessMode: 'read-only',
   openClawAllowedPaths: '',
   openClawFileWriteMode: 'ask-first',
-  openClawWritablePaths: '/tmp/peakui-openclaw-workspace',
+  openClawWritablePaths: '~/.peakui/workspace',
   openClawCodeExecutionMode: 'deny',
   openClawBrowserMode: 'deny',
   openClawUwafBrowserMode: 'deny',
@@ -452,7 +452,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
         .filter(Boolean);
       const workspaceRoot = mountedWritableRoots[0]
         || prev.openClawWritablePaths.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean)[0]
-        || '/tmp/peakui-openclaw-workspace';
+        || '~/.peakui/workspace';
       const defaultReadRoots = mountedReadRoots.length > 0 ? mountedReadRoots : ['/home', '/tmp'];
 
       if (preset === 'workspace') {
@@ -1727,7 +1727,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                 rows={4}
                 value={settings.shellHostAllowedRoots}
                 onChange={e => update('shellHostAllowedRoots', e.target.value)}
-                placeholder={`/tmp/peakui-openclaw-workspace\n/home/user/Desktop`}
+                placeholder={`~/.peakui/workspace\\n/home/user/Desktop`}
                 style={{ width: '100%', resize: 'vertical', fontFamily: 'monospace' }}
               />
             </Field>
@@ -1852,7 +1852,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             rows={4}
             value={settings.openClawWritablePaths}
             onChange={e => update('openClawWritablePaths', e.target.value)}
-            placeholder={`/tmp/peakui-openclaw-workspace`}
+            placeholder={`~/.peakui/workspace`}
             style={{ width: '100%', resize: 'vertical', fontFamily: 'monospace' }}
           />
           <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: '8px', lineHeight: 1.5 }}>

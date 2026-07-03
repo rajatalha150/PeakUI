@@ -218,7 +218,7 @@ export const OPENCLAW_FILESYSTEM_TOOL_EXAMPLE = `<openclaw_tool name="filesystem
 </openclaw_tool>`
 
 export const OPENCLAW_FILESYSTEM_WRITE_TOOL_EXAMPLE = `<openclaw_tool name="filesystem">
-{"action":"write","path":"/tmp/peakui-openclaw-workspace/notes/todo.md","content":"# TODO\\n- Inspect the crash logs","createDirectories":true}
+{"action":"write","path":"~/.peakui/workspace/notes/todo.md","content":"# TODO\\n- Inspect the crash logs","createDirectories":true}
 </openclaw_tool>`
 
 export const OPENCLAW_CODE_TOOL_EXAMPLE = `<openclaw_tool name="code">

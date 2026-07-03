@@ -47,6 +47,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   if (!workspace) {
     return NextResponse.json({ error: 'Workspace not found', code: 'not_found' }, { status: 404 })
   }
+  await fs.mkdir(workspace.containerPath, { recursive: true })
 
   let body: unknown
   try {
@@ -68,7 +69,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
     )
   }
 
-  const realWorkspaceRoot = await fs.realpath(workspace.containerPath).catch(() => workspace.containerPath)
+  const realWorkspaceRoot = await fs.realpath(workspace.containerPath).catch(async () => {
+    await fs.mkdir(workspace.containerPath, { recursive: true })
+    return fs.realpath(workspace.containerPath)
+  })
 
   const safePaths: string[] = []
   for (const raw of paths) {
@@ -79,7 +83,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const absolute = path.join(workspace.containerPath, relative)
     const real = await fs.realpath(absolute).catch(() => null)
     if (!real || (!real.startsWith(realWorkspaceRoot + path.sep) && real !== realWorkspaceRoot)) {
-      return NextResponse.json({ error: `Path is outside the workspace: ${relative}`, code: 'outside_workspace' }, { status: 403 })
+      return NextResponse.json(
+        {
+          error: `Path is outside the workspace: ${relative}`,
+          code: 'outside_workspace',
+          actionRequired: `Workspace root: ${workspace.containerPath} (resolved: ${realWorkspaceRoot}), target: ${real}`,
+        },
+        { status: 403 }
+      )
     }
     safePaths.push(relative)
   }
@@ -172,6 +183,6 @@ async function collectDirectoryEntries(absoluteDir: string, workspaceRoot: strin
       }
     }
   }
-  await walk(absoluteDir, path.basename(absoluteDir))
+  await walk(absoluteDir, '')
   return out
 }

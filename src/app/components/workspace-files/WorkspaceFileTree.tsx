@@ -72,7 +72,10 @@ export function flattenTreeRows({
         ? rootEntriesByDirectory.get(absoluteDir) ?? []
         : childrenByDirectory.get(absoluteDir) ?? []
     for (const entry of entries) {
-      const path = joinPath(absoluteDir, entry.name)
+      // The server returns entry.path as workspace-relative. Prefer it so the
+      // client never drifts from the canonical path, especially when cwd or
+      // inline expansion state could otherwise recompute a different prefix.
+      const path = entry.path || joinPath(absoluteDir, entry.name)
       // Apply the optional kind filter — used by the Move dialog (directories only).
       if (selectableKinds && !selectableKinds.includes(entry.kind)) continue
       if (entry.kind === 'directory') {

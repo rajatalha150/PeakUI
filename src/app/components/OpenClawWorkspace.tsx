@@ -755,7 +755,7 @@ function parseOpenClawSettingsResponse(data: Record<string, unknown>): ParsedOpe
     shellExecutionTarget: data.shellExecutionTarget === 'host' ? 'host' : 'container',
     shellExecutionMode: typeof data.shellExecutionMode === 'string' ? data.shellExecutionMode : 'ask-first',
     shellAllowedCommands: typeof data.shellAllowedCommands === 'string' ? data.shellAllowedCommands : '',
-    shellHostAllowedRoots: typeof data.shellHostAllowedRoots === 'string' ? data.shellHostAllowedRoots : '/tmp/peakui-openclaw-workspace',
+    shellHostAllowedRoots: typeof data.shellHostAllowedRoots === 'string' ? data.shellHostAllowedRoots : '~/.peakui/workspace',
     shellHostAllowedEnvVars: typeof data.shellHostAllowedEnvVars === 'string' ? data.shellHostAllowedEnvVars : 'PATH\nHOME\nUSER\nSHELL\nLANG\nTERM',
     shellHostMaxTimeoutMs: typeof data.shellHostMaxTimeoutMs === 'number' ? data.shellHostMaxTimeoutMs : 60000,
     shellHostMaxOutputBytes: typeof data.shellHostMaxOutputBytes === 'number' ? data.shellHostMaxOutputBytes : 262144,

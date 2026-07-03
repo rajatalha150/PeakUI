@@ -23,7 +23,7 @@ export default function ShellSettingsPanel({ onClose }: ShellSettingsPanelProps)
   const [target, setTarget] = useState<ShellExecutionTarget>('container')
   const [mode, setMode] = useState<ShellExecutionMode>('ask-first')
   const [allowedCommands, setAllowedCommands] = useState('')
-  const [hostAllowedRoots, setHostAllowedRoots] = useState('/tmp/peakui-openclaw-workspace')
+  const [hostAllowedRoots, setHostAllowedRoots] = useState('~/.peakui/workspace')
   const [hostAllowedEnvVars, setHostAllowedEnvVars] = useState('PATH\nHOME\nUSER\nSHELL\nLANG\nTERM')
   const [hostMaxTimeoutMs, setHostMaxTimeoutMs] = useState(60000)
   const [hostMaxOutputBytes, setHostMaxOutputBytes] = useState(262144)
@@ -54,7 +54,7 @@ export default function ShellSettingsPanel({ onClose }: ShellSettingsPanelProps)
         setTarget(data.shellExecutionTarget === 'host' ? 'host' : 'container')
         setMode(data.shellExecutionMode === 'auto-approve' || data.shellExecutionMode === 'deny' ? data.shellExecutionMode : 'ask-first')
         setAllowedCommands(data.shellAllowedCommands || '')
-        setHostAllowedRoots(data.shellHostAllowedRoots || '/tmp/peakui-openclaw-workspace')
+        setHostAllowedRoots(data.shellHostAllowedRoots || '~/.peakui/workspace')
         setHostAllowedEnvVars(data.shellHostAllowedEnvVars || 'PATH\nHOME\nUSER\nSHELL\nLANG\nTERM')
         setHostMaxTimeoutMs(typeof data.shellHostMaxTimeoutMs === 'number' ? data.shellHostMaxTimeoutMs : 60000)
         setHostMaxOutputBytes(typeof data.shellHostMaxOutputBytes === 'number' ? data.shellHostMaxOutputBytes : 262144)
@@ -357,7 +357,7 @@ export default function ShellSettingsPanel({ onClose }: ShellSettingsPanelProps)
                 <textarea
                   value={hostAllowedRoots}
                   onChange={(event) => setHostAllowedRoots(event.target.value)}
-                  placeholder="/tmp/peakui-openclaw-workspace"
+                  placeholder="~/.peakui/workspace"
                   style={{
                     width: '100%',
                     minHeight: '80px',

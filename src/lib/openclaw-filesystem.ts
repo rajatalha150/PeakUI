@@ -266,7 +266,7 @@ export function diagnoseOpenClawFilesystemRequest(
       allowed: false,
       code: 'invalid_path',
       message: 'A valid absolute host path is required.',
-      actionRequired: 'Use an absolute host path, for example /home/user/project or /tmp/peakui-openclaw-workspace.',
+      actionRequired: 'Use an absolute host path, for example /home/user/project or ~/.peakui/workspace.',
     }
   }
 
@@ -307,7 +307,7 @@ export function diagnoseOpenClawFilesystemRequest(
         ? 'No approved writable host roots are configured.'
         : 'No approved host read roots are configured.',
       actionRequired: isWriteAction
-        ? 'Add a writable root such as /tmp/peakui-openclaw-workspace in Settings.'
+        ? 'Add a writable root such as ~/.peakui/workspace in Settings.'
         : 'Add an approved host read root such as /home or /tmp in Settings.',
       requestedPath,
       normalizedPath,

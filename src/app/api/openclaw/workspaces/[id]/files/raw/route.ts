@@ -83,6 +83,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
   if (!workspace) {
     return NextResponse.json({ error: 'Workspace not found', code: 'not_found' }, { status: 404 })
   }
+  await fs.mkdir(workspace.containerPath, { recursive: true })
 
   const relativePath = normalizeRelativePath(request.nextUrl.searchParams.get('path'))
   // The raw endpoint requires a file path; empty would mean the directory itself.
@@ -94,10 +95,20 @@ export async function GET(request: NextRequest, context: RouteContext) {
   }
 
   const absolutePath = path.join(workspace.containerPath, relativePath)
-  const realWorkspaceRoot = await fs.realpath(workspace.containerPath).catch(() => workspace.containerPath)
+  const realWorkspaceRoot = await fs.realpath(workspace.containerPath).catch(async () => {
+    await fs.mkdir(workspace.containerPath, { recursive: true })
+    return fs.realpath(workspace.containerPath)
+  })
   const real = await fs.realpath(absolutePath).catch(() => null)
   if (!real || (!real.startsWith(realWorkspaceRoot + path.sep) && real !== realWorkspaceRoot)) {
-    return NextResponse.json({ error: 'Path is outside the workspace', code: 'outside_workspace' }, { status: 403 })
+    return NextResponse.json(
+      {
+        error: `Path is outside the workspace: ${relativePath}`,
+        code: 'outside_workspace',
+        actionRequired: `Workspace root: ${workspace.containerPath} (resolved: ${realWorkspaceRoot}), target: ${real}`,
+      },
+      { status: 403 }
+    )
   }
 
   const stat = await fs.stat(real)

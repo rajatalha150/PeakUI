@@ -1,12 +1,17 @@
 import path from 'path'
 import { promises as fs } from 'fs'
+import os from 'os'
 
-const DEFAULT_OPENCLAW_WORKSPACE_HOST_ROOT = '/tmp/peakui-openclaw-workspace'
+const DEFAULT_OPENCLAW_WORKSPACE_HOST_ROOT = path.join(os.homedir(), '.peakui', 'workspace')
 const OPENCLAW_WORKSPACE_CONTAINER_ROOT = '/mnt/openclaw/workspace'
 let workspaceAliasBootstrapPromise: Promise<void> | null = null
 
 function normalizeHostPath(input: string): string {
-  const trimmed = input.trim().replace(/\\/g, '/').replace(/\/+$/, '')
+  let trimmed = input.trim().replace(/\\\\/g, '/').replace(/\/+$/, '')
+  // Expand leading '~' to the user's home directory before any other resolution.
+  if (trimmed.startsWith('~/')) {
+    trimmed = path.join(os.homedir(), trimmed.slice(2))
+  }
   // Preserve Windows absolute paths (e.g. C:/Users/John/peakui-workspace) as-is.
   // Linux path.resolve would treat them as relative and corrupt the drive letter.
   if (/^[A-Za-z]:\//.test(trimmed)) {
@@ -39,10 +44,25 @@ async function ensureWorkspaceAliasExists(): Promise<void> {
 
   await fs.mkdir(containerRoot, { recursive: true })
 
-  // Skip alias creation when the host root is a Windows path or already the
-  // container root. Inside a Linux container we cannot create a C:\ symlink,
-  // and the bind mount already makes the workspace available at /mnt/openclaw/workspace.
-  if (hostAliasPath === containerRoot || /^[A-Za-z]:\//.test(hostAliasPath)) {
+  // Default to the container root itself if the configured host root is just the
+  // container path. Otherwise, try to use the configured value as-is when it is
+  // already an absolute Linux path pointing inside the container (e.g. a bind
+  // mount is mounted at a custom host path).
+  if (hostAliasPath === containerRoot) {
+    return
+  }
+
+  // On Windows Docker Desktop the host path is a drive letter (C:/...). The
+  // workspace is already bind-mounted into the container, so no alias is needed.
+  if (/^[A-Za-z]:\//.test(hostAliasPath)) {
+    return
+  }
+
+  // When the configured host root already resolves to the same real directory as
+  // the container root (e.g. the user bind-mounted a real host directory directly
+  // at /mnt/openclaw/workspace), no extra symlink alias is required.
+  const resolvedHostRoot = path.resolve(hostAliasPath)
+  if (resolvedHostRoot === containerRoot) {
     return
   }
 

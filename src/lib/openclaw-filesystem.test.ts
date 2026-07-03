@@ -10,7 +10,7 @@ const baseSettings: OpenClawFilesystemAccessSettings = {
   openClawFileAccessMode: 'read-only',
   openClawAllowedPaths: '/home\n/tmp',
   openClawFileWriteMode: 'ask-first',
-  openClawWritablePaths: '/tmp/peakui-openclaw-workspace',
+  openClawWritablePaths: '~/.peakui/workspace',
 }
 
 describe('OpenClaw filesystem guardrails', () => {
@@ -51,7 +51,7 @@ describe('OpenClaw filesystem guardrails', () => {
 
   it('diagnoses missing approval tokens for ask-first writes', () => {
     const diagnostic = diagnoseOpenClawFilesystemRequest(
-      { action: 'write', path: '/tmp/peakui-openclaw-workspace/notes.txt', content: 'hello' },
+      { action: 'write', path: '~/.peakui/workspace/notes.txt', content: 'hello' },
       baseSettings
     )
 

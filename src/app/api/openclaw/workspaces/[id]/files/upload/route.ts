@@ -66,6 +66,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   if (!workspace) {
     return badRequest('Workspace not found', 'not_found', 404)
   }
+  await fs.mkdir(workspace.containerPath, { recursive: true })
 
   let form: FormData
   try {
@@ -111,12 +112,20 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (file.size > MAX_UPLOAD_BYTES) {
       return badRequest(`File ${relativePath} exceeds the ${MAX_UPLOAD_BYTES / 1024 / 1024} MB limit`, 'payload_too_large', 413)
     }
-
     const absolutePath = path.join(workspace.containerPath, relativePath)
     // Defense in depth: the parent directory must be inside the workspace root.
+    const realWorkspaceRoot = await fs.realpath(workspace.containerPath).catch(async () => {
+      await fs.mkdir(workspace.containerPath, { recursive: true })
+      return fs.realpath(workspace.containerPath)
+    })
     const realParent = await fs.realpath(path.dirname(absolutePath)).catch(() => null)
     if (!realParent || (!realParent.startsWith(realWorkspaceRoot + path.sep) && realParent !== realWorkspaceRoot)) {
-      return badRequest(`Upload target is outside the workspace: ${relativePath}`, 'outside_workspace', 403)
+      return badRequest(
+        `Upload target is outside the workspace: ${relativePath}`,
+        'outside_workspace',
+        403,
+        `Workspace root: ${workspace.containerPath} (resolved: ${realWorkspaceRoot}), parent: ${realParent}`,
+      )
     }
 
     try {
