@@ -478,6 +478,7 @@ interface OpenClawSettings {
   openClawAutomationExecutionAttachMemory: boolean;
   openClawSessionAutoContinueDefault: SessionAutoContinueMode;
   openClawSessionAutoContinueMaxSteps: number;
+  openClawMaxToolRoundsPerTurn: number;
   openClawSessionSummariesEnabled: boolean;
   openClawSessionSummaryTargetTokens: number;
   openClawSessionPreserveTurns: number;
@@ -791,6 +792,9 @@ function parseOpenClawSettingsResponse(data: Record<string, unknown>): ParsedOpe
     openClawSessionAutoContinueMaxSteps: typeof data.openClawSessionAutoContinueMaxSteps === 'number'
       ? data.openClawSessionAutoContinueMaxSteps
       : 3,
+    openClawMaxToolRoundsPerTurn: typeof data.openClawMaxToolRoundsPerTurn === 'number'
+      ? data.openClawMaxToolRoundsPerTurn
+      : 25,
     openClawSessionSummariesEnabled: data.openClawSessionSummariesEnabled !== false,
     openClawSessionSummaryTargetTokens: typeof data.openClawSessionSummaryTargetTokens === 'number'
       ? data.openClawSessionSummaryTargetTokens
@@ -7948,8 +7952,8 @@ export default function OpenClawWorkspace({
       // toward the productive limit, so recovery nudges and duplicate notices
       // no longer burn the budget and cut a task short. MAX_TOOL_LOOP_ITERATIONS
       // is just a hard safety ceiling against infinite loops.
-      const MAX_TOOL_ROUNDS = 12;
-      const MAX_TOOL_LOOP_ITERATIONS = 40;
+      const MAX_TOOL_ROUNDS = settings.openClawMaxToolRoundsPerTurn ?? 25;
+      const MAX_TOOL_LOOP_ITERATIONS = Math.max(40, MAX_TOOL_ROUNDS * 2);
       let executedToolRounds = 0;
 
       for (let toolRound = 0; toolRound < MAX_TOOL_LOOP_ITERATIONS; toolRound += 1) {

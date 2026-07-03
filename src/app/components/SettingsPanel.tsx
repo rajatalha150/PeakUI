@@ -40,6 +40,7 @@ interface UserSettings {
   openClawAutomationExecutionAttachMemory: boolean;
   openClawSessionAutoContinueDefault: 'manual' | 'ask' | 'safe';
   openClawSessionAutoContinueMaxSteps: number;
+  openClawMaxToolRoundsPerTurn: number;
   openClawSessionSummariesEnabled: boolean;
   openClawSessionSummaryTargetTokens: number;
   openClawSessionPreserveTurns: number;
@@ -169,6 +170,7 @@ const INITIAL_SETTINGS: UserSettings = {
   openClawAutomationExecutionAttachMemory: true,
   openClawSessionAutoContinueDefault: 'manual',
   openClawSessionAutoContinueMaxSteps: 3,
+  openClawMaxToolRoundsPerTurn: 25,
   openClawSessionSummariesEnabled: true,
   openClawSessionSummaryTargetTokens: 6000,
   openClawSessionPreserveTurns: 6,
@@ -1504,6 +1506,17 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             max={10}
             value={settings.openClawSessionAutoContinueMaxSteps}
             onChange={e => update('openClawSessionAutoContinueMaxSteps', Math.max(1, Number(e.target.value) || 1))}
+          />
+        </Field>
+
+        <Field label="Tool-Step Cap Per Turn" help="Maximum number of real tool calls WorkSpaces can execute in a single assistant turn before pausing and asking you to continue. Higher values let long tasks run uninterrupted; lower values catch runaway loops earlier. Recovery nudges and duplicate-request warnings do not count toward this cap.">
+          <input
+            className="input-field"
+            type="number"
+            min={1}
+            max={100}
+            value={settings.openClawMaxToolRoundsPerTurn}
+            onChange={e => update('openClawMaxToolRoundsPerTurn', Math.max(1, Math.min(100, Number(e.target.value) || 25)))}
           />
         </Field>
 

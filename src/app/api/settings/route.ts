@@ -37,6 +37,7 @@ import {
   LEGACY_DEFAULT_SYSTEM_PROMPT,
 } from '@/lib/settings';
 import {
+  normalizeMaxToolRoundsPerTurn,
   normalizeSessionAutoContinueMaxSteps,
   normalizeSessionAutoContinueMode,
   normalizeSessionPreserveTurns,
@@ -99,6 +100,7 @@ interface SettingsBody {
   openClawAutomationExecutionAttachMemory?: unknown;
   openClawSessionAutoContinueDefault?: unknown;
   openClawSessionAutoContinueMaxSteps?: unknown;
+  openClawMaxToolRoundsPerTurn?: unknown;
   openClawSessionSummariesEnabled?: unknown;
   openClawSessionSummaryTargetTokens?: unknown;
   openClawSessionPreserveTurns?: unknown;
@@ -244,6 +246,12 @@ export async function POST(req: Request) {
       data.openClawSessionAutoContinueMaxSteps = normalizeSessionAutoContinueMaxSteps(
         body.openClawSessionAutoContinueMaxSteps,
         DEFAULT_SETTINGS.openClawSessionAutoContinueMaxSteps,
+      );
+    }
+    if (Object.prototype.hasOwnProperty.call(body, 'openClawMaxToolRoundsPerTurn')) {
+      data.openClawMaxToolRoundsPerTurn = normalizeMaxToolRoundsPerTurn(
+        body.openClawMaxToolRoundsPerTurn,
+        DEFAULT_SETTINGS.openClawMaxToolRoundsPerTurn,
       );
     }
     if (Object.prototype.hasOwnProperty.call(body, 'openClawSessionSummariesEnabled')) {

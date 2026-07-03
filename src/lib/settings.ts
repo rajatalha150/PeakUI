@@ -11,6 +11,7 @@ import {
   type ChatPlatform,
 } from './chat-platforms'
 import {
+  normalizeMaxToolRoundsPerTurn,
   normalizeSessionAutoContinueMaxSteps,
   normalizeSessionAutoContinueMode,
   normalizeSessionPreserveTurns,
@@ -96,6 +97,7 @@ export interface AppSettings {
   openClawAutomationExecutionAttachMemory: boolean
   openClawSessionAutoContinueDefault: SessionAutoContinueMode
   openClawSessionAutoContinueMaxSteps: number
+  openClawMaxToolRoundsPerTurn: number
   openClawSessionSummariesEnabled: boolean
   openClawSessionSummaryTargetTokens: number
   openClawSessionPreserveTurns: number
@@ -159,6 +161,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   openClawAutomationExecutionAttachMemory: true,
   openClawSessionAutoContinueDefault: 'manual',
   openClawSessionAutoContinueMaxSteps: 3,
+  openClawMaxToolRoundsPerTurn: 25,
   openClawSessionSummariesEnabled: true,
   openClawSessionSummaryTargetTokens: 6000,
   openClawSessionPreserveTurns: 6,
@@ -452,6 +455,10 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     openClawSessionAutoContinueMaxSteps: normalizeSessionAutoContinueMaxSteps(
       settings?.openClawSessionAutoContinueMaxSteps,
       DEFAULT_SETTINGS.openClawSessionAutoContinueMaxSteps,
+    ),
+    openClawMaxToolRoundsPerTurn: normalizeMaxToolRoundsPerTurn(
+      settings?.openClawMaxToolRoundsPerTurn,
+      DEFAULT_SETTINGS.openClawMaxToolRoundsPerTurn,
     ),
     openClawSessionSummariesEnabled: normalizeBoolean(
       settings?.openClawSessionSummariesEnabled,
