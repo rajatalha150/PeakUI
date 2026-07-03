@@ -277,6 +277,20 @@ export function diagnoseOpenClawFilesystemRequest(
     }
   }
 
+  // Detect bare relative paths (no leading / and no ~) so we can give a clearer error before
+  // the root-approval check rejects them as outside_approved_writable_roots.
+  const looksRelative = !requestedPath.startsWith('/') && !requestedPath.startsWith('~')
+  if (looksRelative) {
+    const workspaceRoot = getOpenClawWorkspaceHostRoot()
+    return {
+      allowed: false,
+      code: 'invalid_path',
+      message: `Bare relative paths are not accepted by the filesystem tool: ${requestedPath}`,
+      actionRequired: `Use an absolute host path under an approved writable root, for example ${workspaceRoot}/${requestedPath.replace(/^\/+/, '')} or /home/raza/.peakui/workspace/${requestedPath.replace(/^\/+/, '')}.`,
+      requestedPath,
+    }
+  }
+
   const normalizedPath = normalizeAbsolutePath(requestedPath)
   const isWriteAction = isOpenClawFilesystemWriteAction(request.action)
 

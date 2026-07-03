@@ -341,6 +341,8 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
         'Only request writes inside those approved writable roots.',
         'When writing a file, send the full target content you want persisted. Do not assume patch utilities exist unless you actually use shell separately.',
         'If you need to create parent folders first, set createDirectories to true.',
+        'CRITICAL: Always use an absolute host path under an approved writable root. For projects inside the active workspace, prefix the path with the managed workspace root (e.g. ~/.peakui/workspace/projects/<project>/file.ext or /home/raza/.peakui/workspace/projects/<project>/file.ext).',
+        'CRITICAL: Bare relative paths such as TVControlApp/settings.gradle or ./TVControlApp/settings.gradle are rejected by the filesystem tool. Always include the full host path starting with ~/.peakui/workspace/ or the equivalent absolute path.',
       );
     } else {
       lines.push('FILESYSTEM WRITE: available to create/edit files in approved writable roots. Use one filesystem tool block per response.');
