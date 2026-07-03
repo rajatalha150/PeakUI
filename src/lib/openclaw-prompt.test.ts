@@ -17,7 +17,7 @@ const baseContext = {
   workspace: {
     name: 'default',
     relativePath: 'users/u1/workspaces/default',
-    hostPath: '/tmp/peakui-openclaw-workspace/users/u1/workspaces/default',
+    hostPath: '~/.peakui/workspace/users/u1/workspaces/default',
     bootInstructions: '',
     toolsInstructions: '',
     skillTemplates: [],

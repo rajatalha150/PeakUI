@@ -110,7 +110,7 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | Path | Purpose |
 |---|---|
 | `/mnt/openclaw/workspace` | Managed workspace path inside the app container |
-| `/tmp/peakui-openclaw-workspace` | Host-style alias for the managed workspace |
+| `~/.peakui/workspace` | Host-style alias for the managed workspace |
 | `src/app/components/OpenClawWorkspace.tsx` | Main WorkSpaces UI |
 | `src/app/components/WorkspaceFilesPanel.tsx` | Workspace Files panel (read / edit / upload / multi-select / rename / move) |
 | `src/app/components/workspace-files/` | Workspace Files panel sub-components (tree, preview, editor, upload, context menu, move dialog) |

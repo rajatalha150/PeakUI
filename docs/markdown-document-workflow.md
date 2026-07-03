@@ -28,4 +28,4 @@ PeakUI's `markdown_document` tool generates a downloadable `.md` Canvas artifact
 
 ## Why not write to the workspace?
 
-Writing markdown to `/tmp/peakui-openclaw-workspace/...` returns a filesystem path that is not clickable in chat and is not tracked by Canvas. The `markdown_document` tool keeps generated documents in Canvas so they can be downloaded, previewed, versioned, and deleted like any other artifact.
+Writing markdown to `~/.peakui/workspace/...` returns a filesystem path that is not clickable in chat and is not tracked by Canvas. The `markdown_document` tool keeps generated documents in Canvas so they can be downloaded, previewed, versioned, and deleted like any other artifact.

@@ -84,7 +84,7 @@ to local directories.
 | Host path (Linux example) | What lives there |
 |---|---|
 | `./data/db` | PostgreSQL data directory |
-| `/tmp/peakui-openclaw-workspace` | Managed workspace (per-user, per-workspace) |
+| `~/.peakui/workspace` | Managed workspace (per-user, per-workspace) |
 
 In production, replace `./data/db` with a named volume or a bind mount to a
 dedicated disk:
@@ -156,7 +156,7 @@ rebuilds are fast (only changed layers are rebuilt).
 Back up at minimum:
 
 1. The PostgreSQL data directory (`./data/db` by default).
-2. The managed workspace (`/tmp/peakui-openclaw-workspace` by default).
+2. The managed workspace (`~/.peakui/workspace` by default).
 
 For point-in-time restores, run nightly `pg_dump` snapshots in addition
 to filesystem backups:

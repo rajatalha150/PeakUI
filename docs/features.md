@@ -185,7 +185,7 @@ A right-rail GUI over the active workspace's on-disk state. The panel shares the
   - **Truthfulness guardrails**: The WorkSpaces prompt now instructs the model to treat browser evidence fields as authoritative and to report browser failure explicitly instead of converting prior knowledge into claimed live observations
   - **Source labeling**: Clear Web sources shown as blue chips, Dark Web sources as purple chips
   - **Security**: Binary download blocking (.exe, .sh, .bin, etc.), .onion URLs only in stealth mode, host DNS fallback blocked for stealth Chromium sessions, and stealth fails closed if Tor proxy verification fails
-- **Managed workspace**: WorkSpaces tools share `/mnt/openclaw/workspace` in-container and `/tmp/peakui-openclaw-workspace` as the host-style alias
+- **Managed workspace**: WorkSpaces tools share `/mnt/openclaw/workspace` in-container and `~/.peakui/workspace` as the host-style alias
 - **Selected-workspace sandbox default**: When the model omits `workspacePath`, code execution now defaults to the currently selected named workspace instead of an anonymous per-thread sandbox path.
 - **Optional git auto-backup**: Each named workspace can auto-initialize a git repo and commit detected file changes automatically.
 

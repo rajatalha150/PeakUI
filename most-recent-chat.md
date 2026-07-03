@@ -43,7 +43,7 @@ The document contains all 54 sections organized into logical parts — product v
 The full blueprint has been written to your workspace as a Markdown file.
 
 - **File:** `activity-blueprint.md`
-- **Path:** `/tmp/peakui-openclaw-workspace/users/e01b70cf-32ee-4b2f-9fcc-5566f3e670c6/workspaces/default/activity-blueprint.md`
+- **Path:** `~/.peakui/workspace/users/e01b70cf-32ee-4b2f-9fcc-5566f3e670c6/workspaces/default/activity-blueprint.md`
 - **Size:** 33,176 bytes — all 54 sections included.
 
 You can open it directly in any text editor or Markdown viewer. If you need it in a different format (PDF, another Word attempt, etc.), let me know.
