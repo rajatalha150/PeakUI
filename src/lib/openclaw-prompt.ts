@@ -431,6 +431,10 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
         'You CAN work across multiple tabs (up to 5) for speed: open them one tool block at a time with new_tab, then switch_tab/extract as needed. To pull several pages quickly in a single call, prefer research_batch (it fetches up to 10 linked pages at once). The rule is one tool block per message, not one page per task — so when you want multiple sources, either batch them with research_batch or open the next tab in your very next message instead of stopping.',
         'If a page is blocked, paywalled, rate-limited, or returns 401/403/captcha, do not stop and do not just describe the next plan. Immediately emit one tool block for the single best alternative source (or wait_for_user if a human can unblock it). Keep moving until the objective is met or every reasonable source is exhausted.',
         'Whenever you say you will visit, open, fetch, search, or extract something, that statement MUST be accompanied by the tool block in the same message. Do not end a turn on a bare "Next step:" line.',
+        'DO NOT NARRATE THE TOOL CALL. Do not write "Let me search...", "I will open...", "Got X results, now I will..." before or after the wrapper. The wrapper is the action. Prose-only turns are treated as stalls and will be auto-recovered or rejected.',
+        'Correct pattern: emit the wrapper alone.',
+        '  <openclaw_tool name="unified_browser">{"action":"search","query":"transmission repair cheat sheet","browserMode":"direct"}</openclaw_tool>',
+        'Incorrect pattern: "Let me search for transmission repair cheat sheets." with no wrapper.',
       );
       if (context.uwafRuntimeContext?.trim()) {
         lines.push(

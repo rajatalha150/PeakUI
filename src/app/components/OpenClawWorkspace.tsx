@@ -8099,26 +8099,27 @@ export default function OpenClawWorkspace({
             }
           }
           if (synthesizedRequest) {
-            // Update the assistant message to reflect what was actually run, so
-            // the UI doesn't show orphan prose. Mark it hidden because the
-            // recovery layer is the actor, not the model.
-            const synthLabel = describeToolDisplayName(synthesizedRequest.name)
+            // The model described a tool call in prose but never wrapped it.
+            // Run the synthesized tool silently instead of showing a confusing
+            // "auto-recovered" placeholder or asking the user to continue.
+            // Keep the original prose visible so the conversation still reads
+            // naturally; just mark it as the tool request it was meant to be.
+            const inferredFilesystemRequest = synthesizedRequest.name === 'shell' && filesystemEnabled
+              ? inferFilesystemRequestFromShellCommand(
+                  (synthesizedRequest.request as { command?: string }).command ?? '',
+                  allowedFilesystemPaths,
+                )
+              : null
+            const displayName = inferredFilesystemRequest
+              ? describeFilesystemRequest(inferredFilesystemRequest.action, inferredFilesystemRequest.path)
+              : describeToolDisplayName(synthesizedRequest.name)
             updateChatMessage(nextAssistantId, current => ({
               ...current,
-              hidden: true,
               toolRequest: synthesizedRequest!.name,
-              content: `[auto-recovered ${synthLabel} call]`,
+              content: inferredFilesystemRequest
+                ? displayName
+                : current.content.replace(/\s+/g, ' ').trim() || displayName,
             }))
-            // Append a short visible notice so the user understands why the
-            // loop moved on without the model writing a wrapper.
-            const recoveryMessage: OpenClawMessage = {
-              id: randomUUID(),
-              role: 'assistant',
-              content: `Auto-recovered ${synthLabel.toLowerCase()} call from prose narration (the model described the action but never emitted the wrapper).`,
-              createdAt: new Date().toISOString(),
-            }
-            sessionHistory = [...sessionHistory, recoveryMessage]
-            setChatHistory(prev => [...prev, recoveryMessage])
             // Replace request so the dispatch block below runs with the
             // synthesized call.
             request = synthesizedRequest
@@ -8200,7 +8201,7 @@ export default function OpenClawWorkspace({
             if (intentSnippet) {
               lines.push('', `Last attempt: “${intentSnippet}”`)
             }
-            lines.push('', 'Reply "continue" to retry from the last assistant turn, or rephrase (e.g. "regenerate the deck with X") to start fresh.')
+            lines.push('', 'Reply "continue" to retry from the last assistant turn, or rephrase what you need (e.g. "search for X" or "create a PDF about Y") to start fresh.')
             const stallNotice: OpenClawMessage = {
               id: randomUUID(),
               role: 'assistant',

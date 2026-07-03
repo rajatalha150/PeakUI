@@ -210,7 +210,13 @@ export function buildNarrationNudgeText(ctx: NarrationNudgeContext): string {
     }
   }
 
-  return `You described what you were about to do (for example a browser action or document generation) but stopped before emitting the matching tool block. The wrapper is mandatory — bare prose, fenced JSON, or partial wrappers are all rejected. End your reply with exactly ONE tool call wrapped like this (replace the placeholders with your actual content — do not copy this template verbatim):\n\n${exampleShape}\n\nUse the ${hintLabel} tool name if it matches the user's request. If no tool is needed, give your final answer directly in plain text instead of starting a wrapper.`
+  return `You described what you were about to do but stopped before emitting the matching tool block. The wrapper is mandatory — bare prose, fenced JSON, or partial wrappers are all rejected because the runtime can only act on a complete <openclaw_tool> wrapper.
+
+End your reply with exactly ONE complete wrapper for the tool you intended: **${hintLabel}**. Replace the placeholders with real values — do not copy the template verbatim.
+
+${exampleShape}
+
+If you already tried and it was malformed, delete any partial wrapper and emit exactly one clean one. If no tool is needed, give your final answer directly in plain text only.`
 }
 
 export const __test__ = {

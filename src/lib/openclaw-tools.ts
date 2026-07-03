@@ -564,12 +564,73 @@ function isBrowserExtractMode(value: unknown): value is NonNullable<OpenClawBrow
     || value === 'html'
 }
 
+/**
+ * Best-effort recovery for search/document intents that appear in prose but
+ * never received a wrapper. Mirrors the synthesizer logic in
+ * openclaw-narration-recovery.ts so the parser can also route bare intent.
+ */
+function parseToolIntentFromProse(content: string): OpenClawToolRequest | undefined {
+  const cleaned = stripAllToolTags(content).trim()
+  if (!cleaned) return undefined
+
+  const ubSearch = cleaned.match(/\b(?:let me|i'?ll|i will|now|proceed(?:ing)? to|going to|about to|want to|need to)?\s*(?:run\s+)?(?:a\s+)?(?:unified(?:_|-|\s+)?browser|shared browser|live browser)\s+search\s+(?:for\s+)?["“”'`]*([^\n"“”'`]+?)[.)\]"'`<,!?:;\s]*$/i)
+  if (ubSearch) {
+    const query = ubSearch[1].trim()
+    if (query.length >= 2 && query.length <= 256) {
+      return { name: 'unified_browser', request: { action: 'search', query, browserMode: 'direct' } }
+    }
+  }
+
+  const urlOpen = cleaned.match(/\b(?:open|visit|fetch|load|check)\s+(?:the\s+)?(?:page\s+|article\s+|site\s+)?(?:at\s+)?["“”'`]*(https?:\/\/[^\s<>"'`]+)/i)
+  if (urlOpen) {
+    const url = urlOpen[1].trim()
+    return { name: 'unified_browser', request: { action: 'open', url } }
+  }
+
+  const docCreate = cleaned.match(/\b(?:creat(?:e|ing)|generat(?:e|ing)|build(?:ing)?|mak(?:e|ing)|render(?:ing)?|produc(?:e|ing)|writ(?:e|ing))\s+(?:a\s+|the\s+)?(?:new\s+)?(PDF|pdf|Excel|excel|spreadsheet|Word|word|docx|document|deck|slides|presentation|CSV|csv)/i)
+  if (docCreate) {
+    const kind = docCreate[1].toLowerCase()
+    const quoted = cleaned.match(/["“”']([^"“”'\n]+)["“”']/)
+    let title = quoted ? quoted[1].trim() : cleaned.replace(/^[^a-zA-Z]+/, '').trim()
+    title = title.split(/[.!?]/)[0].replace(/^(?:create|generate|build|make|render|produce|write)\s+/i, '').trim()
+    if (!title || title.length > 200) title = 'Generated Document'
+    const toolMap: Record<string, OpenClawToolRequest['name']> = {
+      pdf: 'pdf_document', excel: 'workbook_document', spreadsheet: 'workbook_document',
+      word: 'word_document', docx: 'word_document', document: 'word_document',
+      deck: 'slides_document', slides: 'slides_document', presentation: 'slides_document',
+      csv: 'csv_document',
+    }
+    const name = toolMap[kind]
+    if (name) {
+      const slide: SlidesDocumentInput = {
+        title,
+        description: 'auto-recovered from prose',
+        slides: [{ layout: 'title', title }],
+      }
+      const requestByName: Record<string, OpenClawToolRequest> = {
+        pdf_document: { name: 'pdf_document', request: { title, description: 'auto-recovered from prose' } },
+        workbook_document: { name: 'workbook_document', request: { title, description: 'auto-recovered from prose', sheets: [{ name: 'Sheet1', columns: [{ header: 'A' }], rows: [] }] } },
+        word_document: { name: 'word_document', request: { title, description: 'auto-recovered from prose' } },
+        csv_document: { name: 'csv_document', request: { title, description: 'auto-recovered from prose', headers: [], rows: [] } },
+        slides_document: { name: 'slides_document', request: slide },
+      }
+      return requestByName[name]
+    }
+  }
+
+  return undefined
+}
+
 export function extractOpenClawToolRequest(content: string): {
   cleanedContent: string
   request?: OpenClawToolRequest
 } {
   const block = findToolBlock(content)
   if (!block) {
+    const recovered = parseToolIntentFromProse(content)
+    if (recovered) {
+      return { cleanedContent: stripAllToolTags(content), request: recovered }
+    }
     return { cleanedContent: stripAllToolTags(content) }
   }
 

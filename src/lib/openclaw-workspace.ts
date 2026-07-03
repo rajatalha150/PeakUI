@@ -6,7 +6,7 @@ const DEFAULT_OPENCLAW_WORKSPACE_HOST_ROOT = path.join(os.homedir(), '.peakui', 
 const OPENCLAW_WORKSPACE_CONTAINER_ROOT = '/mnt/openclaw/workspace'
 let workspaceAliasBootstrapPromise: Promise<void> | null = null
 
-function normalizeHostPath(input: string): string {
+export function normalizeHostPath(input: string): string {
   let trimmed = input.trim().replace(/\\\\/g, '/').replace(/\/+$/, '')
   // Expand leading '~' to the user's home directory before any other resolution.
   if (trimmed.startsWith('~/')) {

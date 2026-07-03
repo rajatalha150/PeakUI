@@ -41,11 +41,14 @@ PostgreSQL
 
 ### Tools and Browser
 
-- `src/lib/openclaw-tools.ts` — tool request parsing.
+- `src/lib/openclaw-tools.ts` — tool request parsing; also recovers bare search/browser/document intents from prose when the model emits no wrapper.
+- `src/lib/openclaw-narration-recovery.ts` — synthesizes a proper `openclaw_tool` request from assistant prose that described a tool action but never emitted the XML wrapper.
+- `src/lib/openclaw-narration-nudge.ts` — pause message sent to the model when prose narration is detected, reminding it to emit a complete wrapper.
 - `src/lib/openclaw-shell*.ts` — shell approval and execution.
 - `src/lib/openclaw-filesystem*.ts` — filesystem access and approvals.
 - `src/lib/openclaw-code*.ts` — code sandbox execution.
 - `src/lib/uwaf-*.ts` — unified browser engine, direct and stealth modes.
+- `src/lib/pdf/document-schema.ts` — PDF document schema with numeric sanitization to avoid renderer crashes from `NaN` / `Infinity` / out-of-range scientific-notation values.
 
 ### Knowledge Base
 

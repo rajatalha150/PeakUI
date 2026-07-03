@@ -67,13 +67,35 @@ function cleanString(value: unknown, maxLength = 4000): string | undefined {
   return clean ? clean.slice(0, maxLength) : undefined
 }
 
+const MAX_SAFE_PDF_NUMBER = 9_999_999_999_999
+const MIN_SAFE_PDF_NUMBER = -9_999_999_999_999
+
+/**
+ * Sanitize a numeric-looking string so it never crashes the PDF renderer
+ * with values like NaN, Infinity, or scientific-notation overflow such as
+ * -8.559289250201232e+21. Returns the original string if it is safe.
+ */
+function sanitizeNumericString(value: string): string {
+  if (!value || typeof value !== 'string') return value
+  const trimmed = value.trim()
+  if (['NaN', 'Infinity', '-Infinity', 'null', 'undefined'].includes(trimmed)) {
+    return ''
+  }
+  const num = Number(trimmed)
+  if (!Number.isFinite(num) || Number.isNaN(num)) return trimmed
+  if (num > MAX_SAFE_PDF_NUMBER || num < MIN_SAFE_PDF_NUMBER) {
+    return trimmed.replace(/[eE][+-]?\d+$/, '').slice(0, 16)
+  }
+  return trimmed
+}
+
 function normalizeField(value: unknown): PdfDocumentField | null {
   if (!value || typeof value !== 'object') return null
   const record = value as Record<string, unknown>
   const label = cleanString(record.label, 160)
   const rawValue = cleanString(record.value, 2000)
   if (!label || rawValue === undefined) return null
-  return { label, value: rawValue }
+  return { label, value: sanitizeNumericString(rawValue) }
 }
 
 function normalizeTable(value: unknown): PdfDocumentTable | null {
@@ -90,12 +112,12 @@ function normalizeTable(value: unknown): PdfDocumentTable | null {
   const rows: PdfDocumentTable['rows'] = []
   for (const row of record.rows) {
     if (Array.isArray(row)) {
-      rows.push(row.map(cell => String(cell ?? '').slice(0, 600)).slice(0, columns.length))
+      rows.push(row.map(cell => sanitizeNumericString(String(cell ?? '').slice(0, 600))).slice(0, columns.length))
       continue
     }
     if (row && typeof row === 'object') {
       const rowRecord = row as Record<string, unknown>
-      rows.push(Object.fromEntries(columns.map(column => [column, String(rowRecord[column] ?? '').slice(0, 600)])))
+      rows.push(Object.fromEntries(columns.map(column => [column, sanitizeNumericString(String(rowRecord[column] ?? '').slice(0, 600))])))
     }
     if (rows.length >= 80) break
   }
@@ -152,7 +174,7 @@ function extractMarkdownTables(text: string): { cleanText: string; tables: PdfDo
       while (index < lines.length && lines[index].includes('|') && !isMarkdownTableSeparator(lines[index])) {
         const cells = splitMarkdownRow(lines[index])
         if (cells.some(Boolean)) {
-          rows.push(Object.fromEntries(columns.map((column, columnIndex) => [column, cells[columnIndex] ?? ''])))
+          rows.push(Object.fromEntries(columns.map((column, columnIndex) => [column, sanitizeNumericString(cells[columnIndex] ?? '')])))
         }
         index += 1
       }

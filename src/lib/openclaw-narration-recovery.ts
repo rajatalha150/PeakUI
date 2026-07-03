@@ -105,8 +105,44 @@ const CODE_BLOCK_RE_LIST: ReadonlyArray<RegExp> = [
 
 const UNIFIED_BROWSER_URL_RE = /\bnavigat(?:e|ing)\s+(?:to|over to)\s+(?:<url>)?(https?:\/\/[^\s<>"'`]+)/i
 const UNIFIED_BROWSER_URL_RE_2 = /\bopen(?:ing)?\s+(?:<url>)?(https?:\/\/[^\s<>"'`]+)\s+in\s+(?:a |the )?browser\b/i
+const UNIFIED_BROWSER_URL_RE_3 = /\b(?:let me|i'?ll|i will|now|proceed(?:ing)? to|going to|about to)?\s*(?:open|visit|fetch|load|check)\s+(?:the\s+)?(?:page\s+|article\s+|site\s+)?(?:at\s+)?(?:<url>)?(https?:\/\/[^\s<>"'`]+)/i
+
+const UNIFIED_BROWSER_SEARCH_RE_LIST: ReadonlyArray<RegExp> = [
+  /\b(?:let me|i'?ll|i will|now|proceed(?:ing)? to|going to|about to|want to|need to)?\s*(?:run\s+)?(?:a\s+)?(?:unified(?:_|-|\s+)?browser|shared browser|live browser)\s+search\s+(?:for\s+)?["“”'`]*([^\n"“”'`]+?)[.)\]"'`<,!?:;\s]*$/i,
+  /\bsearch(?:ing)?\s+(?:the\s+)?(?:shared|live|unified(?:_|-|\s+)?)?browser\s+(?:for\s+)?["“”'`]*([^\n"“”'`]+?)[.)\]"'`<,!?:;\s]*$/i,
+]
 
 const TAX_YEAR_RE = /\b(?:generat(?:e|ing)|build(?:ing)?|creat(?:e|ing)|prepar(?:e|ing)|run(?:ning)?)\s+(?:a |the )?(?:tax\s+return|tax\s+form|tax\s+document)\s+for\s+(\d{4})\b/i
+
+const DOCUMENT_CREATE_RE_LIST: ReadonlyArray<RegExp> = [
+  /\b(?:creat(?:e|ing)|generat(?:e|ing)|build(?:ing)?|mak(?:e|ing)|render(?:ing)?|produc(?:e|ing)|writ(?:e|ing))\s+(?:a\s+|the\s+)?(?:new\s+)?(PDF|pdf|Excel|excel|spreadsheet|Word|word|docx|document|deck|slides|presentation|CSV|csv|email|eml|markdown|md|archive|zip|calendar|ics|mermaid|diagram)\b/i,
+  /\b(?:creat(?:e|ing)|generat(?:e|ing)|build(?:ing)?|mak(?:e|ing)|render(?:ing)?)\s+(?:a\s+|the\s+)?(?:new\s+)?(?:car\s+)?(?:fixing\s+)?(?:repair\s+)?(?:cheat\s+sheet|guide|manual|checklist|report|memo|invoice|letter|proposal|contract|resume|meeting[- ]notes)\b/i,
+]
+
+const DOCUMENT_CREATE_KIND_MAP: Readonly<Record<string, typeof DOCUMENT_TOOL_NAMES[number]>> = {
+  pdf: 'pdf_document',
+  pdf_document: 'pdf_document',
+  excel: 'workbook_document',
+  spreadsheet: 'workbook_document',
+  workbook: 'workbook_document',
+  word: 'word_document',
+  docx: 'word_document',
+  document: 'word_document',
+  deck: 'slides_document',
+  slides: 'slides_document',
+  presentation: 'slides_document',
+  csv: 'csv_document',
+  email: 'email_document',
+  eml: 'email_document',
+  markdown: 'markdown_document',
+  md: 'markdown_document',
+  archive: 'archive_document',
+  zip: 'archive_document',
+  calendar: 'calendar_document',
+  ics: 'calendar_document',
+  mermaid: 'mermaid_document',
+  diagram: 'mermaid_document',
+}
 
 /**
  * Public entry point. Pure: same inputs → same outputs. Returns `null` when
@@ -127,6 +163,13 @@ export function synthesizeToolCallFromNarration(
   // Shell — try before filesystem because back-quoted commands often contain
   // an absolute path that the filesystem synthesizer would otherwise pick up
   // first (e.g. `ls -la /home/raza`).
+  const lastToolName = ctx.lastSuccessfulToolRequest?.name
+
+  // Unified browser — search intent. Prefer this over the legacy `web` tool
+  // when the user is in a browsing workflow or asks for a live browser search.
+  const ubSearch = synthesizeUnifiedBrowserSearch(cleaned)
+  if (ubSearch) return ubSearch
+
   const shell = synthesizeShell(cleaned)
   if (shell) return shell
 
@@ -134,9 +177,13 @@ export function synthesizeToolCallFromNarration(
   const code = synthesizeCode(cleaned)
   if (code) return code
 
-  // Web — query after "searching for" / "looking up".
-  const web = synthesizeWeb(cleaned)
-  if (web) return web
+  // Web — query after "searching for" / "looking up". Only synthesize the
+  // legacy web tool if the last successful tool was NOT unified_browser,
+  // because a browsing session should stay inside unified_browser.
+  if (lastToolName !== 'unified_browser') {
+    const web = synthesizeWeb(cleaned)
+    if (web) return web
+  }
 
   // fetch_summarize — URL after "fetching" / "grabbing the page".
   const fetchResult = synthesizeFetchSummarize(cleaned)
@@ -161,6 +208,13 @@ export function synthesizeToolCallFromNarration(
   // Tax return — year in "for <year>".
   const tax = synthesizeTaxReturn(cleaned)
   if (tax) return tax
+
+  // Document creation — recover from prose like "create a PDF about X" when
+  // no wrapper was emitted. This is a safety net, not a primary path.
+  if (!lastToolName || DOCUMENT_TOOL_NAMES.includes(lastToolName as typeof DOCUMENT_TOOL_NAMES[number])) {
+    const documentCreate = synthesizeDocumentCreate(cleaned)
+    if (documentCreate) return documentCreate
+  }
 
   // Document regenerate — reuse the last successful call when narration says so.
   if (ctx.lastSuccessfulToolRequest && DOCUMENT_TOOL_NAMES.includes(ctx.lastSuccessfulToolRequest.name as typeof DOCUMENT_TOOL_NAMES[number])) {
@@ -343,14 +397,30 @@ function synthesizeFetchSummarize(content: string): NarrationRecovery | null {
   }
 }
 
+function synthesizeUnifiedBrowserSearch(content: string): NarrationRecovery | null {
+  for (const pattern of UNIFIED_BROWSER_SEARCH_RE_LIST) {
+    const match = content.match(pattern)
+    if (!match) continue
+    const query = (match[1] || '').trim()
+    if (!query || query.length < 2 || query.length > 256) continue
+    return {
+      toolName: 'unified_browser',
+      args: { action: 'search', query, browserMode: 'direct', description: 'auto-recovered unified browser search from prose narration' },
+      matchedPattern: 'unified_browser.search',
+    }
+  }
+  return null
+}
+
 function synthesizeUnifiedBrowser(content: string): NarrationRecovery | null {
   const m1 = content.match(UNIFIED_BROWSER_URL_RE)
   const m2 = content.match(UNIFIED_BROWSER_URL_RE_2)
-  const url = (m1?.[1] || m2?.[1] || '').trim().replace(/[.,;:!?…]+$/g, '')
+  const m3 = content.match(UNIFIED_BROWSER_URL_RE_3)
+  const url = (m1?.[1] || m2?.[1] || m3?.[1] || '').trim().replace(/[.,;:!?…]+$/g, '')
   if (!url || !/^https?:\/\//i.test(url)) return null
   return {
     toolName: 'unified_browser',
-    args: { url, description: 'auto-recovered from prose narration' },
+    args: { action: 'open', url, description: 'auto-recovered from prose narration' },
     matchedPattern: 'unified_browser.url',
   }
 }
@@ -515,6 +585,33 @@ function synthesizeTaxReturn(content: string): NarrationRecovery | null {
     args: { action: 'generate', taxYear: year },
     matchedPattern: 'tax_return.year',
   }
+}
+
+function synthesizeDocumentCreate(content: string): NarrationRecovery | null {
+  for (const pattern of DOCUMENT_CREATE_RE_LIST) {
+    const match = content.match(pattern)
+    if (!match) continue
+    const kindHint = (match[1] || '').toLowerCase()
+    const toolName = DOCUMENT_CREATE_KIND_MAP[kindHint]
+    if (!toolName) continue
+    let title = ''
+    const quoted = content.match(/["“”']([^"“”'\n]+)["“”']/)
+    if (quoted) {
+      title = quoted[1].trim()
+    } else {
+      const afterVerb = content.replace(/^[^a-zA-Z]+/, '').replace(/\n+/g, ' ').trim()
+      const sentenceEnd = afterVerb.search(/[.!?]/)
+      title = sentenceEnd > 0 ? afterVerb.slice(0, sentenceEnd).trim() : afterVerb.slice(0, 120).trim()
+    }
+    title = title.replace(/^(?:create|generate|build|make|render|produce|write)\s+/i, '').trim()
+    if (!title || title.length > 200) title = 'Generated Document'
+    return {
+      toolName,
+      args: { title, description: 'auto-recovered document creation from prose narration' },
+      matchedPattern: 'document.create',
+    }
+  }
+  return null
 }
 
 function synthesizeDocumentRegenerate(

@@ -14,6 +14,7 @@ import {
   getOpenClawWorkspaceContainerRoot,
   getOpenClawWorkspaceHostRoot,
   isWindowsHostPath,
+  normalizeHostPath,
 } from './openclaw-workspace'
 
 const execAsync = promisify(exec)
@@ -264,6 +265,15 @@ function isWithinPath(targetPath: string, rootPath: string): boolean {
   return normalizedTarget === normalizedRoot || normalizedTarget.startsWith(`${normalizedRoot}/`)
 }
 
+function expandShellCwd(input: string): string {
+  // Expand '~/' to the user's home directory before resolution so paths like
+  // ~/.peakui/workspace/notes map correctly into the container mount.
+  if (input.trim().startsWith('~/')) {
+    return normalizeHostPath(input.trim())
+  }
+  return input
+}
+
 function hostRelativeToContainer(hostPath: string, hostRoot: string, containerRoot: string): string {
   const relative = normalizeShellPath(hostPath).slice(normalizeShellPath(hostRoot).length).replace(/^\//, '')
   return path.join(containerRoot, relative)
@@ -275,7 +285,8 @@ export function resolveContainerShellCwd(cwd?: string): string {
   const normalized = normalizeCwd(cwd)
   if (!normalized) return containerRoot
 
-  const resolved = normalizeShellPath(normalized)
+  const expanded = expandShellCwd(normalized)
+  const resolved = normalizeShellPath(expanded)
   if (isWithinPath(resolved, containerRoot)) return resolved
 
   if (isWithinPath(resolved, hostRoot)) {

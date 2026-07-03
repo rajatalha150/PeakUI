@@ -1,3 +1,4 @@
+import * as os from 'os'
 import { promises as fs } from 'fs'
 import path from 'path'
 import type {
@@ -117,6 +118,12 @@ function normalizeAbsolutePath(input: string): string {
   // Preserve Windows absolute paths (C:/...) inside the Linux container.
   if (isWindowsHostPath(normalized)) {
     return normalized.replace(/\/+$/, '')
+  }
+  // Expand leading '~' to the user's home directory before resolving.
+  // path.resolve('~/.peakui/workspace') would otherwise produce a path
+  // relative to the current working directory, breaking approved-root checks.
+  if (normalized.startsWith('~/')) {
+    return path.resolve(path.join(os.homedir(), normalized.slice(2)))
   }
   return path.resolve(normalized)
 }

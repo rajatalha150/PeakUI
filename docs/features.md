@@ -185,6 +185,9 @@ A right-rail GUI over the active workspace's on-disk state. The panel shares the
   - **Truthfulness guardrails**: The WorkSpaces prompt now instructs the model to treat browser evidence fields as authoritative and to report browser failure explicitly instead of converting prior knowledge into claimed live observations
   - **Source labeling**: Clear Web sources shown as blue chips, Dark Web sources as purple chips
   - **Security**: Binary download blocking (.exe, .sh, .bin, etc.), .onion URLs only in stealth mode, host DNS fallback blocked for stealth Chromium sessions, and stealth fails closed if Tor proxy verification fails
+- **Tool-call format enforcement**: The WorkSpaces system prompt now instructs the model to emit exactly one complete `<openclaw_tool>` XML wrapper and nothing else when a tool is required. The parser also recovers bare search, browser, and document-generation intents from prose, but correct wrapper emission remains the preferred path.
+- **Silent narration recovery**: If the model describes a tool action in prose without the wrapper, WorkSpaces silently synthesizes the intended tool request instead of injecting noisy "auto-recovered" messages into the chat.
+- **PDF numeric hardening**: PDF document generation now sanitizes incoming numeric values (NaN, Infinity, and out-of-range scientific notation) before rendering, preventing the canvas backend from throwing `unsupported number` errors.
 - **Managed workspace**: WorkSpaces tools share `/mnt/openclaw/workspace` in-container and `~/.peakui/workspace` as the host-style alias
 - **Selected-workspace sandbox default**: When the model omits `workspacePath`, code execution now defaults to the currently selected named workspace instead of an anonymous per-thread sandbox path.
 - **Optional git auto-backup**: Each named workspace can auto-initialize a git repo and commit detected file changes automatically.
