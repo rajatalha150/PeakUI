@@ -343,6 +343,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
         'If you need to create parent folders first, set createDirectories to true.',
         'CRITICAL: Always use an absolute host path under an approved writable root. For projects inside the active workspace, prefix the path with the managed workspace root (e.g. ~/.peakui/workspace/projects/<project>/file.ext or /home/raza/.peakui/workspace/projects/<project>/file.ext).',
         'CRITICAL: Bare relative paths such as TVControlApp/settings.gradle or ./TVControlApp/settings.gradle are rejected by the filesystem tool. Always include the full host path starting with ~/.peakui/workspace/ or the equivalent absolute path.',
+        'EFFICIENCY: For large project scaffolds with many files, prefer a single code-sandbox script that writes all files at once instead of chaining many individual filesystem tool calls. Only read files back if the user asks for verification or if a build/test fails.',
       );
     } else {
       lines.push('FILESYSTEM WRITE: available to create/edit files in approved writable roots. Use one filesystem tool block per response.');

@@ -95,7 +95,7 @@ model UserSettings {
   openClawAutomationExecutionAttachMemory Boolean @default(true)
   openClawSessionAutoContinueDefault String @default("manual") // "manual" | "ask" | "safe"
   openClawSessionAutoContinueMaxSteps Int @default(3)
-  openClawMaxToolRoundsPerTurn     Int @default(25)
+  openClawMaxToolRoundsPerTurn     Int @default(100)
   openClawSessionSummariesEnabled Boolean @default(true)
   openClawSessionSummaryTargetTokens Int @default(6000)
   openClawSessionPreserveTurns Int @default(6)

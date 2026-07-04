@@ -794,7 +794,7 @@ function parseOpenClawSettingsResponse(data: Record<string, unknown>): ParsedOpe
       : 3,
     openClawMaxToolRoundsPerTurn: typeof data.openClawMaxToolRoundsPerTurn === 'number'
       ? data.openClawMaxToolRoundsPerTurn
-      : 25,
+      : 100,
     openClawSessionSummariesEnabled: data.openClawSessionSummariesEnabled !== false,
     openClawSessionSummaryTargetTokens: typeof data.openClawSessionSummaryTargetTokens === 'number'
       ? data.openClawSessionSummaryTargetTokens

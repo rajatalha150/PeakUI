@@ -170,7 +170,7 @@ const INITIAL_SETTINGS: UserSettings = {
   openClawAutomationExecutionAttachMemory: true,
   openClawSessionAutoContinueDefault: 'manual',
   openClawSessionAutoContinueMaxSteps: 3,
-  openClawMaxToolRoundsPerTurn: 25,
+  openClawMaxToolRoundsPerTurn: 100,
   openClawSessionSummariesEnabled: true,
   openClawSessionSummaryTargetTokens: 6000,
   openClawSessionPreserveTurns: 6,

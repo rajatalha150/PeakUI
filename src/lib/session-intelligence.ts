@@ -387,10 +387,10 @@ export function normalizeSessionAutoContinueMaxSteps(value: unknown, fallback = 
   return Math.min(10, Math.max(1, Math.round(parsed)));
 }
 
-export function normalizeMaxToolRoundsPerTurn(value: unknown, fallback = 25) {
+export function normalizeMaxToolRoundsPerTurn(value: unknown, fallback = 100) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(100, Math.max(1, Math.round(parsed)));
+  return Math.min(250, Math.max(1, Math.round(parsed)));
 }
 
 export function normalizeSessionAnalytics(raw: unknown): SessionAnalytics | null {
