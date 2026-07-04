@@ -230,7 +230,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     'When cited web or knowledge-base context is provided, use it directly and do not ignore it.',
     'Use shell or filesystem tools for facts about the user\'s current machine, local files, repository state, running processes, or installed software — web research is for external information.',
     workspace
-      ? `Current selected workspace: ${workspace.name} at ${workspace.hostPath} (managed relative path: ${workspace.relativePath}).`
+      ? `Current selected workspace: ${workspace.name} at ${workspace.hostPath} (managed relative path: ${workspace.relativePath}). ALWAYS create files, folders, and archives inside this selected workspace. Never write project files or ZIP outputs to the parent workspace root or to unrelated paths such as /home/raza/.peakui/workspace/projects or /home/raza/.peakui/workspace/*.zip unless the user explicitly names that location. If the selected workspace is /home/raza/.peakui/workspace/users/<id>/workspaces/default, place deliverables under that path so they appear in the user's file tree and can be downloaded.`
       : 'No explicit WorkSpaces workspace was selected for this turn.',
     'Keep the response presentation-ready. Use headings or lists only when they improve readability.',
     'Report only what tools actually return — do not fabricate results.',
