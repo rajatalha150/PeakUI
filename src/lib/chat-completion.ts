@@ -46,6 +46,7 @@ import {
 
 const CHAT_HEARTBEAT_INTERVAL_MS = 15000;
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
+const DEFAULT_OLLAMA_CLOUD_BASE_URL = 'https://ollama.com/api';
 const DEFAULT_OLLAMA_CONTEXT_LENGTH = 8192;
 const MIN_CONTEXT_LENGTH = 512;
 const OLLAMA_CONTEXT_CAP_ENV = 'PEAKUI_OLLAMA_CONTEXT_CAP';
@@ -704,7 +705,7 @@ async function streamOpenAICompatibleResponse(options: {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      ...(options.apiKey?.trim() ? { Authorization: `Bearer ${options.apiKey.trim()}` } : {}),
+      ...(options.apiKey?.trim() ? { Authorization: 'Bearer ' + options.apiKey.trim() } : {}),
     },
     body: JSON.stringify({
       model: options.model,
@@ -878,20 +879,24 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const provider = surface === 'openclaw'
       ? normalizeProvider(body.provider ?? settings.openClawProvider)
       : normalizeProvider(body.provider ?? settings.chatModelProvider);
-    const baseUrl = normalizeProviderBaseUrl(
-      body.base_url ?? body.baseUrl,
-      provider,
-      provider === 'huggingface'
-        ? settings.huggingFaceBaseUrl
-        : surface === 'openclaw'
-        ? settings.openClawBaseUrl || settings.ollamaHost
-        : settings.ollamaHost,
-    );
     const apiKey = typeof body.api_key === 'string' && body.api_key.trim()
       ? body.api_key.trim()
       : typeof body.apiKey === 'string' && body.apiKey.trim()
         ? body.apiKey.trim()
-        : '';
+        : settings.ollamaUseCloudApi
+          ? settings.ollamaApiKey
+          : '';
+    const baseUrl = provider === 'ollama' && settings.ollamaUseCloudApi
+      ? DEFAULT_OLLAMA_CLOUD_BASE_URL
+      : normalizeProviderBaseUrl(
+          body.base_url ?? body.baseUrl,
+          provider,
+          provider === 'huggingface'
+            ? settings.huggingFaceBaseUrl
+            : surface === 'openclaw'
+            ? settings.openClawBaseUrl || settings.ollamaHost
+            : settings.ollamaHost,
+        );
     const hintedPresentation = normalizeResponsePresentation(body.response_presentation);
     const responsePresentation: ResponsePresentation = hintedPresentation.mode === 'general'
       ? inferResponsePresentation(messages)
@@ -1208,7 +1213,10 @@ export async function createChatCompletionResponse(req: NextRequest) {
           firstContentAt = null;
           const fallbackRes = await fetch(`${baseUrl}/api/generate`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              ...(apiKey.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}),
+            },
             body: JSON.stringify({
               model: requestedModel,
               prompt: buildOllamaGeneratePrompt(messagesForStream),
@@ -1312,7 +1320,10 @@ export async function createChatCompletionResponse(req: NextRequest) {
             firstContentAt = null;
             ollamaRes = await fetch(`${baseUrl}/api/chat`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                'Content-Type': 'application/json',
+                ...(apiKey.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}),
+              },
               body: JSON.stringify({
                 model: requestedModel,
                 messages: await buildOllamaMessages(messagesForStream),
@@ -1601,7 +1612,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
 
             if (settings.exclusiveOllamaModels) {
               emitStatus('stopping-other-models');
-              await unloadOtherOllamaModels(baseUrl, requestedModel, upstreamAbort.signal);
+              await unloadOtherOllamaModels(baseUrl, requestedModel, apiKey, upstreamAbort.signal);
             }
 
             emitStatus('starting-model');

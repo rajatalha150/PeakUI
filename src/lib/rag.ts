@@ -88,11 +88,14 @@ function isTimeoutError(error: unknown): boolean {
   return error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError' || error.message.toLowerCase().includes('timeout'))
 }
 
-async function postEmbed(ollamaHost: string, body: Record<string, unknown>, timeoutMs: number, legacy = false): Promise<EmbedResponse> {
+async function postEmbed(ollamaHost: string, body: Record<string, unknown>, timeoutMs: number, apiKey: string, legacy = false): Promise<EmbedResponse> {
   const endpoint = legacy ? '/api/embeddings' : '/api/embed'
   const res = await fetch(`${ollamaHost}${endpoint}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(apiKey.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}),
+    },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
   })
@@ -113,7 +116,7 @@ function normalizeEmbedResponse(data: EmbedResponse): number[][] {
   return []
 }
 
-export async function getEmbeddings(input: string | string[], model: string, ollamaHost: string, timeoutMs = DEFAULT_EMBED_TIMEOUT_MS): Promise<number[][]> {
+export async function getEmbeddings(input: string | string[], model: string, ollamaHost: string, apiKey: string, timeoutMs = DEFAULT_EMBED_TIMEOUT_MS): Promise<number[][]> {
   const normalizedModel = normalizeOllamaModelName(model, model)
   const values = Array.isArray(input) ? input : [input]
 
@@ -122,7 +125,7 @@ export async function getEmbeddings(input: string | string[], model: string, oll
       model: normalizedModel,
       input: values.length === 1 ? values[0] : values,
       truncate: true,
-    }, timeoutMs)
+    }, timeoutMs, apiKey)
 
     const embeddings = normalizeEmbedResponse(data)
     if (embeddings.length !== values.length) {
@@ -138,7 +141,7 @@ export async function getEmbeddings(input: string | string[], model: string, oll
         const legacyData = await postEmbed(ollamaHost, {
           model: normalizedModel,
           prompt: values[0],
-        }, timeoutMs, true)
+        }, timeoutMs, apiKey, true)
         const embeddings = normalizeEmbedResponse(legacyData)
         if (embeddings.length) return embeddings
       } catch (legacyError) {
@@ -157,8 +160,8 @@ export async function getEmbeddings(input: string | string[], model: string, oll
   }
 }
 
-export async function getEmbedding(text: string, model: string, ollamaHost: string, timeoutMs = DEFAULT_EMBED_TIMEOUT_MS): Promise<number[]> {
-  const embeddings = await getEmbeddings(text, model, ollamaHost, timeoutMs)
+export async function getEmbedding(text: string, model: string, ollamaHost: string, apiKey: string, timeoutMs = DEFAULT_EMBED_TIMEOUT_MS): Promise<number[]> {
+  const embeddings = await getEmbeddings(text, model, ollamaHost, apiKey, timeoutMs)
   if (!embeddings[0]) {
     throw new Error('No embeddings returned from Ollama')
   }
@@ -484,7 +487,7 @@ export async function buildKnowledgeBaseContext(
       const { getUserSettings } = await import('@/lib/settings')
 
       const settings = await getUserSettings(userId)
-      const queryEmbedding = await getEmbedding(effectiveQuery, settings.ragModel, settings.ollamaHost, 20000)
+      const queryEmbedding = await getEmbedding(effectiveQuery, settings.ragModel, settings.ollamaHost, settings.ollamaApiKey, 20000)
 
       semanticResults = keywordChunks
         .filter(chunk =>

@@ -67,7 +67,9 @@ export async function POST(req: Request) {
       ? body.apiKey.trim()
       : typeof body.api_key === 'string' && body.api_key.trim()
         ? body.api_key.trim()
-        : '';
+        : provider === 'ollama'
+          ? settings.ollamaApiKey
+          : '';
 
     if (provider === 'openai-compatible') {
       const response = await fetch(`${baseUrl}/models`, {
@@ -100,7 +102,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ provider, models });
     }
 
-    const response = await fetch(`${baseUrl}/api/tags`);
+    const response = await fetch(`${baseUrl}/api/tags`, {
+      headers: {
+        ...(apiKey.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}),
+      },
+    });
     if (!response.ok) {
       const text = await response.text();
       return NextResponse.json({ error: text || 'Failed to fetch models' }, { status: response.status });

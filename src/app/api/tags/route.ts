@@ -3,6 +3,16 @@ import { getCurrentUserId } from '@/lib/request-auth';
 import { getUserSettings, normalizeOllamaHost } from '@/lib/settings';
 import { getErrorMessage } from '@/lib/rag';
 
+const DEFAULT_OLLAMA_CLOUD_BASE_URL = 'https://ollama.com/api';
+
+function resolveOllamaBaseUrl(settings: Awaited<ReturnType<typeof getUserSettings>>, overrideHost?: string | null): { baseUrl: string; apiKey: string } {
+  if (settings.ollamaUseCloudApi) {
+    return { baseUrl: DEFAULT_OLLAMA_CLOUD_BASE_URL, apiKey: settings.ollamaApiKey }
+  }
+  const ollamaHost = overrideHost ? normalizeOllamaHost(overrideHost) : settings.ollamaHost
+  return { baseUrl: ollamaHost, apiKey: '' }
+}
+
 export async function GET(req: NextRequest) {
   try {
     const userId = await getCurrentUserId();
@@ -10,10 +20,13 @@ export async function GET(req: NextRequest) {
 
     const settings = await getUserSettings(userId);
     const overrideHost = req.nextUrl.searchParams.get('host');
-    const ollamaHost = overrideHost ? normalizeOllamaHost(overrideHost) : settings.ollamaHost;
+    const { baseUrl: ollamaHost, apiKey } = resolveOllamaBaseUrl(settings, overrideHost);
 
     const response = await fetch(`${ollamaHost}/api/tags`, {
       signal: AbortSignal.timeout(10000),
+      headers: {
+        ...(apiKey.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}),
+      },
     });
 
     if (!response.ok) {

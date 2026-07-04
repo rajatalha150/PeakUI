@@ -30,9 +30,12 @@ function createAbortSignal(timeoutMs: number, parentSignal?: AbortSignal): Abort
   return controller.signal
 }
 
-export async function listRunningOllamaModels(baseUrl: string, parentSignal?: AbortSignal): Promise<string[]> {
+export async function listRunningOllamaModels(baseUrl: string, parentSignal?: AbortSignal, apiKey?: string): Promise<string[]> {
   const response = await fetch(`${baseUrl}/api/ps`, {
     signal: createAbortSignal(OLLAMA_PS_TIMEOUT_MS, parentSignal),
+    headers: {
+      ...(apiKey?.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}),
+    },
   })
 
   if (!response.ok) {
@@ -47,10 +50,13 @@ export async function listRunningOllamaModels(baseUrl: string, parentSignal?: Ab
     .filter((name, index, values) => Boolean(name) && values.indexOf(name) === index)
 }
 
-export async function stopOllamaModel(baseUrl: string, model: string, parentSignal?: AbortSignal): Promise<void> {
+export async function stopOllamaModel(baseUrl: string, model: string, parentSignal?: AbortSignal, apiKey?: string): Promise<void> {
   const response = await fetch(`${baseUrl}/api/generate`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(apiKey?.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}),
+    },
     body: JSON.stringify({
       model,
       keep_alive: 0,
@@ -65,24 +71,24 @@ export async function stopOllamaModel(baseUrl: string, model: string, parentSign
   }
 }
 
-export async function stopRunningOllamaModel(baseUrl: string, selectedModel: string, parentSignal?: AbortSignal): Promise<string | null> {
-  const runningModels = await listRunningOllamaModels(baseUrl, parentSignal)
+export async function stopRunningOllamaModel(baseUrl: string, selectedModel: string, apiKey?: string, parentSignal?: AbortSignal): Promise<string | null> {
+  const runningModels = await listRunningOllamaModels(baseUrl, parentSignal, apiKey)
   const runningModel = runningModels.find(model => isSameOllamaModel(model, selectedModel))
 
   if (!runningModel) return null
 
-  await stopOllamaModel(baseUrl, runningModel, parentSignal)
+  await stopOllamaModel(baseUrl, runningModel, parentSignal, apiKey)
   return runningModel
 }
 
-export async function unloadOtherOllamaModels(baseUrl: string, selectedModel: string, parentSignal?: AbortSignal): Promise<string[]> {
-  const runningModels = await listRunningOllamaModels(baseUrl, parentSignal)
+export async function unloadOtherOllamaModels(baseUrl: string, selectedModel: string, apiKey?: string, parentSignal?: AbortSignal): Promise<string[]> {
+  const runningModels = await listRunningOllamaModels(baseUrl, parentSignal, apiKey)
   const modelsToUnload = runningModels.filter(model => !isSameOllamaModel(model, selectedModel))
 
   if (modelsToUnload.length === 0) return []
 
   const results = await Promise.allSettled(
-    modelsToUnload.map(model => stopOllamaModel(baseUrl, model, parentSignal))
+    modelsToUnload.map(model => stopOllamaModel(baseUrl, model, parentSignal, apiKey))
   )
 
   const failures = results

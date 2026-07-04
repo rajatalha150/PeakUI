@@ -105,6 +105,8 @@ export interface AppSettings {
   openClawSessionBranchingEnabled: boolean
   ragEnabled: boolean
   ragTopK: number
+  ollamaUseCloudApi: boolean
+  ollamaApiKey: string
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -169,6 +171,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   openClawSessionBranchingEnabled: true,
   ragEnabled: false,
   ragTopK: 8,
+  ollamaUseCloudApi: false,
+  ollamaApiKey: '',
 }
 
 export function normalizeRagMode(value: unknown): RagMode {
@@ -379,6 +383,8 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     ragModel: normalizeRagModel(settings?.ragModel),
     ragMode: normalizeRagMode(settings?.ragMode),
     ollamaHost: normalizeOllamaHost(settings?.ollamaHost),
+    ollamaUseCloudApi: normalizeBoolean(settings?.ollamaUseCloudApi, DEFAULT_SETTINGS.ollamaUseCloudApi),
+    ollamaApiKey: typeof settings?.ollamaApiKey === 'string' ? settings.ollamaApiKey.trim() : DEFAULT_SETTINGS.ollamaApiKey,
     systemPrompt,
     temperature: normalizeTemperature(settings?.temperature),
     ollamaUseModelDefaultTemperature: normalizeOllamaUseModelDefaultTemperature(

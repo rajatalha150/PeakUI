@@ -452,6 +452,8 @@ interface OpenClawSettings {
   openClawModel: string;
   openClawBaseUrl: string;
   ollamaHost: string;
+  ollamaUseCloudApi: boolean;
+  ollamaApiKey: string;
   modelKeepAlive: boolean;
   ollamaKeepAlive: string;
   theme: string;
@@ -750,6 +752,8 @@ function parseOpenClawSettingsResponse(data: Record<string, unknown>): ParsedOpe
     openClawModel: typeof data.openClawModel === 'string' ? data.openClawModel : '',
     openClawBaseUrl: typeof data.openClawBaseUrl === 'string' ? data.openClawBaseUrl : '',
     ollamaHost: typeof data.ollamaHost === 'string' ? data.ollamaHost : 'http://127.0.0.1:11434',
+    ollamaUseCloudApi: data.ollamaUseCloudApi === true,
+    ollamaApiKey: typeof data.ollamaApiKey === 'string' ? data.ollamaApiKey : '',
     modelKeepAlive: data.modelKeepAlive === true,
     ollamaKeepAlive: typeof data.ollamaKeepAlive === 'string' && data.ollamaKeepAlive.trim() ? data.ollamaKeepAlive : '0',
     theme: typeof data.theme === 'string' ? data.theme : 'aurora',
@@ -3160,7 +3164,7 @@ export default function OpenClawWorkspace({
           body: JSON.stringify({
             model,
             provider,
-            base_url: provider === 'openai-compatible' ? baseUrl : settings?.ollamaHost,
+            base_url: provider === 'openai-compatible' ? baseUrl : settings?.ollamaUseCloudApi ? 'https://ollama.com/api' : settings?.ollamaHost,
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -3843,7 +3847,7 @@ export default function OpenClawWorkspace({
     }
   };
 
-  const loadModels = async (nextProvider = provider, nextBaseUrl = baseUrl, ollamaHost = settings?.ollamaHost || 'http://127.0.0.1:11434') => {
+  const loadModels = async (nextProvider = provider, nextBaseUrl = baseUrl, ollamaHost = settings?.ollamaUseCloudApi ? 'https://ollama.com/api' : (settings?.ollamaHost || 'http://127.0.0.1:11434')) => {
     setModelsLoading(true);
     try {
       const res = await fetch('/api/openclaw/models', {

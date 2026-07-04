@@ -4,6 +4,8 @@ import { isSameOllamaModel } from '@/lib/embedding-models'
 import { getUserSettings, normalizeOllamaHost } from '@/lib/settings'
 import { getErrorMessage } from '@/lib/rag'
 
+const DEFAULT_OLLAMA_CLOUD_BASE_URL = 'https://ollama.com/api'
+
 interface OllamaVersionResponse {
   version?: unknown
 }
@@ -20,9 +22,20 @@ function normalizeName(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-async function fetchJson<T>(url: string) {
+function resolveOllamaBaseUrl(settings: Awaited<ReturnType<typeof getUserSettings>>, overrideHost?: string | null): { baseUrl: string; apiKey: string } {
+  if (settings.ollamaUseCloudApi) {
+    return { baseUrl: DEFAULT_OLLAMA_CLOUD_BASE_URL, apiKey: settings.ollamaApiKey }
+  }
+  const host = overrideHost ? normalizeOllamaHost(overrideHost) : settings.ollamaHost
+  return { baseUrl: host, apiKey: '' }
+}
+
+async function fetchJson<T>(url: string, apiKey: string) {
   const response = await fetch(url, {
     signal: AbortSignal.timeout(10000),
+    headers: {
+      ...(apiKey.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}),
+    },
   })
 
   if (!response.ok) {
@@ -40,13 +53,13 @@ export async function GET(req: NextRequest) {
   const settings = await getUserSettings(userId)
   const overrideHost = req.nextUrl.searchParams.get('host')
   const selectedModel = req.nextUrl.searchParams.get('model') || ''
-  const host = overrideHost ? normalizeOllamaHost(overrideHost) : settings.ollamaHost
+  const { baseUrl: host, apiKey } = resolveOllamaBaseUrl(settings, overrideHost)
 
   try {
     const [versionData, tagsData, psResult] = await Promise.all([
-      fetchJson<OllamaVersionResponse>(`${host}/api/version`),
-      fetchJson<OllamaTagsResponse>(`${host}/api/tags`),
-      fetchJson<OllamaPsResponse>(`${host}/api/ps`)
+      fetchJson<OllamaVersionResponse>(`${host}/api/version`, apiKey),
+      fetchJson<OllamaTagsResponse>(`${host}/api/tags`, apiKey),
+      fetchJson<OllamaPsResponse>(`${host}/api/ps`, apiKey)
         .then(data => ({ data }))
         .catch(error => ({ error })),
     ])

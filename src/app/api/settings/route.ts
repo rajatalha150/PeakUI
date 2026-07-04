@@ -108,6 +108,8 @@ interface SettingsBody {
   openClawSessionBranchingEnabled?: unknown;
   ragEnabled?: unknown;
   ragTopK?: unknown;
+  ollamaUseCloudApi?: unknown;
+  ollamaApiKey?: unknown;
 }
 
 // GET: Return user settings (create defaults if none exist)
@@ -138,6 +140,7 @@ export async function GET() {
     }
     return NextResponse.json({
       ...normalized,
+      ollamaApiKey: '',
       permissions: auth.permissions,
       effectiveToolAccess: buildEffectiveOpenClawToolAccess(normalized, auth.permissions),
     });
@@ -276,6 +279,8 @@ export async function POST(req: Request) {
       data.openClawSessionBranchingEnabled = normalizeBoolean(body.openClawSessionBranchingEnabled);
     }
     if (Object.prototype.hasOwnProperty.call(body, 'ragEnabled')) data.ragEnabled = normalizeBoolean(body.ragEnabled);
+    if (Object.prototype.hasOwnProperty.call(body, 'ollamaUseCloudApi')) data.ollamaUseCloudApi = normalizeBoolean(body.ollamaUseCloudApi);
+    if (body.ollamaApiKey !== undefined) data.ollamaApiKey = String(body.ollamaApiKey);
     if (Object.prototype.hasOwnProperty.call(body, 'ragTopK')) {
       const parsed = Number(body.ragTopK);
       // -1 means full access mode

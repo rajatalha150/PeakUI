@@ -122,6 +122,8 @@ interface UserSettings {
   ragMode: 'semantic' | 'keyword';
   ragModel: string;
   ollamaHost: string;
+  ollamaUseCloudApi: boolean;
+  ollamaApiKey: string;
 }
 
 interface UploadItem {
@@ -346,7 +348,9 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
           setSettings({
             ragMode: data.ragMode === 'keyword' ? 'keyword' : 'semantic',
             ragModel: data.ragModel || 'nomic-embed-text',
-            ollamaHost: data.ollamaHost || 'http://127.0.0.1:11434'
+            ollamaHost: data.ollamaHost || 'http://127.0.0.1:11434',
+            ollamaUseCloudApi: data.ollamaUseCloudApi === true,
+            ollamaApiKey: typeof data.ollamaApiKey === 'string' ? data.ollamaApiKey : '',
           });
         }
       })

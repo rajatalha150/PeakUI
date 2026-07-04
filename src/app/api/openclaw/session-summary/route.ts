@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { getUserSettings } from '@/lib/settings'
 import {
   saveSessionSummary,
   generateSessionSummaryPrompt,
@@ -42,22 +43,25 @@ export async function POST(request: NextRequest) {
     // Generate summary using the model
     const summaryPrompt = generateSessionSummaryPrompt(title, messages, objective)
 
-    // Get user settings for model selection
-    const settings = await prisma.userSettings.findUnique({
-      where: { userId },
-    })
+    const settings = await getUserSettings(userId)
 
-    const provider = settings?.openClawProvider || 'ollama'
-    const model = settings?.openClawModel || ''
-    const baseUrl = settings?.openClawBaseUrl || ''
+    const provider = settings.openClawProvider || 'ollama'
+    const model = settings.openClawModel || ''
+    const baseUrl = settings.openClawBaseUrl || ''
 
     let summaryText = ''
 
     if (provider === 'ollama') {
-      const ollamaHost = settings?.ollamaHost || 'http://127.0.0.1:11434'
+      const ollamaHost = settings.ollamaUseCloudApi
+        ? 'https://ollama.com/api'
+        : settings.ollamaHost || 'http://127.0.0.1:11434'
+      const ollamaApiKey = settings.ollamaUseCloudApi ? settings.ollamaApiKey || '' : ''
       const response = await fetch(`${ollamaHost}/api/generate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(ollamaApiKey.trim() ? { Authorization: 'Bearer ' + ollamaApiKey.trim() } : {}),
+        },
         body: JSON.stringify({
           model: model || 'gemma2:2b',
           prompt: summaryPrompt,

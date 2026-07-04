@@ -20,8 +20,13 @@ interface OllamaPsResponse {
 const EMBED_TEST_TIMEOUT_MS = 30000;
 const OLLAMA_PROBE_TIMEOUT_MS = 5000;
 
-async function fetchOllamaJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { signal: AbortSignal.timeout(OLLAMA_PROBE_TIMEOUT_MS) });
+async function fetchOllamaJson<T>(url: string, apiKey: string): Promise<T> {
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(OLLAMA_PROBE_TIMEOUT_MS),
+    headers: {
+      ...(apiKey.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}),
+    },
+  });
   if (!res.ok) {
     throw new Error(`Ollama returned ${res.status} for ${url}`);
   }
@@ -62,6 +67,7 @@ export async function POST(req: Request) {
   let testedHost = 'http://127.0.0.1:11434';
   let installedModels = '';
   let activeModels = '';
+  let ollamaApiKey = '';
   const startedAt = Date.now();
 
   try {
@@ -73,13 +79,14 @@ export async function POST(req: Request) {
     const requestedModel = typeof body.model === 'string' ? body.model.trim() : '';
     const model = requestedModel || settings.ragModel;
     const ollamaHost = normalizeOllamaHost(body.host || settings.ollamaHost);
+    ollamaApiKey = settings.ollamaApiKey;
     testedModel = model || testedModel;
     testedHost = ollamaHost;
 
     if (!model) return NextResponse.json({ error: 'Model name required' }, { status: 400 });
 
-    const tags = await fetchOllamaJson<OllamaTagsResponse>(`${ollamaHost}/api/tags`);
-    const ps = await fetchOllamaJson<OllamaPsResponse>(`${ollamaHost}/api/ps`);
+    const tags = await fetchOllamaJson<OllamaTagsResponse>(`${ollamaHost}/api/tags`, ollamaApiKey);
+    const ps = await fetchOllamaJson<OllamaPsResponse>(`${ollamaHost}/api/ps`, ollamaApiKey);
     installedModels = formatModelNames(tags.models);
     activeModels = formatModelNames(ps.models);
     const installed = (tags.models || []).some(item =>
@@ -96,7 +103,7 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
 
-    const embedding = await getEmbedding('test connection', model, ollamaHost, EMBED_TEST_TIMEOUT_MS);
+    const embedding = await getEmbedding('test connection', model, ollamaHost, ollamaApiKey, EMBED_TEST_TIMEOUT_MS);
     return NextResponse.json({
       ok: true,
       model,
@@ -114,8 +121,8 @@ export async function POST(req: Request) {
       if (!installedModels && !activeModels) {
         try {
           const [tags, ps] = await Promise.all([
-            fetchOllamaJson<OllamaTagsResponse>(`${testedHost}/api/tags`),
-            fetchOllamaJson<OllamaPsResponse>(`${testedHost}/api/ps`),
+            fetchOllamaJson<OllamaTagsResponse>(`${testedHost}/api/tags`, ollamaApiKey),
+            fetchOllamaJson<OllamaPsResponse>(`${testedHost}/api/ps`, ollamaApiKey),
           ]);
           installedModels = formatModelNames(tags.models);
           activeModels = formatModelNames(ps.models);

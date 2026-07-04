@@ -164,7 +164,7 @@ export async function POST(req: Request) {
 
     let queryEmbedding: number[];
     try {
-      queryEmbedding = await getEmbedding(effectiveQuery, settings.ragModel, settings.ollamaHost, SEARCH_EMBED_TIMEOUT_MS);
+      queryEmbedding = await getEmbedding(effectiveQuery, settings.ragModel, settings.ollamaHost, settings.ollamaApiKey, SEARCH_EMBED_TIMEOUT_MS);
     } catch (error) {
       console.warn('RAG semantic search fallback to keyword:', error);
       return NextResponse.json(keywordSearch(keywordChunks, effectiveQuery, topK));

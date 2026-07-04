@@ -51,6 +51,8 @@ interface UserSettings {
   ragEnabled: boolean;
   ragTopK: number;
   ollamaHost: string;
+  ollamaUseCloudApi: boolean;
+  ollamaApiKey: string;
   systemPrompt: string;
   temperature: number;
   ollamaUseModelDefaultTemperature: boolean;
@@ -181,6 +183,8 @@ const INITIAL_SETTINGS: UserSettings = {
   ragEnabled: false,
   ragTopK: 8,
   ollamaHost: 'http://127.0.0.1:11434',
+  ollamaUseCloudApi: false,
+  ollamaApiKey: '',
   systemPrompt: '',
   temperature: 0.7,
   ollamaUseModelDefaultTemperature: false,
@@ -282,10 +286,10 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
     return null;
   }, []);
 
-  const fetchModels = useCallback(async (host: string) => {
+  const fetchModels = useCallback(async (host: string, useCloudApi = false) => {
     setOllamaStatus('checking');
     try {
-      const res = await fetch(host ? `/api/tags?host=${encodeURIComponent(host)}` : '/api/tags');
+      const res = await fetch(host && !useCloudApi ? `/api/tags?host=${encodeURIComponent(host)}` : '/api/tags');
       const data = await res.json();
       if (data.models) {
         setModels(data.models);
@@ -364,7 +368,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
       ]);
       const nextSettings = loadedSettings || INITIAL_SETTINGS;
       await Promise.all([
-        fetchModels(nextSettings.ollamaHost),
+        fetchModels(nextSettings.ollamaHost, nextSettings.ollamaUseCloudApi),
         authUser?.permissions.includes('openclaw.filesystem') ? fetchHostAccessStatus() : Promise.resolve(),
       ]);
       if (authUser?.permissions.includes('users.manage')) {
@@ -390,7 +394,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
         setSettings(data);
         applyTheme(data.theme);
         onSettingsChange?.(data);
-        void fetchModels(data.ollamaHost);
+        void fetchModels(data.ollamaHost, data.ollamaUseCloudApi);
         if (sessionUser?.permissions.includes('openclaw.filesystem')) void fetchHostAccessStatus();
         setTimeout(() => setSaved(false), 3000);
       }
@@ -1091,12 +1095,13 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
 
       {/* Ollama Connection */}
       <Section icon={<Server size={18} />} title="Ollama Connection">
-        <Field label="Ollama Host URL" help="The address of your Ollama instance. Change this if Ollama is running on a different machine or port.">
+        <Field label="Ollama Host URL" help="The address of your Ollama instance. Change this if Ollama is running on a different machine or port. Ignored when Ollama Cloud API is enabled.">
           <div style={{ display: 'flex', gap: '8px' }}>
             <input
               className="input-field"
               style={{ flex: 1 }}
               value={settings.ollamaHost}
+              disabled={settings.ollamaUseCloudApi}
               onChange={e => update('ollamaHost', e.target.value)}
               placeholder="http://127.0.0.1:11434"
             />
@@ -1110,6 +1115,36 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             </div>
           </div>
         </Field>
+
+        <Field label={
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            Use Ollama Cloud API
+            <HelpHint text="Connect to ollama.com/api using an API key instead of a local Ollama instance." />
+          </span>
+        } help="Enable this to use Ollama cloud models served at https://ollama.com/api with an API key. The local host URL is ignored while this is on.">
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={settings.ollamaUseCloudApi}
+              onChange={e => update('ollamaUseCloudApi', e.target.checked)}
+            />
+            <span>Connect via ollama.com/api</span>
+          </label>
+        </Field>
+
+        {settings.ollamaUseCloudApi && (
+          <Field label="Ollama API Key" help="Your ollama.com API key. Create or revoke keys from your Ollama account settings. The key is stored server-side and never returned to the browser.">
+            <input
+              type="password"
+              className="input-field"
+              style={{ width: '100%' }}
+              value={settings.ollamaApiKey}
+              onChange={e => update('ollamaApiKey', e.target.value)}
+              placeholder="ollama_xxxxxxxxxxxxxxxx"
+              autoComplete="off"
+            />
+          </Field>
+        )}
       </Section>
 
       {/* Generation Settings */}

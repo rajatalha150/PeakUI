@@ -39,22 +39,32 @@ export async function POST(req: Request) {
     const settings = await getUserSettings(userId);
     const body = await req.json().catch(() => ({})) as Record<string, unknown>;
     const provider = normalizeOpenClawProvider(body.provider ?? settings.openClawProvider);
-    const baseUrl = normalizeProviderBaseUrl(
-      body.baseUrl ?? body.base_url ?? (provider === 'openai-compatible' ? settings.openClawBaseUrl : settings.ollamaHost),
-      provider,
-      provider === 'openai-compatible' ? settings.openClawBaseUrl || DEFAULT_OPENAI_COMPATIBLE_BASE_URL : settings.ollamaHost,
-    ) || (provider === 'openai-compatible' ? DEFAULT_OPENAI_COMPATIBLE_BASE_URL : settings.ollamaHost);
+    const baseUrl = provider === 'openai-compatible'
+      ? normalizeProviderBaseUrl(
+          body.baseUrl ?? body.base_url ?? settings.openClawBaseUrl,
+          provider,
+          settings.openClawBaseUrl || DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
+        ) || DEFAULT_OPENAI_COMPATIBLE_BASE_URL
+      : settings.ollamaUseCloudApi
+        ? 'https://ollama.com/api'
+        : normalizeProviderBaseUrl(
+            body.baseUrl ?? body.base_url ?? settings.ollamaHost,
+            provider,
+            settings.ollamaHost,
+          ) || settings.ollamaHost;
     const apiKey = typeof body.apiKey === 'string' && body.apiKey.trim()
       ? body.apiKey.trim()
       : typeof body.api_key === 'string' && body.api_key.trim()
         ? body.api_key.trim()
-        : '';
+        : provider === 'ollama' && settings.ollamaUseCloudApi
+          ? settings.ollamaApiKey
+          : '';
 
     if (provider === 'openai-compatible') {
       const response = await fetch(`${baseUrl}/models`, {
         headers: {
           'Content-Type': 'application/json',
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+          ...(apiKey ? { Authorization: 'Bearer ' + apiKey } : {}),
         },
       });
 
@@ -78,9 +88,15 @@ export async function POST(req: Request) {
     }
 
     const [versionResponse, tagsResponse, psResponse] = await Promise.all([
-      fetch(`${baseUrl}/api/version`),
-      fetch(`${baseUrl}/api/tags`),
-      fetch(`${baseUrl}/api/ps`),
+      fetch(`${baseUrl}/api/version`, {
+        headers: { ...(apiKey.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}) },
+      }),
+      fetch(`${baseUrl}/api/tags`, {
+        headers: { ...(apiKey.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}) },
+      }),
+      fetch(`${baseUrl}/api/ps`, {
+        headers: { ...(apiKey.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}) },
+      }),
     ]);
 
     if (!versionResponse.ok) {

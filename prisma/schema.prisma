@@ -51,6 +51,8 @@ model UserSettings {
   ragModel         String   @default("nomic-embed-text")
   ragMode          String   @default("semantic") // "semantic" | "keyword"
   ollamaHost       String   @default("http://127.0.0.1:11434")
+  ollamaUseCloudApi Boolean @default(false)
+  ollamaApiKey     String   @default("")
   systemPrompt     String   @default("")
   temperature      Float    @default(0.7)
   ollamaUseModelDefaultTemperature Boolean @default(false)

@@ -3,9 +3,21 @@ import { stopRunningOllamaModel } from '@/lib/ollama-control'
 import { getCurrentUserId } from '@/lib/request-auth'
 import { getUserSettings, normalizeOllamaHost } from '@/lib/settings'
 
+const DEFAULT_OLLAMA_CLOUD_BASE_URL = 'https://ollama.com/api'
+
 interface StopModelBody {
   model?: unknown
   host?: unknown
+}
+
+function resolveOllamaBaseUrl(settings: Awaited<ReturnType<typeof getUserSettings>>, overrideHost?: unknown): { baseUrl: string; apiKey: string } {
+  if (settings.ollamaUseCloudApi) {
+    return { baseUrl: DEFAULT_OLLAMA_CLOUD_BASE_URL, apiKey: settings.ollamaApiKey }
+  }
+  const baseUrl = overrideHost === undefined
+    ? settings.ollamaHost
+    : normalizeOllamaHost(overrideHost)
+  return { baseUrl, apiKey: '' }
 }
 
 export async function POST(req: Request) {
@@ -22,11 +34,9 @@ export async function POST(req: Request) {
     }
 
     const settings = await getUserSettings(userId)
-    const baseUrl = body.host === undefined
-      ? settings.ollamaHost
-      : normalizeOllamaHost(body.host)
+    const { baseUrl, apiKey } = resolveOllamaBaseUrl(settings, body.host)
 
-    const stoppedModel = await stopRunningOllamaModel(baseUrl, requestedModel)
+    const stoppedModel = await stopRunningOllamaModel(baseUrl, requestedModel, apiKey)
 
     return NextResponse.json({
       ok: true,

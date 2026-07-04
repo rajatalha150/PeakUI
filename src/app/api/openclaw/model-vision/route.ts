@@ -28,9 +28,12 @@ export async function POST(req: Request) {
       ?? (provider === 'openai-compatible' ? settings.openClawBaseUrl : settings.ollamaHost)
     const baseUrl = provider === 'openai-compatible'
       ? (typeof rawBaseUrl === 'string' && rawBaseUrl.trim() ? rawBaseUrl.trim() : DEFAULT_OPENAI_COMPATIBLE_BASE_URL)
-      : normalizeOllamaHost(rawBaseUrl)
+      : settings.ollamaUseCloudApi
+        ? 'https://ollama.com/api'
+        : normalizeOllamaHost(rawBaseUrl)
+    const apiKey = provider === 'ollama' && settings.ollamaUseCloudApi ? settings.ollamaApiKey : ''
 
-    const vision = await detectModelVision({ provider, baseUrl, model })
+    const vision = await detectModelVision({ provider, baseUrl, model, apiKey })
 
     return NextResponse.json({ model, provider, vision })
   } catch (error) {

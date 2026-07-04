@@ -66,6 +66,7 @@ async function embedChunks(
   chunks: string[],
   model: string,
   ollamaHost: string,
+  apiKey: string,
   onBatchComplete?: () => Promise<void>
 ): Promise<number[][]> {
   const embeddings: number[][] = [];
@@ -78,7 +79,7 @@ async function embedChunks(
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const batchEmbeddings = await getEmbeddings(batch, model, ollamaHost, EMBEDDING_UPLOAD_TIMEOUT_MS);
+        const batchEmbeddings = await getEmbeddings(batch, model, ollamaHost, apiKey, EMBEDDING_UPLOAD_TIMEOUT_MS);
         embeddings.push(...batchEmbeddings);
         lastError = null;
         break;
@@ -222,7 +223,7 @@ async function processDocumentUpload({
 
     if (settings.ragMode === 'semantic') {
       try {
-        embeddings = await embedChunks(chunks, settings.ragModel, settings.ollamaHost, () => touchProcessingDocument(documentId));
+        embeddings = await embedChunks(chunks, settings.ragModel, settings.ollamaHost, settings.ollamaApiKey, async () => touchProcessingDocument(documentId));
       } catch (error) {
         const rawMessage = getErrorMessage(error);
         indexedMode = 'keyword';

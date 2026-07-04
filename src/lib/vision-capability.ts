@@ -59,12 +59,16 @@ export async function fetchOllamaModelCapabilities(
   baseUrl: string,
   model: string,
   signal?: AbortSignal,
+  apiKey?: string,
 ): Promise<string[] | null> {
   const host = baseUrl.replace(/\/$/, '')
   try {
     const response = await fetch(`${host}/api/show`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(apiKey?.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}),
+      },
       body: JSON.stringify({ model, name: model }),
       signal,
     })
@@ -81,13 +85,14 @@ export async function detectModelVision(options: {
   provider: 'ollama' | 'openai-compatible'
   baseUrl: string
   model: string
+  apiKey?: string
   signal?: AbortSignal
 }): Promise<boolean> {
-  const { provider, baseUrl, model } = options
+  const { provider, baseUrl, model, apiKey } = options
   if (!model.trim()) return false
 
   if (provider === 'ollama') {
-    const capabilities = await fetchOllamaModelCapabilities(baseUrl, model, options.signal)
+    const capabilities = await fetchOllamaModelCapabilities(baseUrl, model, options.signal, apiKey)
     if (capabilities) {
       return capabilities.some(capability => capability.toLowerCase() === 'vision')
     }
