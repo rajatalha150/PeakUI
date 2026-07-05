@@ -302,6 +302,7 @@ export async function POST(req: Request) {
     const normalized = normalizeAppSettings(settings)
     return NextResponse.json({
       ...normalized,
+      ollamaApiKey: '',
       permissions: auth.permissions,
       effectiveToolAccess: buildEffectiveOpenClawToolAccess(normalized, auth.permissions),
     });
