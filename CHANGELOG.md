@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added — Ollama Cloud API mode
 - Settings can now switch Ollama from the default local endpoint (`http://127.0.0.1:11434`) to `https://ollama.com/api` with a per-user API key.
-- Cloud mode routes chat, model discovery, health checks, model stops, session summaries, vision capability probes, RAG embeddings, and embedding-model tests to Ollama Cloud with `Authorization: Bearer ***
-- The API key is stored server-side in `UserSettings.ollamaApiKey` and redacted from every `/api/settings` response (GET and POST) so the browser never receives the real key.
+- Cloud mode routes chat, model discovery, health checks, model stops, session summaries, vision capability probes, RAG embeddings, and embedding-model tests to Ollama Cloud with an `Authorization: Bearer <key>` header.
+- The API key is stored server-side in `UserSettings.ollamaApiKey` and redacted (returned as an empty string) from every `/api/settings` response (GET and POST) so the browser never receives the real key.
 - Settings shows `ollama.com` in the host field when cloud mode is enabled.
 
 ### Changed — Ollama Cloud compatibility
@@ -41,7 +41,7 @@ Fixes the "model picked the wrong tool and crashed on a 25K-char SERP" failure m
 - 30 new tests in `openclaw-tool-results.test.ts` covering: truncateWithMarker math, compactLinks filtering + capping, isJunkLinkUrl classification, action-based text caps, markdown fallback, failure-path passthrough, structural sections (forms/tables/tabs/batchResults), and the end-to-end 25K SERP fixture.
 - **401 total tests pass, 0 regressions.**
 
-## [0.15.0] - 2026-06-26 - Parallelize Sequential Search Bottlenecks
+## [0.15.0] - 2026-06-29 - Parallelize Sequential Search Bottlenecks
 
 This release cuts the user-visible latency of "search the web" workflows from ~15-30 s to ~5-10 s on cold start. The wins come from three targeted parallelism changes plus a per-tool-call fetch timeout. No behavior change for the model — same `searchAttempts` array, same result shape, same side effects. The user just gets an answer faster.
 
