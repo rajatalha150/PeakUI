@@ -46,7 +46,7 @@ export async function POST(req: Request) {
           settings.openClawBaseUrl || DEFAULT_OPENAI_COMPATIBLE_BASE_URL,
         ) || DEFAULT_OPENAI_COMPATIBLE_BASE_URL
       : settings.ollamaUseCloudApi
-        ? 'https://ollama.com/api'
+        ? 'https://ollama.com'
         : normalizeProviderBaseUrl(
             body.baseUrl ?? body.base_url ?? settings.ollamaHost,
             provider,

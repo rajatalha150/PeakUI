@@ -3,7 +3,7 @@ import { getCurrentUserId } from '@/lib/request-auth';
 import { getUserSettings, normalizeOllamaHost } from '@/lib/settings';
 import { getErrorMessage } from '@/lib/rag';
 
-const DEFAULT_OLLAMA_CLOUD_BASE_URL = 'https://ollama.com/api';
+const DEFAULT_OLLAMA_CLOUD_BASE_URL = 'https://ollama.com';
 
 function resolveOllamaBaseUrl(settings: Awaited<ReturnType<typeof getUserSettings>>, overrideHost?: string | null): { baseUrl: string; apiKey: string } {
   if (settings.ollamaUseCloudApi) {

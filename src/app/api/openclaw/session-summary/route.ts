@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
 
     if (provider === 'ollama') {
       const ollamaHost = settings.ollamaUseCloudApi
-        ? 'https://ollama.com/api'
+        ? 'https://ollama.com'
         : settings.ollamaHost || 'http://127.0.0.1:11434'
       const ollamaApiKey = settings.ollamaUseCloudApi ? settings.ollamaApiKey || '' : ''
       const response = await fetch(`${ollamaHost}/api/generate`, {

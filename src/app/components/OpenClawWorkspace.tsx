@@ -3164,7 +3164,7 @@ export default function OpenClawWorkspace({
           body: JSON.stringify({
             model,
             provider,
-            base_url: provider === 'openai-compatible' ? baseUrl : settings?.ollamaUseCloudApi ? 'https://ollama.com/api' : settings?.ollamaHost,
+            base_url: provider === 'openai-compatible' ? baseUrl : settings?.ollamaUseCloudApi ? 'https://ollama.com' : settings?.ollamaHost,
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -3847,7 +3847,7 @@ export default function OpenClawWorkspace({
     }
   };
 
-  const loadModels = async (nextProvider = provider, nextBaseUrl = baseUrl, ollamaHost = settings?.ollamaUseCloudApi ? 'https://ollama.com/api' : (settings?.ollamaHost || 'http://127.0.0.1:11434')) => {
+  const loadModels = async (nextProvider = provider, nextBaseUrl = baseUrl, ollamaHost = settings?.ollamaUseCloudApi ? 'https://ollama.com' : (settings?.ollamaHost || 'http://127.0.0.1:11434')) => {
     setModelsLoading(true);
     try {
       const res = await fetch('/api/openclaw/models', {

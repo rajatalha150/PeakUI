@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     const baseUrl = provider === 'openai-compatible'
       ? (typeof rawBaseUrl === 'string' && rawBaseUrl.trim() ? rawBaseUrl.trim() : DEFAULT_OPENAI_COMPATIBLE_BASE_URL)
       : settings.ollamaUseCloudApi
-        ? 'https://ollama.com/api'
+        ? 'https://ollama.com'
         : normalizeOllamaHost(rawBaseUrl)
     const apiKey = provider === 'ollama' && settings.ollamaUseCloudApi ? settings.ollamaApiKey : ''
 

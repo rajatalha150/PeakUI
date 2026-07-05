@@ -3,7 +3,7 @@ import { stopRunningOllamaModel } from '@/lib/ollama-control'
 import { getCurrentUserId } from '@/lib/request-auth'
 import { getUserSettings, normalizeOllamaHost } from '@/lib/settings'
 
-const DEFAULT_OLLAMA_CLOUD_BASE_URL = 'https://ollama.com/api'
+const DEFAULT_OLLAMA_CLOUD_BASE_URL = 'https://ollama.com'
 
 interface StopModelBody {
   model?: unknown

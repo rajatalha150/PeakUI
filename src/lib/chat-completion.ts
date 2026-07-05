@@ -46,7 +46,7 @@ import {
 
 const CHAT_HEARTBEAT_INTERVAL_MS = 15000;
 const DEFAULT_OPENAI_COMPATIBLE_BASE_URL = 'https://api.openai.com/v1';
-const DEFAULT_OLLAMA_CLOUD_BASE_URL = 'https://ollama.com/api';
+const DEFAULT_OLLAMA_CLOUD_BASE_URL = 'https://ollama.com';
 const DEFAULT_OLLAMA_CONTEXT_LENGTH = 8192;
 const MIN_CONTEXT_LENGTH = 512;
 const OLLAMA_CONTEXT_CAP_ENV = 'PEAKUI_OLLAMA_CONTEXT_CAP';

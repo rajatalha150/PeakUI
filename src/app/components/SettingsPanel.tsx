@@ -1119,16 +1119,16 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
         <Field label={
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
             Use Ollama Cloud API
-            <HelpHint text="Connect to ollama.com/api using an API key instead of a local Ollama instance." />
+            <HelpHint text="Connect to ollama.com using an API key instead of a local Ollama instance." />
           </span>
-        } help="Enable this to use Ollama cloud models served at https://ollama.com/api with an API key. The local host URL is ignored while this is on.">
+        } help="Enable this to use Ollama cloud models served at ollama.com with an API key. The local host URL is ignored while this is on.">
           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
             <input
               type="checkbox"
               checked={settings.ollamaUseCloudApi}
               onChange={e => update('ollamaUseCloudApi', e.target.checked)}
             />
-            <span>Connect via ollama.com/api</span>
+            <span>Connect via ollama.com</span>
           </label>
         </Field>
 

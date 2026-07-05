@@ -4,7 +4,7 @@ import { isSameOllamaModel } from '@/lib/embedding-models'
 import { getUserSettings, normalizeOllamaHost } from '@/lib/settings'
 import { getErrorMessage } from '@/lib/rag'
 
-const DEFAULT_OLLAMA_CLOUD_BASE_URL = 'https://ollama.com/api'
+const DEFAULT_OLLAMA_CLOUD_BASE_URL = 'https://ollama.com'
 
 interface OllamaVersionResponse {
   version?: unknown
