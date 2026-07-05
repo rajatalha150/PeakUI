@@ -1100,7 +1100,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             <input
               className="input-field"
               style={{ flex: 1 }}
-              value={settings.ollamaHost}
+              value={settings.ollamaUseCloudApi ? 'ollama.com' : settings.ollamaHost}
               disabled={settings.ollamaUseCloudApi}
               onChange={e => update('ollamaHost', e.target.value)}
               placeholder="http://127.0.0.1:11434"

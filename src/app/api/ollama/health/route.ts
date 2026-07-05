@@ -56,12 +56,16 @@ export async function GET(req: NextRequest) {
   const { baseUrl: host, apiKey } = resolveOllamaBaseUrl(settings, overrideHost)
 
   try {
+    const psPromise = settings.ollamaUseCloudApi
+      ? Promise.resolve({ models: [] })
+      : fetchJson<OllamaPsResponse>(`${host}/api/ps`, apiKey)
+          .then(data => ({ data }))
+          .catch(error => ({ error }))
+
     const [versionData, tagsData, psResult] = await Promise.all([
       fetchJson<OllamaVersionResponse>(`${host}/api/version`, apiKey),
       fetchJson<OllamaTagsResponse>(`${host}/api/tags`, apiKey),
-      fetchJson<OllamaPsResponse>(`${host}/api/ps`, apiKey)
-        .then(data => ({ data }))
-        .catch(error => ({ error })),
+      psPromise,
     ])
 
     const installedModels = Array.isArray(tagsData.models)

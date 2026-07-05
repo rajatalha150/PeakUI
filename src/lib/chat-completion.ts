@@ -1610,7 +1610,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
               return;
             }
 
-            if (settings.exclusiveOllamaModels) {
+            if (settings.exclusiveOllamaModels && !settings.ollamaUseCloudApi) {
               emitStatus('stopping-other-models');
               await unloadOtherOllamaModels(baseUrl, requestedModel, apiKey, upstreamAbort.signal);
             }

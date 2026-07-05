@@ -87,6 +87,12 @@ export async function POST(req: Request) {
       });
     }
 
+    const psPromise = settings.ollamaUseCloudApi
+      ? Promise.resolve(new Response('{"models":[]}', { status: 200 }))
+      : fetch(`${baseUrl}/api/ps`, {
+          headers: { ...(apiKey.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}) },
+        })
+
     const [versionResponse, tagsResponse, psResponse] = await Promise.all([
       fetch(`${baseUrl}/api/version`, {
         headers: { ...(apiKey.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}) },
@@ -94,9 +100,7 @@ export async function POST(req: Request) {
       fetch(`${baseUrl}/api/tags`, {
         headers: { ...(apiKey.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}) },
       }),
-      fetch(`${baseUrl}/api/ps`, {
-        headers: { ...(apiKey.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}) },
-      }),
+      psPromise,
     ]);
 
     if (!versionResponse.ok) {
