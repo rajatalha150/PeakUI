@@ -7,7 +7,9 @@ PeakUI opens directly into WorkSpaces. Workspace, Knowledge Base, Settings, task
 ### Model Platforms
 
 - **Primary provider selection**: WorkSpaces can run on local `Ollama` or an OpenAI-compatible provider.
-- **Ollama Cloud API**: Settings can switch Ollama from the default local endpoint (`http://127.0.0.1:11434`) to `https://ollama.com/api` with an API key. When enabled, chat, model discovery, RAG embeddings, health checks, model stops, session summaries, and vision capability probes all route to the cloud endpoint with `Authorization: Bearer <key>`. The key is stored server-side and redacted from browser responses.
+- **Ollama Cloud API**: Settings can switch Ollama from the default local endpoint (`http://127.0.0.1:11434`) to `https://ollama.com/api` with an API key. When enabled, chat, model discovery, RAG embeddings, health checks, model stops, session summaries, vision capability probes, and embedding-model tests all route to the cloud endpoint with an `Authorization: Bearer <key>` header. The key is stored server-side and redacted (returned as an empty string) from browser responses. The `/api/settings` response always redacts the key on both GET and POST so the UI cannot accidentally send an empty key back on a later save.
+- **Local-only endpoints**: Ollama Cloud does not expose the local `/api/ps` running-models endpoint. PeakUI skips `/api/ps` probes, running-model diagnostics, and exclusive-model unloading when cloud mode is active so cloud users never see 401s from that route.
+- **Cloud status display**: When cloud mode is enabled, Settings shows the cloud base URL (`ollama.com`) instead of the local host URL.
 - **Provider-aware defaults**: Saved WorkSpaces model settings keep both the model id and provider so duplicate names across platforms stay deterministic.
 - **Hugging Face router support**: The default HF-compatible path can use `https://router.huggingface.co/v1` with OpenAI-compatible chat completions and router-native `/v1/models` discovery.
 - **HF-compatible endpoints**: Custom TGI, vLLM, or SGLang-style OpenAI-compatible bases can be used when they expose model discovery or info routes.

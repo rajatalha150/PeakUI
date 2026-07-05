@@ -5,6 +5,22 @@ All notable changes to PeakUI are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added — Ollama Cloud API mode
+- Settings can now switch Ollama from the default local endpoint (`http://127.0.0.1:11434`) to `https://ollama.com/api` with a per-user API key.
+- Cloud mode routes chat, model discovery, health checks, model stops, session summaries, vision capability probes, RAG embeddings, and embedding-model tests to Ollama Cloud with an `Authorization: Bearer <key>` header.
+- The API key is stored server-side in `UserSettings.ollamaApiKey` and redacted (returned as an empty string) from every `/api/settings` response (GET and POST) so the browser never receives the real key.
+- Settings shows `ollama.com` in the host field when cloud mode is enabled.
+
+### Changed — Ollama Cloud compatibility
+- `/api/ps` (local-only running-models) probes, running-model diagnostics, and exclusive-model unloading are skipped when `ollamaUseCloudApi` is true. Ollama Cloud returns 401 for `/api/ps`; PeakUI now avoids that endpoint entirely in cloud mode.
+- Affected routes: `/api/ollama/health`, `/api/openclaw/verify`, `/api/rag/test-embed`, and the `unloadOtherOllamaModels` path in `src/lib/chat-completion.ts`.
+
+### Documentation
+- `docs/features.md` expanded with Ollama Cloud API, local-only endpoint, and cloud status display notes.
+- `TROUBLESHOOTING.md` adds four Ollama Cloud recipes: 401 on `/api/ps`, local URL shown in Settings, model list differences, and exclusive-switching behavior.
+
 ## [0.15.1] - 2026-06-26 - Guard Against Oversized unified_browser Tool Results
 
 Fixes the "model picked the wrong tool and crashed on a 25K-char SERP" failure mode. Two layered guards, no behavior change for legitimate unified_browser use.
@@ -25,7 +41,7 @@ Fixes the "model picked the wrong tool and crashed on a 25K-char SERP" failure m
 - 30 new tests in `openclaw-tool-results.test.ts` covering: truncateWithMarker math, compactLinks filtering + capping, isJunkLinkUrl classification, action-based text caps, markdown fallback, failure-path passthrough, structural sections (forms/tables/tabs/batchResults), and the end-to-end 25K SERP fixture.
 - **401 total tests pass, 0 regressions.**
 
-## [0.15.0] - 2026-06-26 - Parallelize Sequential Search Bottlenecks
+## [0.15.0] - 2026-06-29 - Parallelize Sequential Search Bottlenecks
 
 This release cuts the user-visible latency of "search the web" workflows from ~15-30 s to ~5-10 s on cold start. The wins come from three targeted parallelism changes plus a per-tool-call fetch timeout. No behavior change for the model — same `searchAttempts` array, same result shape, same side effects. The user just gets an answer faster.
 

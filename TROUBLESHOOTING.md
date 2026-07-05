@@ -48,7 +48,29 @@ ports:
 Lower the **Context Window** in Settings → Generation, or enable **Use Ollama
 default context** so Ollama chooses the model's native value. **Exclusive
 Ollama Switching** (also in Settings) unloads other models before starting
-the selected one and is the safest way to avoid OOM on small GPUs.
+the selected one and is the safest way to avoid OOM on small GPUs. Exclusive
+switching is automatically skipped when **Use Ollama Cloud API** is enabled,
+because the cloud endpoint does not expose the local `/api/ps` running-models
+endpoint.
+
+### "Ollama returned 401 while listing running models" with cloud mode enabled
+
+The local `/api/ps` endpoint is not available on Ollama Cloud. Update to the
+latest version — PeakUI now skips `/api/ps` probes and exclusive-model
+unloading when **Use Ollama Cloud API** is enabled. Also verify the API key is
+saved: the Settings UI shows a masked key, and the `/api/settings` response
+redacts it so it is never accidentally overwritten by the browser.
+
+### Settings shows the local Ollama URL while cloud mode is enabled
+
+The status label now shows `ollama.com` when cloud mode is active. If you
+still see the local host URL after enabling the toggle, refresh Settings and
+re-save; the display updates from the saved `ollamaUseCloudApi` flag.
+
+### Ollama Cloud model list is empty or different from local
+
+Ollama Cloud lists models tied to your cloud account, not the local `ollama`
+instance. A non-empty local model count is expected when cloud mode is off.
 
 ### Pull is slow or times out
 

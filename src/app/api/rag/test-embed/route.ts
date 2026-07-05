@@ -68,6 +68,7 @@ export async function POST(req: Request) {
   let installedModels = '';
   let activeModels = '';
   let ollamaApiKey = '';
+  let settings = await getUserSettings('');
   const startedAt = Date.now();
 
   try {
@@ -75,7 +76,7 @@ export async function POST(req: Request) {
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json() as TestEmbedBody;
-    const settings = await getUserSettings(userId);
+    settings = await getUserSettings(userId);
     const requestedModel = typeof body.model === 'string' ? body.model.trim() : '';
     const model = requestedModel || settings.ragModel;
     const ollamaHost = normalizeOllamaHost(body.host || settings.ollamaHost);
@@ -86,7 +87,9 @@ export async function POST(req: Request) {
     if (!model) return NextResponse.json({ error: 'Model name required' }, { status: 400 });
 
     const tags = await fetchOllamaJson<OllamaTagsResponse>(`${ollamaHost}/api/tags`, ollamaApiKey);
-    const ps = await fetchOllamaJson<OllamaPsResponse>(`${ollamaHost}/api/ps`, ollamaApiKey);
+    const ps = settings.ollamaUseCloudApi
+      ? { models: [] }
+      : await fetchOllamaJson<OllamaPsResponse>(`${ollamaHost}/api/ps`, ollamaApiKey);
     installedModels = formatModelNames(tags.models);
     activeModels = formatModelNames(ps.models);
     const installed = (tags.models || []).some(item =>
@@ -122,7 +125,9 @@ export async function POST(req: Request) {
         try {
           const [tags, ps] = await Promise.all([
             fetchOllamaJson<OllamaTagsResponse>(`${testedHost}/api/tags`, ollamaApiKey),
-            fetchOllamaJson<OllamaPsResponse>(`${testedHost}/api/ps`, ollamaApiKey),
+            settings.ollamaUseCloudApi
+              ? Promise.resolve({ models: [] })
+              : fetchOllamaJson<OllamaPsResponse>(`${testedHost}/api/ps`, ollamaApiKey),
           ]);
           installedModels = formatModelNames(tags.models);
           activeModels = formatModelNames(ps.models);
