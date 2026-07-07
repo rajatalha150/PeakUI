@@ -2,7 +2,11 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUserIdWithPermission } from '@/lib/request-auth';
 
-export async function GET(_req: Request, context: RouteContext<'/api/rag/documents/[id]'>) {
+interface RouteContext {
+  params: Promise<{ id: string }>;
+}
+
+export async function GET(_req: Request, context: RouteContext) {
   try {
     const userId = await getCurrentUserIdWithPermission('knowledge.use');
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

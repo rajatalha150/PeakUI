@@ -1,6 +1,6 @@
 import type { FileKind } from './file-shared'
 
-export type MessageSourceMode = 'semantic' | 'keyword' | 'web'
+export type MessageSourceMode = 'semantic' | 'keyword' | 'web' | 'hybrid' | 'unavailable'
 
 export interface MessageSource {
   chunkId?: string
@@ -77,7 +77,7 @@ export function normalizeMessageSource(value: unknown): MessageSource | null {
   const sourcePath = normalizeNullableString(value.sourcePath)
   if (sourcePath !== undefined) normalized.sourcePath = sourcePath
 
-  const mode = value.mode === 'semantic' || value.mode === 'keyword' || value.mode === 'web'
+  const mode = value.mode === 'semantic' || value.mode === 'keyword' || value.mode === 'web' || value.mode === 'hybrid' || value.mode === 'unavailable'
     ? value.mode
     : undefined
   if (mode) normalized.mode = mode

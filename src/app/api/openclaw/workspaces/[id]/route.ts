@@ -5,11 +5,15 @@ import {
   updateOpenClawWorkspace,
 } from '@/lib/openclaw-project-workspaces'
 
+interface RouteContext {
+  params: Promise<{ id: string }>
+}
+
 export const runtime = 'nodejs'
 
 export async function GET(
   _request: NextRequest,
-  ctx: RouteContext<'/api/openclaw/workspaces/[id]'>,
+  ctx: RouteContext,
 ) {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use'], {
     forbiddenMessage: 'WorkSpaces access is not granted for this account.',
@@ -32,7 +36,7 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  ctx: RouteContext<'/api/openclaw/workspaces/[id]'>,
+  ctx: RouteContext,
 ) {
   const access = await requireCurrentAuthWithPermissions(['openclaw.use'], {
     forbiddenMessage: 'WorkSpaces access is not granted for this account.',

@@ -1,34 +1,28 @@
 import { after, NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
-import type { Document as PrismaDocument } from '@prisma/client';
 import type { Prisma } from '@prisma/client';
+import type { Document as PrismaDocument } from '@prisma/client';
 import { getCurrentUserIdWithPermission } from '@/lib/request-auth';
 import { type AppSettings, getUserSettings } from '@/lib/settings';
-import { chunkText, getEmbeddings, getErrorMessage } from '@/lib/rag';
+import { getErrorMessage } from '@/lib/rag';
 import { extractFilePayload } from '@/lib/file-extraction';
 import { detectFileKind } from '@/lib/file-shared';
 import { type ExtractedFilePayload, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/file-shared';
 import { markStaleProcessingDocuments } from '@/lib/rag-health';
+import { enqueueDocumentIndexing } from '@/lib/rag-queue';
 import {
   aggregateFolderTree,
   findFolderInTree,
-  isFolderPrefix,
   normalizeFolderPath,
-  type KbFolderNode,
 } from '@/lib/kb-folders';
 
 type Document = PrismaDocument;
 
 const MAX_RAG_TEXT_CHARS = 2_000_000;
 
-const EMBEDDING_BATCH_SIZE = 16;
-const EMBEDDING_UPLOAD_TIMEOUT_MS = 45000;
-const CHUNK_INSERT_BATCH_SIZE = 100;
-
 export const maxDuration = 900;
 
-let ragIndexQueue: Promise<void> = Promise.resolve();
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
 
@@ -62,43 +56,75 @@ interface ProcessDocumentUploadInput {
   settings: AppSettings;
 }
 
-async function embedChunks(
-  chunks: string[],
-  model: string,
-  ollamaHost: string,
-  apiKey: string,
-  onBatchComplete?: () => Promise<void>
-): Promise<number[][]> {
-  const embeddings: number[][] = [];
-  const MAX_RETRIES = 2;
-  const RETRY_DELAYS_MS = [5000, 15000];
+async function processDocumentUpload({
+  documentId,
+  filename,
+  fileType,
+  size,
+  contentHash,
+  sourcePath,
+  buffer,
+  settings,
+}: ProcessDocumentUploadInput) {
+  try {
+    const doc = await prisma.document.findUnique({
+      where: { id: documentId },
+      select: { id: true, status: true, contentHash: true },
+    });
 
-  for (let i = 0; i < chunks.length; i += EMBEDDING_BATCH_SIZE) {
-    const batch = chunks.slice(i, i + EMBEDDING_BATCH_SIZE);
-    let lastError: unknown = null;
-
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const batchEmbeddings = await getEmbeddings(batch, model, ollamaHost, apiKey, EMBEDDING_UPLOAD_TIMEOUT_MS);
-        embeddings.push(...batchEmbeddings);
-        lastError = null;
-        break;
-      } catch (error) {
-        lastError = error;
-        if (attempt < MAX_RETRIES) {
-          console.warn(`RAG embedding batch ${Math.floor(i / EMBEDDING_BATCH_SIZE) + 1} failed (attempt ${attempt + 1}), retrying in ${RETRY_DELAYS_MS[attempt]}ms:`, error instanceof Error ? error.message : String(error));
-          await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
-        }
-      }
+    if (!doc || !['queued', 'processing'].includes(doc.status)) return;
+    if (doc.contentHash !== contentHash) {
+      console.info(`Skipping stale RAG task for ${filename} (${documentId}) because a newer upload superseded it.`);
+      return;
     }
 
-    if (lastError) throw lastError;
-    await onBatchComplete?.();
-  }
+    await prisma.document.updateMany({
+      where: { id: documentId },
+      data: {
+        status: 'processing',
+        errorMessage: null,
+        indexedAt: new Date(),
+      },
+    });
 
-  return embeddings;
+    console.info(`RAG indexing started for ${sourcePath ? `${sourcePath} → ${filename}` : filename} (${documentId})`);
+
+    const extraction = await extractFilePayload({
+      name: filename,
+      type: fileType,
+      size,
+      buffer,
+      maxTextChars: MAX_RAG_TEXT_CHARS,
+    });
+
+    const text = extraction.text;
+    if (!text || text.trim().length === 0) {
+      throw new Error(getNoTextError(filename, extraction));
+    }
+
+    await enqueueDocumentIndexing(documentId, text, filename, fileType, {
+      ragModel: settings.ragModel,
+      ragMode: settings.ragMode as 'semantic' | 'keyword',
+      ollamaHost: settings.ollamaHost,
+      ollamaApiKey: settings.ollamaApiKey ?? '',
+    });
+  } catch (error) {
+    const rawMessage = getErrorMessage(error);
+    const message = settings.ragMode === 'semantic' && rawMessage.toLowerCase().includes('embedding')
+      ? `Embedding model "${settings.ragModel}" failed at ${settings.ollamaHost}. Go to Settings and click Test, or run: ollama pull ${settings.ragModel}\n\nDetails: ${rawMessage}`
+      : rawMessage;
+
+    console.error(`RAG background indexing failed for ${filename} (${documentId}):`, error);
+
+    await markDocumentError(documentId, message).catch(updateError => {
+      console.error('Failed to mark document errored:', updateError);
+    });
+  }
 }
 
+function queueDocumentUpload(input: ProcessDocumentUploadInput) {
+  return processDocumentUpload(input);
+}
 function getRequestContentLength(req: Request): number | null {
   const header = req.headers.get('content-length');
   if (!header) return null;
@@ -142,135 +168,6 @@ async function touchProcessingDocument(documentId: string) {
   });
 }
 
-async function insertChunks(documentId: string, chunks: string[], embeddings: number[][], semantic: boolean) {
-  await prisma.documentChunk.deleteMany({ where: { documentId } });
-
-  for (let i = 0; i < chunks.length; i += CHUNK_INSERT_BATCH_SIZE) {
-    const chunkBatch = chunks.slice(i, i + CHUNK_INSERT_BATCH_SIZE);
-
-    await prisma.documentChunk.createMany({
-      data: chunkBatch.map((chunk, offset) => {
-        const embedding = semantic ? embeddings[i + offset] : null;
-
-        return {
-          chunkIndex: i + offset,
-          content: chunk,
-          embedding: embedding ? JSON.stringify(embedding) : null,
-          documentId,
-        };
-      }),
-    });
-  }
-}
-
-async function processDocumentUpload({
-  documentId,
-  filename,
-  fileType,
-  size,
-  contentHash,
-  sourcePath,
-  buffer,
-  settings,
-}: ProcessDocumentUploadInput) {
-  try {
-    const doc = await prisma.document.findUnique({
-      where: { id: documentId },
-      select: { id: true, status: true, contentHash: true },
-    });
-
-    if (!doc || !['queued', 'processing'].includes(doc.status)) return;
-    if (doc.contentHash !== contentHash) {
-      console.info(`Skipping stale RAG task for ${filename} (${documentId}) because a newer upload superseded it.`);
-      return;
-    }
-
-    await prisma.document.updateMany({
-      where: { id: documentId },
-      data: {
-        status: 'processing',
-        errorMessage: null,
-        indexedAt: new Date(),
-      },
-    });
-
-    console.info(`RAG indexing started for ${sourcePath ? `${sourcePath} → ${filename}` : filename} (${documentId})`);
-
-    await touchProcessingDocument(documentId);
-
-    const extraction = await extractFilePayload({
-      name: filename,
-      type: fileType,
-      size,
-      buffer,
-      maxTextChars: MAX_RAG_TEXT_CHARS,
-    });
-    await touchProcessingDocument(documentId);
-
-    const text = extraction.text;
-    if (!text || text.trim().length === 0) {
-      throw new Error(getNoTextError(filename, extraction));
-    }
-
-    const chunks = chunkText(text);
-    if (chunks.length === 0) {
-      throw new Error('File did not contain enough text to index.');
-    }
-
-    let indexedMode = settings.ragMode;
-    let fallbackMessage: string | null = null;
-    let embeddings: number[][] = [];
-
-    if (settings.ragMode === 'semantic') {
-      try {
-        embeddings = await embedChunks(chunks, settings.ragModel, settings.ollamaHost, settings.ollamaApiKey, async () => touchProcessingDocument(documentId));
-      } catch (error) {
-        const rawMessage = getErrorMessage(error);
-        indexedMode = 'keyword';
-        fallbackMessage = `Semantic embedding failed, so this file was indexed with Keyword/BM25 fallback. Details: ${rawMessage}`;
-        console.warn(`RAG semantic indexing fallback for ${filename} (${documentId}):`, error);
-      }
-    }
-
-    await insertChunks(documentId, chunks, embeddings, indexedMode === 'semantic');
-
-    const update = await prisma.document.updateMany({
-      where: { id: documentId },
-      data: {
-        status: 'ready',
-        ragMode: indexedMode,
-        embeddingModel: indexedMode === 'semantic' ? settings.ragModel : null,
-        ollamaHost: indexedMode === 'semantic' ? settings.ollamaHost : null,
-        indexedAt: new Date(),
-        errorMessage: fallbackMessage,
-      },
-    });
-
-    if (update.count > 0) {
-      console.info(`RAG indexing completed for ${filename} (${documentId}) with ${chunks.length} chunks`);
-    }
-  } catch (error) {
-    const rawMessage = getErrorMessage(error);
-    const message = settings.ragMode === 'semantic' && rawMessage.toLowerCase().includes('embedding')
-      ? `Embedding model "${settings.ragModel}" failed at ${settings.ollamaHost}. Go to Settings and click Test, or run: ollama pull ${settings.ragModel}\n\nDetails: ${rawMessage}`
-      : rawMessage;
-
-    console.error(`RAG background indexing failed for ${filename} (${documentId}):`, error);
-
-    await markDocumentError(documentId, message).catch(updateError => {
-      console.error('Failed to mark document errored:', updateError);
-    });
-  }
-}
-
-function queueDocumentUpload(input: ProcessDocumentUploadInput) {
-  const task = ragIndexQueue
-    .catch(() => undefined)
-    .then(() => processDocumentUpload(input));
-
-  ragIndexQueue = task.catch(() => undefined);
-  return task;
-}
 
 function parsePageParam(value: string | null, fallback: number) {
   const parsed = Number(value);

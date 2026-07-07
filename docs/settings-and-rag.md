@@ -109,6 +109,11 @@ WorkSpaces is the primary app shell. Generation settings are saved per user in `
 - The document list is server-paginated, supports configurable page sizes, multi-select, select-all, and bulk delete, and keeps source paths visible so folder uploads remain readable at scale.
 - A OneDrive-style folder browser is available for users who organize uploads in folders. The browser shows breadcrumbs, immediate subfolders, files, a folder/file view toggle, sortable columns (name/size/createdAt/indexedAt/kind), and a kind filter. The folder tree is polled every 8s during uploads to keep counts fresh. The whole subtree of a folder can be deleted in one action via the "Delete folder" affordance. The `kb-folders.ts` library and `/api/rag/folders` endpoint are the source of truth; `kb-folders-server.ts` exposes a user-scoped tree summary that the chat completion path consumes as a system message so the model knows the corpus shape even when no chunks match a query.
 - Per-turn Knowledge Base state (RAG toggle, search text, and citation set) is persisted to `ChatSession` (`ragEnabled`, `ragQuery`, `ragSourcesJson`) so a reopened chat restores the same RAG draft and the user does not have to re-enable RAG or retype the query. When RAG is disabled, the saved query and sources are dropped to prevent stale citations. The chat completion path also injects a "no matching chunks" hint when a search runs against the corpus but returns no context.
+- **Vector search:** Semantic chunks now store embeddings in a `pgvector` `vector(1536)` column when the extension is available, falling back to JSON string embeddings in-memory if pgvector is not enabled. This keeps the same dimensionality across models; vectors are normalized to 1536 dimensions before storage or comparison.
+- **Hybrid search:** Keyword results are fused with semantic results using weighted linear fusion plus reciprocal rank fusion. Results are then deduplicated (by exact chunk identity and Jaccard content similarity) and optionally re-ranked with MMR for diversity.
+- **Background indexing queue:** Document indexing runs asynchronously after the HTTP response via `after()`. Each document tracks `indexingJobId`, `indexingProgress`, `indexingAttempts`, and `status`. Failed jobs retry up to a configurable maximum with exponential backoff; users can cancel a queued/processing job. Stuck processing documents are automatically marked stale after a timeout.
+- **Model-change re-indexing:** When the RAG embedding model or mode changes in Settings, existing semantic documents whose stored model/dimensions no longer match are marked `queued` so the next upload or background sweep re-indexes them.
+- **Health retry:** The `/api/health` endpoint probes Ollama with exponential backoff retries and reports whether the configured chat and embedding models are reachable.
 
 ### Chunking Strategy
 
@@ -117,6 +122,13 @@ WorkSpaces is the primary app shell. Generation settings are saved per user in `
 - Overlap: 200 characters between adjacent chunks to preserve context across boundaries.
 - Minimum chunk size target: 200 characters to avoid tiny fragments.
 - Chunk text is normalized before embedding: whitespace collapsed, control characters stripped.
+- Documents are routed to document-aware boundary chunkers based on file kind:
+  - **Markdown:** split on headings, preserving front-matter and fenced code blocks.
+  - **Code:** split on function/class/struct boundaries when possible.
+  - **CSV/TSV:** split on row boundaries, repeating the header in each chunk.
+  - **JSON/YAML/XML/HTML:** preserve block indentation while falling back to paragraph boundaries.
+  - **Plain text and long-form files:** paragraph/sentence boundary chunking with overlap.
+- Every chunk stores extracted metadata: keywords, rule-based entities, section heading, summary, and chunk position.
 
 ### Semantic Mode
 
@@ -251,7 +263,11 @@ ollama pull all-minilm
 - If switching local models still fails under GPU pressure, enable **Exclusive Ollama Switching** so Ollama unloads other loaded models before starting the new one.
 - If a model says pull required, run `ollama pull <model-name>`.
 - If testing times out, Ollama may still be loading the model. Check `ollama ps`, then try again.
-- If Semantic search returns no results after changing models, re-upload or re-index documents with the selected embedding model.
+- If Semantic search returns no results after changing models, the existing documents may still be indexed for the old model. Open the KB dashboard and re-index them, or change the model in Settings to trigger automatic re-indexing for mismatched documents.
+- If the KB health panel shows documents stuck in `processing`, wait for the background queue to retry or click Cancel and re-upload. Documents that stay processing longer than the stale timeout are automatically marked `queued` for retry.
+- If `pgvector` is not enabled in Postgres, semantic search falls back to in-memory cosine over stored JSON embeddings. Performance is fine for small libraries but will degrade for large corpora; switch to the `pgvector/pgvector:pg15` image to enable native vector indexing.
+- If a Knowledge Base upload fails immediately with a 413, the file exceeds the configured upload byte limit. Split the file or raise `MAX_UPLOAD_BYTES` / `MAX_UPLOAD_LABEL` if your deployment can handle it.
+- If a document indexes in keyword mode even though semantic mode is selected, the embedding model at the configured Ollama host is unreachable or returned an error. The indexer falls back to keyword search so the file is still searchable.
 - If memory pressure appears during generation, reduce Context Window before retrying.
 - If WorkSpaces still fails with a model-memory error, the selected context window is probably larger than the host can fit. The app will auto-fit downward, but lowering the slider manually will make responses start faster.
 - If you enable **Use Ollama default context**, WorkSpaces omits `num_ctx` entirely for local Ollama requests and lets the selected model use its own native default context window.

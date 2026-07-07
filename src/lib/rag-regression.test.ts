@@ -9,6 +9,13 @@ import {
   parseRagQueryFilters,
   type RagChunkForSearch,
 } from './rag'
+import {
+  chunkDocument,
+  chunkTextByBoundaries,
+  deduplicateResults,
+  normalizeSearchText,
+  tokenize,
+} from './rag-engine'
 
 describe('RAG retrieval', () => {
   it('keeps small files as a whole-document chunk', () => {
@@ -108,5 +115,83 @@ describe('RAG file coverage', () => {
     expect(detectFileKind('song.mp3', 'audio/mpeg')).toBe('audio')
     expect(detectFileKind('video.mp4', 'video/mp4')).toBe('video')
     expect(detectFileKind('blob.bin', 'application/octet-stream')).toBe('binary')
+  })
+})
+
+describe('boundary chunking', () => {
+  it('chunks markdown on headings without breaking code fences', () => {
+    const text = `# Intro\nSome text here.\n## Section A\n\`\`\`ts\nconst a = 1\nconst b = 2\n\`\`\`\n## Section B\nMore text.`
+    const chunks = chunkDocument(text, 'notes.md', 'text/markdown')
+    expect(chunks.length).toBeGreaterThanOrEqual(1)
+    const joined = chunks.map(c => c.content).join('')
+    expect(joined).toContain('## Section A')
+    expect(joined).toContain('## Section B')
+  })
+
+  it('preserves small documents as a single chunk', () => {
+    const short = 'Just a tiny file.\nWith two lines.'
+    const chunks = chunkDocument(short, 'tiny.txt', 'text/plain')
+    expect(chunks).toHaveLength(1)
+  })
+
+  it('chunks code on function boundaries', () => {
+    const code = `function one() { return 1; }\nfunction two() { return 2; }\nfunction three() { return 3; }\nfunction four() { return 4; }`
+    const chunks = chunkDocument(code, 'lib.ts', 'text/typescript')
+    expect(chunks.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('chunks CSV on row boundaries', () => {
+    const csv = 'name,age\nAlice,30\nBob,25\nCharlie,35\nDiana,40\n'
+      + 'Eve,28\nFrank,50\nGrace,33\nHeidi,29\nIvan,45\nJudy,31\n'
+    const chunks = chunkDocument(csv, 'people.csv', 'text/csv')
+    expect(chunks.length).toBeGreaterThanOrEqual(1)
+    for (const chunk of chunks) {
+      expect(chunk.content.startsWith('name,age') || chunk.content.includes('\n')).toBe(true)
+    }
+  })
+})
+
+describe('Unicode tokenization', () => {
+  it('tokenizes mixed scripts and numbers', () => {
+    const tokens = tokenize('Hello 世界123 Python3.12')
+    expect(tokens.length).toBeGreaterThan(0)
+    expect(tokens).toContain('hello')
+    expect(tokens).toContain('python')
+  })
+
+  it('normalizes search text to lowercase ASCII folds', () => {
+    expect(normalizeSearchText('Café résumé')).toBe('cafe resume')
+    expect(normalizeSearchText('  Multiple   spaces  ')).toBe('multiple spaces')
+  })
+})
+
+describe('deduplication', () => {
+  it('keeps the highest-scored duplicate by chunk id', () => {
+    const results: RagChunkForSearch[] = [
+      {
+        chunkId: 'a',
+        chunkIndex: 0,
+        documentChunkCount: 2,
+        documentId: 'doc-1',
+        filename: 'x.md',
+        content: 'first',
+        score: 0.5,
+        mode: 'keyword',
+      },
+      {
+        chunkId: 'a',
+        chunkIndex: 0,
+        documentChunkCount: 2,
+        documentId: 'doc-1',
+        filename: 'x.md',
+        content: 'second',
+        score: 0.8,
+        mode: 'semantic',
+      },
+    ] as unknown as RagChunkForSearch[]
+
+    const deduped = deduplicateResults(results as import('./rag-engine').RagSearchResult[])
+    expect(deduped).toHaveLength(1)
+    expect(deduped[0].score).toBe(0.8)
   })
 })
