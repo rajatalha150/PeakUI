@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { Prisma } from '@prisma/client'
 import { formatBytes } from './file-shared'
 import { getErrorMessage } from './rag'
@@ -1188,7 +1189,7 @@ export async function indexDocumentChunks(
 
       if (pgvector) {
         // Prisma Client cannot write Unsupported("vector") via createMany.
-        const values = rows.map(row => `('${crypto.randomUUID()}', ${row.chunkIndex}, '${row.content.replace(/'/g, "''")}', ${row.embedding ? `'${row.embedding.replace(/'/g, "''")}'` : 'NULL'}, ${row.metadataLiteral === 'null' ? 'NULL' : `'${row.metadataLiteral.replace(/'/g, "''")}'::jsonb`}, '${row.documentId}', ${row.vector ? `'${row.vector}'::vector` : 'NULL'})`).join(',\n')
+        const values = rows.map(row => `('${randomUUID()}', ${row.chunkIndex}, '${row.content.replace(/'/g, "''")}', ${row.embedding ? `'${row.embedding.replace(/'/g, "''")}'` : 'NULL'}, ${row.metadataLiteral === 'null' ? 'NULL' : `'${row.metadataLiteral.replace(/'/g, "''")}'::jsonb`}, '${row.documentId}', ${row.vector ? `'${row.vector}'::vector` : 'NULL'})`).join(',\n')
         await tx.$executeRawUnsafe(`
           INSERT INTO "DocumentChunk" ("id", "chunkIndex", "content", "embedding", "metadata", "documentId", "vector")
           VALUES ${values}
