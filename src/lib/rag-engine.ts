@@ -1162,24 +1162,49 @@ export async function indexDocumentChunks(
 
   const embeddingDim = embeddings[0]?.length ?? 0
 
+  const pgvector = await isPgvectorEnabled()
+
+
   await prisma.$transaction(async tx => {
     await tx.documentChunk.deleteMany({ where: { documentId } })
 
     for (let i = 0; i < chunks.length; i += 100) {
       const batch = chunks.slice(i, i + 100)
-      await tx.documentChunk.createMany({
-        data: batch.map((chunk, offset) => {
-          const embedding = mode === 'semantic' ? embeddings[i + offset] : null
-          return {
-            chunkIndex: i + offset,
-            content: chunk.content,
-            embedding: embedding ? JSON.stringify(embedding) : null,
-            metadata: chunk.metadata as Prisma.InputJsonValue,
-            documentId,
-            vector: embedding ? vectorToPgLiteral(normalizeVectorDimensions(embedding)) as unknown as never : null,
-          }
-        }),
+
+      const rows = batch.map((chunk, offset) => {
+        const embedding = mode === 'semantic' ? embeddings[i + offset] : null
+        const index = i + offset
+        const metadataValue = chunk.metadata ? JSON.stringify(chunk.metadata) : 'null'
+        return {
+          chunkIndex: index,
+          content: chunk.content,
+          embedding: embedding ? JSON.stringify(embedding) : null,
+          metadata: chunk.metadata as Prisma.InputJsonValue,
+          documentId,
+          vector: embedding ? vectorToPgLiteral(normalizeVectorDimensions(embedding)) : null,
+          metadataLiteral: metadataValue,
+        }
       })
+
+      if (pgvector) {
+        // Prisma Client cannot write Unsupported("vector") via createMany.
+        const values = rows.map(row => `('${crypto.randomUUID()}', ${row.chunkIndex}, '${row.content.replace(/'/g, "''")}', ${row.embedding ? `'${row.embedding.replace(/'/g, "''")}'` : 'NULL'}, ${row.metadataLiteral === 'null' ? 'NULL' : `'${row.metadataLiteral.replace(/'/g, "''")}'::jsonb`}, '${row.documentId}', ${row.vector ? `'${row.vector}'::vector` : 'NULL'})`).join(',\n')
+        await tx.$executeRawUnsafe(`
+          INSERT INTO "DocumentChunk" ("id", "chunkIndex", "content", "embedding", "metadata", "documentId", "vector")
+          VALUES ${values}
+        `)
+      } else {
+        await tx.documentChunk.createMany({
+          data: rows.map(row => ({
+            chunkIndex: row.chunkIndex,
+            content: row.content,
+            embedding: row.embedding,
+            metadata: row.metadata,
+            documentId: row.documentId,
+          })),
+        })
+      }
+
     }
 
     await tx.document.update({
