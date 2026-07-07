@@ -12,6 +12,13 @@ const MAX_SOURCE_EXCERPT_CHARS = 3000
 const MAX_CONTEXT_CHARS = 12_000
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 
+// Maximum body size we are willing to follow when reading redirect bodies for
+// SSRF re-validation. Larger bodies are canceled and the final URL is still
+// re-checked using response.url.
+const MAX_REDIRECT_BODY_BYTES = 16_384
+const MAX_REDIRECTS = 10
+const MAX_REDIRECT_CHAIN_TIME_MS = 25_000
+
 const BRAVE_API_KEY = process.env.BRAVE_API_KEY?.trim() || ''
 const SEARXNG_URL = process.env.SEARXNG_URL?.trim() || ''
 const GOOGLE_SEARCH_API_KEY = process.env.GOOGLE_SEARCH_API_KEY?.trim() || ''
@@ -59,7 +66,9 @@ function sleep(ms: number): Promise<void> {
 }
 
 export function extractUrlsFromText(value: string): string[] {
-  const matches = value.match(/https?:\/\/[^\s<>"')]+/gi) ?? []
+  // Tolerant URL extractor that avoids trailing punctuation, markdown link
+  // delimiters, and balanced-parenthesis issues.
+  const matches = value.match(/https?:\/\/[^\s<>"')\]]+/gi) ?? []
   return matches
     .map(match => match.replace(/[),.;!?]+$/, ''))
     .filter((url, index, urls) => urls.indexOf(url) === index)
@@ -209,6 +218,57 @@ async function assertPublicHttpUrl(rawUrl: string): Promise<URL> {
   return url
 }
 
+/* ───────── Search provider rate limiter ───────── */
+
+interface ProviderRateLimitRecord {
+  nextAllowedAt: number
+  consecutiveFailures: number
+}
+
+const searchRateLimits = new Map<string, ProviderRateLimitRecord>()
+
+function getProviderRateLimitKey(label: string, query: string): string {
+  // Bucket by provider + normalized query to prevent identical query spam;
+  // separate buckets avoid one query blocking another provider.
+  const normalizedQuery = query.toLowerCase().trim().replace(/\s+/g, ' ')
+  return `${label}::${normalizedQuery}`
+}
+
+function getProviderBackoffMs(label: string, baseMs: number): number {
+  const state = searchRateLimits.get(label)
+  if (!state || state.consecutiveFailures === 0) return baseMs
+  return Math.min(baseMs * 2 ** Math.min(state.consecutiveFailures, 5), 60_000)
+}
+
+async function applyProviderRateLimit(label: string, query: string, baseCooldownMs: number): Promise<void> {
+  const key = getProviderRateLimitKey(label, query)
+  const now = Date.now()
+  const state = searchRateLimits.get(key)
+  if (state && state.nextAllowedAt > now) {
+    const waitMs = state.nextAllowedAt - now
+    await sleep(Math.min(waitMs, 30_000))
+  }
+}
+
+function recordProviderSuccess(label: string, query: string, baseCooldownMs: number): void {
+  const key = getProviderRateLimitKey(label, query)
+  const now = Date.now()
+  searchRateLimits.set(key, {
+    nextAllowedAt: now + baseCooldownMs,
+    consecutiveFailures: 0,
+  })
+}
+
+function recordProviderFailure(label: string, query: string, baseCooldownMs: number): void {
+  const key = getProviderRateLimitKey(label, query)
+  const previous = searchRateLimits.get(key)
+  const consecutive = (previous?.consecutiveFailures ?? 0) + 1
+  searchRateLimits.set(key, {
+    nextAllowedAt: Date.now() + getProviderBackoffMs(label, baseCooldownMs),
+    consecutiveFailures: consecutive,
+  })
+}
+
 /* ───────── Search engines ───────── */
 
 function decodeDuckDuckGoRedirectUrl(rawHref: string): string | null {
@@ -248,6 +308,7 @@ function decodeBingRedirectUrl(rawHref: string): string | null {
 
 async function searchBrave(query: string, maxResults: number, signal?: AbortSignal): Promise<PublicWebSearchResult[]> {
   if (!BRAVE_API_KEY) return []
+  await applyProviderRateLimit('Brave', query, 500)
 
   const url = new URL('https://api.search.brave.com/res/v1/web/search')
   url.searchParams.set('q', query)
@@ -255,55 +316,74 @@ async function searchBrave(query: string, maxResults: number, signal?: AbortSign
   url.searchParams.set('offset', '0')
   url.searchParams.set('text_decorations', 'false')
 
-  const response = await fetch(url.toString(), {
-    headers: {
-      'Accept': 'application/json',
-      'X-Subscription-Token': BRAVE_API_KEY,
-    },
-    signal: withTimeoutSignal(SEARCH_TIMEOUT_MS, signal),
-  })
+  try {
+    const response = await fetch(url.toString(), {
+      headers: {
+        'Accept': 'application/json',
+        'X-Subscription-Token': BRAVE_API_KEY,
+      },
+      signal: withTimeoutSignal(SEARCH_TIMEOUT_MS, signal),
+    })
 
-  if (!response.ok) {
-    throw new Error(`Brave search failed: ${response.status}`)
+    if (!response.ok) {
+      throw new Error(`Brave search failed: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const results = Array.isArray(data?.web?.results) ? data.web.results : []
+
+    const mapped = results.slice(0, maxResults).map((item: { title?: string; url?: string; description?: string }) => ({
+      title: String(item.title || ''),
+      url: String(item.url || ''),
+      snippet: String(item.description || ''),
+    })).filter((r: PublicWebSearchResult) => r.url && r.title)
+
+    recordProviderSuccess('Brave', query, 500)
+    return mapped
+  } catch (error) {
+    recordProviderFailure('Brave', query, 500)
+    throw error
   }
-
-  const data = await response.json()
-  const results = Array.isArray(data?.web?.results) ? data.web.results : []
-
-  return results.slice(0, maxResults).map((item: { title?: string; url?: string; description?: string }) => ({
-    title: String(item.title || ''),
-    url: String(item.url || ''),
-    snippet: String(item.description || ''),
-  })).filter((r: PublicWebSearchResult) => r.url && r.title)
 }
 
 async function searchSearxng(query: string, maxResults: number, signal?: AbortSignal): Promise<PublicWebSearchResult[]> {
   if (!SEARXNG_URL) return []
+  await applyProviderRateLimit('SearXNG', query, 1000)
 
   const url = new URL(`${SEARXNG_URL.replace(/\/$/, '')}/search`)
   url.searchParams.set('q', query)
   url.searchParams.set('format', 'json')
   url.searchParams.set('engines', 'google,bing,duckduckgo,wikipedia')
 
-  const response = await fetch(url.toString(), {
-    signal: withTimeoutSignal(SEARCH_TIMEOUT_MS, signal),
-  })
+  try {
+    const response = await fetch(url.toString(), {
+      signal: withTimeoutSignal(SEARCH_TIMEOUT_MS, signal),
+    })
 
-  if (!response.ok) {
-    throw new Error(`SearXNG search failed: ${response.status}`)
+    if (!response.ok) {
+      throw new Error(`SearXNG search failed: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const results = Array.isArray(data?.results) ? data.results : []
+
+    const mapped = results.slice(0, maxResults).map((item: { title?: string; url?: string; content?: string; snippet?: string }) => ({
+      title: String(item.title || ''),
+      url: String(item.url || ''),
+      snippet: String(item.content || item.snippet || ''),
+    })).filter((r: PublicWebSearchResult) => r.url && r.title)
+
+    recordProviderSuccess('SearXNG', query, 1000)
+    return mapped
+  } catch (error) {
+    recordProviderFailure('SearXNG', query, 1000)
+    throw error
   }
-
-  const data = await response.json()
-  const results = Array.isArray(data?.results) ? data.results : []
-
-  return results.slice(0, maxResults).map((item: { title?: string; url?: string; content?: string; snippet?: string }) => ({
-    title: String(item.title || ''),
-    url: String(item.url || ''),
-    snippet: String(item.content || item.snippet || ''),
-  })).filter((r: PublicWebSearchResult) => r.url && r.title)
 }
 
 async function searchDuckDuckGo(query: string, maxResults: number, signal?: AbortSignal): Promise<PublicWebSearchResult[]> {
+  await applyProviderRateLimit('DuckDuckGo', query, 1000)
+
   const encoded = encodeURIComponent(query)
   const urlsToTry = [
     `https://html.duckduckgo.com/html/?q=${encoded}`,
@@ -363,70 +443,83 @@ async function searchDuckDuckGo(query: string, maxResults: number, signal?: Abor
         }
       }
 
-      if (results.length > 0) return results.slice(0, maxResults)
+      if (results.length > 0) {
+        recordProviderSuccess('DuckDuckGo', query, 1000)
+        return results.slice(0, maxResults)
+      }
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error))
     }
   }
 
+  recordProviderFailure('DuckDuckGo', query, 1000)
   throw lastError || new Error('DuckDuckGo search failed')
 }
 
 async function searchBing(query: string, maxResults: number, signal?: AbortSignal): Promise<PublicWebSearchResult[]> {
+  await applyProviderRateLimit('Bing', query, 1000)
+
   const encoded = encodeURIComponent(query)
-  const response = await fetch(`https://www.bing.com/search?q=${encoded}&count=${maxResults}`, {
-    headers: {
-      'User-Agent': USER_AGENT,
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-    signal: withTimeoutSignal(SEARCH_TIMEOUT_MS, signal),
-  })
+  try {
+    const response = await fetch(`https://www.bing.com/search?q=${encoded}&count=${maxResults}`, {
+      headers: {
+        'User-Agent': USER_AGENT,
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      signal: withTimeoutSignal(SEARCH_TIMEOUT_MS, signal),
+    })
 
-  if (!response.ok) {
-    throw new Error(`Bing search failed: ${response.status}`)
-  }
-
-  const html = await response.text()
-  const results: PublicWebSearchResult[] = []
-
-  // Try multiple Bing result selectors
-  const selectors = [
-    /<li class="b_algo"[^>]*>([\s\S]*?)<\/li>/g,
-    /<div class="b_algo"[^>]*>([\s\S]*?)<\/div>/g,
-  ]
-
-  for (const regex of selectors) {
-    let match: RegExpExecArray | null
-    while ((match = regex.exec(html)) !== null && results.length < maxResults) {
-      const block = match[1]
-      const titleMatch = block.match(/<h2[^>]*>([\s\S]*?)<\/h2>/)
-      const linkMatch = block.match(/<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/)
-      const snippetMatch = block.match(/<p[^>]*>([\s\S]*?)<\/p>/)
-
-      if (titleMatch && linkMatch) {
-        const rawHref = linkMatch[1]
-        const url = decodeBingRedirectUrl(rawHref) || rawHref
-        const title = stripTags(titleMatch[1])
-        const snippet = snippetMatch ? stripTags(snippetMatch[1]) : ''
-
-        if (url && title) {
-          results.push({ title, url, snippet })
-        }
-      }
+    if (!response.ok) {
+      throw new Error(`Bing search failed: ${response.status}`)
     }
 
-    if (results.length > 0) break
-  }
+    const html = await response.text()
+    const results: PublicWebSearchResult[] = []
 
-  if (results.length === 0) {
-    throw new Error('Bing search returned no parseable results')
-  }
+    // Try multiple Bing result selectors
+    const selectors = [
+      /<li class="b_algo"[^>]*>([\s\S]*?)<\/li>/g,
+      /<div class="b_algo"[^>]*>([\s\S]*?)<\/div>/g,
+    ]
 
-  return results.slice(0, maxResults)
+    for (const regex of selectors) {
+      let match: RegExpExecArray | null
+      while ((match = regex.exec(html)) !== null && results.length < maxResults) {
+        const block = match[1]
+        const titleMatch = block.match(/<h2[^>]*>([\s\S]*?)<\/h2>/)
+        const linkMatch = block.match(/<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/)
+        const snippetMatch = block.match(/<p[^>]*>([\s\S]*?)<\/p>/)
+
+        if (titleMatch && linkMatch) {
+          const rawHref = linkMatch[1]
+          const url = decodeBingRedirectUrl(rawHref) || rawHref
+          const title = stripTags(titleMatch[1])
+          const snippet = snippetMatch ? stripTags(snippetMatch[1]) : ''
+
+          if (url && title) {
+            results.push({ title, url, snippet })
+          }
+        }
+      }
+
+      if (results.length > 0) break
+    }
+
+    if (results.length === 0) {
+      throw new Error('Bing search returned no parseable results')
+    }
+
+    recordProviderSuccess('Bing', query, 1000)
+    return results.slice(0, maxResults)
+  } catch (error) {
+    recordProviderFailure('Bing', query, 1000)
+    throw error
+  }
 }
 
 async function searchGoogle(query: string, maxResults: number, signal?: AbortSignal): Promise<PublicWebSearchResult[]> {
   if (!GOOGLE_SEARCH_API_KEY || !GOOGLE_SEARCH_CX) return []
+  await applyProviderRateLimit('Google', query, 200)
 
   const url = new URL('https://www.googleapis.com/customsearch/v1')
   url.searchParams.set('q', query)
@@ -434,22 +527,30 @@ async function searchGoogle(query: string, maxResults: number, signal?: AbortSig
   url.searchParams.set('cx', GOOGLE_SEARCH_CX)
   url.searchParams.set('num', String(Math.min(maxResults, 10)))
 
-  const response = await fetch(url.toString(), {
-    signal: withTimeoutSignal(SEARCH_TIMEOUT_MS, signal),
-  })
+  try {
+    const response = await fetch(url.toString(), {
+      signal: withTimeoutSignal(SEARCH_TIMEOUT_MS, signal),
+    })
 
-  if (!response.ok) {
-    throw new Error(`Google search failed: ${response.status}`)
+    if (!response.ok) {
+      throw new Error(`Google search failed: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const items = Array.isArray(data?.items) ? data.items : []
+
+    const mapped = items.slice(0, maxResults).map((item: { title?: string; link?: string; snippet?: string }) => ({
+      title: String(item.title || ''),
+      url: String(item.link || ''),
+      snippet: String(item.snippet || ''),
+    })).filter((r: PublicWebSearchResult) => r.url && r.title)
+
+    recordProviderSuccess('Google', query, 200)
+    return mapped
+  } catch (error) {
+    recordProviderFailure('Google', query, 200)
+    throw error
   }
-
-  const data = await response.json()
-  const items = Array.isArray(data?.items) ? data.items : []
-
-  return items.slice(0, maxResults).map((item: { title?: string; link?: string; snippet?: string }) => ({
-    title: String(item.title || ''),
-    url: String(item.link || ''),
-    snippet: String(item.snippet || ''),
-  })).filter((r: PublicWebSearchResult) => r.url && r.title)
 }
 
 /* ───────── Content extraction ───────── */
@@ -660,12 +761,32 @@ function extractReadableText(html: string, url: URL): ExtractedPage {
   }
 }
 
-/* ───────── Fetch with retry ───────── */
+/* ───────── Fetch with redirect-aware SSRF guard ───────── */
+
+interface RedirectInfo {
+  status: number
+  url: string
+  redirected: boolean
+}
+
+function shouldRevalidateAfterRedirect(response: Response, previousUrl: URL): boolean {
+  // We only need to re-validate when the response indicates we may have left
+  // the originally approved host. A 200 on the originally requested URL does
+  // not require another DNS lookup.
+  if (!response.redirected) return false
+  try {
+    const finalUrl = new URL(response.url)
+    return finalUrl.host !== previousUrl.host
+  } catch {
+    // If the final URL cannot be parsed, err on the side of caution.
+    return true
+  }
+}
 
 async function fetchWithRetry(
   url: URL,
   options: { signal?: AbortSignal; retries?: number } = {},
-): Promise<Response> {
+): Promise<Response & { redirects: RedirectInfo[] }> {
   const retries = options.retries ?? 1
   let lastError: Error | undefined
 
@@ -678,21 +799,75 @@ async function fetchWithRetry(
           'Accept': 'text/html, text/plain;q=0.9, application/xhtml+xml;q=0.8, application/json;q=0.1',
           'Accept-Language': 'en-US,en;q=0.9',
         },
-        redirect: 'follow',
+        redirect: 'manual',
         signal: withTimeoutSignal(FETCH_TIMEOUT_MS, options.signal),
       })
 
-      if (response.ok) return response
+      const redirects: RedirectInfo[] = []
+      let finalResponse = response
+      let chainStartedAt = Date.now()
+      let currentUrl = url
+      let redirectCount = 0
+
+      while (
+        finalResponse.status >= 300 &&
+        finalResponse.status < 400 &&
+        redirectCount < MAX_REDIRECTS &&
+        Date.now() - chainStartedAt < MAX_REDIRECT_CHAIN_TIME_MS
+      ) {
+        const location = finalResponse.headers.get('location')
+        if (!location) break
+
+        const nextUrl = new URL(location, currentUrl.href)
+
+        // Re-run the full public-URL guard on every redirect hop, before we
+        // ever issue a request to the new host. This closes the SSRF window
+        // where the first hop is public but a later hop points to a private
+        // address (e.g. metadata service, localhost, internal LB).
+        await assertPublicHttpUrl(nextUrl.href)
+        currentUrl = nextUrl
+        redirectCount += 1
+
+        const redirectResponse = await fetch(nextUrl, {
+          cache: 'no-store',
+          headers: {
+            'User-Agent': USER_AGENT,
+            'Accept': 'text/html, text/plain;q=0.9, application/xhtml+xml;q=0.8, application/json;q=0.1',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
+          redirect: 'manual',
+          signal: withTimeoutSignal(FETCH_TIMEOUT_MS, options.signal),
+        })
+
+        const bodyCapped = await readResponseText(redirectResponse, MAX_REDIRECT_BODY_BYTES)
+        redirects.push({ status: finalResponse.status, url: currentUrl.href, redirected: true })
+        finalResponse = redirectResponse
+      }
+
+      if (redirectCount >= MAX_REDIRECTS) {
+        throw new Error(`Redirect chain exceeded ${MAX_REDIRECTS} hops for ${url.href}`)
+      }
+
+      // Final defense in depth: if the browser followed a DNS resolution that
+      // differs from the originally approved host, re-check it. This catches
+      // TOCTOU between our first DNS lookup and the runtime's second lookup.
+      if (shouldRevalidateAfterRedirect(finalResponse, url)) {
+        await assertPublicHttpUrl(finalResponse.url)
+      }
+
+      if (finalResponse.ok) {
+        return Object.assign(finalResponse, { redirects })
+      }
 
       // Retry on server errors or rate limits
-      if (response.status >= 500 || response.status === 429) {
+      if (finalResponse.status >= 500 || finalResponse.status === 429) {
         if (attempt < retries) {
           await sleep(FETCH_RETRY_DELAY_MS * (attempt + 1))
           continue
         }
       }
 
-      return response
+      return Object.assign(finalResponse, { redirects })
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error))
       if (attempt < retries) {
@@ -761,21 +936,11 @@ export async function searchPublicWeb(
   const maxResults = Math.min(Math.max(options.maxResults ?? MAX_SEARCH_RESULTS, 1), 10)
   const signal = options.signal
 
-  // Build the list of *configured* providers. These are the ones with API
-  // keys / endpoints set in the environment — they typically have rate
-  // limits and (sometimes) per-query cost, so we want to be deliberate
-  // about how many we hit at once. The always-on tier (DDG, Bing) is
-  // separate because they have no rate limit worth worrying about.
   const configuredProviders: Array<{ label: string; search: typeof searchGoogle }> = []
   if (GOOGLE_SEARCH_API_KEY && GOOGLE_SEARCH_CX) configuredProviders.push({ label: 'Google', search: searchGoogle })
   if (BRAVE_API_KEY) configuredProviders.push({ label: 'Brave', search: searchBrave })
   if (SEARXNG_URL) configuredProviders.push({ label: 'SearXNG', search: searchSearxng })
 
-  // Race the top 2 configured providers in parallel. 2 is the safe bound:
-  // typical configs are 0-2 paid providers, and 3 concurrent paid API
-  // calls is right at the rate-limit cliff. If only 1 is configured, fall
-  // through to sequential for that single call (the race adds no value
-  // and the parallel code path is wasted overhead).
   if (configuredProviders.length >= 2) {
     const [first, second] = configuredProviders
     const settled = await Promise.allSettled([
@@ -798,9 +963,6 @@ export async function searchPublicWeb(
     }
   }
 
-  // Remaining configured providers (3rd, 4th, ...) fall through
-  // sequentially. In practice this branch is rare (most deployments have
-  // 0-2 paid providers) but we keep the safety net.
   for (let i = 2; i < configuredProviders.length; i += 1) {
     const provider = configuredProviders[i]
     try {
@@ -812,9 +974,6 @@ export async function searchPublicWeb(
     }
   }
 
-  // Always-on tier: DuckDuckGo, then Bing. Sequential — they're free,
-  // they don't rate-limit us, and we want the result of one before
-  // deciding whether to hit the other.
   try {
     const results = await searchDuckDuckGo(cleanQuery, maxResults, signal)
     if (results.length > 0) return results
@@ -855,11 +1014,6 @@ export async function fetchPublicWebPage(
   fallbackTitle = '',
   options: { signal?: AbortSignal } = {},
 ): Promise<MessageSource | null> {
-  // Phase 3 of the web-trust plan: callers that want to *force* a particular
-  // strategy can call `fetchAsReadableText` directly (it auto-upgrades to
-  // browser when the fast path returns an empty shell). We keep this
-  // function as the canonical fast-path entry point since most callers want
-  // the cheap HTTPS fetch and don't need browser rendering.
   const safeUrl = await assertPublicHttpUrl(rawUrl)
 
   try {
@@ -886,7 +1040,7 @@ export async function fetchPublicWebPage(
       return {
         filename: fallbackTitle || safeUrl.hostname,
         title: fallbackTitle || safeUrl.hostname,
-        url: safeUrl.href,
+        url: response.url || safeUrl.href,
         excerpt,
         content: excerpt,
         score: 1,
@@ -908,7 +1062,7 @@ export async function fetchPublicWebPage(
     return {
       filename: title,
       title,
-      url: safeUrl.href,
+      url: response.url || safeUrl.href,
       excerpt: excerpt + dateNote,
       content: excerpt,
       score: 1,
@@ -921,10 +1075,13 @@ export async function fetchPublicWebPage(
 }
 
 function buildContext(query: string, sources: MessageSource[]): string {
+  // Build sections in citation order first, then truncate the final text.
+  // We must keep source [N] and its header together; otherwise a citation
+  // number in the prompt can refer to a source that was truncated away.
   const sections = sources.map((source, index) => {
     const header = `[${index + 1}] ${source.title || source.filename}`
     const location = source.url ? `URL: ${source.url}` : ''
-    const excerpt = source.excerpt || source.content
+    const excerpt = source.excerpt || source.content || ''
 
     return [header, location, excerpt].filter(Boolean).join('\n')
   })
@@ -938,10 +1095,34 @@ function buildContext(query: string, sources: MessageSource[]): string {
     'Only reference sources listed below — do not invent URLs or citations.',
   ].join(' ')
 
-  return truncate(
-    `${citationInstructions}\n\nSearch query: ${query}\n\n${sections.join('\n\n---\n\n')}`,
-    MAX_CONTEXT_CHARS,
-  )
+  const prefix = `${citationInstructions}\n\nSearch query: ${query}\n\n`
+
+  // Greedily include complete sections until the next section would exceed
+  // the budget. Drop later sources rather than splitting a source in half.
+  const budget = MAX_CONTEXT_CHARS - prefix.length
+  const kept: string[] = []
+  let used = 0
+  for (const section of sections) {
+    const cost = section.length + 2 // separator cost for "\n\n---\n\n"
+    if (used + cost > budget && kept.length > 0) {
+      break
+    }
+    if (section.length > budget && kept.length === 0) {
+      // Only one source fits at all; truncate its excerpt but keep the header.
+      const truncated = truncate(section, budget)
+      kept.push(truncated)
+      used += truncated.length
+      break
+    }
+    kept.push(section)
+    used += cost
+  }
+
+  if (kept.length === 0) {
+    return prefix
+  }
+
+  return `${prefix}${kept.join('\n\n---\n\n')}`
 }
 
 interface BuildWebContextOptions {

@@ -190,6 +190,37 @@ catalog engine is down, rotate to another by setting
 `UWAF_STEALTH_PROVIDER_<NAME>_{HOME_URL,QUERY_URL}` env vars, or pick a
 different engine from the Network Hub panel.
 
+From v0.16.0 onward, if every stealth/direct attempt returns no useful
+results the browser search automatically falls back to the public-web search
+layer (Brave / SearXNG / Bing / DuckDuckGo) so the session still gets
+results. Check `docker compose logs app | grep -i "public-web fallback"` to
+confirm the fallback fired.
+
+### "Browser fetch is slow on the second request to the same host"
+
+`fetchAsReadableText` now reuses the managed UWAF pool instead of launching
+a fresh Chromium context for every page. The first request to a host warms
+the pool; subsequent requests on the same host skip the launch overhead. If
+the pool is unavailable (headless/CI), the route falls back to an ephemeral
+browser with a 5 s navigation timeout.
+
+### Web search returns 429 or "provider rate limited"
+
+PeakUI now applies per-provider cooldowns after failures: 2 s after the
+first failure, 8 s after the second, 32 s after the third. Paid providers
+(Brave, Google, SearXNG with API key) recover independently from free
+providers. Wait a few seconds and retry, or add a paid provider in
+Settings.
+
+## SSRF / Redirect Safety
+
+### "URL not allowed" for a public site that should work
+
+The public-web guard blocks private IP ranges, `localhost`, `127.0.0.1`,
+`.internal` hosts, and any redirect chain that lands on one of those. If
+you intentionally run services on `.internal` hostnames, set
+`PEAKUI_ALLOW_INTERNAL_HOSTS=true` in `.env` and restart.
+
 ## Database
 
 ### "Migration pending" after upgrade

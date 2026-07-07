@@ -461,8 +461,11 @@ export function getStealthProviderIds(profile?: StealthProfile): string[] {
   return listSearchProviders('stealth', '', profile).map(provider => provider.id)
 }
 
-export function getStealthProviderCatalog(): Array<{ id: string; label: string; active: boolean }> {
+export function getStealthProviderCatalog(): Array<{ id: string; label: string; active: boolean; configured: boolean }> {
   const activeIds = new Set(getProvidersForMode('stealth').map(provider => provider.id))
+  const configuredIds = new Set(
+    listSearchProviders('stealth', '').map(provider => provider.id)
+  )
   const catalog = [
     { id: 'onionway', label: 'OnionWay' },
     { id: 'tor66', label: 'Tor66' },
@@ -478,25 +481,12 @@ export function getStealthProviderCatalog(): Array<{ id: string; label: string; 
   return catalog.map(entry => ({
     ...entry,
     active: activeIds.has(entry.id),
+    configured: configuredIds.has(entry.id),
   }))
-}
-
-export function getPreferredStealthProviderId(query: string, profile?: StealthProfile): string | undefined {
-  const [top] = listSearchProviders('stealth', query, profile)
-  return top?.id
 }
 
 export function isStealthProviderId(value: string): boolean {
   return getStealthProviderCatalog().some(entry => entry.id === value)
-}
-
-export function summarizeSearchAttempts(attempts: readonly UwafSearchAttempt[]): string[] {
-  return attempts.map(attempt => {
-    const outcome = attempt.success
-      ? `success (${attempt.resultCount} result blocks)`
-      : `failed${attempt.failureCode ? `: ${attempt.failureCode}` : ''}${attempt.resultCount > 0 ? ` (${attempt.resultCount} result blocks)` : ''}`
-    return `${attempt.providerLabel}: ${outcome}`
-  })
 }
 
 export function listSearchProvidersForPrompt(mode: BrowserMode, profile?: StealthProfile): string {
@@ -570,4 +560,11 @@ export function recordSearchProviderOutcome(input: ProviderOutcome): void {
   if (input.antiBotDetected) state.antiBotHits += 1
   if (input.loginDetected) state.loginHits += 1
   if ((input.resultCount || 0) === 0) state.zeroResultHits += 1
+
+  // Penalize providers that consistently return zero-result pages, even when
+  // the page loaded without errors. This prevents a provider from being scored
+  // as "successful" while never delivering usable rows.
+  if ((input.resultCount || 0) === 0 && input.success && state.consecutiveFailures === 0) {
+    state.degradedUntil = Date.now() + Math.min(SEARCH_DEGRADATION_COOLDOWN_MS, 5 * 60 * 1000)
+  }
 }

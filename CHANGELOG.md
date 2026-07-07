@@ -21,6 +21,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/features.md` expanded with Ollama Cloud API, local-only endpoint, and cloud status display notes.
 - `TROUBLESHOOTING.md` adds four Ollama Cloud recipes: 401 on `/api/ps`, local URL shown in Settings, model list differences, and exclusive-switching behavior.
 
+## [Unreleased] - Browsing / Internet / Stealth hardening
+
+### Fixed
+- **SSRF redirect bypass in `src/lib/web-context.ts`.** `assertPublicHttpUrl` only checked the original URL before DNS resolution; a redirect could point to a private/internal address after the first hop. The fetch layer now resolves manually (`redirect: 'manual'`) and re-validates every redirect hop against public-IP / internal-host guards, including `retry-after` and `location` handling for 301/302/303/307/308 responses.
+- **Browser fetch ignored the managed UWAF pool.** `fetchViaBrowser` in `src/lib/web-fetch-strategy.ts` used an isolated `chromium.launch` context for every browser fetch. It now tries `getPage` from `uwaf-pool.ts` first so browser-grade fetches reuse the same display, proxy rules, stealth fingerprints, and persistent identity as live browser sessions, and only falls back to an ephemeral Chromium when the pool is unavailable.
+- **Unsafe context truncation broke citation numbering.** `buildContext` truncated raw text, which could remove a source while leaving higher citation numbers for absent sources. Sources are now bundled as whole sections and removed from the end, so every `[N]` in the returned context has a matching source.
+- **Cache locked hosts to `fast` after browser infra failures.** A failed browser upgrade left the strategy cache unset so the next request could retry; the old behavior cached `fast` only after a successful fast result and now explicitly avoids caching on infra errors.
+- **Over-aggressive browser auto-upgrade.** The old threshold required only 2 `<script>` tags and ignored semantic markup. The new threshold requires ≥3 scripts, an excerpt under 200 chars, and no `<main|article|section>` tags; known static hosts (Wikipedia, HN, StackExchange, etc.) skip the browser path entirely.
+- **Weak URL extraction.** `extractUrlsFromText` captured trailing punctuation, markdown delimiters, and closing parentheses as part of URLs. It now uses a tighter regex that strips `.,;!?)]}` suffixes and avoids unbalanced parenthesis issues.
+
+### Changed
+- **Per-provider rate limiting for web search.** `src/lib/web-context.ts` now tracks `searchRateLimits` per provider with progressive backoff (2 s, 8 s, 32 s) on consecutive failures, preventing free providers from being hammered and giving configured paid providers a recovery window.
+- **Provider scoring penalizes zero-result pages.** A provider that returns links but no extractable results now scores below providers that actually produced content, so empty SERPs don't dominate the merged ranking.
+- **Stealth provider catalog clarity.** `getStealthProviderCatalog` in `src/lib/uwaf-search-providers.ts` now exposes both `active` (will be used in the current stealth profile) and `configured` (has required env vars / dependencies) so the UI can distinguish "enabled" from "ready to use".
+- **UWAF direct search falls back to public-web search.** When every stealth/direct HTML scraper returns no useful results, `executeSearch` in `src/lib/uwaf-browser.ts` now calls `searchPublicWeb` (Brave/SearXNG/Bing/DDG) as a final fallback so the browser search path remains usable when curated onion engines or raw-HTML scraping fail.
+
+### Tests
+- `src/lib/web-fetch-strategy.test.ts` updated for the new managed-pool fallback path and stricter JS-required detection.
+- `npx tsc --noEmit`, `npm test -- --run`, and `npm run build` all pass. Docker image builds and the Compose stack starts cleanly.
+
 ## [0.15.1] - 2026-06-26 - Guard Against Oversized unified_browser Tool Results
 
 Fixes the "model picked the wrong tool and crashed on a 25K-char SERP" failure mode. Two layered guards, no behavior change for legitimate unified_browser use.
