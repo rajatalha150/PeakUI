@@ -11,6 +11,7 @@ import {
 import type { OpenClawUwafBrowserMode } from './settings'
 import { assertPublicHttpUrl } from './openclaw-browser'
 import { recordUwafPageOpenTime } from './uwaf-telemetry'
+import { searchPublicWeb } from './web-context'
 import {
   getCuratedStealthEntryPoints,
   getSearchProviderById,
@@ -1445,21 +1446,111 @@ async function executeSearch(
     }
   }
 
+  // Compute the best (least-bad) provider attempt before considering the
+  // public-web fallback, because the fallback only runs when every attempt
+  // failed or produced zero useful results.
   const fallback = attempts.sort((left, right) => {
     if (left.resultCount !== right.resultCount) return right.resultCount - left.resultCount
     if (left.evaluation.queryMatched !== right.evaluation.queryMatched) return left.evaluation.queryMatched ? -1 : 1
     return left.observation.observations.length - right.observation.observations.length
   })[0]
 
+  // Fallback: if no provider produced a real search result, delegate to the
+  // public-web search layer (Brave API key, SearXNG, DDG, Bing). This keeps
+  // the browser search usable when the HTML-scraping UWAF providers are
+  // rate-limited or broken.
+  if (mode === 'direct' && (!fallback || fallback.resultCount === 0 || !fallback.evaluation.queryMatched)) {
+    try {
+      const publicResults = await searchPublicWeb(query, { maxResults: 5, signal: AbortSignal.timeout(12_000) })
+      if (publicResults.length > 0) {
+        const publicLinks: UwafBrowserLink[] = publicResults.map((result, index) => ({
+          index,
+          text: result.title || result.url,
+          url: result.url,
+        }))
+        const publicObservation: PageObservation = {
+          url: `https://search-public-web?q=${encodeURIComponent(query)}`,
+          title: `Public web search results for "${query}"`,
+          text: publicLinks.map(link => `${link.text}: ${link.url}`).join('\n'),
+          html: '',
+          markdown: publicLinks.map(link => `- [${link.text}](${link.url})`).join('\n'),
+          links: publicLinks,
+          forms: [],
+          tables: [],
+          jsErrors: [],
+          networkErrors: [],
+          tabs: [],
+          activeTabIndex: 0,
+          pageSignature: `public-search:${query}`,
+          observations: [
+            `UWAF direct providers failed or produced no results for "${query}".`,
+            `Fell back to the public web search layer and found ${publicResults.length} result(s).`,
+          ],
+          antiBotDetected: false,
+          loginDetected: false,
+        }
+        const publicProvider: UwafSearchProvider = {
+          id: 'public-web-fallback',
+          label: 'Public Web Search',
+          mode: 'direct',
+          kind: 'general',
+          priority: 999,
+          resultsUrl: (q: string) => `https://search-public-web?q=${encodeURIComponent(q)}`,
+          homeUrl: 'https://search-public-web',
+          inputSelectors: [],
+          submitSelectors: [],
+          resultSelectors: [],
+        }
+        recordSearchProviderOutcome({
+          providerId: publicProvider.id,
+          mode,
+          durationMs: Date.now() - searchStartedAt,
+          success: true,
+          antiBotDetected: false,
+          loginDetected: false,
+          resultCount: publicResults.length,
+          useful: true,
+        })
+        recordSearchHistory(session, query, { id: publicProvider.id, label: publicProvider.label }, publicResults.length, true, publicResults.slice(0, 5).map(result => result.url))
+        commitObservationToSession(session, publicObservation, 'search')
+        return toResult('search', mode, publicObservation, {
+          success: true,
+          requestedUrl: publicObservation.url,
+          requestedQuery: query,
+          queryMatched: true,
+          resultCount: publicResults.length,
+          searchEngine: publicProvider.label,
+          searchProviderId: publicProvider.id,
+          searchAttempts: [...attempts.map(entry => ({
+            providerId: entry.provider.id,
+            providerLabel: entry.provider.label,
+            success: entry.evaluation.success,
+            resultCount: entry.resultCount,
+            queryMatched: entry.evaluation.queryMatched,
+            failureCode: entry.evaluation.failureCode,
+            failureDetail: entry.evaluation.failureDetail,
+          })), {
+            providerId: publicProvider.id,
+            providerLabel: publicProvider.label,
+            success: true,
+            resultCount: publicResults.length,
+            queryMatched: true,
+          }],
+          clusteredResults: buildClusteredResults([...attempts, { provider: publicProvider, observation: publicObservation }], query),
+        })
+      }
+    } catch (error) {
+      console.warn('[uwaf-browser] public-web search fallback failed:', error instanceof Error ? error.message : String(error))
+    }
+  }
+
   if (!fallback) {
     throw new Error('No configured search providers are available for this browser mode.')
   }
 
   // Record the failed search too, so the model knows it already tried.
-  if (fallback) {
-    recordSearchHistory(session, query, fallback.provider, fallback.resultCount, false)
-    commitObservationToSession(session, fallback.observation, 'search')
-  }
+  recordSearchHistory(session, query, fallback.provider, fallback.resultCount, false)
+  commitObservationToSession(session, fallback.observation, 'search')
 
   // Even on the failure path, attempt to cluster whatever rows did
   // render. If two of three providers hit anti-bot, the third one

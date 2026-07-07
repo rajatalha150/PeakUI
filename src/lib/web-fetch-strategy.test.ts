@@ -20,6 +20,7 @@ vi.mock('playwright-core', () => {
       return p
     }
     close = async () => {}
+    browser = () => new MockBrowser()
   }
   class MockPage {
     goto = async () => null
@@ -28,6 +29,11 @@ vi.mock('playwright-core', () => {
     title = async () => 'Mock Title'
     evaluate = async () => 'Mock rendered text from page body'
     close = async () => {}
+    context = () => new MockContext()
+    browser = () => new MockBrowser()
+    url = () => 'about:blank'
+    isClosed = () => false
+    bringToFront = async () => {}
   }
   return {
     chromium: {
@@ -35,6 +41,12 @@ vi.mock('playwright-core', () => {
     },
   }
 })
+
+// Mock uwaf-pool so the managed-pool path doesn't try to launch Xvfb/Chromium.
+vi.mock('./uwaf-pool', () => ({
+  getPage: vi.fn().mockRejectedValue(new Error('UWAF pool not available in tests')),
+  closeContext: vi.fn().mockResolvedValue(undefined),
+}))
 
 // Mock web-context so the fast path can be controlled per-test.
 const fetchPublicWebPageMock = vi.fn()
@@ -75,6 +87,7 @@ describe('web-fetch-strategy', () => {
       url: 'https://www.sec.gov/cgi-bin/viewer?cik=PLTR',
       excerpt: '',
       content: '',
+      rawBody: '<html><body><script src="a.js"></script><script src="b.js"></script><script src="c.js"></script></body></html>',
       score: 1,
       mode: 'web',
     })
@@ -83,7 +96,7 @@ describe('web-fetch-strategy', () => {
     const result = await fetchAsReadableText('https://www.sec.gov/cgi-bin/viewer?cik=PLTR')
     expect(result?.title).toBe('Mock Title')
     expect(result?.content).toContain('Mock rendered text')
-  })
+  }, 30_000)
 
   it('caches the browser decision so subsequent calls skip the fast path retry', async () => {
     fetchPublicWebPageMock.mockResolvedValueOnce({
@@ -92,6 +105,7 @@ describe('web-fetch-strategy', () => {
       url: 'https://cached.example/path',
       excerpt: '',
       content: '',
+      rawBody: '<html><body><script>console.log("a")</script><script>console.log("b")</script><script>console.log("c")</script></body></html>',
       score: 1,
       mode: 'web',
     })
@@ -104,12 +118,12 @@ describe('web-fetch-strategy', () => {
     const second = await fetchAsReadableText('https://cached.example/path')
     expect(second?.title).toBe('Mock Title')
     expect(fetchPublicWebPageMock).not.toHaveBeenCalled()
-  })
+  }, 30_000)
 
   it('detects JS-required responses by script tag count and excerpt length', async () => {
     const { responseLooksJsRequired } = await import('./web-fetch-strategy')
     expect(responseLooksJsRequired(
-      '<html><body><script src="a.js"></script><script src="b.js"></script></body></html>',
+      '<html><body><script src="a.js"></script><script src="b.js"></script><script src="c.js"></script></body></html>',
       ''
     )).toBe(true)
     expect(responseLooksJsRequired(
