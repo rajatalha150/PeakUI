@@ -7,138 +7,131 @@ datasource db {
 }
 
 model User {
-  id                  String             @id @default(uuid())
-  username            String             @unique
-  passwordHash        String
-  role                Role               @default(USER)
-  permissionOverrides String             @default("{\"allow\":[],\"deny\":[]}")
-  isActive            Boolean            @default(true)
-  tokenVersion        Int                @default(0)
-  lastLoginAt         DateTime?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @default(now()) @updatedAt
-  sessions            ChatSession[]
-  documents           Document[]
-  settings            UserSettings?
-  folders             Folder[]
-  artifacts           CanvasArtifact[]
-  tags                Tag[]
-  shellAudits         ShellCommandAudit[]
-  automationHeartbeat AutomationHeartbeatConfig?
-  automationSchedules AutomationSchedule[]
-  automationMonitors  AutomationMonitor[]
-  automationNotifications AutomationNotification[]
-  automationEvents    AutomationEvent[]
+  id                      String                     @id @default(uuid())
+  username                String                     @unique
+  passwordHash            String
+  role                    Role                       @default(USER)
+  permissionOverrides     String                     @default("{\"allow\":[],\"deny\":[]}")
+  isActive                Boolean                    @default(true)
+  tokenVersion            Int                        @default(0)
+  lastLoginAt             DateTime?
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @default(now()) @updatedAt
+  automationEvents        AutomationEvent[]
   automationExecutionRuns AutomationExecutionRun[]
+  automationHeartbeat     AutomationHeartbeatConfig?
+  automationMonitors      AutomationMonitor[]
+  automationNotifications AutomationNotification[]
+  automationSchedules     AutomationSchedule[]
+  artifacts               CanvasArtifact[]
+  sessions                ChatSession[]
+  documents               Document[]
+  folders                 Folder[]
+  shellAudits             ShellCommandAudit[]
+  tags                    Tag[]
+  settings                UserSettings?
 
   @@index([role, isActive])
 }
 
 model UserSettings {
-  id               String   @id @default(uuid())
-  userId           String   @unique
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  chatPlatform     String   @default("ollama")
-  chatModel        String   @default("")
-  chatModelProvider String  @default("ollama")
-  huggingFaceBaseUrl String @default("https://router.huggingface.co/v1")
-  modelKeepAlive   Boolean  @default(false)
-  ollamaKeepAlive  String   @default("")
-  exclusiveOllamaModels Boolean @default(false)
-  openClawProvider String   @default("ollama")
-  openClawModel    String   @default("")
-  openClawBaseUrl  String   @default("")
-  ragModel         String   @default("nomic-embed-text")
-  ragMode          String   @default("semantic") // "semantic" | "keyword"
-  ollamaHost       String   @default("http://127.0.0.1:11434")
-  ollamaUseCloudApi Boolean @default(false)
-  ollamaApiKey     String   @default("")
-  systemPrompt     String   @default("")
-  temperature      Float    @default(0.7)
-  ollamaUseModelDefaultTemperature Boolean @default(false)
-  contextLength    Int      @default(4096)
-  ollamaUseModelDefaultContext Boolean @default(false)
-  theme            String   @default("aurora")
-  // Open Claw Identity & Persona
-  openClawPersonaTemplate String @default("custom")
-  openClawPersonaName     String @default("")
-  openClawPersonaTone     String @default("")
-  openClawPersonaExpertise String @default("")
-  openClawPersonaBoundaries String @default("")
-  openClawPersonaOperatingInstructions String @default("")
-  openClawUserProfileName  String @default("")
-  openClawUserProfileRole  String @default("")
-  openClawUserProfilePreferences String @default("")
-  openClawUserProfileContext String @default("")
-  // Open Claw Shell Execution
-  shellExecutionTarget String @default("container") // "container" | "host"
-  shellExecutionMode   String @default("ask-first") // "auto-approve" | "ask-first" | "deny"
-  shellAllowedCommands String @default("") // Comma-separated list of allowed commands
-  shellHostAllowedRoots String @default("~/.peakui/workspace") // Newline-separated absolute host paths allowed as cwd roots
-  shellHostAllowedEnvVars String @default("PATH\nHOME\nUSER\nSHELL\nLANG\nTERM") // Newline-separated host env vars exposed to host commands
-  shellHostMaxTimeoutMs Int @default(60000)
-  shellHostMaxOutputBytes Int @default(262144)
-  // Open Claw Filesystem Access
-  openClawFileAccessMode String @default("deny") // "deny" | "read-only"
-  openClawAllowedPaths   String @default("") // Newline-separated absolute host paths
-  openClawFileWriteMode  String @default("deny") // "auto-approve" | "ask-first" | "deny"
-  openClawWritablePaths  String @default("~/.peakui/workspace") // Newline-separated absolute writable host paths
-  openClawCodeExecutionMode String @default("deny") // "auto-approve" | "ask-first" | "deny"
-  openClawBrowserMode    String @default("deny") // "deny" | "read-only" | "ask-first"
-  // UWAF Browser Settings
-  openClawUwafBrowserMode String @default("deny") // "deny" | "direct" | "stealth"
-  openClawUwafScreenshots Boolean @default(false) // deprecated: static page screenshots are disabled in favor of the live browser
-  openClawUwafDefaultMode String @default("direct") // "direct" | "stealth"
-  openClawUwafLiveBrowser Boolean @default(true)
-  openClawAutomationExecutionEnabled Boolean @default(false)
-  openClawAutomationExecutionModel String @default("")
-  openClawAutomationExecutionMaxRunsPerHour Int @default(6)
-  openClawAutomationExecutionAttachWorkspace Boolean @default(true)
-  openClawAutomationExecutionAttachMemory Boolean @default(true)
-  openClawSessionAutoContinueDefault String @default("manual") // "manual" | "ask" | "safe"
-  openClawSessionAutoContinueMaxSteps Int @default(3)
-  openClawMaxToolRoundsPerTurn     Int @default(100)
-  openClawSessionSummariesEnabled Boolean @default(true)
-  openClawSessionSummaryTargetTokens Int @default(6000)
-  openClawSessionPreserveTurns Int @default(6)
-  openClawSessionAnalyticsEnabled Boolean @default(true)
-  openClawSessionBranchingEnabled Boolean @default(true)
-  // Knowledge Base RAG Settings
-  ragEnabled       Boolean @default(false)
-  ragTopK          Int     @default(8)
-  updatedAt        DateTime @updatedAt
+  id                                         String   @id @default(uuid())
+  userId                                     String   @unique
+  chatPlatform                               String   @default("ollama")
+  chatModel                                  String   @default("")
+  chatModelProvider                          String   @default("ollama")
+  huggingFaceBaseUrl                         String   @default("https://router.huggingface.co/v1")
+  modelKeepAlive                             Boolean  @default(false)
+  ollamaKeepAlive                            String   @default("")
+  exclusiveOllamaModels                      Boolean  @default(false)
+  openClawProvider                           String   @default("ollama")
+  openClawModel                              String   @default("")
+  openClawBaseUrl                            String   @default("")
+  ragModel                                   String   @default("nomic-embed-text")
+  ragMode                                    String   @default("semantic")
+  ollamaHost                                 String   @default("http://127.0.0.1:11434")
+  systemPrompt                               String   @default("")
+  temperature                                Float    @default(0.7)
+  ollamaUseModelDefaultTemperature           Boolean  @default(false)
+  contextLength                              Int      @default(4096)
+  ollamaUseModelDefaultContext               Boolean  @default(false)
+  theme                                      String   @default("aurora")
+  openClawPersonaTemplate                    String   @default("custom")
+  openClawPersonaName                        String   @default("")
+  openClawPersonaTone                        String   @default("")
+  openClawPersonaExpertise                   String   @default("")
+  openClawPersonaBoundaries                  String   @default("")
+  openClawPersonaOperatingInstructions       String   @default("")
+  openClawUserProfileName                    String   @default("")
+  openClawUserProfileRole                    String   @default("")
+  openClawUserProfilePreferences             String   @default("")
+  openClawUserProfileContext                 String   @default("")
+  shellExecutionTarget                       String   @default("container")
+  shellExecutionMode                         String   @default("ask-first")
+  shellAllowedCommands                       String   @default("")
+  shellHostAllowedRoots                      String   @default("~/.peakui/workspace")
+  shellHostAllowedEnvVars                    String   @default("PATH\nHOME\nUSER\nSHELL\nLANG\nTERM")
+  shellHostMaxTimeoutMs                      Int      @default(60000)
+  shellHostMaxOutputBytes                    Int      @default(262144)
+  openClawFileAccessMode                     String   @default("deny")
+  openClawAllowedPaths                       String   @default("")
+  openClawFileWriteMode                      String   @default("deny")
+  openClawWritablePaths                      String   @default("~/.peakui/workspace")
+  openClawCodeExecutionMode                  String   @default("deny")
+  openClawBrowserMode                        String   @default("deny")
+  openClawUwafBrowserMode                    String   @default("deny")
+  openClawUwafScreenshots                    Boolean  @default(false)
+  openClawUwafDefaultMode                    String   @default("direct")
+  openClawUwafLiveBrowser                    Boolean  @default(true)
+  openClawAutomationExecutionEnabled         Boolean  @default(false)
+  openClawAutomationExecutionModel           String   @default("")
+  openClawAutomationExecutionMaxRunsPerHour  Int      @default(6)
+  openClawAutomationExecutionAttachWorkspace Boolean  @default(true)
+  openClawAutomationExecutionAttachMemory    Boolean  @default(true)
+  openClawSessionAutoContinueDefault         String   @default("manual")
+  openClawSessionAutoContinueMaxSteps        Int      @default(3)
+  openClawSessionSummariesEnabled            Boolean  @default(true)
+  openClawSessionSummaryTargetTokens         Int      @default(6000)
+  openClawSessionPreserveTurns               Int      @default(6)
+  openClawSessionAnalyticsEnabled            Boolean  @default(true)
+  openClawSessionBranchingEnabled            Boolean  @default(true)
+  ragEnabled                                 Boolean  @default(false)
+  ragTopK                                    Int      @default(8)
+  updatedAt                                  DateTime @updatedAt
+  openClawMaxToolRoundsPerTurn               Int      @default(100)
+  ollamaApiKey                               String   @default("")
+  ollamaUseCloudApi                          Boolean  @default(false)
+  user                                       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model ChatSession {
-  id                    String   @id @default(uuid())
-  title                 String
-  messages              String   // Storing JSON string for simplicity
-  summary               String?  // Auto-generated TL;DR when session ends
-  contextSummary        String?
+  id                      String           @id @default(uuid())
+  title                   String
+  messages                String
+  summary                 String?
+  contextSummary          String?
   contextSummaryUpdatedAt DateTime?
-  analyticsJson         String   @default("{}")
-  autoContinueMode      String   @default("manual") // "manual" | "ask" | "safe"
-  autoContinueMaxSteps  Int      @default(3)
-  lastAutoContinueAt    DateTime?
-  parentSessionId       String?
-  parentSession         ChatSession? @relation("ChatSessionBranches", fields: [parentSessionId], references: [id], onDelete: SetNull)
-  childSessions         ChatSession[] @relation("ChatSessionBranches")
-  branchFromMessageId   String?
-  branchLabel           String?
-  pinned                Boolean  @default(false)
-  surface               String   @default("chat")
-  // Knowledge Base (RAG) draft snapshot — restored when a saved chat is reopened
-  // so the per-turn search text and citation set re-hydrate as a pending draft.
-  ragEnabled            Boolean  @default(false)
-  ragQuery              String?
-  ragSourcesJson        String?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @default(now())
-  userId                String
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  folderId              String?
-  folder                Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  tags                  ChatSessionTag[]
+  analyticsJson           String           @default("{}")
+  autoContinueMode        String           @default("manual")
+  autoContinueMaxSteps    Int              @default(3)
+  lastAutoContinueAt      DateTime?
+  parentSessionId         String?
+  branchFromMessageId     String?
+  branchLabel             String?
+  pinned                  Boolean          @default(false)
+  surface                 String           @default("chat")
+  ragEnabled              Boolean          @default(false)
+  ragQuery                String?
+  ragSourcesJson          String?
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @default(now())
+  userId                  String
+  folderId                String?
+  folder                  Folder?          @relation(fields: [folderId], references: [id])
+  parentSession           ChatSession?     @relation("ChatSessionBranches", fields: [parentSessionId], references: [id])
+  childSessions           ChatSession[]    @relation("ChatSessionBranches")
+  user                    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tags                    ChatSessionTag[]
 
   @@index([userId, surface, updatedAt])
   @@index([userId, parentSessionId])
@@ -152,100 +145,108 @@ model Folder {
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
   userId    String
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   sessions  ChatSession[]
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model Tag {
-  id        String        @id @default(uuid())
+  id        String           @id @default(uuid())
   name      String
-  color     String        @default("#10b981")
-  createdAt DateTime      @default(now())
+  color     String           @default("#10b981")
+  createdAt DateTime         @default(now())
   userId    String
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   sessions  ChatSessionTag[]
-  
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([userId, name])
 }
 
 model ChatSessionTag {
   id        String      @id @default(uuid())
   sessionId String
-  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   tagId     String
+  session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   tag       Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
-  
+
   @@unique([sessionId, tagId])
 }
 
 model Document {
-  id             String          @id @default(uuid())
-  filename       String
-  sourcePath     String?
-  kind           String?
-  size           Int
-  contentHash    String?
-  originalContent String?
-  originalMimeType String?
-  status         String          @default("processing")
-  ragMode        String          @default("semantic")
-  embeddingModel String?
-  ollamaHost     String?
-  errorMessage   String?
-  indexedAt      DateTime?
-  createdAt      DateTime        @default(now())
-  userId         String
-  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  chunks         DocumentChunk[]
+  id                  String          @id @default(uuid())
+  filename            String
+  sourcePath          String?
+  kind                String?
+  size                Int
+  contentHash         String?
+  originalContent     String?
+  originalMimeType    String?
+  status              String          @default("processing")
+  ragMode             String          @default("semantic")
+  embeddingModel      String?
+  ollamaHost          String?
+  errorMessage        String?
+  indexedAt           DateTime?
+  createdAt           DateTime        @default(now())
+  userId              String
+  embeddingDimensions Int?
+  indexingJobId       String?         @unique
+  indexingProgress    Int?            @default(0)
+  indexingAttempts    Int?            @default(0)
+  updatedAt           DateTime        @default(now()) @updatedAt
+  user                User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chunks              DocumentChunk[]
 
   @@index([userId, filename])
   @@index([userId, sourcePath])
   @@index([userId, kind])
   @@index([userId, contentHash])
+  @@index([userId, status])
 }
 
 model DocumentChunk {
-  id         String   @id @default(uuid())
-  chunkIndex Int      @default(0)
+  id         String                 @id @default(uuid())
+  chunkIndex Int                    @default(0)
   content    String
-  embedding  String?  // JSON array of floats; null for keyword-only indexes
+  embedding  String?
   documentId String
-  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  metadata   Json?
+  vector     Unsupported("vector")?
+  document   Document               @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
   @@unique([documentId, chunkIndex])
   @@index([documentId, chunkIndex])
+  @@index([vector])
 }
 
 model CanvasArtifact {
-  id          String   @id @default(uuid())
-  name        String
-  content     String   // Code, markdown, or JSON payload
-  mimeType    String   @default("text/plain")
-  kind        String   @default("file") // "file" | "markdown" | "diagram" | "data"
-  previewKind String   @default("file")
-  previewSummary String?
-  previewWidth Int?
-  previewHeight Int?
-  contentHash  String?
-  presentationType String @default("auto")
-  bundleId     String?
-  bundleName   String?
-  bundleRole   String?
-  exportTargets String @default("[]")
+  id               String                   @id @default(uuid())
+  name             String
+  content          String
+  mimeType         String                   @default("text/plain")
+  kind             String                   @default("file")
+  previewKind      String                   @default("file")
+  previewSummary   String?
+  previewWidth     Int?
+  previewHeight    Int?
+  contentHash      String?
+  presentationType String                   @default("auto")
+  bundleId         String?
+  bundleName       String?
+  bundleRole       String?
+  exportTargets    String                   @default("[]")
   sourceArtifactId String?
-  sourceArtifact CanvasArtifact? @relation("ArtifactLineage", fields: [sourceArtifactId], references: [id], onDelete: SetNull)
-  derivedArtifacts CanvasArtifact[] @relation("ArtifactLineage")
-  extension   String?
-  size        Int      @default(0)
-  sessionId   String
-  messageId   String?
-  version     Int      @default(1)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  revisions   CanvasArtifactRevision[]
-
+  extension        String?
+  size             Int                      @default(0)
+  sessionId        String
+  messageId        String?
+  version          Int                      @default(1)
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  userId           String
+  sourceArtifact   CanvasArtifact?          @relation("ArtifactLineage", fields: [sourceArtifactId], references: [id])
+  derivedArtifacts CanvasArtifact[]         @relation("ArtifactLineage")
+  user             User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  revisions        CanvasArtifactRevision[]
 
   @@index([userId, createdAt])
   @@index([sessionId])
@@ -255,58 +256,58 @@ model CanvasArtifact {
 }
 
 model CanvasArtifactRevision {
-  id          String   @id @default(uuid())
-  artifactId  String
-  artifact    CanvasArtifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
-  version     Int
-  name        String
-  content     String
-  mimeType    String
-  kind        String
-  extension   String?
-  size        Int      @default(0)
-  previewKind String   @default("file")
-  previewSummary String?
-  previewWidth Int?
-  previewHeight Int?
-  contentHash  String?
-  presentationType String @default("auto")
-  bundleId     String?
-  bundleName   String?
-  bundleRole   String?
-  exportTargets String @default("[]")
+  id               String         @id @default(uuid())
+  artifactId       String
+  version          Int
+  name             String
+  content          String
+  mimeType         String
+  kind             String
+  extension        String?
+  size             Int            @default(0)
+  previewKind      String         @default("file")
+  previewSummary   String?
+  previewWidth     Int?
+  previewHeight    Int?
+  contentHash      String?
+  presentationType String         @default("auto")
+  bundleId         String?
+  bundleName       String?
+  bundleRole       String?
+  exportTargets    String         @default("[]")
   sourceArtifactId String?
-  messageId   String?
-  createdAt   DateTime @default(now())
+  messageId        String?
+  createdAt        DateTime       @default(now())
+  artifact         CanvasArtifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
 
   @@unique([artifactId, version])
   @@index([artifactId, createdAt])
 }
 
 model ShellCommandAudit {
-  id                 String   @id @default(uuid())
-  userId             String
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sessionId          String?
-  messageId          String?
-  command            String
-  description        String?
-  cwd                String?
-  target             String   @default("container")
-  approvalMode       String   @default("ask-first")
-  status             String   @default("requested")
-  autoApproved       Boolean  @default(false)
-  approvalRequired   Boolean  @default(false)
-  timeoutMs          Int      @default(60000)
-  outputLimitBytes   Int      @default(262144)
-  allowedRoots       String   @default("")
-  allowedEnvVars     String   @default("")
-  stdout             String   @default("")
-  stderr             String   @default("")
-  exitCode           Int?
-  durationMs         Int?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id               String   @id @default(uuid())
+  userId           String
+  sessionId        String?
+  messageId        String?
+  command          String
+  description      String?
+  cwd              String?
+  target           String   @default("container")
+  approvalMode     String   @default("ask-first")
+  status           String   @default("requested")
+  autoApproved     Boolean  @default(false)
+  approvalRequired Boolean  @default(false)
+  timeoutMs        Int      @default(60000)
+  outputLimitBytes Int      @default(262144)
+  allowedRoots     String   @default("")
+  allowedEnvVars   String   @default("")
+  stdout           String   @default("")
+  stderr           String   @default("")
+  exitCode         Int?
+  durationMs       Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
   @@index([sessionId])
@@ -315,88 +316,88 @@ model ShellCommandAudit {
 }
 
 model AutomationHeartbeatConfig {
-  id                String   @id @default(uuid())
-  userId            String   @unique
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  enabled           Boolean  @default(false)
-  intervalMinutes   Int      @default(240)
-  staleAfterMinutes Int      @default(180)
-  promptTemplate    String   @default("Review stale WorkSpaces tasks and suggest the single best next action.")
-  deliveryMode      String   @default("nudge") // "nudge" | "background-run"
+  id                String    @id @default(uuid())
+  userId            String    @unique
+  enabled           Boolean   @default(false)
+  intervalMinutes   Int       @default(240)
+  staleAfterMinutes Int       @default(180)
+  promptTemplate    String    @default("Review stale WorkSpaces tasks and suggest the single best next action.")
+  deliveryMode      String    @default("nudge")
   targetSessionId   String?
   targetWorkspaceId String?
   nextRunAt         DateTime?
   lastRunAt         DateTime?
-  lastStatus        String   @default("idle")
+  lastStatus        String    @default("idle")
   lastError         String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([enabled, nextRunAt])
 }
 
 model AutomationSchedule {
-  id             String   @id @default(uuid())
-  userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name           String
-  prompt         String
-  deliveryMode   String   @default("nudge") // "nudge" | "background-run"
+  id                String    @id @default(uuid())
+  userId            String
+  name              String
+  prompt            String
+  deliveryMode      String    @default("nudge")
   targetSessionId   String?
   targetWorkspaceId String?
-  cronExpression String
-  timezone       String   @default("America/New_York")
-  enabled        Boolean  @default(true)
-  nextRunAt      DateTime
-  lastRunAt      DateTime?
-  lastStatus     String   @default("idle")
-  lastError      String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  cronExpression    String
+  timezone          String    @default("America/New_York")
+  enabled           Boolean   @default(true)
+  nextRunAt         DateTime
+  lastRunAt         DateTime?
+  lastStatus        String    @default("idle")
+  lastError         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, enabled, nextRunAt])
 }
 
 model AutomationMonitor {
-  id                  String   @id @default(uuid())
-  userId              String
-  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name                String
-  deliveryMode        String   @default("nudge") // "nudge" | "background-run"
-  targetSessionId     String?
-  targetWorkspaceId   String?
-  kind                String   @default("url") // "url" | "file"
-  target              String
-  enabled             Boolean  @default(true)
-  checkIntervalSeconds Int     @default(300)
-  triggerMode         String   @default("changed") // "changed" | "contains" | "missing"
-  expectedPattern     String?
-  nextCheckAt         DateTime?
-  lastCheckedAt       DateTime?
-  lastStatus          String   @default("idle")
-  lastError           String?
-  lastFingerprint     String?
-  lastSummary         String?
-  lastTriggeredAt     DateTime?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                   String    @id @default(uuid())
+  userId               String
+  name                 String
+  deliveryMode         String    @default("nudge")
+  targetSessionId      String?
+  targetWorkspaceId    String?
+  kind                 String    @default("url")
+  target               String
+  enabled              Boolean   @default(true)
+  checkIntervalSeconds Int       @default(300)
+  triggerMode          String    @default("changed")
+  expectedPattern      String?
+  nextCheckAt          DateTime?
+  lastCheckedAt        DateTime?
+  lastStatus           String    @default("idle")
+  lastError            String?
+  lastFingerprint      String?
+  lastSummary          String?
+  lastTriggeredAt      DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, enabled, nextCheckAt])
 }
 
 model AutomationNotification {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  kind        String   @default("nudge")
+  kind        String    @default("nudge")
   sourceKind  String?
   sourceId    String?
   sessionId   String?
   title       String
   message     String
-  createdAt   DateTime @default(now())
+  createdAt   DateTime  @default(now())
   seenAt      DateTime?
   dismissedAt DateTime?
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, dismissedAt, createdAt])
   @@index([sourceKind, sourceId])
@@ -405,7 +406,6 @@ model AutomationNotification {
 model AutomationEvent {
   id         String   @id @default(uuid())
   userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   kind       String
   sourceKind String?
   sourceId   String?
@@ -414,30 +414,31 @@ model AutomationEvent {
   details    String?
   status     String   @default("created")
   createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
   @@index([sourceKind, sourceId])
 }
 
 model AutomationExecutionRun {
-  id            String   @id @default(uuid())
+  id            String    @id @default(uuid())
   userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   sourceKind    String
   sourceId      String?
-  deliveryMode  String   @default("background-run")
+  deliveryMode  String    @default("background-run")
   sessionId     String?
   workspaceId   String?
   title         String
   prompt        String
-  provider      String   @default("ollama")
+  provider      String    @default("ollama")
   model         String
-  status        String   @default("queued") // "queued" | "running" | "succeeded" | "failed" | "skipped"
+  status        String    @default("queued")
   resultPreview String?
   error         String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
   startedAt     DateTime?
   completedAt   DateTime?
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, status, createdAt])
   @@index([sourceKind, sourceId, createdAt])
