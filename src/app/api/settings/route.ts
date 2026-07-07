@@ -45,6 +45,7 @@ import {
 } from '@/lib/session-intelligence';
 import { buildEffectiveOpenClawToolAccess } from '@/lib/openclaw-tool-access';
 import { normalizeTheme } from '@/lib/theme-options';
+import { reindexDocumentsIfModelChanged } from '@/lib/rag-queue';
 
 interface SettingsBody {
   chatPlatform?: unknown;
@@ -300,11 +301,24 @@ export async function POST(req: Request) {
     });
 
     const normalized = normalizeAppSettings(settings)
+
+    // Trigger re-indexing if the RAG model changed or if we switched back to semantic.
+    const reindexResult = await reindexDocumentsIfModelChanged(auth.user.id, normalized.ragModel, {
+      ragMode: normalized.ragMode as 'semantic' | 'keyword',
+      ollamaHost: normalized.ollamaHost,
+      ollamaApiKey: normalized.ollamaApiKey ?? '',
+    })
+    if (reindexResult.triggered > 0) {
+      console.info(`Marked ${reindexResult.triggered} documents for re-indexing after RAG model change.`)
+    }
+
     return NextResponse.json({
       ...normalized,
-      ollamaApiKey: '',
+      ollamaApiKey: '', // scrubbed
       permissions: auth.permissions,
       effectiveToolAccess: buildEffectiveOpenClawToolAccess(normalized, auth.permissions),
+      reindexTriggered: reindexResult.triggered,
+      reindexSkipped: reindexResult.skipped,
     });
   } catch (error) {
     console.error('Settings POST error:', error);
