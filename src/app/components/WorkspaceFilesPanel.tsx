@@ -50,6 +50,8 @@ const MAX_FILE_CONTENT_BYTES = 5_000_000
 const sectionStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
+  minHeight: 0,
+  overflow: 'hidden',
   borderTop: '1px solid var(--border-color)',
   background: 'var(--bg-primary)',
   /* create a local stacking context so fixed menus render above sibling panels */
