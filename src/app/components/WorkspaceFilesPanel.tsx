@@ -246,9 +246,6 @@ export default function WorkspaceFilesPanel({
   useEffect(() => {
     if (workspaceId && lastLoadedWorkspaceIdRef.current !== workspaceId) {
       setRootEntriesByDirectory(new Map())
-      setExpanded(new Set())
-      setChildrenByDirectory(new Map())
-      setLoadingChildren(new Set())
       setCwd('')
       setActiveFilePath(null)
       setActiveFileContent(null)
@@ -321,16 +318,10 @@ export default function WorkspaceFilesPanel({
   const requestChildren = useCallback(
     async (path: string) => {
       if (!workspaceId) return
-      if (childrenByDirectory.has(path) || rootEntriesByDirectory.has(path)) return
-      setLoadingChildren(prev => {
-        if (prev.has(path)) return prev
-        const next = new Set(prev)
-        next.add(path)
-        return next
-      })
+      if (rootEntriesByDirectory.has(path)) return
       try {
         const data = await listWorkspaceTree(workspaceId, { path, depth: 1 })
-        setChildrenByDirectory(prev => {
+        setRootEntriesByDirectory(prev => {
           const next = new Map(prev)
           next.set(path, data.entries)
           return next
@@ -339,39 +330,11 @@ export default function WorkspaceFilesPanel({
         const e = err as WorkspaceFilesError
         setError(e.message || `Failed to list ${path}`)
         onError?.(e)
-        setExpanded(prev => {
-          if (!prev.has(path)) return prev
-          const next = new Set(prev)
-          next.delete(path)
-          return next
-        })
-      } finally {
-        setLoadingChildren(prev => {
-          if (!prev.has(path)) return prev
-          const next = new Set(prev)
-          next.delete(path)
-          return next
-        })
       }
     },
-    [workspaceId, childrenByDirectory, rootEntriesByDirectory, onError]
+    [workspaceId, rootEntriesByDirectory, onError]
   )
 
-  const handleToggleDirectory = useCallback((path: string) => {
-    setExpanded(prev => {
-      const next = new Set(prev)
-      if (next.has(path)) {
-        next.delete(path)
-      } else {
-        next.add(path)
-      }
-      return next
-    })
-  }, [])
-
-  // The current visible-row list lets us implement shift-range selection.
-  // The tree publishes this via the onVisiblePathsChange callback before
-  // each render; we read it back inside handleSelectRow.
   const handleSelectRow = useCallback(
     (path: string, modifiers: { shift: boolean; meta: boolean }) => {
       const visible = visiblePathsRef.current
@@ -454,14 +417,22 @@ export default function WorkspaceFilesPanel({
     })
   }, [])
 
-  const handleEnterDirectory = useCallback((path: string) => {
-    navigateCwd(path)
-  }, [navigateCwd])
-
   const handleActivateRow = useCallback(() => {
     // Double-click on a file → onActivateFile already fired; double-click on
     // a directory → onEnterDirectory already fired. Nothing else for now.
   }, [])
+
+  // Pre-warm parent directories for the breadcrumb path so navigation feels
+  // instant: when entering a folder, ensure its parent listing is cached.
+  const handleEnterDirectory = useCallback(
+    (path: string) => {
+      navigateCwd(path)
+      if (!rootEntriesByDirectory.has(path)) {
+        void requestChildren(path)
+      }
+    },
+    [navigateCwd, rootEntriesByDirectory, requestChildren]
+  )
 
   const handleBreadcrumbNavigate = useCallback((path: string) => {
     navigateCwd(path)
@@ -962,9 +933,6 @@ export default function WorkspaceFilesPanel({
                   <WorkspaceFileTree
                     cwd={cwd}
                     rootEntriesByDirectory={rootEntriesByDirectory}
-                    expanded={expanded}
-                    loadingChildren={loadingChildren}
-                    childrenByDirectory={childrenByDirectory}
                     selectedPaths={selectedPaths}
                     renameTargetPath={renameTarget?.path ?? null}
                     renameValue={renameValue}
@@ -976,9 +944,7 @@ export default function WorkspaceFilesPanel({
                     }}
                     onActivateFile={handleActivateFile}
                     onEnterDirectory={handleEnterDirectory}
-                    onToggleDirectory={handleToggleDirectory}
                     onSelectRow={handleSelectRow}
-                    onRequestChildren={requestChildren}
                     onActivateRow={handleActivateRow}
                     onContextMenu={(path, kind, x, y) =>
                       setContextMenu({ path, kind, x, y })

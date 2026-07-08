@@ -281,22 +281,14 @@ export default function WorkspaceMoveDialog({
           <WorkspaceFileTree
             cwd={cwd}
             rootEntriesByDirectory={entries}
-            expanded={new Set()}
-            loadingChildren={new Set()}
-            childrenByDirectory={new Map()}
             selectedPaths={new Set([destination])}
+            selectableKinds={['directory']}
             onActivateFile={() => {/* directories only; nothing to activate */}}
             onEnterDirectory={path => fetchCwd(path)}
-            onActivateDirectory={handleSelectDirectory}
-            onToggleDirectory={() => {/* no inline expansion in directories-only mode */}}
-            onSelectRow={(path, modifiers) => {
+            onSelectRow={(path: string, modifiers) => {
               if (!modifiers.shift && !modifiers.meta) {
                 dispatch({ type: 'select', path })
               }
-            }}
-            onRequestChildren={async path => {
-              const data = await loadDirectory(path)
-              dispatch({ type: 'loaded', path, token: state.loadToken + 1, entries: data.entries })
             }}
             onActivateRow={() => {/* no-op */}}
             loadingRoot={loading && entries.size === 0}
