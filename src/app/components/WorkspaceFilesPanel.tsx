@@ -930,8 +930,8 @@ export default function WorkspaceFilesPanel({
               <WorkspaceBreadcrumb path={cwd} onNavigate={handleBreadcrumbNavigate} />
               <div
                 style={{
-                  minHeight: 220,
-                  maxHeight: '52vh',
+                  height: 260,
+                  minHeight: 260,
                   display: 'flex',
                   flexDirection: 'column',
                 }}
