@@ -83,24 +83,12 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Local development, tests, lint, and Prisma workflow |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | Production-style deployments, reverse-proxy config, backups, hardening |
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common errors by area with fix recipes |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | High-level system architecture |
-| [docs/features.md](docs/features.md) | Full feature reference |
+| [docs/features.md](docs/features.md) | Full feature reference and high-level architecture |
 | [docs/workspace-files-panel.md](docs/workspace-files-panel.md) | Workspace Files panel — UI, API, SSE stream, client library |
 | [docs/settings-and-rag.md](docs/settings-and-rag.md) | Settings and Knowledge Base behavior |
 | [docs/workspaces-host-executor.md](docs/workspaces-host-executor.md) | Optional host shell executor setup |
 | [docs/capability-inventory.md](docs/capability-inventory.md) | Native tool capability inventory |
-| [docs/pdf-document-workflow.md](docs/pdf-document-workflow.md) | PDF artifact workflow |
-| [docs/word-document-workflow.md](docs/word-document-workflow.md) | Word document artifact workflow |
-| [docs/workbook-document-workflow.md](docs/workbook-document-workflow.md) | Excel workbook artifact workflow |
-| [docs/csv-document-workflow.md](docs/csv-document-workflow.md) | CSV export artifact workflow |
-| [docs/email-document-workflow.md](docs/email-document-workflow.md) | Email draft artifact workflow |
-| [docs/markdown-document-workflow.md](docs/markdown-document-workflow.md) | Markdown document artifact workflow |
-| [docs/fetch-summarize-workflow.md](docs/fetch-summarize-workflow.md) | URL fetch and summarize workflow |
-| [docs/tax-pdf-workflow.md](docs/tax-pdf-workflow.md) | Tax document review workflow |
-| [docs/slides-document-workflow.md](docs/slides-document-workflow.md) | PowerPoint slide deck artifact workflow |
-| [docs/archive-document-workflow.md](docs/archive-document-workflow.md) | ZIP archive bundle artifact workflow |
-| [docs/calendar-document-workflow.md](docs/calendar-document-workflow.md) | ICS calendar event artifact workflow |
-| [docs/mermaid-document-workflow.md](docs/mermaid-document-workflow.md) | Mermaid diagram artifact workflow |
+| [docs/tool-workflows.md](docs/tool-workflows.md) | Tool contracts for PDF, Word, Excel, CSV, email, Markdown, slides, ZIP, ICS, Mermaid, fetch/summarize, and tax PDF |
 | [docs/development-section-plan.md](docs/development-section-plan.md) | Development section plan (draft) |
 
 ---
