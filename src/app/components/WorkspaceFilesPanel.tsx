@@ -50,8 +50,37 @@ const MAX_FILE_CONTENT_BYTES = 5_000_000
 const sectionStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
+  minHeight: 0,
+  overflow: 'hidden',
   borderTop: '1px solid var(--border-color)',
   background: 'var(--bg-primary)',
+  /* create a local stacking context so fixed menus render above sibling panels */
+  isolation: 'isolate',
+}
+
+const treeContainerStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  maxHeight: 220,
+  minHeight: 220,
+  overflow: 'hidden',
+}
+
+const treeScrollStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  overflowY: 'auto',
+  overflowX: 'hidden',
+}
+
+const footerStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '6px 12px',
+  borderTop: '1px solid var(--border-color)',
+  background: 'var(--bg-primary)',
+  flexShrink: 0,
 }
 
 const headerStyle: React.CSSProperties = {
@@ -928,41 +957,36 @@ export default function WorkspaceFilesPanel({
           {workspaceId && (
             <>
               <WorkspaceBreadcrumb path={cwd} onNavigate={handleBreadcrumbNavigate} />
-              <div
-                style={{
-                  height: 260,
-                  minHeight: 260,
-                  display: 'flex',
-                  flexDirection: 'column',
-                }}
-              >
-                <WorkspaceFileTree
-                  cwd={cwd}
-                  rootEntriesByDirectory={rootEntriesByDirectory}
-                  expanded={expanded}
-                  loadingChildren={loadingChildren}
-                  childrenByDirectory={childrenByDirectory}
-                  selectedPaths={selectedPaths}
-                  renameTargetPath={renameTarget?.path ?? null}
-                  renameValue={renameValue}
-                  onRenameChange={handleRenameChange}
-                  onRenameCommit={handleRenameCommit}
-                  onRenameCancel={handleRenameCancel}
-                  onVisiblePathsChange={paths => {
-                    visiblePathsRef.current = paths
-                  }}
-                  onActivateFile={handleActivateFile}
-                  onEnterDirectory={handleEnterDirectory}
-                  onToggleDirectory={handleToggleDirectory}
-                  onSelectRow={handleSelectRow}
-                  onRequestChildren={requestChildren}
-                  onActivateRow={handleActivateRow}
-                  onContextMenu={(path, kind, x, y) =>
-                    setContextMenu({ path, kind, x, y })
-                  }
-                  loadingRoot={loadingCwd && rootEntriesByDirectory.size === 0}
-                  height="100%"
-                />
+              <div style={treeContainerStyle}>
+                <div style={treeScrollStyle}>
+                  <WorkspaceFileTree
+                    cwd={cwd}
+                    rootEntriesByDirectory={rootEntriesByDirectory}
+                    expanded={expanded}
+                    loadingChildren={loadingChildren}
+                    childrenByDirectory={childrenByDirectory}
+                    selectedPaths={selectedPaths}
+                    renameTargetPath={renameTarget?.path ?? null}
+                    renameValue={renameValue}
+                    onRenameChange={handleRenameChange}
+                    onRenameCommit={handleRenameCommit}
+                    onRenameCancel={handleRenameCancel}
+                    onVisiblePathsChange={paths => {
+                      visiblePathsRef.current = paths
+                    }}
+                    onActivateFile={handleActivateFile}
+                    onEnterDirectory={handleEnterDirectory}
+                    onToggleDirectory={handleToggleDirectory}
+                    onSelectRow={handleSelectRow}
+                    onRequestChildren={requestChildren}
+                    onActivateRow={handleActivateRow}
+                    onContextMenu={(path, kind, x, y) =>
+                      setContextMenu({ path, kind, x, y })
+                    }
+                    loadingRoot={loadingCwd && rootEntriesByDirectory.size === 0}
+                    height="100%"
+                  />
+                </div>
               </div>
 
               {hasSelection && (
@@ -1028,16 +1052,7 @@ export default function WorkspaceFilesPanel({
                 </div>
               )}
 
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  borderTop: hasSelection ? 'none' : '1px solid var(--border-color)',
-                  background: 'var(--bg-primary)',
-                }}
-              >
+              <div style={footerStyle}>
                 <WorkspaceFileUpload cwd={cwd} disabled={loadingCwd} onUpload={handleUpload} />
                 {activeFilePath && (
                   <button

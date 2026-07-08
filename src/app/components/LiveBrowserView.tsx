@@ -139,9 +139,9 @@ export default function LiveBrowserView({
       </div>
 
       {isExpanded && (
-        <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+        <div style={{ maxHeight: 220, overflowY: 'auto' }}>
           <div
-            style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border-color)', position: 'relative', background: '#111', aspectRatio: '16/9', maxHeight: 220 }}
+            style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border-color)', position: 'relative', background: '#111', aspectRatio: '16/9', maxHeight: 180 }}
             onMouseDown={signalActivity}
             onWheel={signalActivity}
             onKeyDown={signalActivity}

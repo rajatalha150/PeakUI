@@ -158,7 +158,7 @@ export default function UwafNetworkPanel({
       </div>
 
       {isExpanded && (
-        <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+        <div style={{ maxHeight: 220, overflowY: 'auto' }}>
           <div style={{
             display: 'flex',
             gap: 6,
