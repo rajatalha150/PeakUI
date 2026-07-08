@@ -158,7 +158,7 @@ export default function UwafNetworkPanel({
       </div>
 
       {isExpanded && (
-        <>
+        <div style={{ maxHeight: 260, overflowY: 'auto' }}>
           <div style={{
             display: 'flex',
             gap: 6,
@@ -298,7 +298,7 @@ export default function UwafNetworkPanel({
               ? 'All traffic routed through Tor network. .onion sites accessible.'
               : 'Standard internet connection. Clear web sites only.'}
           </div>
-        </>
+        </div>
       )}
     </div>
   )

@@ -12802,6 +12802,7 @@ export default function OpenClawWorkspace({
                 )}
             </div>
 
+            <div className="openclaw-rail-bottom-panels">
             {/* Workspace Files Panel — Phase 1: skeleton, list + read */}
             <WorkspaceFilesPanel
               key={workspaceFilesPanelKey}
@@ -12868,6 +12869,7 @@ export default function OpenClawWorkspace({
                 </button>
               </div>
             )}
+            </div>
 
             {/* Browser Modal */}
             {browserModalOpen && currentSessionId && (
