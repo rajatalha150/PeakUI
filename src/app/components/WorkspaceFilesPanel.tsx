@@ -50,20 +50,10 @@ const MAX_FILE_CONTENT_BYTES = 5_000_000
 const sectionStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  minHeight: 0,
-  overflow: 'hidden',
   borderTop: '1px solid var(--border-color)',
   background: 'var(--bg-primary)',
   /* create a local stacking context so fixed menus render above sibling panels */
   isolation: 'isolate',
-}
-
-const treeContainerStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  maxHeight: 220,
-  minHeight: 220,
-  overflow: 'hidden',
 }
 
 const treeScrollStyle: React.CSSProperties = {
@@ -919,31 +909,29 @@ export default function WorkspaceFilesPanel({
           {workspaceId && (
             <>
               <WorkspaceBreadcrumb path={cwd} onNavigate={handleBreadcrumbNavigate} />
-              <div style={treeContainerStyle}>
-                <div style={treeScrollStyle}>
-                  <WorkspaceFileTree
-                    cwd={cwd}
-                    rootEntriesByDirectory={rootEntriesByDirectory}
-                    selectedPaths={selectedPaths}
-                    renameTargetPath={renameTarget?.path ?? null}
-                    renameValue={renameValue}
-                    onRenameChange={handleRenameChange}
-                    onRenameCommit={handleRenameCommit}
-                    onRenameCancel={handleRenameCancel}
-                    onVisiblePathsChange={paths => {
-                      visiblePathsRef.current = paths
-                    }}
-                    onActivateFile={handleActivateFile}
-                    onEnterDirectory={handleEnterDirectory}
-                    onSelectRow={handleSelectRow}
-                    onActivateRow={handleActivateRow}
-                    onContextMenu={(path, kind, x, y) =>
-                      setContextMenu({ path, kind, x, y })
-                    }
-                    loadingRoot={loadingCwd && rootEntriesByDirectory.size === 0}
-                    height="100%"
-                  />
-                </div>
+              <div style={treeScrollStyle}>
+                <WorkspaceFileTree
+                  cwd={cwd}
+                  rootEntriesByDirectory={rootEntriesByDirectory}
+                  selectedPaths={selectedPaths}
+                  renameTargetPath={renameTarget?.path ?? null}
+                  renameValue={renameValue}
+                  onRenameChange={handleRenameChange}
+                  onRenameCommit={handleRenameCommit}
+                  onRenameCancel={handleRenameCancel}
+                  onVisiblePathsChange={paths => {
+                    visiblePathsRef.current = paths
+                  }}
+                  onActivateFile={handleActivateFile}
+                  onEnterDirectory={handleEnterDirectory}
+                  onSelectRow={handleSelectRow}
+                  onActivateRow={handleActivateRow}
+                  onContextMenu={(path, kind, x, y) =>
+                    setContextMenu({ path, kind, x, y })
+                  }
+                  loadingRoot={loadingCwd && rootEntriesByDirectory.size === 0}
+                  height="100%"
+                />
               </div>
 
               {hasSelection && (
