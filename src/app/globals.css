@@ -898,6 +898,20 @@ textarea.input-field {
   height: 100%;
 }
 
+.openclaw-rail-bottom-panels {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 720px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-primary, #0d1117);
+  z-index: 2;
+  position: sticky;
+  bottom: 0;
+}
+
 .openclaw-rail-header {
   padding: 16px;
   border-bottom: 1px solid var(--border-color);
@@ -905,6 +919,15 @@ textarea.input-field {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.openclaw-rail-footer {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border-color);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.02);
+  flex-shrink: 0;
 }
 
 .openclaw-rail-subtitle {
