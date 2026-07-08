@@ -187,9 +187,6 @@ export default function WorkspaceFilesPanel({
 
   // Tree state — entries keyed by absolute directory path. Root is keyed ''.
   const [rootEntriesByDirectory, setRootEntriesByDirectory] = useState<Map<string, WorkspaceFileEntry[]>>(new Map())
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [loadingChildren, setLoadingChildren] = useState<Set<string>>(new Set())
-  const [childrenByDirectory, setChildrenByDirectory] = useState<Map<string, WorkspaceFileEntry[]>>(new Map())
   const [loadingCwd, setLoadingCwd] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -226,7 +223,6 @@ export default function WorkspaceFilesPanel({
   const subscriptionRef = useRef<AbortController | null>(null)
   const pendingRefetchesRef = useRef<Set<string>>(new Set())
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const expandedRef = useRef<Set<string>>(new Set())
   const cwdRef = useRef<string>('')
   const activeFilePathRef = useRef<string | null>(null)
 
@@ -236,11 +232,7 @@ export default function WorkspaceFilesPanel({
     subscriptionRef.current?.abort()
   }, [])
 
-  // Mirror `expanded` into a ref so the SSE onEvent handler can read the
-  // current value without re-subscribing on every expand.
-  useEffect(() => {
-    expandedRef.current = expanded
-  }, [expanded])
+
 
   // When the workspace changes, all per-workspace state is reset.
   useEffect(() => {
@@ -796,11 +788,10 @@ export default function WorkspaceFilesPanel({
     }
     const onEvent = (event: WorkspaceEvent) => {
       if (event.kind === 'tree.invalidated') {
-        // Broad refresh: cwd + every currently expanded dir.
+        // Refresh root and current cwd.
         enqueueRefetch('')
         const cwdNow = cwdRef.current
         if (cwdNow) enqueueRefetch(cwdNow)
-        for (const d of expandedRef.current) enqueueRefetch(d)
         return
       }
       if (!event.path) return
