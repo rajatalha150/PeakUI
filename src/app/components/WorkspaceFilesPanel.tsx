@@ -58,6 +58,14 @@ const sectionStyle: React.CSSProperties = {
   isolation: 'isolate',
 }
 
+const bodyStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'hidden',
+}
+
 const treeScrollStyle: React.CSSProperties = {
   flex: 1,
   minHeight: 0,
@@ -909,7 +917,7 @@ export default function WorkspaceFilesPanel({
             <div style={placeholderStyle}>Select a workspace to load files.</div>
           )}
           {workspaceId && (
-            <>
+            <div style={bodyStyle}>
               <WorkspaceBreadcrumb path={cwd} onNavigate={handleBreadcrumbNavigate} />
               <div style={treeScrollStyle}>
                 <WorkspaceFileTree
@@ -1083,7 +1091,7 @@ export default function WorkspaceFilesPanel({
                   <span style={{ opacity: 0.7 }}>{cwd || '/'}</span>
                 </div>
               )}
-            </>
+            </div>
           )}
         </>
       )}
