@@ -12662,7 +12662,6 @@ export default function OpenClawWorkspace({
                   </div>
                 </div>
               )}
-          </div>
             <div className="openclaw-card">
                 <div className="openclaw-card-header">
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
@@ -12680,7 +12679,8 @@ export default function OpenClawWorkspace({
                   </button>
                 </div>
                 {isPanelExpanded('canvas') && (
-                  <CanvasPanel
+                  <div style={{ maxHeight: 360, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                    <CanvasPanel
                     key={currentSessionId ?? 'draft-canvas'}
                     artifacts={canvasArtifacts}
                     onUpdate={async (id, content, name) => {
@@ -12799,7 +12799,9 @@ export default function OpenClawWorkspace({
                     searchQuery={canvasSearchQuery}
                     totalCount={canvasTotalCount}
                   />
+                  </div>
                 )}
+            </div>
             </div>
 
             <div className="openclaw-rail-bottom-panels">
