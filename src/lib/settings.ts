@@ -41,6 +41,21 @@ export function normalizeOpenClawHostAccessMode(value: unknown): OpenClawHostAcc
   return valid.includes(value as OpenClawHostAccessMode) ? (value as OpenClawHostAccessMode) : 'deny'
 }
 
+export function normalizeOpenClawWorkspaceHostRoot(value: unknown): string {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value.trim().split('\\').join('/')
+  }
+  return ''
+}
+
+export function getEffectiveOpenClawWorkspaceHostRoot(
+  settings: Pick<AppSettings, 'openClawWorkspaceHostRoot'>
+): string {
+  const override = normalizeOpenClawWorkspaceHostRoot(settings.openClawWorkspaceHostRoot)
+  if (override) return override
+  return getOpenClawWorkspaceHostRoot()
+}
+
 export type OpenClawUwafBrowserMode = 'deny' | 'direct' | 'stealth'
 export type OpenClawUwafDefaultMode = 'direct' | 'stealth'
 export type OpenClawAutomationExecutionProvider = 'ollama'
@@ -92,6 +107,7 @@ export interface AppSettings {
   openClawFileWriteMode: OpenClawFileWriteMode
   openClawWritablePaths: string
   openClawHostAccessMode: OpenClawHostAccessMode
+  openClawWorkspaceHostRoot: string
   openClawCodeExecutionMode: OpenClawCodeExecutionMode
   openClawBrowserMode: OpenClawBrowserMode
   openClawUwafBrowserMode: OpenClawUwafBrowserMode
@@ -159,6 +175,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   openClawFileWriteMode: 'ask-first',
   openClawWritablePaths: getOpenClawWorkspaceHostRoot(),
   openClawHostAccessMode: 'deny',
+  openClawWorkspaceHostRoot: '',
   openClawCodeExecutionMode: 'ask-first',
   openClawBrowserMode: 'deny',
   openClawUwafBrowserMode: 'deny',
@@ -436,6 +453,9 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     ),
     openClawHostAccessMode: normalizeOpenClawHostAccessMode(
       settings?.openClawHostAccessMode ?? DEFAULT_SETTINGS.openClawHostAccessMode
+    ),
+    openClawWorkspaceHostRoot: normalizeOpenClawWorkspaceHostRoot(
+      settings?.openClawWorkspaceHostRoot ?? DEFAULT_SETTINGS.openClawWorkspaceHostRoot
     ),
     openClawCodeExecutionMode: normalizeOpenClawCodeExecutionMode(
       settings?.openClawCodeExecutionMode ?? DEFAULT_SETTINGS.openClawCodeExecutionMode

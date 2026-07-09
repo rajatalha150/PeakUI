@@ -58,6 +58,7 @@ export interface OpenClawPromptContext {
   filesystemWriteEnabled?: boolean;
   writableFilesystemPaths?: string[];
   codeExecutionEnabled?: boolean;
+  workspaceHostRoot?: string;
   browserMode?: 'deny' | 'read-only' | 'ask-first';
   uwafBrowserMode?: 'deny' | 'direct' | 'stealth';
   uwafRuntimeContext?: string;
@@ -231,7 +232,9 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     'Use shell or filesystem tools for facts about the user\'s current machine, local files, repository state, running processes, or installed software — web research is for external information.',
     workspace
       ? `Current selected workspace: ${workspace.name} at ${workspace.hostPath} (managed relative path: ${workspace.relativePath}). ALWAYS create files, folders, and archives inside this selected workspace. Never write project files or ZIP outputs to the parent workspace root or to unrelated paths such as /home/raza/.peakui/workspace/projects or /home/raza/.peakui/workspace/*.zip unless the user explicitly names that location. If the selected workspace is /home/raza/.peakui/workspace/users/<id>/workspaces/default, place deliverables under that path so they appear in the user's file tree and can be downloaded.`
-      : 'No explicit WorkSpaces workspace was selected for this turn.',
+      : context.workspaceHostRoot || context.workspaceHostRoot === ''
+        ? `Account default workspace root: ${context.workspaceHostRoot || getOpenClawWorkspaceHostRoot()}. Treat this as the project root when the user asks about "the workspace" or a named project without giving a full path.`
+        : 'No explicit WorkSpaces workspace was selected for this turn.',
     'Keep the response presentation-ready. Use headings or lists only when they improve readability.',
     'Report only what tools actually return — do not fabricate results.',
     toolLabels.length > 0
@@ -344,8 +347,8 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
         'Only request writes inside those approved writable roots.',
         'When writing a file, send the full target content you want persisted. Do not assume patch utilities exist unless you actually use shell separately.',
         'If you need to create parent folders first, set createDirectories to true.',
-        'CRITICAL: Always use an absolute host path under an approved writable root. For projects inside the active workspace, prefix the path with the managed workspace root (e.g. ~/.peakui/workspace/projects/<project>/file.ext or /home/raza/.peakui/workspace/projects/<project>/file.ext).',
-        'CRITICAL: Bare relative paths such as TVControlApp/settings.gradle or ./TVControlApp/settings.gradle are rejected by the filesystem tool. Always include the full host path starting with ~/.peakui/workspace/ or the equivalent absolute path.',
+        `CRITICAL: Always use an absolute host path under an approved writable root. The account default workspace root is ${context.workspaceHostRoot || getOpenClawWorkspaceHostRoot()}. For projects inside the active workspace, prefix the path with that root (e.g. ${context.workspaceHostRoot || getOpenClawWorkspaceHostRoot()}/projects/<project>/file.ext).`,
+        'CRITICAL: Bare relative paths such as TVControlApp/settings.gradle or ./TVControlApp/settings.gradle are rejected by the filesystem tool. Always include the full host path starting with the account default workspace root or the equivalent absolute path.',
         'EFFICIENCY: For large project scaffolds with many files, prefer a single code-sandbox script that writes all files at once instead of chaining many individual filesystem tool calls. Only read files back if the user asks for verification or if a build/test fails.',
       );
     } else {
@@ -362,7 +365,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
         'The sandbox is workspace-scoped, time-limited, output-limited, and returns generated files. It is not a full VM, and private/local network targets remain unavailable through the browser tool.',
         'Prefer the sandbox over shell for quick scripts or data-processing tasks.',
         `Use this exact format:\n${OPENCLAW_CODE_TOOL_EXAMPLE}`,
-        'workspacePath is optional and relative to the managed workspace root. If omitted, the run uses the current selected WorkSpaces workspace.',
+        `workspacePath is optional. Relative paths are resolved under the account default workspace root (${context.workspaceHostRoot || getOpenClawWorkspaceHostRoot()}). If omitted, the run uses the current selected WorkSpaces workspace.`,
         'Do not request package installs or long-running daemons through the code tool.',
         'After a code result arrives, use the actual stdout, stderr, exit code, and artifact list to continue.',
       );

@@ -963,6 +963,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
             ? settings.openClawWritablePaths.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean)
             : [],
           codeExecutionEnabled: effectiveToolAccess.codeExecutionEnabled,
+          workspaceHostRoot: effectiveToolAccess.workspaceHostRoot,
           browserMode: internetToolEnabled ? effectiveToolAccess.browserMode : 'deny',
           uwafBrowserMode: effectiveUwafBrowserMode,
           uwafRuntimeContext: [

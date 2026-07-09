@@ -28,6 +28,7 @@ interface UserSettings {
   openClawFileWriteMode: string;
   openClawWritablePaths: string;
   openClawHostAccessMode: string;
+  openClawWorkspaceHostRoot: string;
   openClawCodeExecutionMode: string;
   openClawBrowserMode: string;
   openClawUwafBrowserMode: string;
@@ -161,6 +162,7 @@ const INITIAL_SETTINGS: UserSettings = {
   openClawFileWriteMode: 'ask-first',
   openClawWritablePaths: '~/.peakui/workspace',
   openClawHostAccessMode: 'deny',
+  openClawWorkspaceHostRoot: '',
   openClawCodeExecutionMode: 'deny',
   openClawBrowserMode: 'deny',
   openClawUwafBrowserMode: 'deny',

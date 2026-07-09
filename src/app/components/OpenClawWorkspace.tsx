@@ -469,6 +469,7 @@ interface OpenClawSettings {
   openClawFileWriteMode: 'deny' | 'ask-first' | 'auto-approve';
   openClawWritablePaths: string;
   openClawHostAccessMode: 'deny' | 'ask-first' | 'auto-approve';
+  openClawWorkspaceHostRoot: string;
   openClawCodeExecutionMode: 'deny' | 'ask-first' | 'auto-approve';
   openClawBrowserMode: 'deny' | 'read-only' | 'ask-first';
   openClawUwafBrowserMode: 'deny' | 'direct' | 'stealth';
@@ -741,6 +742,9 @@ function parseOpenClawToolAccess(
     hostAccessMode: candidate.hostAccessMode === 'auto-approve' || candidate.hostAccessMode === 'ask-first'
       ? candidate.hostAccessMode
       : 'deny',
+    workspaceHostRoot: typeof candidate.workspaceHostRoot === 'string' && candidate.workspaceHostRoot.trim().length > 0
+      ? candidate.workspaceHostRoot
+      : fallback.workspaceHostRoot,
     browserGranted: candidate.browserGranted === true,
     browserMode: candidate.browserMode === 'read-only' || candidate.browserMode === 'ask-first'
       ? candidate.browserMode
@@ -779,6 +783,7 @@ function parseOpenClawSettingsResponse(data: Record<string, unknown>): ParsedOpe
     openClawHostAccessMode: data.openClawHostAccessMode === 'auto-approve' || data.openClawHostAccessMode === 'ask-first'
       ? data.openClawHostAccessMode
       : 'deny',
+    openClawWorkspaceHostRoot: typeof data.openClawWorkspaceHostRoot === 'string' ? data.openClawWorkspaceHostRoot : '',
     openClawCodeExecutionMode: data.openClawCodeExecutionMode === 'auto-approve' || data.openClawCodeExecutionMode === 'ask-first'
       ? data.openClawCodeExecutionMode
       : 'deny',
