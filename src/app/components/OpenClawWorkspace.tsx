@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState, useDeferredValue, useCallback, memo } from 'react';
+import { isWindowsHostPath } from '@/lib/openclaw-path-check';
 import { randomUUID } from '@/lib/uuid';
 import Image from 'next/image';
 import { Activity, AlertCircle, BookOpen, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Database, Download, FileText, Folder, Globe, ListTodo, Loader2, Menu, MessageSquare, MoreHorizontal, Paperclip, Pin, Plus, Redo2, RefreshCw, Send, Server, Shield, Square, Star, Tag, Trash2, Wand2, Wifi, WifiOff, X } from 'lucide-react';
@@ -1922,7 +1923,7 @@ function isAbsoluteUnixPath(value: string) {
 }
 
 function pathLooksLikeHostFilesystemTarget(requestedPath: string, allowedPaths: string[]) {
-  if (requestedPath.startsWith('/home') || requestedPath.startsWith('/tmp') || requestedPath.startsWith('/mnt/openclaw') || /^[A-Za-z]:\//.test(requestedPath.replace(/\\/g, '/'))) {
+  if (requestedPath.startsWith('/home') || requestedPath.startsWith('/tmp') || requestedPath.startsWith('/mnt/openclaw') || isWindowsHostPath(requestedPath)) {
     return true;
   }
 

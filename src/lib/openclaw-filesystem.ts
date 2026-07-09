@@ -202,6 +202,16 @@ export function getMountedOpenClawWritableRoots(): string[] {
   return getMountedRoots().filter(root => root.writable).map(root => root.hostPath)
 }
 
+export { isKnownOpenClawHostPath, isWindowsHostPath } from './openclaw-path-check'
+import { isKnownOpenClawHostPath } from './openclaw-path-check'
+
+export function isKnownOpenClawHostPathWithMountedRoots(value: string): boolean {
+  if (!value || typeof value !== 'string') return false
+  const normalized = normalizeAbsolutePath(value)
+  const prefixes = getMountedRoots().map(root => normalizeAbsolutePath(root.hostPath))
+  return isKnownOpenClawHostPath(value, prefixes)
+}
+
 export function getMountedOpenClawRootDetails(): OpenClawMountedRoot[] {
   return getMountedRoots().map(root => ({ ...root }))
 }

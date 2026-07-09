@@ -20,6 +20,7 @@ $ErrorActionPreference = "Stop"
 # ---------------------------------------------------------------------------
 if (-not $ProjectDir) { $ProjectDir = "C:\Users\$env:USERNAME\Projects\PeakUI" }
 if (-not $WorkspaceDir) { $WorkspaceDir = "C:\Users\$env:USERNAME\peakui-workspace" }
+if (-not $ProjectsDir) { $ProjectsDir = "C:\Users\$env:USERNAME\Desktop" }
 if (-not $OllamaExe) { $OllamaExe = "C:\Users\$env:USERNAME\AppData\Local\Programs\Ollama\ollama.exe" }
 
 function Write-Header($text) {
@@ -84,14 +85,20 @@ if (-not $OllamaOnly) {
     Write-Host "Docker Desktop is running." -ForegroundColor Green
 }
 
-# --- 2. Verify/Create Workspace ---
+# --- 2. Verify/Create Workspace & Projects ---
 if (-not $OllamaOnly) {
-    Write-Header "Step 2: Workspace Directory"
+    Write-Header "Step 2: Workspace & Projects Directories"
     if (-not (Test-Path $WorkspaceDir)) {
         New-Item -ItemType Directory -Path $WorkspaceDir | Out-Null
         Write-Host "Created: $WorkspaceDir" -ForegroundColor Green
     } else {
         Write-Host "Already exists: $WorkspaceDir" -ForegroundColor Green
+    }
+    if (-not (Test-Path $ProjectsDir)) {
+        New-Item -ItemType Directory -Path $ProjectsDir | Out-Null
+        Write-Host "Created: $ProjectsDir" -ForegroundColor Green
+    } else {
+        Write-Host "Already exists: $ProjectsDir" -ForegroundColor Green
     }
 }
 
@@ -171,6 +178,7 @@ if (-not (Test-Path $EnvFile)) {
         "OPENCLAW_HOST_HOME_DIR=C:\Users\$env:USERNAME",
         "OPENCLAW_HOST_TMP_DIR=C:\Users\$env:USERNAME\AppData\Local\Temp",
         "OPENCLAW_HOST_WORKSPACE_DIR=$WorkspaceDir",
+        "OPENCLAW_HOST_PROJECTS_DIR=$ProjectsDir",
         "",
         "# Optional host shell executor (disabled by default)",
         "OPENCLAW_HOST_EXECUTOR_URL=http://host.docker.internal:4318",

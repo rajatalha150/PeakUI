@@ -53,6 +53,7 @@ services:
       OPENCLAW_HOST_WORKSPACE_DIR: ${OPENCLAW_HOST_WORKSPACE_DIR:?OPENCLAW_HOST_WORKSPACE_DIR is required}
       OPENCLAW_HOST_EXECUTOR_URL: ${OPENCLAW_HOST_EXECUTOR_URL:-http://host.docker.internal:4318}
       OPENCLAW_HOST_EXECUTOR_TOKEN: ${OPENCLAW_HOST_EXECUTOR_TOKEN:-}
+      OPENCLAW_HOST_PROJECTS_DIR: ${OPENCLAW_HOST_PROJECTS_DIR:-C:\Users\%USERNAME%\Desktop}
       TOR_PROXY_URL: socks5://tor-proxy:9150
       PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH: /usr/bin/chromium-browser
       SCREENCAST_PORT: 3001
@@ -80,6 +81,9 @@ services:
       - type: bind
         source: ${OPENCLAW_HOST_WORKSPACE_DIR}
         target: /mnt/openclaw/workspace
+      - type: bind
+        source: ${OPENCLAW_HOST_PROJECTS_DIR:-C:\Users\%USERNAME%\Desktop}
+        target: /mnt/openclaw/projects
       - app_runtime:/var/lib/peakui
     networks:
       - peakui

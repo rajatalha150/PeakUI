@@ -137,11 +137,29 @@ If you want semantic RAG, also pull an embedding model such as `nomic-embed-text
     - "5433:5432"  # Use 5433 on host
   ```
 
+### Host shell / Docker commands on Windows
+
+To run true host shell commands or `docker` commands from PeakUI on Windows, you need the optional **host executor** running on the Windows host:
+
+1. Set `OPENCLAW_HOST_EXECUTOR_TOKEN` to a strong secret in `.env`.
+2. From PowerShell on the host, run:
+   ```powershell
+   $env:OPENCLAW_HOST_EXECUTOR_TOKEN="your-secret-token"
+   $env:OPENCLAW_HOST_EXECUTOR_BIND="0.0.0.0"
+   node scripts/openclaw-host-executor.mjs
+   ```
+3. Ensure `OPENCLAW_HOST_EXECUTOR_URL=http://host.docker.internal:4318` in `.env`.
+4. Grant the `openclaw.host` permission and set **Unrestricted Host Access** to **Auto-approve** in settings.
+
+Without the host executor, shell/code tools run inside the Linux container and cannot execute native Windows commands or access the Windows Docker engine directly.
+
 ### Volume mount issues
 - Docker Desktop → Settings → Resources → File Sharing → Ensure `C:\` is shared.
 - WSL2 backend handles this automatically, but verify if errors occur.
 
 ## Workspace Directory Mapping
+
+Per-user workspace roots are supported. You can set **Settings → WorkSpaces → Default workspace root for this account** for each user. For this to work on Windows, that directory must be inside one of the bind mounts listed below (typically `OPENCLAW_HOST_WORKSPACE_DIR` or `OPENCLAW_HOST_PROJECTS_DIR`). Paths outside the mounted directories (for example `D:\`) will not be reachable from the container.
 
 PeakUI keeps two views of the same workspace directory:
 
@@ -150,8 +168,11 @@ PeakUI keeps two views of the same workspace directory:
 | Managed workspace | `C:\Users\%USERNAME%\peakui-workspace` (set by `OPENCLAW_HOST_WORKSPACE_DIR`) | `/mnt/openclaw/workspace` |
 | Host home tree | `C:\Users\%USERNAME%` (set by `OPENCLAW_HOST_HOME_DIR`) | `/mnt/openclaw/home` (read-only) |
 | Host temp | `C:\Users\%USERNAME%\AppData\Local\Temp` (set by `OPENCLAW_HOST_TMP_DIR`) | `/mnt/openclaw/tmp` (read-only) |
+| Projects / Desktop | `C:\Users\%USERNAME%\Desktop` (set by `OPENCLAW_HOST_PROJECTS_DIR`) | `/mnt/openclaw/projects` (read-write) |
 
 The app stores files inside the container at `/mnt/openclaw/workspace`, but it presents the Windows host path (`C:\Users\...`) to you and the AI. Filesystem and shell tools translate between the two automatically. Make sure the paths in your `.env` match the bind mounts in `docker-compose.windows.yml`.
+
+If you set a per-user default workspace root, choose a path under `OPENCLAW_HOST_WORKSPACE_DIR` (for managed WorkSpaces) or under `OPENCLAW_HOST_PROJECTS_DIR` (for project-level host access). The AI will use that root as the project directory.
 
 ## Post-Restart Workflow
 
