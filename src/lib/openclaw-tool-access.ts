@@ -4,6 +4,7 @@ export interface OpenClawToolAccessSettingsLike {
   shellExecutionMode: string
   openClawFileAccessMode: 'deny' | 'read-only'
   openClawFileWriteMode: 'deny' | 'ask-first' | 'auto-approve'
+  openClawHostAccessMode: 'deny' | 'ask-first' | 'auto-approve'
   openClawCodeExecutionMode: 'deny' | 'ask-first' | 'auto-approve'
   openClawBrowserMode: 'deny' | 'read-only' | 'ask-first'
   openClawUwafBrowserMode: 'deny' | 'direct' | 'stealth'
@@ -18,6 +19,9 @@ export interface EffectiveOpenClawToolAccess {
   filesystemWriteEnabled: boolean
   codeGranted: boolean
   codeExecutionEnabled: boolean
+  hostAccessGranted: boolean
+  hostAccessEnabled: boolean
+  hostAccessMode: 'deny' | 'ask-first' | 'auto-approve'
   browserGranted: boolean
   browserMode: 'deny' | 'read-only' | 'ask-first'
   uwafGranted: boolean
@@ -32,6 +36,7 @@ export function buildEffectiveOpenClawToolAccess(
   const shellGranted = permissionSet.has('openclaw.shell')
   const filesystemGranted = permissionSet.has('openclaw.filesystem')
   const codeGranted = permissionSet.has('openclaw.code')
+  const hostAccessGranted = permissionSet.has('openclaw.host')
   const browserGranted = permissionSet.has('openclaw.browser')
   const uwafGranted = permissionSet.has('openclaw.uwaf')
 
@@ -44,6 +49,9 @@ export function buildEffectiveOpenClawToolAccess(
     filesystemWriteEnabled: filesystemGranted && settings.openClawFileWriteMode !== 'deny',
     codeGranted,
     codeExecutionEnabled: codeGranted && settings.openClawCodeExecutionMode !== 'deny',
+    hostAccessGranted,
+    hostAccessEnabled: hostAccessGranted && settings.openClawHostAccessMode !== 'deny',
+    hostAccessMode: hostAccessGranted ? settings.openClawHostAccessMode : 'deny',
     browserGranted,
     browserMode: browserGranted ? settings.openClawBrowserMode : 'deny',
     uwafGranted,

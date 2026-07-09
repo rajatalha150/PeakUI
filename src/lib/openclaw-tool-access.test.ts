@@ -7,7 +7,8 @@ describe('OpenClaw settings normalization', () => {
     const normalized = normalizeAppSettings({
       openClawFileAccessMode: undefined,
       openClawFileWriteMode: undefined,
-      openClawCodeExecutionMode: undefined,
+      openClawHostAccessMode: 'deny',
+    openClawCodeExecutionMode: undefined,
       openClawBrowserMode: undefined,
       openClawUwafBrowserMode: undefined,
     } as never)
@@ -54,6 +55,7 @@ describe('OpenClaw effective tool access', () => {
         shellExecutionMode: 'ask-first',
         openClawFileAccessMode: 'read-only',
         openClawFileWriteMode: 'auto-approve',
+        openClawHostAccessMode: 'deny',
         openClawCodeExecutionMode: 'auto-approve',
         openClawBrowserMode: 'ask-first',
         openClawUwafBrowserMode: 'stealth',
@@ -75,6 +77,7 @@ describe('OpenClaw effective tool access', () => {
         shellExecutionMode: 'ask-first',
         openClawFileAccessMode: 'read-only',
         openClawFileWriteMode: 'ask-first',
+        openClawHostAccessMode: 'deny',
         openClawCodeExecutionMode: 'ask-first',
         openClawBrowserMode: 'read-only',
         openClawUwafBrowserMode: 'direct',

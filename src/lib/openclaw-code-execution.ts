@@ -17,6 +17,7 @@ export interface OpenClawCodeExecutionRequest {
 
 export interface OpenClawCodeExecutionSettings {
   openClawCodeExecutionMode: OpenClawCodeExecutionMode
+  openClawHostAccessMode?: 'deny' | 'ask-first' | 'auto-approve'
 }
 
 export interface OpenClawCodeExecutionPreparation {
@@ -95,9 +96,11 @@ export function prepareOpenClawCodeExecutionRequest(
   request: OpenClawCodeExecutionRequest,
   settings: OpenClawCodeExecutionSettings
 ): OpenClawCodeExecutionPreparation {
-  if (settings.openClawCodeExecutionMode === 'deny') {
+  if (settings.openClawCodeExecutionMode === 'deny' && settings.openClawHostAccessMode !== 'auto-approve') {
     throw new Error('Code execution sandbox is disabled')
   }
+
+  const hostAccessEnabled = settings.openClawHostAccessMode === 'auto-approve' || settings.openClawHostAccessMode === 'ask-first' 
 
   if (request.runtime !== 'python' && request.runtime !== 'node') {
     throw new Error('Unsupported code runtime')
@@ -125,10 +128,23 @@ export function prepareOpenClawCodeExecutionRequest(
     throw new Error(`Arguments must each stay under ${MAX_ARG_LENGTH} characters`)
   }
 
-  const relativeWorkspacePath = normalizeRelativeWorkspacePath(request.sessionId, request.workspacePath)
+  let relativeWorkspacePath: string
+  let hostWorkspacePath: string
+  let containerWorkspacePath: string
   const filename = sanitizeFilename(request.runtime, request.filename)
-  const hostWorkspacePath = path.join(getOpenClawWorkspaceHostRoot(), relativeWorkspacePath)
-  const containerWorkspacePath = path.join(getOpenClawWorkspaceContainerRoot(), relativeWorkspacePath)
+
+  if (hostAccessEnabled && request.workspacePath?.startsWith('/')) {
+    const requestedHostPath = path.resolve(request.workspacePath)
+    // Map host path to the closest mounted root. For direct host paths we mirror into
+    // a fallback container path so local fs operations still work inside the app container.
+    relativeWorkspacePath = path.relative('/', requestedHostPath) || '.'
+    hostWorkspacePath = requestedHostPath
+    containerWorkspacePath = path.join(getOpenClawWorkspaceContainerRoot(), 'host', relativeWorkspacePath)
+  } else {
+    relativeWorkspacePath = normalizeRelativeWorkspacePath(request.sessionId, request.workspacePath)
+    hostWorkspacePath = path.join(getOpenClawWorkspaceHostRoot(), relativeWorkspacePath)
+    containerWorkspacePath = path.join(getOpenClawWorkspaceContainerRoot(), relativeWorkspacePath)
+  }
 
   return {
     runtime: request.runtime,

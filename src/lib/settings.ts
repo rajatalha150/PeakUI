@@ -32,8 +32,15 @@ export type ShellExecutionTarget = 'container' | 'host'
 export type ShellExecutionMode = 'auto-approve' | 'ask-first' | 'deny'
 export type OpenClawFileAccessMode = 'deny' | 'read-only'
 export type OpenClawFileWriteMode = 'deny' | 'ask-first' | 'auto-approve'
+export type OpenClawHostAccessMode = 'deny' | 'ask-first' | 'auto-approve'
 export type OpenClawCodeExecutionMode = 'deny' | 'ask-first' | 'auto-approve'
 export type OpenClawBrowserMode = 'deny' | 'read-only' | 'ask-first'
+
+export function normalizeOpenClawHostAccessMode(value: unknown): OpenClawHostAccessMode {
+  const valid: OpenClawHostAccessMode[] = ['auto-approve', 'ask-first', 'deny']
+  return valid.includes(value as OpenClawHostAccessMode) ? (value as OpenClawHostAccessMode) : 'deny'
+}
+
 export type OpenClawUwafBrowserMode = 'deny' | 'direct' | 'stealth'
 export type OpenClawUwafDefaultMode = 'direct' | 'stealth'
 export type OpenClawAutomationExecutionProvider = 'ollama'
@@ -84,6 +91,7 @@ export interface AppSettings {
   openClawAllowedPaths: string
   openClawFileWriteMode: OpenClawFileWriteMode
   openClawWritablePaths: string
+  openClawHostAccessMode: OpenClawHostAccessMode
   openClawCodeExecutionMode: OpenClawCodeExecutionMode
   openClawBrowserMode: OpenClawBrowserMode
   openClawUwafBrowserMode: OpenClawUwafBrowserMode
@@ -150,6 +158,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   openClawAllowedPaths: '',
   openClawFileWriteMode: 'ask-first',
   openClawWritablePaths: getOpenClawWorkspaceHostRoot(),
+  openClawHostAccessMode: 'deny',
   openClawCodeExecutionMode: 'ask-first',
   openClawBrowserMode: 'deny',
   openClawUwafBrowserMode: 'deny',
@@ -424,6 +433,9 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
       settings?.openClawWritablePaths !== undefined
         ? settings.openClawWritablePaths
         : DEFAULT_SETTINGS.openClawWritablePaths
+    ),
+    openClawHostAccessMode: normalizeOpenClawHostAccessMode(
+      settings?.openClawHostAccessMode ?? DEFAULT_SETTINGS.openClawHostAccessMode
     ),
     openClawCodeExecutionMode: normalizeOpenClawCodeExecutionMode(
       settings?.openClawCodeExecutionMode ?? DEFAULT_SETTINGS.openClawCodeExecutionMode

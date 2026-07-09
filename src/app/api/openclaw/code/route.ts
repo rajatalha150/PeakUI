@@ -7,7 +7,7 @@ import {
   runOpenClawCodeExecution,
   type OpenClawCodeExecutionRequest,
 } from '@/lib/openclaw-code-execution'
-import { DEFAULT_SETTINGS, normalizeOpenClawCodeExecutionMode } from '@/lib/settings'
+import { DEFAULT_SETTINGS, normalizeOpenClawCodeExecutionMode, normalizeOpenClawHostAccessMode } from '@/lib/settings'
 import { verifyOpenClawApprovalToken } from '@/lib/openclaw-tool-approvals'
 
 export const runtime = 'nodejs'
@@ -37,17 +37,22 @@ export async function POST(request: NextRequest) {
       where: { userId },
       select: {
         openClawCodeExecutionMode: true,
+        openClawHostAccessMode: true,
       },
     })
 
     const mode = normalizeOpenClawCodeExecutionMode(
       settings?.openClawCodeExecutionMode ?? DEFAULT_SETTINGS.openClawCodeExecutionMode
     )
+    const hostMode = normalizeOpenClawHostAccessMode(
+      settings?.openClawHostAccessMode ?? DEFAULT_SETTINGS.openClawHostAccessMode
+    )
     const prepared = prepareOpenClawCodeExecutionRequest(codeRequest, {
       openClawCodeExecutionMode: mode,
+      openClawHostAccessMode: hostMode,
     })
 
-    if (mode === 'ask-first') {
+    if (mode === 'ask-first' && hostMode !== 'auto-approve') {
       if (!approvalToken) {
         return NextResponse.json({ error: 'Code execution blocked: Missing approval token' }, { status: 403 })
       }
@@ -67,6 +72,7 @@ export async function POST(request: NextRequest) {
     // Pass abort signal to code execution
     const result = await runOpenClawCodeExecution(codeRequest, {
       openClawCodeExecutionMode: mode,
+      openClawHostAccessMode: hostMode,
     }, signal)
 
     return NextResponse.json(result)

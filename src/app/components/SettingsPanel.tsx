@@ -27,6 +27,7 @@ interface UserSettings {
   openClawAllowedPaths: string;
   openClawFileWriteMode: string;
   openClawWritablePaths: string;
+  openClawHostAccessMode: string;
   openClawCodeExecutionMode: string;
   openClawBrowserMode: string;
   openClawUwafBrowserMode: string;
@@ -159,6 +160,7 @@ const INITIAL_SETTINGS: UserSettings = {
   openClawAllowedPaths: '',
   openClawFileWriteMode: 'ask-first',
   openClawWritablePaths: '~/.peakui/workspace',
+  openClawHostAccessMode: 'deny',
   openClawCodeExecutionMode: 'deny',
   openClawBrowserMode: 'deny',
   openClawUwafBrowserMode: 'deny',
@@ -1907,6 +1909,28 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             The default managed workspace root is mounted read-write for WorkSpaces. If you want broader writable scope later, add an explicit Docker bind mount first, then approve only the narrowest host root you actually want the agent to edit.
           </div>
         </Field>
+
+        <div style={{ border: '1px solid #f59e0b', borderRadius: 8, padding: 16, marginBottom: 24, background: 'rgba(245,158,11,0.08)' }}>
+          <h4 style={{ margin: '0 0 8px 0', color: '#f59e0b' }}>⚠️ Unrestricted Host Access</h4>
+          <p style={{ margin: '0 0 12px 0', fontSize: 14, lineHeight: 1.4 }}>
+            When enabled and granted by an admin, WorkSpaces can read/write any host path,
+            run code outside the managed workspace, and execute shell commands on the host
+            including Docker. This is equivalent to giving the AI your login shell.
+          </p>
+          <select
+            value={settings.openClawHostAccessMode}
+            onChange={(e) => update('openClawHostAccessMode', e.target.value)}
+            style={{ width: '100%', padding: 8, borderRadius: 4, marginBottom: 12 }}
+          >
+            <option value="deny">Deny — keep sandbox restrictions</option>
+            <option value="ask-first">Ask first before each host action</option>
+            <option value="auto-approve">Auto-approve — full host freedom</option>
+          </select>
+          <p style={{ margin: 0, fontSize: 12, opacity: 0.8 }}>
+            Requires the <strong>openclaw.host</strong> permission. Only managers or admins can enable this.
+          </p>
+        </div>
+
 
         <Field label="Code Execution Sandbox" help="Run short Python or Node scripts in a managed WorkSpaces workspace with timeouts, output caps, and approval gates.">
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>

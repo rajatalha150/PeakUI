@@ -18,6 +18,7 @@ import {
   normalizeOpenClawAllowedPaths,
   normalizeOpenClawFileAccessMode,
   normalizeOpenClawFileWriteMode,
+  normalizeOpenClawHostAccessMode,
   normalizeShellExecutionMode,
   normalizeShellExecutionTarget,
   normalizeShellHostAllowedEnvVars,
@@ -81,6 +82,7 @@ async function loadFilesystemAccessSettings(userId: string): Promise<OpenClawFil
       openClawAllowedPaths: true,
       openClawFileWriteMode: true,
       openClawWritablePaths: true,
+      openClawHostAccessMode: true,
     },
   })
 
@@ -89,6 +91,7 @@ async function loadFilesystemAccessSettings(userId: string): Promise<OpenClawFil
     openClawAllowedPaths: normalizeOpenClawAllowedPaths(settings?.openClawAllowedPaths ?? DEFAULT_SETTINGS.openClawAllowedPaths),
     openClawFileWriteMode: normalizeOpenClawFileWriteMode(settings?.openClawFileWriteMode ?? DEFAULT_SETTINGS.openClawFileWriteMode),
     openClawWritablePaths: normalizeOpenClawAllowedPaths(settings?.openClawWritablePaths ?? DEFAULT_SETTINGS.openClawWritablePaths),
+    openClawHostAccessMode: normalizeOpenClawHostAccessMode(settings?.openClawHostAccessMode ?? DEFAULT_SETTINGS.openClawHostAccessMode),
   }
 }
 

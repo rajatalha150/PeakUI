@@ -58,7 +58,9 @@ services:
       - ${OPENCLAW_HOST_HOME_DIR:-/home}:/mnt/openclaw/home:ro
       - ${OPENCLAW_HOST_TMP_DIR:-/tmp}:/mnt/openclaw/tmp:ro
       - ${OPENCLAW_HOST_WORKSPACE_DIR:-/home/raza/.peakui/workspace}:/mnt/openclaw/workspace:rw
+      - ${OPENCLAW_HOST_PROJECTS_DIR:-/home/raza/Desktop}:/mnt/openclaw/projects:rw
       - app_runtime:/var/lib/peakui
+      - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:rw
 
 volumes:
   db_data:

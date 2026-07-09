@@ -45,6 +45,7 @@ export interface OpenClawFilesystemAccessSettings {
   openClawAllowedPaths: string
   openClawFileWriteMode: OpenClawFileWriteMode
   openClawWritablePaths: string
+  openClawHostAccessMode?: 'deny' | 'ask-first' | 'auto-approve'
 }
 
 export interface OpenClawFilesystemWriteValidation {
@@ -265,8 +266,9 @@ export function buildOpenClawFilesystemAccessStatus(
 export function diagnoseOpenClawFilesystemRequest(
   request: OpenClawFilesystemRequest,
   settings: OpenClawFilesystemAccessSettings,
-  options: { approvalTokenPresent?: boolean } = {}
+  options: { approvalTokenPresent?: boolean; hostAccessEnabled?: boolean } = {}
 ): OpenClawFilesystemDiagnostic {
+  const hostAccessEnabled = Boolean(options.hostAccessEnabled)
   const requestedPath = typeof request.path === 'string' ? request.path.trim() : ''
   if (!requestedPath) {
     return {
@@ -305,12 +307,23 @@ export function diagnoseOpenClawFilesystemRequest(
     }
   }
 
-  if (isWriteAction && settings.openClawFileWriteMode === 'deny') {
+  if (isWriteAction && settings.openClawFileWriteMode === 'deny' && !hostAccessEnabled) {
     return {
       allowed: false,
       code: 'filesystem_write_disabled',
       message: 'Filesystem writes are disabled.',
       actionRequired: 'Enable Settings -> WorkSpaces -> Filesystem Writes in ask-first mode and approve a writable root.',
+      requestedPath,
+      normalizedPath,
+    }
+  }
+
+  // With unrestricted host access, any absolute host path is allowed.
+  if (hostAccessEnabled) {
+    return {
+      allowed: true,
+      code: 'ok',
+      message: 'Host access enabled: path approved.',
       requestedPath,
       normalizedPath,
     }

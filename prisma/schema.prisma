@@ -77,6 +77,7 @@ model UserSettings {
   openClawAllowedPaths                       String   @default("")
   openClawFileWriteMode                      String   @default("deny")
   openClawWritablePaths                      String   @default("~/.peakui/workspace")
+  openClawHostAccessMode                     String   @default("deny")
   openClawCodeExecutionMode                  String   @default("deny")
   openClawBrowserMode                        String   @default("deny")
   openClawUwafBrowserMode                    String   @default("deny")

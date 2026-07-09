@@ -68,6 +68,12 @@ export const PERMISSION_DEFINITIONS = [
     category: 'WorkSpaces',
   },
   {
+    key: 'openclaw.host',
+    label: 'Unrestricted host access',
+    description: 'Bypass sandbox roots and execute commands, code, and filesystem operations directly on the host when the matching personal setting is enabled.',
+    category: 'WorkSpaces',
+  },
+  {
     key: 'openclaw.automation',
     label: 'Automation scheduling',
     description: 'Manage autonomous scheduling, monitoring, wake events, and proactive nudges.',
@@ -111,6 +117,7 @@ const ROLE_DEFAULTS: Record<Role, PermissionKey[]> = {
     'openclaw.uwaf',
     'openclaw.shell',
     'openclaw.code',
+    'openclaw.host',
     'openclaw.automation',
   ],
   USER: [

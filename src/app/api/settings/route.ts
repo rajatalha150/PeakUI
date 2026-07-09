@@ -24,6 +24,7 @@ import {
   normalizeOpenClawAutomationExecutionModel,
   normalizeOpenClawUwafBrowserMode,
   normalizeOpenClawUwafDefaultMode,
+  normalizeOpenClawHostAccessMode,
   normalizeRagMode,
   normalizeRagModel,
   normalizeShellExecutionMode,
@@ -88,6 +89,7 @@ interface SettingsBody {
   openClawAllowedPaths?: unknown;
   openClawFileWriteMode?: unknown;
   openClawWritablePaths?: unknown;
+  openClawHostAccessMode?: unknown;
   openClawCodeExecutionMode?: unknown;
   openClawBrowserMode?: unknown;
   openClawUwafBrowserMode?: unknown;
@@ -220,6 +222,7 @@ export async function POST(req: Request) {
     if (body.openClawAllowedPaths !== undefined) data.openClawAllowedPaths = normalizeOpenClawAllowedPaths(body.openClawAllowedPaths);
     if (body.openClawFileWriteMode !== undefined) data.openClawFileWriteMode = normalizeOpenClawFileWriteMode(body.openClawFileWriteMode);
     if (body.openClawWritablePaths !== undefined) data.openClawWritablePaths = normalizeOpenClawAllowedPaths(body.openClawWritablePaths);
+    if (body.openClawHostAccessMode !== undefined) data.openClawHostAccessMode = normalizeOpenClawHostAccessMode(body.openClawHostAccessMode);
     if (body.openClawCodeExecutionMode !== undefined) data.openClawCodeExecutionMode = normalizeOpenClawCodeExecutionMode(body.openClawCodeExecutionMode);
     if (body.openClawBrowserMode !== undefined) data.openClawBrowserMode = normalizeOpenClawBrowserMode(body.openClawBrowserMode);
     if (body.openClawUwafBrowserMode !== undefined) data.openClawUwafBrowserMode = normalizeOpenClawUwafBrowserMode(body.openClawUwafBrowserMode);

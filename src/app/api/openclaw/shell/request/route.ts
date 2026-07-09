@@ -58,8 +58,9 @@ export async function POST(request: NextRequest) {
     }
 
     const settings = await getUserSettings(userId)
-    const mode = settings.shellExecutionMode
-    const configuredTarget = settings.shellExecutionTarget
+  const hostAccessEnabled = settings.openClawHostAccessMode === 'auto-approve'
+  const mode = hostAccessEnabled ? 'auto-approve' : settings.shellExecutionMode
+  const configuredTarget = settings.shellExecutionTarget
     const allowedCommands = settings.shellAllowedCommands
       ? settings.shellAllowedCommands.split(',').map(c => c.trim()).filter(Boolean)
       : []
