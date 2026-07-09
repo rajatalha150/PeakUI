@@ -145,7 +145,7 @@ async function readDirEntries(
     }
   }
 
-  await walk(absolutePath, workspaceRelativePath, options.depth)
+  await walk(absolutePath, workspaceRelativePath, options.depth - 1)
   return { entries: collected, truncated }
 }
 
@@ -168,8 +168,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return badRequest('Path is not allowed', 'invalid_path', 400, 'Use a workspace-relative path without ".." or absolute segments.')
   }
 
-  const depthRaw = Number.parseInt(request.nextUrl.searchParams.get('depth') ?? '1', 10)
-  const depth = Number.isFinite(depthRaw) ? Math.max(0, Math.min(depthRaw, 4)) : 1
+  const depthRaw = Number.parseInt(request.nextUrl.searchParams.get('depth') ?? '0', 10)
+  const depth = Number.isFinite(depthRaw) ? Math.max(0, Math.min(depthRaw, 4)) : 0
 
   const absolutePath = path.join(workspace.containerPath, relativePath)
   // Path safety double-check: ensure realpath (if it exists) is inside the workspace container.

@@ -260,7 +260,7 @@ export default function WorkspaceFilesPanel({
   const loadDirectory = useCallback(
     async (path: string): Promise<WorkspaceTreeResponse | null> => {
       if (!workspaceId) return null
-      const data = await listWorkspaceTree(workspaceId, { path, depth: 1 })
+      const data = await listWorkspaceTree(workspaceId, { path, depth: 0 })
       setRootEntriesByDirectory(prev => {
         const next = new Map(prev)
         next.set(path, data.entries)
@@ -303,7 +303,7 @@ export default function WorkspaceFilesPanel({
       if (!workspaceId) return
       if (rootEntriesByDirectory.has(path)) return
       try {
-        const data = await listWorkspaceTree(workspaceId, { path, depth: 1 })
+        const data = await listWorkspaceTree(workspaceId, { path, depth: 0 })
         setRootEntriesByDirectory(prev => {
           const next = new Map(prev)
           next.set(path, data.entries)
@@ -1150,7 +1150,7 @@ export default function WorkspaceFilesPanel({
         open={moveTarget !== null}
         fromPath={moveTarget?.path ?? ''}
         loadDirectory={async path => {
-          const data = await listWorkspaceTree(workspaceId!, { path, depth: 1 })
+          const data = await listWorkspaceTree(workspaceId!, { path, depth: 0 })
           return { entries: data.entries }
         }}
         onMove={destination => void handleMoveCommit(destination)}
