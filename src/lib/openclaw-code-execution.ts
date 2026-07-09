@@ -2,7 +2,7 @@ import { promises as fs } from 'fs'
 import path from 'path'
 import { spawn } from 'child_process'
 import type { OpenClawCodeExecutionMode } from './settings'
-import { getOpenClawWorkspaceContainerRoot, getOpenClawWorkspaceHostRoot } from './openclaw-workspace'
+import { getOpenClawWorkspaceContainerRoot, getOpenClawWorkspaceHostRoot, isWindowsHostPath } from './openclaw-workspace'
 
 export type OpenClawCodeRuntime = 'python' | 'node'
 
@@ -60,6 +60,27 @@ const EXECUTION_TIMEOUT_MS = 60_000
 const NODE_MEMORY_MB = 128
 const PYTHON_MEMORY_BYTES = 256 * 1024 * 1024
 const PYTHON_FILE_SIZE_BYTES = 16 * 1024 * 1024
+
+
+function normalizeWindowsHostPath(input: string): string {
+  return input.replace(/\\/g, '/').replace(/\/$/, '')
+}
+
+function resolveHostPathToContainer(hostPath: string): string {
+  const containerRoot = getOpenClawWorkspaceContainerRoot()
+  const hostRoot = getOpenClawWorkspaceHostRoot()
+  if (isWindowsHostPath(hostPath)) {
+    // Windows host paths are bind-mounted at /mnt/openclaw/workspace on Windows compose,
+    // and at /mnt/openclaw/projects for Desktop etc. Without exact mount metadata we
+    // mirror under a host mirror directory inside the managed workspace so the sandbox
+    // can still read/write.
+    return path.join(containerRoot, 'host', hostPath.replace(/:/g, ''))
+  }
+  if (hostPath.startsWith(hostRoot)) {
+    return path.join(containerRoot, path.relative(hostRoot, hostPath))
+  }
+  return path.join(containerRoot, 'host', path.relative('/', hostPath))
+}
 
 function sanitizeSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'workspace'
@@ -133,13 +154,17 @@ export function prepareOpenClawCodeExecutionRequest(
   let containerWorkspacePath: string
   const filename = sanitizeFilename(request.runtime, request.filename)
 
-  if (hostAccessEnabled && request.workspacePath?.startsWith('/')) {
-    const requestedHostPath = path.resolve(request.workspacePath)
+  if (hostAccessEnabled && (request.workspacePath?.startsWith('/') || isWindowsHostPath(request.workspacePath || ''))) {
+    const requestedHostPath = isWindowsHostPath(request.workspacePath || '')
+      ? normalizeWindowsHostPath(request.workspacePath!)
+      : path.resolve(request.workspacePath!)
     // Map host path to the closest mounted root. For direct host paths we mirror into
     // a fallback container path so local fs operations still work inside the app container.
-    relativeWorkspacePath = path.relative('/', requestedHostPath) || '.'
+    relativeWorkspacePath = isWindowsHostPath(request.workspacePath || '')
+      ? path.relative(getOpenClawWorkspaceHostRoot(), requestedHostPath) || '.'
+      : path.relative('/', requestedHostPath) || '.'
     hostWorkspacePath = requestedHostPath
-    containerWorkspacePath = path.join(getOpenClawWorkspaceContainerRoot(), 'host', relativeWorkspacePath)
+    containerWorkspacePath = resolveHostPathToContainer(requestedHostPath)
   } else {
     relativeWorkspacePath = normalizeRelativeWorkspacePath(request.sessionId, request.workspacePath)
     hostWorkspacePath = path.join(getOpenClawWorkspaceHostRoot(), relativeWorkspacePath)

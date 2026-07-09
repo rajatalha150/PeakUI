@@ -1922,7 +1922,7 @@ function isAbsoluteUnixPath(value: string) {
 }
 
 function pathLooksLikeHostFilesystemTarget(requestedPath: string, allowedPaths: string[]) {
-  if (requestedPath.startsWith('/home') || requestedPath.startsWith('/tmp')) {
+  if (requestedPath.startsWith('/home') || requestedPath.startsWith('/tmp') || requestedPath.startsWith('/mnt/openclaw') || /^[A-Za-z]:\//.test(requestedPath.replace(/\\/g, '/'))) {
     return true;
   }
 
