@@ -14,6 +14,7 @@ import {
 } from '@/lib/permissions'
 import { prisma } from '@/lib/prisma'
 import { getCurrentAuth } from '@/lib/request-auth'
+import { DEFAULT_SETTINGS } from '@/lib/settings'
 
 function isRole(value: unknown): value is Role {
   return value === 'ADMIN' || value === 'MANAGER' || value === 'USER'
@@ -155,6 +156,9 @@ export async function POST(request: Request) {
         role,
         isActive,
         permissionOverrides,
+        settings: {
+          create: DEFAULT_SETTINGS,
+        },
       },
       select: {
         id: true,
