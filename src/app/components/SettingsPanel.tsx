@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Settings, Server, Bot, Database, MessageSquare,
-  CheckCircle, AlertCircle, Loader2, Save, Palette, Users, Shield, Trash2, LogOut, X
+  CheckCircle, AlertCircle, Loader2, Save, Palette, Users, Shield, Trash2, LogOut, X, Download, Upload, Archive
 } from 'lucide-react';
 import { ollamaModelKey, RECOMMENDED_EMBEDDING_MODELS } from '@/lib/embedding-models';
 import { applyTheme, THEME_OPTIONS } from '@/lib/theme-options';
@@ -239,6 +239,53 @@ function formatTimestamp(value: string | null) {
   return Number.isNaN(date.getTime()) ? 'Unknown' : date.toLocaleString();
 }
 
+function startProgressPoll(
+  progressId: string,
+  direction: 'export' | 'import',
+  setProgress: (p: { id: string; phase: string; message: string; percent: number; direction: string } | null) => void,
+  setError: (msg: string | null) => void,
+  intervalRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>,
+  onDone?: () => void,
+) {
+  if (intervalRef.current) clearInterval(intervalRef.current);
+  setProgress({ id: progressId, phase: 'prepare', message: 'Starting...', percent: 0, direction });
+  setError(null);
+
+  let stopped = false;
+  intervalRef.current = setInterval(async () => {
+    if (stopped) return;
+    try {
+      const res = await fetch(`/api/backup/progress?id=${encodeURIComponent(progressId)}`);
+      if (!res.ok) return;
+      const data = await res.json() as { phase: string; message: string; percent: number; error?: string };
+      setProgress({ id: progressId, phase: data.phase, message: data.message, percent: data.percent, direction });
+      if (data.phase === 'done' || data.phase === 'error') {
+        stopped = true;
+        if (intervalRef.current) clearInterval(intervalRef.current);
+        intervalRef.current = null;
+        if (data.phase === 'error' && data.error) {
+          setError(data.error);
+        } else if (data.phase === 'done') {
+          onDone?.();
+        }
+      }
+    } catch {
+      // ignore polling errors
+    }
+  }, 700);
+
+  return () => {
+    stopped = true;
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = null;
+  };
+}
+
+function stopProgressPoll(intervalRef: React.MutableRefObject<ReturnType<typeof setInterval> | null>) {
+  if (intervalRef.current) clearInterval(intervalRef.current);
+  intervalRef.current = null;
+}
+
 export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
   const [settings, setSettings] = useState<UserSettings>(INITIAL_SETTINGS);
   const [models, setModels] = useState<Model[]>([]);
@@ -261,6 +308,18 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
   const [userNotice, setUserNotice] = useState('');
   const [creatingUser, setCreatingUser] = useState(false);
   const [createUserModalOpen, setCreateUserModalOpen] = useState(false);
+  const [backupModalOpen, setBackupModalOpen] = useState(false);
+  const [restoreModalOpen, setRestoreModalOpen] = useState(false);
+  const [backupScopes, setBackupScopes] = useState({ chats: true, settings: true, knowledgeBase: true });
+  const [backupProgress, setBackupProgress] = useState<{ id: string; phase: string; message: string; percent: number; direction: string } | null>(null);
+  const [restoreProgress, setRestoreProgress] = useState<{ id: string; phase: string; message: string; percent: number; direction: string } | null>(null);
+  const [backupFile, setBackupFile] = useState<File | null>(null);
+  const [reindexOnRestore, setReindexOnRestore] = useState(false);
+  const [restoreResult, setRestoreResult] = useState<{ restoredSessions: number; restoredFolders: number; restoredTags: number; restoredDocuments: number; errors: string[] } | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const backupPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const restorePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
   const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [passwordDrafts, setPasswordDrafts] = useState<Record<string, string>>({});
@@ -383,6 +442,13 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
     void loadInitialSettings();
   }, [fetchSettings, fetchModels, fetchManagedUsers, fetchSession, fetchHostAccessStatus]);
 
+  useEffect(() => {
+    return () => {
+      stopProgressPoll(backupPollRef);
+      stopProgressPoll(restorePollRef);
+    };
+  }, []);
+
   const handleSave = async () => {
     setSaving(true);
     setSaved(false);
@@ -406,6 +472,76 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
       console.error('Save failed:', e);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleBackup = async () => {
+    setBackupError(null);
+    setBackupProgress(null);
+    setRestoreResult(null);
+    const scopes: string[] = [];
+    if (backupScopes.chats) scopes.push("chats");
+    if (backupScopes.settings) scopes.push("settings");
+    if (backupScopes.knowledgeBase) scopes.push("knowledgeBase");
+    if (scopes.length === 0) {
+      setBackupError("Select at least one category to backup.");
+      return;
+    }
+    const progressId = crypto.randomUUID();
+    const stopPoll = startProgressPoll(progressId, "export", setBackupProgress, setBackupError, backupPollRef, () => stopPoll());
+    try {
+      const res = await fetch(`/api/backup/export?scopes=${scopes.join(",")}&progressId=${progressId}`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Backup request failed" }));
+        setBackupError(err.error ?? "Backup failed");
+        return;
+      }
+      const blob = await res.blob();
+      const cd = res.headers.get("content-disposition") ?? "";
+      const filenameMatch = cd.match(/filename="?([^"]+)"?/);
+      const filename = filenameMatch?.[1] ?? `peakui-backup-${(settings as unknown as { username?: string }).username ?? "user"}.zip`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setBackupError(e instanceof Error ? e.message : "Backup failed");
+    }
+  };
+
+  const handleRestore = async () => {
+    setRestoreError(null);
+    setRestoreProgress(null);
+    setRestoreResult(null);
+    if (!backupFile) {
+      setRestoreError("Choose a backup file to restore.");
+      return;
+    }
+    const progressId = crypto.randomUUID();
+    const stopPoll = startProgressPoll(progressId, "import", setRestoreProgress, setRestoreError, restorePollRef, () => {
+      void fetchSession();
+      void fetchSettings();
+      stopPoll();
+    });
+    try {
+      const form = new FormData();
+      form.append("file", backupFile);
+      form.append("reindexDocuments", reindexOnRestore ? "true" : "false");
+      form.append("progressId", progressId);
+      const res = await fetch("/api/backup/import", { method: "POST", body: form });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: "Restore request failed" }));
+        setRestoreError(err.error ?? "Restore failed");
+        return;
+      }
+      const data = await res.json() as { result: { restoredSessions: number; restoredFolders: number; restoredTags: number; restoredDocuments: number; errors: string[] } };
+      setRestoreResult(data.result);
+    } catch (e) {
+      setRestoreError(e instanceof Error ? e.message : "Restore failed");
     }
   };
 
@@ -2276,6 +2412,34 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
         )}
       </Section>
 
+      {/* Backup & Restore */}
+      <Section icon={<Archive size={18} />} title="Backup & Restore">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px' }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => { setBackupError(null); setRestoreResult(null); setBackupModalOpen(true); }}
+              style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+            >
+              <Download size={16} /> Backup
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => { setRestoreError(null); setBackupFile(null); setRestoreResult(null); setRestoreModalOpen(true); }}
+              style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+            >
+              <Upload size={16} /> Restore
+            </button>
+          </div>
+
+          <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            Backup your chats, settings, and knowledge base into a single ZIP file. Restore later on this or another PeakUI instance.
+          </div>
+        </div>
+      </Section>
+
       {/* About */}
       <Section icon={<Bot size={18} />} title="About PeakUI">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -2292,6 +2456,194 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           ))}
         </div>
       </Section>
+
+      {backupModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Create backup"
+          onClick={() => setBackupModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1300,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            background: 'rgba(3, 6, 23, 0.66)',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <div
+            onClick={event => event.stopPropagation()}
+            style={{
+              width: 'min(520px, calc(100vw - 32px))',
+              maxHeight: 'min(88vh, 700px)',
+              overflowY: 'auto',
+              padding: '18px',
+              borderRadius: '18px',
+              border: '1px solid var(--border-color)',
+              background: 'var(--sidebar-bg)',
+              boxShadow: '0 24px 72px rgba(0, 0, 0, 0.42)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '14px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', paddingBottom: '10px', borderBottom: '1px solid var(--border-color)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Download size={18} color="var(--accent-primary)" />
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)' }}>Create backup</div>
+                  <div style={{ marginTop: '3px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Choose what to include in the ZIP.</div>
+                </div>
+              </div>
+              <button type="button" className="btn btn-secondary" onClick={() => setBackupModalOpen(false)} style={{ padding: '8px 10px' }}><X size={16} /></button>
+            </div>
+
+            {backupError && (
+              <div style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--danger)', background: 'rgba(239,68,68,0.08)', color: '#fca5a5', fontSize: '0.82rem' }}>{backupError}</div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {[
+                { key: 'chats', label: 'Chats', help: 'All sessions, pinned chats, folders, and tags.' },
+                { key: 'settings', label: 'Settings', help: 'Theme, models, OpenClaw options, and custom system prompt.' },
+                { key: 'knowledgeBase', label: 'Knowledge base', help: 'Uploaded documents and their extracted content.' },
+              ].map(opt => (
+                <div key={opt.key} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)' }}>
+                  <input
+                    id={`backup-scope-${opt.key}`}
+                    type="checkbox"
+                    checked={backupScopes[opt.key as keyof typeof backupScopes]}
+                    onChange={e => setBackupScopes(prev => ({ ...prev, [opt.key]: e.target.checked }))}
+                    style={{ marginTop: '3px' }}
+                  />
+                  <label htmlFor={`backup-scope-${opt.key}`} style={{ flex: 1, cursor: 'pointer' }}>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>{opt.label}</div>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{opt.help}</div>
+                  </label>
+                </div>
+              ))}
+            </div>
+
+            {backupProgress && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  <span>{backupProgress.message}</span>
+                  <span>{backupProgress.percent}%</span>
+                </div>
+                <div style={{ height: '6px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                  <div style={{ width: `${backupProgress.percent}%`, height: '100%', background: 'var(--accent-primary)', transition: 'width 0.3s ease' }} />
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap', paddingTop: '4px' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setBackupModalOpen(false)} style={{ padding: '10px 16px' }}>Cancel</button>
+              <button type="button" className="btn btn-primary" onClick={() => void handleBackup()} style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {backupProgress && backupProgress.percent < 100 ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Download size={14} />}
+                {backupProgress && backupProgress.percent < 100 ? 'Creating...' : 'Create Backup'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {restoreModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Restore backup"
+          onClick={() => setRestoreModalOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 1300,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            background: 'rgba(3, 6, 23, 0.66)',
+            backdropFilter: 'blur(8px)',
+          }}
+        >
+          <div
+            onClick={event => event.stopPropagation()}
+            style={{
+              width: 'min(520px, calc(100vw - 32px))',
+              maxHeight: 'min(88vh, 700px)',
+              overflowY: 'auto',
+              padding: '18px',
+              borderRadius: '18px',
+              border: '1px solid var(--border-color)',
+              background: 'var(--sidebar-bg)',
+              boxShadow: '0 24px 72px rgba(0, 0, 0, 0.42)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '14px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', paddingBottom: '10px', borderBottom: '1px solid var(--border-color)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Upload size={18} color="var(--accent-primary)" />
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--text-primary)' }}>Restore backup</div>
+                  <div style={{ marginTop: '3px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>Upload a previous backup ZIP to restore your data.</div>
+                </div>
+              </div>
+              <button type="button" className="btn btn-secondary" onClick={() => setRestoreModalOpen(false)} style={{ padding: '8px 10px' }}><X size={16} /></button>
+            </div>
+
+            {restoreError && (
+              <div style={{ padding: '12px', borderRadius: '10px', border: '1px solid var(--danger)', background: 'rgba(239,68,68,0.08)', color: '#fca5a5', fontSize: '0.82rem' }}>{restoreError}</div>
+            )}
+
+            <input
+              type="file"
+              accept=".zip"
+              onChange={e => setBackupFile(e.target.files?.[0] ?? null)}
+              style={{ color: 'var(--text-primary)', fontSize: '0.85rem' }}
+            />
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <input id="restore-reindex" type="checkbox" checked={reindexOnRestore} onChange={e => setReindexOnRestore(e.target.checked)} />
+              <label htmlFor="restore-reindex" style={{ fontSize: '0.82rem', color: 'var(--text-primary)' }}>Re-index knowledge base after restore</label>
+            </div>
+
+            {restoreProgress && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  <span>{restoreProgress.message}</span>
+                  <span>{restoreProgress.percent}%</span>
+                </div>
+                <div style={{ height: '6px', borderRadius: '3px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                  <div style={{ width: `${restoreProgress.percent}%`, height: '100%', background: 'var(--accent-primary)', transition: 'width 0.3s ease' }} />
+                </div>
+              </div>
+            )}
+
+            {restoreResult && (
+              <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                <div style={{ fontWeight: 700, color: 'var(--success)', marginBottom: '6px' }}>Restore complete</div>
+                <div>Sessions: {restoreResult.restoredSessions} · Folders: {restoreResult.restoredFolders} · Tags: {restoreResult.restoredTags} · Documents: {restoreResult.restoredDocuments}</div>
+                {restoreResult.errors.length > 0 && (
+                  <div style={{ marginTop: '8px', color: '#fca5a5' }}>Warnings: {restoreResult.errors.length}</div>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', flexWrap: 'wrap', paddingTop: '4px' }}>
+              <button type="button" className="btn btn-secondary" onClick={() => setRestoreModalOpen(false)} style={{ padding: '10px 16px' }}>Close</button>
+              <button type="button" className="btn btn-primary" onClick={() => void handleRestore()} disabled={!backupFile} style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {restoreProgress && restoreProgress.percent < 100 ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={14} />}
+                {restoreProgress && restoreProgress.percent < 100 ? 'Restoring...' : 'Restore'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>

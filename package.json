@@ -12,10 +12,12 @@
     "openclaw:host-executor": "node scripts/openclaw-host-executor.mjs"
   },
   "dependencies": {
+    "@mermaid-js/mermaid-cli": "^11.15.0",
     "@novnc/novnc": "^1.7.0",
     "@prisma/adapter-pg": "^7.7.0",
     "@prisma/client": "^7.7.0",
     "@react-pdf/renderer": "^4.5.1",
+    "adm-zip": "^0.6.0",
     "archiver": "^7.0.1",
     "bcryptjs": "^3.0.3",
     "docx": "^9.7.1",
@@ -25,7 +27,6 @@
     "jose": "^6.2.2",
     "lucide-react": "^1.8.0",
     "mammoth": "^1.12.0",
-    "@mermaid-js/mermaid-cli": "^11.15.0",
     "next": "16.2.4",
     "officeparser": "^6.1.0",
     "ollama": "^0.6.3",
