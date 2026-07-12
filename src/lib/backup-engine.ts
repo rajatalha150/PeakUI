@@ -4,6 +4,7 @@ import { getUserSettings } from "./settings";
 import { upsertChatSession } from "./chat-sessions";
 import * as archiver from "archiver";
 import { enqueueDocumentIndexing } from "./rag-queue";
+import { randomUUID } from "node:crypto";
 
 export type BackupScope = "chats" | "settings" | "knowledgeBase";
 export const BACKUP_VERSION = 1;
@@ -409,6 +410,10 @@ export interface BackupImportResult {
   errors: string[];
 }
 
+function isSameUserBackup(data: BackupData, userId: string): boolean {
+  return data.manifest.userId === userId;
+}
+
 export async function importBackupData(
   userId: string,
   data: BackupData,
@@ -444,23 +449,22 @@ export async function importBackupData(
       const sessions = data.sessions;
       const folders = data.folders ?? [];
       const tags = data.tags ?? [];
+      const sameUser = isSameUserBackup(data, userId);
+
+      // For cross-user restore we must remap IDs so we don't steal or conflict with the source user's rows.
+      const folderIdMap = new Map<string, string>();
+      const tagIdMap = new Map<string, string>();
+      const sessionIdMap = new Map<string, string>();
 
       updateProgress(progressId, { phase: "chats", message: `Restoring ${folders.length} folders...`, percent: 18 }, "import", scopes);
 
-      // Create folders with preserved ids where possible
       for (const folder of folders) {
         try {
-          await prisma.folder.upsert({
-            where: { id: folder.id },
-            update: {
-              name: folder.name,
-              color: folder.color,
-              order: folder.order,
-              updatedAt: new Date(folder.updatedAt),
-              userId,
-            },
-            create: {
-              id: folder.id,
+          const targetId = sameUser ? folder.id : randomUUID();
+          folderIdMap.set(folder.id, targetId);
+          await prisma.folder.create({
+            data: {
+              id: targetId,
               name: folder.name,
               color: folder.color,
               order: folder.order,
@@ -479,15 +483,11 @@ export async function importBackupData(
 
       for (const tag of tags) {
         try {
-          await prisma.tag.upsert({
-            where: { id: tag.id },
-            update: {
-              name: tag.name,
-              color: tag.color,
-              userId,
-            },
-            create: {
-              id: tag.id,
+          const targetId = sameUser ? tag.id : randomUUID();
+          tagIdMap.set(tag.id, targetId);
+          await prisma.tag.create({
+            data: {
+              id: targetId,
               name: tag.name,
               color: tag.color,
               userId,
@@ -505,13 +505,16 @@ export async function importBackupData(
       for (let i = 0; i < total; i++) {
         const s = sessions[i];
         try {
+          const targetSessionId = sameUser ? s.id : randomUUID();
+          sessionIdMap.set(s.id, targetSessionId);
+          const targetFolderId = s.folderId ? folderIdMap.get(s.folderId) ?? null : null;
           await upsertChatSession(userId, {
-            id: s.id,
+            id: targetSessionId,
             title: s.title,
             messages: JSON.parse(s.messages),
             pinned: s.pinned,
             surface: s.surface === "openclaw" ? "openclaw" : "chat",
-            folderId: s.folderId ?? null,
+            folderId: targetFolderId,
             autoContinueMode: s.autoContinueMode,
             autoContinueMaxSteps: s.autoContinueMaxSteps,
             branchLabel: s.branchLabel,
@@ -520,13 +523,14 @@ export async function importBackupData(
             ragQuery: s.ragQuery,
           });
 
-          // Restore session-tag associations (upsertChatSession doesn't handle tags)
+          // Restore session-tag associations using remapped tag IDs
           if (s.tags?.length > 0) {
-            const validTagIds = s.tags.map(t => t.id).filter(Boolean);
+            const validTagIds = s.tags
+              .map(t => tagIdMap.get(t.id))
+              .filter((id): id is string => Boolean(id));
             if (validTagIds.length > 0) {
-              await prisma.chatSessionTag.deleteMany({ where: { sessionId: s.id } });
               await prisma.chatSessionTag.createMany({
-                data: validTagIds.map(tagId => ({ sessionId: s.id, tagId })),
+                data: validTagIds.map(tagId => ({ sessionId: targetSessionId, tagId })),
                 skipDuplicates: true,
               });
             }
