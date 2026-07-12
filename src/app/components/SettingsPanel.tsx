@@ -315,7 +315,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
   const [restoreProgress, setRestoreProgress] = useState<{ id: string; phase: string; message: string; percent: number; direction: string } | null>(null);
   const [backupFile, setBackupFile] = useState<File | null>(null);
   const [reindexOnRestore, setReindexOnRestore] = useState(false);
-  const [restoreResult, setRestoreResult] = useState<{ restoredSessions: number; restoredFolders: number; restoredTags: number; restoredDocuments: number; errors: string[] } | null>(null);
+  const [restoreResult, setRestoreResult] = useState<{ restoredSettings: boolean; restoredSessions: number; restoredFolders: number; restoredTags: number; restoredDocuments: number; errors: string[] } | null>(null);
   const [backupError, setBackupError] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const backupPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -499,7 +499,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
       const blob = await res.blob();
       const cd = res.headers.get("content-disposition") ?? "";
       const filenameMatch = cd.match(/filename="?([^"]+)"?/);
-      const filename = filenameMatch?.[1] ?? `peakui-backup-${(settings as unknown as { username?: string }).username ?? "user"}.zip`;
+      const filename = filenameMatch?.[1] ?? `peakui-backup-${sessionUser?.username ?? "user"}.zip`;
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -538,7 +538,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
         setRestoreError(err.error ?? "Restore failed");
         return;
       }
-      const data = await res.json() as { result: { restoredSessions: number; restoredFolders: number; restoredTags: number; restoredDocuments: number; errors: string[] } };
+      const data = await res.json() as { result: { restoredSettings: boolean; restoredSessions: number; restoredFolders: number; restoredTags: number; restoredDocuments: number; errors: string[] } };
       setRestoreResult(data.result);
     } catch (e) {
       setRestoreError(e instanceof Error ? e.message : "Restore failed");
@@ -2627,7 +2627,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             {restoreResult && (
               <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                 <div style={{ fontWeight: 700, color: 'var(--success)', marginBottom: '6px' }}>Restore complete</div>
-                <div>Sessions: {restoreResult.restoredSessions} · Folders: {restoreResult.restoredFolders} · Tags: {restoreResult.restoredTags} · Documents: {restoreResult.restoredDocuments}</div>
+                <div>Settings: {restoreResult.restoredSettings ? 'yes' : 'no'} · Sessions: {restoreResult.restoredSessions} · Folders: {restoreResult.restoredFolders} · Tags: {restoreResult.restoredTags} · Documents: {restoreResult.restoredDocuments}</div>
                 {restoreResult.errors.length > 0 && (
                   <div style={{ marginTop: '8px', color: '#fca5a5' }}>Warnings: {restoreResult.errors.length}</div>
                 )}

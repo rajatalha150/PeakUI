@@ -6,6 +6,30 @@ import * as archiver from "archiver";
 import { enqueueDocumentIndexing } from "./rag-queue";
 
 export type BackupScope = "chats" | "settings" | "knowledgeBase";
+export const BACKUP_VERSION = 1;
+export const BACKUP_SETTINGS_FIELDS = [
+  "chatPlatform", "chatModel", "chatModelProvider", "huggingFaceBaseUrl", "modelKeepAlive",
+  "ollamaKeepAlive", "exclusiveOllamaModels", "openClawProvider", "openClawModel",
+  "openClawBaseUrl", "ragModel", "ragMode", "ollamaHost", "systemPrompt", "temperature",
+  "ollamaUseModelDefaultTemperature", "contextLength", "ollamaUseModelDefaultContext",
+  "theme", "openClawPersonaTemplate", "openClawPersonaName", "openClawPersonaTone",
+  "openClawPersonaExpertise", "openClawPersonaBoundaries", "openClawPersonaOperatingInstructions",
+  "openClawUserProfileName", "openClawUserProfileRole", "openClawUserProfilePreferences",
+  "openClawUserProfileContext", "shellExecutionTarget", "shellExecutionMode",
+  "shellAllowedCommands", "shellHostAllowedRoots", "shellHostAllowedEnvVars",
+  "shellHostMaxTimeoutMs", "shellHostMaxOutputBytes", "openClawFileAccessMode",
+  "openClawAllowedPaths", "openClawFileWriteMode", "openClawWritablePaths",
+  "openClawHostAccessMode", "openClawWorkspaceHostRoot", "openClawCodeExecutionMode",
+  "openClawBrowserMode", "openClawUwafBrowserMode", "openClawUwafScreenshots",
+  "openClawUwafDefaultMode", "openClawUwafLiveBrowser", "openClawAutomationExecutionEnabled",
+  "openClawAutomationExecutionModel", "openClawAutomationExecutionMaxRunsPerHour",
+  "openClawAutomationExecutionAttachWorkspace", "openClawAutomationExecutionAttachMemory",
+  "openClawSessionAutoContinueDefault", "openClawSessionAutoContinueMaxSteps",
+  "openClawMaxToolRoundsPerTurn", "openClawSessionSummariesEnabled",
+  "openClawSessionSummaryTargetTokens", "openClawSessionPreserveTurns",
+  "openClawSessionAnalyticsEnabled", "openClawSessionBranchingEnabled",
+  "ragEnabled", "ragTopK", "ollamaUseCloudApi", "ollamaApiKey",
+] as const;
 
 export interface BackupManifest {
   version: number;
@@ -116,6 +140,27 @@ export interface BackupProgress {
 
 const progressStore = new Map<string, BackupProgress>();
 const PROGRESS_MAX_AGE_MS = 60 * 60 * 1000; // 1 hour
+let progressUpdateCounter = 0;
+
+function maybeCleanupOldProgress() {
+  progressUpdateCounter++;
+  if (progressUpdateCounter % 50 === 0) {
+    cleanupOldBackupProgress();
+  }
+}
+
+export function filterBackupSettings(input: unknown): Partial<AppSettings> {
+  if (!input || typeof input !== "object") return {};
+  const source = input as Record<string, unknown>;
+  const allowed = new Set<string>(BACKUP_SETTINGS_FIELDS);
+  const out: Record<string, unknown> = {};
+  for (const key of allowed) {
+    if (key in source) {
+      out[key] = source[key];
+    }
+  }
+  return out as Partial<AppSettings>;
+}
 
 function updateProgress(
   id: string,
@@ -136,6 +181,7 @@ function updateProgress(
     error: partial.error ?? existing?.error,
   };
   progressStore.set(id, next);
+  maybeCleanupOldProgress();
   return next;
 }
 
@@ -167,7 +213,7 @@ export async function exportBackupData(
 
   const data: BackupData = {
     manifest: {
-      version: 1,
+      version: BACKUP_VERSION,
       createdAt: new Date().toISOString(),
       exportedBy: username,
       scopes,
@@ -237,7 +283,7 @@ export async function exportBackupData(
     const settings = await prisma.userSettings.findUnique({ where: { userId } });
     if (settings) {
       const { id, userId: _uid, updatedAt, ...rest } = settings;
-      data.settings = rest as unknown as BackupSettings;
+      data.settings = filterBackupSettings(rest) as BackupSettings;
     }
   }
 
@@ -385,9 +431,10 @@ export async function importBackupData(
   try {
     if (scopes.includes("settings") && data.settings) {
       updateProgress(progressId, { phase: "settings", message: "Restoring settings...", percent: 5 }, "import", scopes);
+      const filtered = filterBackupSettings(data.settings);
       await prisma.userSettings.update({
         where: { userId },
-        data: { ...data.settings, updatedAt: new Date() },
+        data: { ...filtered, updatedAt: new Date() },
       });
       result.restoredSettings = true;
       updateProgress(progressId, { phase: "settings", message: "Settings restored.", percent: 15 }, "import", scopes);
@@ -513,7 +560,7 @@ export async function importBackupData(
             contentHash: d.contentHash ?? null,
             originalContent: d.originalContent ?? null,
             originalMimeType: d.originalMimeType ?? null,
-            status: options.reindexDocuments ? "queued" : d.status,
+            status: (options.reindexDocuments || d.originalContent) ? "queued" : d.status,
             ragMode: d.ragMode ?? settings.ragMode,
             embeddingModel: d.embeddingModel ?? null,
             ollamaHost: d.ollamaHost ?? null,
@@ -550,10 +597,11 @@ export async function importBackupData(
           if (d.originalContent) {
             try {
               const fileType = d.originalMimeType ?? "text/plain";
+              const reindexRagMode = (d.ragMode === 'semantic' || d.ragMode === 'keyword') ? d.ragMode : (settings.ragMode as 'semantic' | 'keyword');
               await enqueueDocumentIndexing(d.id, d.originalContent, d.filename, fileType, {
-                ragModel: settings.ragModel,
-                ragMode: settings.ragMode as 'semantic' | 'keyword',
-                ollamaHost: settings.ollamaHost,
+                ragModel: d.embeddingModel ?? settings.ragModel,
+                ragMode: reindexRagMode,
+                ollamaHost: d.ollamaHost ?? settings.ollamaHost,
                 ollamaApiKey: settings.ollamaApiKey,
               });
             } catch (err) {

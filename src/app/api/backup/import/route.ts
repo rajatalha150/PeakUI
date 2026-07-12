@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { getCurrentAuth } from "@/lib/request-auth";
-import { importBackupData, type BackupData, type BackupScope } from "@/lib/backup-engine";
+import { BACKUP_VERSION, importBackupData, type BackupData, type BackupScope } from "@/lib/backup-engine";
 import AdmZip from "adm-zip";
 
 export const runtime = "nodejs";
@@ -39,8 +39,11 @@ export async function POST(req: Request) {
 
     const rawBackup = JSON.parse(zip.readAsText(backupEntry)) as BackupData;
     const manifest = rawBackup.manifest;
-    if (!manifest || !Array.isArray(manifest.scopes)) {
+    if (!manifest || typeof manifest.version !== "number" || !Array.isArray(manifest.scopes)) {
       return NextResponse.json({ error: "Invalid backup manifest." }, { status: 400 });
+    }
+    if (manifest.version > BACKUP_VERSION) {
+      return NextResponse.json({ error: `Backup version ${manifest.version} is not supported by this app (max ${BACKUP_VERSION}).` }, { status: 400 });
     }
 
     const data: BackupData = {
