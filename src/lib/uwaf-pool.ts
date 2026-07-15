@@ -95,6 +95,8 @@ const DISPLAY_START = parseInt(process.env.LIVE_BROWSER_DISPLAY_START || '110', 
 const MAX_DISPLAY_CANDIDATES = parseInt(process.env.LIVE_BROWSER_MAX_DISPLAYS || '200', 10)
 const STARTUP_TIMEOUT_MS = parseInt(process.env.LIVE_BROWSER_STARTUP_TIMEOUT_MS || '15000', 10)
 const FINGERPRINT_REGRESSION_TTL_MS = 10 * 60 * 1000
+const MAX_MANAGED_SESSIONS = parseInt(process.env.UWAF_MAX_MANAGED_SESSIONS || '16', 10)
+const MANAGED_SESSION_CLEANUP_INTERVAL_MS = 60 * 1000
 
 const DIRECT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.7778.167 Safari/537.36'
 
@@ -168,6 +170,49 @@ const globalForUwafPool = globalThis as typeof globalThis & {
 const uwafPoolState = globalForUwafPool.__peakuiUwafPool ??= {
   sessions: new Map<string, ManagedSession>(),
   launchPromises: new Map<string, Promise<ManagedSession>>(),
+}
+
+let managedSessionCleanupInterval: ReturnType<typeof setInterval> | null = null
+
+function startManagedSessionCleanup(): void {
+  if (managedSessionCleanupInterval) return
+  managedSessionCleanupInterval = setInterval(() => {
+    void cleanupStaleManagedSessions()
+  }, MANAGED_SESSION_CLEANUP_INTERVAL_MS)
+  managedSessionCleanupInterval.unref?.()
+}
+
+function stopManagedSessionCleanup(): void {
+  if (managedSessionCleanupInterval) {
+    clearInterval(managedSessionCleanupInterval)
+    managedSessionCleanupInterval = null
+  }
+}
+
+async function cleanupStaleManagedSessions(): Promise<void> {
+  const now = Date.now()
+  const stale: string[] = []
+  for (const [contextId, managed] of uwafPoolState.sessions) {
+    if (now - managed.lastUsed > CONTEXT_TTL_MS) {
+      stale.push(contextId)
+    }
+  }
+  for (const contextId of stale) {
+    await closeManagedSession(contextId).catch(() => {})
+  }
+}
+
+function evictOldestManagedSessionIfNeeded(): void {
+  if (uwafPoolState.sessions.size < MAX_MANAGED_SESSIONS) return
+  let oldest: { contextId: string; lastUsed: number } | null = null
+  for (const [contextId, managed] of uwafPoolState.sessions) {
+    if (!oldest || managed.lastUsed < oldest.lastUsed) {
+      oldest = { contextId, lastUsed: managed.lastUsed }
+    }
+  }
+  if (oldest) {
+    closeManagedSession(oldest.contextId).catch(() => {})
+  }
 }
 
 const STEALTH_PREFLIGHT_TTL_MS = 2 * 60 * 1000
@@ -922,6 +967,8 @@ async function createManagedSession(
   mode: BrowserMode,
   profile?: StealthProfile,
 ): Promise<ManagedSession> {
+  evictOldestManagedSessionIfNeeded()
+  startManagedSessionCleanup()
   const launchStartedAt = Date.now()
   const stealthProfile = normalizeStealthProfile(profile)
   const fingerprint = mode === 'stealth'

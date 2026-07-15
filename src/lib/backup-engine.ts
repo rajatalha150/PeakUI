@@ -550,13 +550,18 @@ export async function importBackupData(
       updateProgress(progressId, { phase: "knowledgeBase", message: `Restoring ${docs.length} documents...`, percent: 65 }, "import", scopes);
 
       const settings = await getUserSettings(userId);
+      const kbIdMap = new Map<string, string>();
 
       for (let i = 0; i < docs.length; i++) {
         const d = docs[i];
         try {
-          const existing = await prisma.document.findUnique({ where: { id: d.id }, select: { id: true } });
+          const sameUser = isSameUserBackup(data, userId);
+          const targetId = sameUser ? d.id : randomUUID();
+          kbIdMap.set(d.id, targetId);
+          const existing = sameUser ? await prisma.document.findUnique({ where: { id: targetId }, select: { id: true } }) : null;
+
           const payload = {
-            id: d.id,
+            id: targetId,
             filename: d.filename,
             sourcePath: d.sourcePath ?? null,
             kind: d.kind ?? null,
@@ -577,8 +582,9 @@ export async function importBackupData(
           };
 
           if (existing) {
+            await prisma.documentChunk.deleteMany({ where: { documentId: targetId } });
             await prisma.document.update({
-              where: { id: d.id },
+              where: { id: targetId },
               data: { ...payload, updatedAt: new Date(d.updatedAt) },
             });
           } else {
@@ -600,9 +606,10 @@ export async function importBackupData(
         for (const d of docs) {
           if (d.originalContent) {
             try {
+              const targetId = kbIdMap.get(d.id) ?? d.id;
               const fileType = d.originalMimeType ?? "text/plain";
               const reindexRagMode = (d.ragMode === 'semantic' || d.ragMode === 'keyword') ? d.ragMode : (settings.ragMode as 'semantic' | 'keyword');
-              await enqueueDocumentIndexing(d.id, d.originalContent, d.filename, fileType, {
+              await enqueueDocumentIndexing(targetId, d.originalContent, d.filename, fileType, {
                 ragModel: d.embeddingModel ?? settings.ragModel,
                 ragMode: reindexRagMode,
                 ollamaHost: d.ollamaHost ?? settings.ollamaHost,
