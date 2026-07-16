@@ -73,6 +73,7 @@ export async function POST(req: Request) {
 
     if (provider === 'openai-compatible') {
       const response = await fetch(`${baseUrl}/models`, {
+        signal: AbortSignal.timeout(5000),
         headers: {
           'Content-Type': 'application/json',
           ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
@@ -103,6 +104,7 @@ export async function POST(req: Request) {
     }
 
     const response = await fetch(`${baseUrl}/api/tags`, {
+        signal: AbortSignal.timeout(5000),
       headers: {
         ...(apiKey.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}),
       },

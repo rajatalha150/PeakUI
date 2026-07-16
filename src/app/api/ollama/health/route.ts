@@ -32,7 +32,7 @@ function resolveOllamaBaseUrl(settings: Awaited<ReturnType<typeof getUserSetting
 
 async function fetchJson<T>(url: string, apiKey: string) {
   const response = await fetch(url, {
-    signal: AbortSignal.timeout(10000),
+    signal: AbortSignal.timeout(3000),
     headers: {
       ...(apiKey.trim() ? { Authorization: 'Bearer ' + apiKey.trim() } : {}),
     },
