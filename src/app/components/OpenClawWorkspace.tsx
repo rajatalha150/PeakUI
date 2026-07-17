@@ -4088,11 +4088,31 @@ export default function OpenClawWorkspace({
 
   useEffect(() => {
     void (async () => {
+      const isNetworkError = (error: unknown): boolean => {
+        if (error instanceof TypeError) return true
+        const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase()
+        return message.includes('network') || message.includes('failed to fetch')
+      }
+
+      const loadCritical = async (attempt = 1): Promise<void> => {
+        try {
+          // Critical path: render chat list as fast as possible.
+          await Promise.all([loadSettings(), loadFolders(), loadChatTags()])
+          // Load sessions immediately after the shared metadata so the chat list renders.
+          await loadSessions()
+        } catch (error) {
+          if (isNetworkError(error) && attempt < 3) {
+            await new Promise(resolve => window.setTimeout(resolve, 500 * attempt))
+            return loadCritical(attempt + 1)
+          }
+          throw error
+        }
+      }
+
       try {
-        // Critical path: render chat list as fast as possible.
-        await Promise.all([loadSettings(), loadSessions(), loadFolders(), loadChatTags()]);
+        await loadCritical()
       } catch (error) {
-        console.error('Failed to initialize WorkSpaces workspace:', error);
+        console.error('Failed to initialize WorkSpaces workspace:', error)
       }
       // Defer non-critical services so they cannot block the chat UI.
       window.setTimeout(() => {
@@ -4108,7 +4128,7 @@ export default function OpenClawWorkspace({
             console.error('Failed to load deferred WorkSpaces services:', error);
           }
         })();
-      }, 0);
+      }, 100);
     })();
     // load only once on mount
   }, []);
