@@ -4215,14 +4215,16 @@ export default function OpenClawWorkspace({
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
+    if (!settings || provider !== 'ollama') {
+      setOllamaHealth(null);
+      return;
+    }
+    const isLikelyContainerLoopback = !settings.ollamaUseCloudApi
+      && settings.ollamaHost
+      && /^(http:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?\/?$/.test(settings.ollamaHost);
     const timer = window.setTimeout(() => {
-      if (!settings || provider !== 'ollama') {
-        setOllamaHealth(null);
-        return;
-      }
-      // Avoid calling a loopback Ollama host from inside Docker because it blocks the UI.
-      // Show a quiet offline state instead of an error banner until the user refreshes or changes the host.
-      if (!settings.ollamaUseCloudApi && settings.ollamaHost && /^(http:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?\/?$/.test(settings.ollamaHost)) {
+      if (isLikelyContainerLoopback) {
+        // Fail fast without blocking on a TCP timeout to an unreachable loopback host.
         setOllamaHealth({
           ok: false,
           status: 'offline',
@@ -4240,7 +4242,7 @@ export default function OpenClawWorkspace({
         return;
       }
       void refreshOllamaHealth(selectedModel, settings.ollamaHost);
-    }, 2000);
+    }, isLikelyContainerLoopback ? 0 : 2000);
     return () => window.clearTimeout(timer);
   }, [provider, selectedModel, settings?.ollamaHost, settings?.ollamaUseCloudApi]);
   /* eslint-enable react-hooks/exhaustive-deps */
@@ -9361,7 +9363,9 @@ export default function OpenClawWorkspace({
       : 'var(--danger)';
   const runtimeMetaLabel = ollamaHealth?.online
     ? `${ollamaHealth.version || 'Ollama'} · ${ollamaHealth.installedModelCount} installed · ${ollamaHealth.loadedModelCount} loaded · ${keepAliveLabel}`
-    : ollamaHealth?.error || 'Waiting for Ollama health...';
+    : ollamaHealth?.status === 'offline'
+      ? (ollamaHealth.error || `Ollama host unreachable · ${ollamaHealth.host || settings?.ollamaHost || 'unknown'}`)
+      : (ollamaHealth?.error || 'Waiting for Ollama health...');
   const collapsedRailFooterLabel = provider === 'ollama' ? 'Local' : 'Cloud';
   const collapsedRailFooterTone = provider === 'ollama'
     ? healthStatusTone
