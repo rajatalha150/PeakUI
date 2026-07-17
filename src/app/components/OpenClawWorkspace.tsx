@@ -4219,31 +4219,16 @@ export default function OpenClawWorkspace({
       setOllamaHealth(null);
       return;
     }
-    const isLikelyContainerLoopback = !settings.ollamaUseCloudApi
-      && settings.ollamaHost
-      && /^(http:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?\/?$/.test(settings.ollamaHost);
     const timer = window.setTimeout(() => {
-      if (isLikelyContainerLoopback) {
-        // Fail fast without blocking on a TCP timeout to an unreachable loopback host.
-        setOllamaHealth({
-          ok: false,
-          status: 'offline',
-          host: settings.ollamaHost,
-          online: false,
-          version: '',
-          installedModelCount: 0,
-          loadedModelCount: 0,
-          loadedModels: [],
-          selectedModel: selectedModel || '',
-          selectedModelLoaded: false,
-          error: '',
-          checkedAt: Date.now(),
-        });
-        return;
-      }
       void refreshOllamaHealth(selectedModel, settings.ollamaHost);
-    }, isLikelyContainerLoopback ? 0 : 2000);
-    return () => window.clearTimeout(timer);
+    }, 1000);
+    const interval = window.setInterval(() => {
+      void refreshOllamaHealth(selectedModel, settings.ollamaHost);
+    }, 30000);
+    return () => {
+      window.clearTimeout(timer);
+      window.clearInterval(interval);
+    };
   }, [provider, selectedModel, settings?.ollamaHost, settings?.ollamaUseCloudApi]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
