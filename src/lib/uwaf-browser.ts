@@ -50,7 +50,7 @@ const MAX_LINKS = 50
 const SCREENSHOT_QUALITY = 60
 const RESEARCH_BATCH_MAX_DEPTH = 3
 const RESEARCH_BATCH_MAX_PAGES = 10
-const SESSION_TTL_MS = 60 * 60 * 1000
+const SESSION_TTL_MS = 15 * 60 * 1000
 const DEFAULT_WAIT_TIMEOUT_MS = 10_000
 const MAX_WAIT_TIMEOUT_MS = 30_000
 const MAX_SCROLL_DELTA = 5_000
@@ -524,6 +524,16 @@ function cleanupExpiredSessions(): void {
     }
   }
 }
+
+const SESSION_CLEANUP_INTERVAL_MS = 5 * 60 * 1000
+let browserSessionCleanupInterval: ReturnType<typeof setInterval> | null = null
+function startBrowserSessionCleanupInterval(): void {
+  if (browserSessionCleanupInterval) return
+  browserSessionCleanupInterval = setInterval(() => {
+    cleanupExpiredSessions()
+  }, SESSION_CLEANUP_INTERVAL_MS)
+}
+startBrowserSessionCleanupInterval()
 
 function getSourceMode(mode: BrowserMode): 'clear_web' | 'dark_web' {
   return mode === 'stealth' ? 'dark_web' : 'clear_web'

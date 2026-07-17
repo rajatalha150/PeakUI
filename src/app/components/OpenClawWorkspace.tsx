@@ -4089,10 +4089,26 @@ export default function OpenClawWorkspace({
   useEffect(() => {
     void (async () => {
       try {
-        await Promise.all([loadSettings(), loadSessions(), loadFolders(), loadChatTags(), loadMemory(), loadShellSettings(), loadWorkspaces(), loadAutomationState()]);
+        // Critical path: render chat list as fast as possible.
+        await Promise.all([loadSettings(), loadSessions(), loadFolders(), loadChatTags()]);
       } catch (error) {
         console.error('Failed to initialize WorkSpaces workspace:', error);
       }
+      // Defer non-critical services so they cannot block the chat UI.
+      window.setTimeout(() => {
+        void (async () => {
+          try {
+            await Promise.all([
+              loadMemory().catch(() => undefined),
+              loadShellSettings().catch(() => undefined),
+              loadWorkspaces().catch(() => undefined),
+              loadAutomationState({ silent: true }).catch(() => undefined),
+            ]);
+          } catch (error) {
+            console.error('Failed to load deferred WorkSpaces services:', error);
+          }
+        })();
+      }, 0);
     })();
     // load only once on mount
   }, []);
@@ -4149,11 +4165,21 @@ export default function OpenClawWorkspace({
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     if (!settings || !apiKeyLoaded) return;
+    // Skip eager model discovery when Ollama is unreachable from inside Docker.
+    const isLikelyUnreachableOllama = provider === 'ollama'
+      && !settings.ollamaUseCloudApi
+      && settings.ollamaHost
+      && /^(http:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?\/?$/.test(settings.ollamaHost);
+    if (isLikelyUnreachableOllama) {
+      setModels([]);
+      setModelsLoading(false);
+      return;
+    }
     const timer = window.setTimeout(() => {
       void loadModels(provider, baseUrl);
-    }, 0);
+    }, 500);
     return () => window.clearTimeout(timer);
-  }, [settings?.openClawProvider, settings?.openClawBaseUrl, apiKeyLoaded, apiKey]);
+  }, [settings?.openClawProvider, settings?.openClawBaseUrl, settings?.ollamaHost, settings?.ollamaUseCloudApi, apiKeyLoaded, apiKey]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
   /* eslint-disable react-hooks/exhaustive-deps */
@@ -4162,7 +4188,7 @@ export default function OpenClawWorkspace({
     if (provider === 'ollama') return;
     const timer = window.setTimeout(() => {
       void verifyConnection(provider, baseUrl, apiKey, settings.ollamaHost);
-    }, 0);
+    }, 2000);
     return () => window.clearTimeout(timer);
   }, [provider, baseUrl, settings?.openClawProvider, settings?.openClawBaseUrl, settings?.ollamaHost, apiKeyLoaded, apiKey]);
   /* eslint-enable react-hooks/exhaustive-deps */
@@ -4174,10 +4200,28 @@ export default function OpenClawWorkspace({
         setOllamaHealth(null);
         return;
       }
+      // Skip health ping to loopback Ollama inside Docker to avoid blocking the UI.
+      if (!settings.ollamaUseCloudApi && settings.ollamaHost && /^(http:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?\/?$/.test(settings.ollamaHost)) {
+        setOllamaHealth({
+          ok: false,
+          status: 'offline',
+          host: settings.ollamaHost,
+          online: false,
+          version: '',
+          installedModelCount: 0,
+          loadedModelCount: 0,
+          loadedModels: [],
+          selectedModel: selectedModel || '',
+          selectedModelLoaded: false,
+          error: 'Ollama host points to container localhost; set host.docker.internal or a reachable host.',
+          checkedAt: Date.now(),
+        });
+        return;
+      }
       void refreshOllamaHealth(selectedModel, settings.ollamaHost);
-    }, 0);
+    }, 2000);
     return () => window.clearTimeout(timer);
-  }, [provider, selectedModel, settings?.ollamaHost]);
+  }, [provider, selectedModel, settings?.ollamaHost, settings?.ollamaUseCloudApi]);
   /* eslint-enable react-hooks/exhaustive-deps */
 
   const resetComposerDraftState = () => {

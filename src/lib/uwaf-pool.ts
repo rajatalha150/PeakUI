@@ -90,7 +90,7 @@ export async function getTorProxyUrl(): Promise<string> {
 
 const BROWSER_WIDTH = parseInt(process.env.LIVE_BROWSER_WIDTH || '1280', 10)
 const BROWSER_HEIGHT = parseInt(process.env.LIVE_BROWSER_HEIGHT || '720', 10)
-const CONTEXT_TTL_MS = 30 * 60 * 1000
+const CONTEXT_TTL_MS = 10 * 60 * 1000
 const DISPLAY_START = parseInt(process.env.LIVE_BROWSER_DISPLAY_START || '110', 10)
 const MAX_DISPLAY_CANDIDATES = parseInt(process.env.LIVE_BROWSER_MAX_DISPLAYS || '200', 10)
 const STARTUP_TIMEOUT_MS = parseInt(process.env.LIVE_BROWSER_STARTUP_TIMEOUT_MS || '15000', 10)
