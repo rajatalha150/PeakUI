@@ -4200,7 +4200,8 @@ export default function OpenClawWorkspace({
         setOllamaHealth(null);
         return;
       }
-      // Skip health ping to loopback Ollama inside Docker to avoid blocking the UI.
+      // Avoid calling a loopback Ollama host from inside Docker because it blocks the UI.
+      // Show a quiet offline state instead of an error banner until the user refreshes or changes the host.
       if (!settings.ollamaUseCloudApi && settings.ollamaHost && /^(http:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?\/?$/.test(settings.ollamaHost)) {
         setOllamaHealth({
           ok: false,
@@ -4213,7 +4214,7 @@ export default function OpenClawWorkspace({
           loadedModels: [],
           selectedModel: selectedModel || '',
           selectedModelLoaded: false,
-          error: 'Ollama host points to container localhost; set host.docker.internal or a reachable host.',
+          error: '',
           checkedAt: Date.now(),
         });
         return;
