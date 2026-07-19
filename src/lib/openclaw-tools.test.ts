@@ -395,6 +395,37 @@ describe('bare-domain URL promotion from prose', () => {
   })
 })
 
+describe('"Search query:" longhand recovery from prose', () => {
+  it('recovers a unified_browser search from "Search query: X" narration', () => {
+    const extracted = extractOpenClawToolRequest(
+      'Need try different sources. We can use unified_browser with multiple opens across tabs or search. Search query: GameStop GME analyst price target current 2026 how many analysts cover.',
+    )
+    expect(extracted.request?.name).toBe('unified_browser')
+    if (extracted.request?.name !== 'unified_browser') throw new Error('expected ub search')
+    expect((extracted.request.request as { action: string }).action).toBe('search')
+    expect((extracted.request.request as { query: string }).query).toBe(
+      'GameStop GME analyst price target current 2026 how many analysts cover',
+    )
+  })
+
+  it('trims trailing punctuation from the query', () => {
+    const extracted = extractOpenClawToolRequest('Search query: PLTR price target consensus.')
+    expect(extracted.request?.name).toBe('unified_browser')
+    expect((extracted.request?.request as { query?: string }).query).toBe('PLTR price target consensus')
+  })
+
+  it('accepts an equals sign and quoted query', () => {
+    const extracted = extractOpenClawToolRequest('Search query="NVDA analyst ratings July 2026"')
+    expect(extracted.request?.name).toBe('unified_browser')
+    expect((extracted.request?.request as { query?: string }).query).toBe('NVDA analyst ratings July 2026')
+  })
+
+  it('does not fire on ordinary prose that merely contains the word "search"', () => {
+    const extracted = extractOpenClawToolRequest('I will run a search for that next.')
+    expect(extracted.request).toBeUndefined()
+  })
+})
+
 describe('detectMalformedToolWrapper', () => {
   it('detects Anthropic function_calls wrapper', () => {
     expect(detectMalformedToolWrapper('Sure.<function_calls><invoke name="web"><parameter name="query">x</parameter></invoke></function_calls>')).toBe('function_calls')

@@ -661,6 +661,19 @@ function parseToolIntentFromProse(content: string): OpenClawToolRequest | undefi
     }
   }
 
+  // The model often plans a search by writing the query out longhand —
+  // "Search query: GameStop GME analyst price target current 2026 ..." —
+  // without ever wrapping it. Recover that to a `unified_browser` search
+  // so the turn does not stall on a nudge round-trip. The "search query"
+  // phrase is specific enough that this cannot fire on ordinary prose.
+  const searchQuery = cleaned.match(/\bsearch\s+query\s*[:=]\s*["“”'`]*([^\n"“”'`]+?)[.)\]"'`<,!?:;\s]*$/i)
+  if (searchQuery) {
+    const query = searchQuery[1].trim()
+    if (query.length >= 2 && query.length <= 256) {
+      return { name: 'unified_browser', request: { action: 'search', query, browserMode: 'direct' } }
+    }
+  }
+
   const urlOpen = cleaned.match(/\b(?:open|visit|fetch|load|check)\s+(?:the\s+)?(?:page\s+|article\s+|site\s+)?(?:at\s+)?["“”'`]*((?:https?:\/\/)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.[a-z]{2,}(?:\.[a-z]{2,})?(?:\/[^\s<>"'`]*)?)/i)
   if (urlOpen) {
     const url = normalizeUrlToken(urlOpen[1])

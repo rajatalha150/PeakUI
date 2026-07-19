@@ -306,6 +306,68 @@ describe('synthesizeToolCallFromNarration — unified_browser page-name recovery
   })
 })
 
+describe('synthesizeToolCallFromNarration — page-name recovery by prose-named site', () => {
+  // The real-world failure mode: the model ran a DuckDuckGo search, then
+  // narrated "open the StockAnalysis GME overview page" without a wrapper.
+  // The prior unified_browser URL is the search engine, NOT the destination
+  // site, so recovery must anchor on the site NAME in the prose — not the
+  // prior URL. These mirror narrations observed in a real stall transcript.
+  const DDG_PRIOR = {
+    name: 'unified_browser' as const,
+    request: { action: 'search', url: 'https://duckduckgo.com/?q=GME+GameStop+stock' },
+  }
+
+  it('recovers "Fetch StockAnalysis GME forecast" to the deep forecast page', () => {
+    const r = synthesizeToolCallFromNarration(
+      'Fetch StockAnalysis GME forecast and MarketBeat GME overview for the actual numbers.',
+      { lastSuccessfulToolRequest: DDG_PRIOR },
+    )
+    expect(r?.matchedPattern).toBe('unified_browser.pageName')
+    expect((r?.args as { url: string }).url).toBe('https://stockanalysis.com/stocks/GME/forecast/')
+  })
+
+  it('recovers "Open the StockAnalysis GME overview page" to the quote page', () => {
+    const r = synthesizeToolCallFromNarration(
+      'Open the StockAnalysis GME overview page for analyst ratings and fundamentals.',
+      { lastSuccessfulToolRequest: DDG_PRIOR },
+    )
+    expect(r?.matchedPattern).toBe('unified_browser.pageName')
+    expect((r?.args as { url: string }).url).toBe('https://stockanalysis.com/stocks/GME/')
+  })
+
+  it('recovers "Yahoo Finance NVDA forecast page" by prose-named site', () => {
+    const r = synthesizeToolCallFromNarration(
+      'Check the Yahoo Finance NVDA forecast page next.',
+      { lastSuccessfulToolRequest: DDG_PRIOR },
+    )
+    expect(r?.matchedPattern).toBe('unified_browser.pageName')
+    expect((r?.args as { url: string }).url).toBe('https://finance.yahoo.com/quote/NVDA/forecast')
+  })
+
+  it('does NOT fabricate a MarketBeat URL from prose alone (exchange is unknown)', () => {
+    // MarketBeat paths are exchange-scoped; without a prior MarketBeat URL we
+    // cannot know the exchange, so prose-named recovery must return null
+    // rather than invent /stocks/NYSE/GME/forecast/.
+    const r = synthesizeToolCallFromNarration(
+      'Open the MarketBeat GME forecast page next.',
+      { lastSuccessfulToolRequest: DDG_PRIOR },
+    )
+    expect(r === null || r.matchedPattern !== 'unified_browser.pageName').toBe(true)
+  })
+
+  it('still prefers the prior-URL path when the prior is on the catalog site', () => {
+    // Regression: when the prior URL IS on the site, behavior is unchanged —
+    // the ticker can come from the prior URL, and MarketBeat gets its exchange.
+    const r = synthesizeToolCallFromNarration('Open the PLTR forecast page.', {
+      lastSuccessfulToolRequest: {
+        name: 'unified_browser',
+        request: { action: 'open', url: 'https://stockanalysis.com/stocks/pltr/financials/' },
+      },
+    })
+    expect((r?.args as { url: string }).url).toBe('https://stockanalysis.com/stocks/PLTR/forecast/')
+  })
+})
+
 describe('synthesizeToolCallFromNarration — tax_return', () => {
   it('matches "generating tax return for 2024"', () => {
     const r = synthesizeToolCallFromNarration('Generating tax return for 2024 now.')

@@ -444,6 +444,17 @@ function synthesizeUnifiedBrowser(content: string): NarrationRecovery | null {
  */
 const KNOWN_SITE_PAGES: ReadonlyArray<{
   site: RegExp
+  /**
+   * Optional: a pattern that recognizes the site by NAME in the prose (e.g.
+   * "StockAnalysis", "MarketBeat", "Yahoo Finance"). When the prior
+   * `unified_browser` URL is NOT on this site (e.g. the model ran a
+   * DuckDuckGo search and then narrated "open the StockAnalysis GME
+   * overview page"), we still recover if the prose names the site itself,
+   * resolving the page path against `origin` instead of the prior URL.
+   */
+  siteName?: RegExp
+  /** Base URL used when recovering by prose-named site (no prior URL on it). */
+  origin?: string
   pages: ReadonlyArray<{ name: RegExp; buildPath: (content: string, prevUrl: string) => string | null }>
 }> = [
   {
@@ -538,6 +549,8 @@ const KNOWN_SITE_PAGES: ReadonlyArray<{
   // dispatch a fabricated URL for a ticker we didn't actually see.
   {
     site: /^https?:\/\/(?:www\.)?stockanalysis\.com\//i,
+    siteName: /\bstock\s*analysis(?:\.com)?\b/i,
+    origin: 'https://stockanalysis.com',
     pages: [
       {
         name: /\b(?:the\s+)?([A-Z]{1,5})\s+forecast(?:\s+page)?\b/i,
@@ -573,6 +586,8 @@ const KNOWN_SITE_PAGES: ReadonlyArray<{
     // MarketBeat URLs are exchange-scoped (/stocks/{EXCHANGE}/{TICKER}/...),
     // so the exchange must come from the prior URL — we never invent it.
     site: /^https?:\/\/(?:www\.)?marketbeat\.com\//i,
+    siteName: /\bmarketbeat(?:\.com)?\b/i,
+    origin: 'https://marketbeat.com',
     pages: [
       {
         name: /\b(?:the\s+)?([A-Z]{1,5})\s+forecast(?:\s+page)?\b/i,
@@ -594,6 +609,8 @@ const KNOWN_SITE_PAGES: ReadonlyArray<{
   },
   {
     site: /^https?:\/\/finance\.yahoo\.com\//i,
+    siteName: /\byahoo\s+finance(?:\.com)?\b/i,
+    origin: 'https://finance.yahoo.com',
     pages: [
       {
         name: /\b(?:the\s+)?([A-Z]{1,5})\s+forecast(?:\s+page)?\b/i,
@@ -671,17 +688,30 @@ function synthesizeUnifiedBrowserByPageName(
   if (ctx.lastSuccessfulToolRequest.name !== 'unified_browser') return null
   const prev = ctx.lastSuccessfulToolRequest.request as { action?: string; url?: string } | undefined
   const prevUrl = prev?.url
-  if (!prevUrl || typeof prevUrl !== 'string') return null
 
   for (const catalog of KNOWN_SITE_PAGES) {
-    if (!catalog.site.test(prevUrl)) continue
+    // Choose the base URL to resolve page paths against. Prefer the prior
+    // URL when it is already on this catalog's site — that preserves the
+    // ticker-from-URL fallback and, for MarketBeat, the exchange segment we
+    // cannot invent. Otherwise, recover against the catalog's origin when
+    // the prose NAMES the site itself (e.g. the model ran a DuckDuckGo
+    // search, then said "open the StockAnalysis GME overview page"). We
+    // never fabricate a base for a site the prose did not name.
+    let base: string | null = null
+    if (prevUrl && typeof prevUrl === 'string' && catalog.site.test(prevUrl)) {
+      base = prevUrl
+    } else if (catalog.siteName && catalog.origin && catalog.siteName.test(content)) {
+      base = catalog.origin
+    }
+    if (!base) continue
+
     for (const page of catalog.pages) {
       if (!page.name.test(content)) continue
-      const path = page.buildPath(content, prevUrl)
+      const path = page.buildPath(content, base)
       if (!path) continue
       let resolved: string
       try {
-        resolved = new URL(path, prevUrl).toString()
+        resolved = new URL(path, base).toString()
       } catch {
         continue
       }
