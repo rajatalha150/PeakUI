@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractOpenClawToolRequest, stripAllToolTags } from './openclaw-tools'
+import { detectMalformedToolWrapper, extractOpenClawToolRequest, stripAllToolTags } from './openclaw-tools'
 
 describe('openclaw tool parsing', () => {
   it('parses the first valid unified browser request from a legacy tag with concatenated JSON', () => {
@@ -392,5 +392,39 @@ describe('bare-domain URL promotion from prose', () => {
   it('does not promote a non-domain token', () => {
     const extracted = extractOpenClawToolRequest('Let me check the latest numbers now.')
     expect(extracted.request).toBeUndefined()
+  })
+})
+
+describe('detectMalformedToolWrapper', () => {
+  it('detects Anthropic function_calls wrapper', () => {
+    expect(detectMalformedToolWrapper('Sure.<function_calls><invoke name="web"><parameter name="query">x</parameter></invoke></function_calls>')).toBe('function_calls')
+  })
+
+  it('detects antml namespaced wrapper', () => {
+    expect(detectMalformedToolWrapper('Pre<antml:function_calls>oops</antml:function_calls>post')).toBe('antml')
+  })
+
+  it('detects bare invoke/parameter convention', () => {
+    expect(detectMalformedToolWrapper('<invoke name="web"><parameter name="query">x</parameter></invoke>')).toBe('invoke')
+  })
+
+  it('detects Qwen-style special tokens', () => {
+    expect(detectMalformedToolWrapper('Hi<|tool_call|>stuff<|end_of_turn|>')).toBe('qwen_tokens')
+  })
+
+  it('detects tool_use wrapper', () => {
+    expect(detectMalformedToolWrapper('<tool_use>{"name":"web"}</tool_use>')).toBe('tool_use')
+  })
+
+  it('returns null for a correct openclaw_tool block', () => {
+    expect(detectMalformedToolWrapper('<openclaw_tool name="web">{"query":"x"}</openclaw_tool>')).toBeNull()
+  })
+
+  it('returns null for plain prose with no wrapper', () => {
+    expect(detectMalformedToolWrapper('Here is the answer to your question.')).toBeNull()
+  })
+
+  it('returns null for empty input', () => {
+    expect(detectMalformedToolWrapper('')).toBeNull()
   })
 })

@@ -586,6 +586,39 @@ export function stripAllToolTags(content: string): string {
   return cleaned.replace(/\n{3,}/g, '\n\n').trim()
 }
 
+/**
+ * Detect well-known *malformed* tool-call wrappers the model occasionally
+ * hallucinates (Anthropic SDK `<function_calls>`/`<invoke>`/`<parameter>`,
+ * the `antml:` namespaced variant, `<tool_use>`, and Qwen-style special
+ * tokens). These are all silently stripped by `stripAllToolTags`, so without
+ * this signal the runtime treats them as plain narration and nudges the
+ * model generically — which usually makes it emit the SAME wrong format
+ * again and loop.
+ *
+ * Returns a short label naming the offending format (used by the nudge
+ * builder to tell the model exactly what it did wrong and what to emit
+ * instead), or `null` when no malformed wrapper is present. Only fires when
+ * there is no valid `<openclaw_tool>` block — the caller checks that first,
+ * so a correct wrapper is never misreported as malformed.
+ */
+const MALFORMED_WRAPPER_PATTERNS: ReadonlyArray<{ label: string; re: RegExp }> = [
+  { label: 'antml', re: /<antml:function_calls>/i },
+  { label: 'function_calls', re: /<function_calls>/i },
+  { label: 'invoke', re: /<invoke\s+[^>]*>/i },
+  { label: 'parameter', re: /<parameter\s+name=/i },
+  { label: 'tool_use', re: /<tool_use>/i },
+  { label: 'tool_call', re: /<tool_call\b/i },
+  { label: 'qwen_tokens', re: /<\|tool_call(?:_begin|_end)?\|>|<\|im_start\|>|<\|im_end\|>|<\|end_of_turn\|>/i },
+]
+
+export function detectMalformedToolWrapper(content: string): string | null {
+  if (typeof content !== 'string' || !content) return null
+  for (const { label, re } of MALFORMED_WRAPPER_PATTERNS) {
+    if (re.test(content)) return label
+  }
+  return null
+}
+
 function isFilesystemAction(value: unknown): value is OpenClawFilesystemToolRequest['action'] {
   return value === 'list'
     || value === 'read'

@@ -444,7 +444,7 @@ function synthesizeUnifiedBrowser(content: string): NarrationRecovery | null {
  */
 const KNOWN_SITE_PAGES: ReadonlyArray<{
   site: RegExp
-  pages: ReadonlyArray<{ name: RegExp; buildPath: (content: string) => string | null }>
+  pages: ReadonlyArray<{ name: RegExp; buildPath: (content: string, prevUrl: string) => string | null }>
 }> = [
   {
     site: /^https?:\/\/(?:www\.)?whalestream\.com\//i,
@@ -530,7 +530,125 @@ const KNOWN_SITE_PAGES: ReadonlyArray<{
       },
     ],
   },
+  // Financial-research sites observed in real tool-call-stall transcripts. The
+  // model frequently says "open the PLTR forecast page" without naming a URL;
+  // these entries turn that into a real `unified_browser` open against the
+  // same site as the prior call. Ticker / exchange are extracted from the
+  // prior URL when available (and from the prose otherwise) so we never
+  // dispatch a fabricated URL for a ticker we didn't actually see.
+  {
+    site: /^https?:\/\/(?:www\.)?stockanalysis\.com\//i,
+    pages: [
+      {
+        name: /\b(?:the\s+)?([A-Z]{1,5})\s+forecast(?:\s+page)?\b/i,
+        buildPath: (content, prevUrl) => {
+          const ticker = extractTicker(content, prevUrl)
+          return ticker ? `/stocks/${ticker}/forecast/` : null
+        },
+      },
+      {
+        name: /\b(?:the\s+)?([A-Z]{1,5})\s+(?:financials?|financial\s+statements?)\b/i,
+        buildPath: (content, prevUrl) => {
+          const ticker = extractTicker(content, prevUrl)
+          return ticker ? `/stocks/${ticker}/financials/` : null
+        },
+      },
+      {
+        name: /\b(?:the\s+)?([A-Z]{1,5})\s+options(?:\s+(?:page|chain))?\b/i,
+        buildPath: (content, prevUrl) => {
+          const ticker = extractTicker(content, prevUrl)
+          return ticker ? `/stocks/${ticker}/options/` : null
+        },
+      },
+      {
+        name: /\b(?:the\s+)?([A-Z]{1,5})\s+(?:overview|stock\s+page|quote)\b/i,
+        buildPath: (content, prevUrl) => {
+          const ticker = extractTicker(content, prevUrl)
+          return ticker ? `/stocks/${ticker}/` : null
+        },
+      },
+    ],
+  },
+  {
+    // MarketBeat URLs are exchange-scoped (/stocks/{EXCHANGE}/{TICKER}/...),
+    // so the exchange must come from the prior URL — we never invent it.
+    site: /^https?:\/\/(?:www\.)?marketbeat\.com\//i,
+    pages: [
+      {
+        name: /\b(?:the\s+)?([A-Z]{1,5})\s+forecast(?:\s+page)?\b/i,
+        buildPath: (content, prevUrl) => buildMarketbeatPath(content, prevUrl, 'forecast/'),
+      },
+      {
+        name: /\b(?:the\s+)?([A-Z]{1,5})\s+(?:dividends?|dividend\s+history)\b/i,
+        buildPath: (content, prevUrl) => buildMarketbeatPath(content, prevUrl, 'dividend/'),
+      },
+      {
+        name: /\b(?:the\s+)?([A-Z]{1,5})\s+(?:earnings|earnings\s+history)\b/i,
+        buildPath: (content, prevUrl) => buildMarketbeatPath(content, prevUrl, 'earnings/'),
+      },
+      {
+        name: /\b(?:the\s+)?([A-Z]{1,5})\s+(?:price\s+target|target\s+price|analyst\s+ratings?)\b/i,
+        buildPath: (content, prevUrl) => buildMarketbeatPath(content, prevUrl, 'price-target/'),
+      },
+    ],
+  },
+  {
+    site: /^https?:\/\/finance\.yahoo\.com\//i,
+    pages: [
+      {
+        name: /\b(?:the\s+)?([A-Z]{1,5})\s+forecast(?:\s+page)?\b/i,
+        buildPath: (content, prevUrl) => {
+          const ticker = extractTicker(content, prevUrl)
+          return ticker ? `/quote/${ticker}/forecast` : null
+        },
+      },
+      {
+        name: /\b(?:the\s+)?([A-Z]{1,5})\s+(?:quote|overview|stock\s+page|statistics)\b/i,
+        buildPath: (content, prevUrl) => {
+          const ticker = extractTicker(content, prevUrl)
+          return ticker ? `/quote/${ticker}` : null
+        },
+      },
+    ],
+  },
 ]
+
+/**
+ * Extract a 1–5 letter uppercase ticker, preferring the one named in the prose
+ * (the captured group) and falling back to the ticker embedded in the prior
+ * URL. Returns the uppercase ticker or null when none can be found — callers
+ * must treat null as "do not recover" so we never dispatch a fabricated URL.
+ */
+function extractTicker(content: string, prevUrl: string): string | null {
+  const inContent = content.match(/\b([A-Z]{1,5})\b/)
+  if (inContent && inContent[1] && !isCommonWord(inContent[1])) return inContent[1].toUpperCase()
+  const inUrl = prevUrl.match(/\/(?:stocks|quote|stock)\/([A-Z]{1,5})(?:\/|$)/i)
+  return inUrl ? inUrl[1].toUpperCase() : null
+}
+
+// Short uppercase tokens that are English words, not tickers. Matching one
+// in the prose shouldn't pin a "ticker" — we then fall back to the prior URL.
+const COMMON_UPPERCASE_WORDS = new Set(['A', 'I', 'THE', 'AND', 'OR', 'FOR', 'AN'])
+
+function isCommonWord(token: string): boolean {
+  return COMMON_UPPERCASE_WORDS.has(token.toUpperCase())
+}
+
+/**
+ * Build a MarketBeat sub-page path from the prior URL's exchange + ticker.
+ * Returns null when the prior URL isn't a `/stocks/{EXCHANGE}/{TICKER}/` page,
+ * so recovery only fires when we can reuse a real exchange — never a guess.
+ */
+function buildMarketbeatPath(content: string, prevUrl: string, sub: string): string | null {
+  const m = prevUrl.match(/\/stocks\/([A-Z]{2,})\/([A-Z]{1,5})(?:\/|$)/i)
+  if (!m) return null
+  const exchange = m[1].toUpperCase()
+  // Prefer a ticker named in the prose if it differs from the prior one (the
+  // user/model switched symbols); otherwise reuse the prior ticker.
+  const inContent = content.match(/\b([A-Z]{1,5})\b/)
+  const ticker = inContent && !isCommonWord(inContent[1]) ? inContent[1].toUpperCase() : m[2].toUpperCase()
+  return `/stocks/${exchange}/${ticker}/${sub}`
+}
 
 /**
  * Recover a `unified_browser action=open` call from prose that *names* a
@@ -559,7 +677,7 @@ function synthesizeUnifiedBrowserByPageName(
     if (!catalog.site.test(prevUrl)) continue
     for (const page of catalog.pages) {
       if (!page.name.test(content)) continue
-      const path = page.buildPath(content)
+      const path = page.buildPath(content, prevUrl)
       if (!path) continue
       let resolved: string
       try {

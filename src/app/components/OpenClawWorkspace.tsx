@@ -66,6 +66,7 @@ import {
   type EffectiveOpenClawToolAccess,
 } from '@/lib/openclaw-tool-access';
 import {
+  detectMalformedToolWrapper,
   extractOpenClawToolRequest,
   stripAllToolTags,
   type OpenClawBrowserToolRequest,
@@ -90,7 +91,8 @@ import {
   buildOpenClawToolRequestFromNarration,
   synthesizeToolCallFromNarration,
 } from '@/lib/openclaw-narration-recovery';
-import { buildNarrationNudgeText } from '@/lib/openclaw-narration-nudge';
+import { buildMalformedWrapperNudgeText, buildNarrationNudgeText } from '@/lib/openclaw-narration-nudge';
+import { compactStaleToolResults } from '@/lib/openclaw-context-compaction';
 import UwafNetworkPanel from './UwafNetworkPanel';
 import LiveBrowserView from './LiveBrowserView';
 import BrowserModal from './BrowserModal';
@@ -8128,6 +8130,14 @@ export default function OpenClawWorkspace({
       let lastToolRequestSignature: string | null = null;
       let duplicateToolRequestCount = 0;
       let missingToolNudgeCount = 0;
+      // Ring buffer of the last N dispatched tool signatures, for cycle
+      // detection. `lastToolRequestSignature` only catches an immediate
+      // A→A repeat; A→B→A→B ping-pong (the loop shape seen in real browsing
+      // transcripts) slips past it because each call differs from its one
+      // predecessor. The ring catches a repeat of ANY recent signature so a
+      // 2-cycle/3-cycle breaks instead of bouncing until the iteration cap.
+      const RECENT_SIGNATURE_RING_SIZE = 6;
+      const recentToolSignatures: string[] = [];
       // Tracks the most recent successfully-executed tool (any kind) so the
       // recovery layer can (a) regenerate the prior document artifact when
       // the narration says "regenerate it" / "render the same thing again",
@@ -8164,7 +8174,12 @@ export default function OpenClawWorkspace({
 
         const { assistantMessage, activeSources: roundSources } = await streamAssistantResponse({
           assistantMessageId: nextAssistantId,
-          conversationMessages: [...contextMessages, ...sessionHistory],
+          // Compact the bulky bodies of stale tool results before resending so
+          // the context window stays lean on long browsing/shell sessions.
+          // Storage and the user-visible transcript are untouched — this only
+          // shrinks what is sent to the model on this round. See
+          // openclaw-context-compaction.ts.
+          conversationMessages: [...contextMessages, ...compactStaleToolResults(sessionHistory)],
           chatId,
           prompt,
           ragEnabledForTurn: toolRound === 0 ? ragEnabled : false,
@@ -8270,6 +8285,15 @@ export default function OpenClawWorkspace({
           const invalidToolBlock = rawToolTagPresent;
           const promisedToolButStopped = !rawToolTagPresent
             && detectMissingToolIntent(normalizedAssistant.content);
+          // Detect a *foreign* SDK tool-call format the model emitted instead
+          // of the `<openclaw_tool>` wrapper (Anthropic <function_calls>, antml,
+          // Qwen tokens, …). stripAllToolTags already removes these, so without
+          // this signal the model would be nudged generically and usually
+          // re-emit the same wrong format. Naming the exact format breaks that
+          // loop. Only checked when there is no openclaw_tool tag at all.
+          const malformedWrapperFormat = !rawToolTagPresent
+            ? detectMalformedToolWrapper(assistantMessage.content)
+            : null;
 
           // Best-effort recovery: if the model described a tool call in prose
           // but dropped the wrapper, synthesize the call ourselves from the
@@ -8324,7 +8348,7 @@ export default function OpenClawWorkspace({
           }
 
           if (
-            (invalidToolBlock || promisedToolButStopped)
+            (invalidToolBlock || promisedToolButStopped || Boolean(malformedWrapperFormat))
             && toolRound < MAX_TOOL_LOOP_ITERATIONS - 1
             && missingToolNudgeCount < 2
             && !controller.signal.aborted
@@ -8332,10 +8356,13 @@ export default function OpenClawWorkspace({
           ) {
             missingToolNudgeCount += 1;
             // Recovery nudge strategy:
-            //   - For a malformed wrapper, ask the model to re-emit a clean
-            //     wrapper without showing a literal example. The model tends to
-            //     copy a wrapper example verbatim, which produces the same
-            //     malformed result.
+            //   - For a foreign SDK wrapper (function_calls / antml / Qwen
+            //     tokens / …), name the exact offending format and show the
+            //     single correct shape. A generic nudge makes the model
+            //     re-emit the same wrong format and burn the nudge budget.
+            //   - For a malformed openclaw_tool wrapper, ask the model to
+            //     re-emit a clean wrapper without a literal example (the model
+            //     tends to copy examples verbatim, reproducing the malformation).
             //   - For narration (model described the action in prose but never
             //     wrapped it), include a SHORT placeholder example using the
             //     previously-tracked document tool name. Placeholders like
@@ -8343,7 +8370,9 @@ export default function OpenClawWorkspace({
             //     and not real content, while still giving the model something
             //     concrete to pattern-match against.
             let recoveryText: string
-            if (invalidToolBlock) {
+            if (malformedWrapperFormat) {
+              recoveryText = buildMalformedWrapperNudgeText(malformedWrapperFormat)
+            } else if (invalidToolBlock) {
               recoveryText = 'Your last message did not contain a valid tool block — either the wrapper was malformed, incomplete, or duplicated. Re-emit exactly ONE complete tool call (the registered tool names and the exact wrapper format are listed in the system prompt). If no tool is needed, give your final answer directly in plain text instead of starting a wrapper.'
             } else {
               recoveryText = buildNarrationNudgeText({
@@ -8374,14 +8403,16 @@ export default function OpenClawWorkspace({
           // the tool name we believe the model was trying to call, the last
           // snippet it emitted, and a fresh re-run prompt so the user can
           // either continue or rephrase without confusion.
-          if ((invalidToolBlock || promisedToolButStopped) && !controller.signal.aborted) {
+          if ((invalidToolBlock || promisedToolButStopped || Boolean(malformedWrapperFormat)) && !controller.signal.aborted) {
             const lastAssistantContent = normalizedAssistant.content.trim()
             const intentSnippet = lastAssistantContent.length > 240
               ? `${lastAssistantContent.slice(0, 240).trim()}…`
               : lastAssistantContent
             const pauseReason = invalidToolBlock
               ? 'I tried to emit the tool call but it kept coming back malformed (likely the JSON inside the wrapper was truncated or incomplete).'
-              : 'I described the next step but never emitted the matching tool block.'
+              : malformedWrapperFormat
+                ? `I kept emitting a tool call in the wrong format (${malformedWrapperFormat}) instead of the <openclaw_tool> wrapper this system expects.`
+                : 'I described the next step but never emitted the matching tool block.'
             const inferredTool = lastSuccessfulToolRequest?.name
             const inferredToolLabel = inferredTool ? describeToolDisplayName(inferredTool) : 'the relevant tool'
             const previousDescription = lastSuccessfulToolRequest?.description?.trim()
@@ -8439,14 +8470,23 @@ export default function OpenClawWorkspace({
           ? `filesystem:${inferredFilesystemRequest.action}:${inferredFilesystemRequest.path}`
           : getOpenClawToolRequestSignature(request);
 
-        if (effectiveToolSignature === lastToolRequestSignature) {
+        // Immediate repeat (A→A) is caught by lastToolRequestSignature.
+        // Cycle repeat (A→B→A) is caught by the recent-signature ring: the
+        // signature was dispatched within the last few rounds but is not the
+        // immediately-previous one. Both share the same recovery handling.
+        const isImmediateRepeat = effectiveToolSignature === lastToolRequestSignature
+        const isCycleRepeat = !isImmediateRepeat && recentToolSignatures.includes(effectiveToolSignature)
+
+        if (isImmediateRepeat || isCycleRepeat) {
           duplicateToolRequestCount += 1;
           const duplicateNotice: OpenClawMessage = {
             id: randomUUID(),
             role: 'user',
             content: inferredFilesystemRequest
               ? 'The previous filesystem result for this exact path was already provided. Do not repeat the same request. Use that result to answer the user or request a different path/action only if new information is needed.'
-              : 'The previous tool result for this exact request was already provided. Do not repeat the same request. Use that result to answer the user or choose a different next step only if new information is needed.',
+              : isCycleRepeat
+                ? 'You have cycled back to a tool request you already made in the last few steps. You are looping — do not repeat it. Use the results you already have to answer the user, or choose a genuinely different next step. If you cannot make progress with what you have, stop calling tools and give your best answer.'
+                : 'The previous tool result for this exact request was already provided. Do not repeat the same request. Use that result to answer the user or choose a different next step only if new information is needed.',
             hidden: true,
             createdAt: new Date().toISOString(),
           };
@@ -8458,6 +8498,14 @@ export default function OpenClawWorkspace({
           }
 
           continue;
+        }
+
+        // Not a repeat — record this signature in the cycle-detection ring
+        // before dispatching. lastToolRequestSignature still tracks the
+        // immediately-previous call (updated in each dispatch branch below).
+        recentToolSignatures.push(effectiveToolSignature)
+        if (recentToolSignatures.length > RECENT_SIGNATURE_RING_SIZE) {
+          recentToolSignatures.shift()
         }
 
         if (inferredFilesystemRequest) {

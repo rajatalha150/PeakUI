@@ -462,3 +462,55 @@ describe('buildOpenClawToolRequestFromNarration', () => {
     expect(buildOpenClawToolRequestFromNarration(recovery)).toBeNull()
   })
 })
+
+describe('synthesizeToolCallFromNarration — financial-research sites', () => {
+  it('recovers "the PLTR forecast page" on stockanalysis.com', () => {
+    const r = synthesizeToolCallFromNarration(
+      'Now I\'ll open the PLTR forecast page to check the trend.',
+      { lastSuccessfulToolRequest: { name: 'unified_browser', request: { action: 'open', url: 'https://stockanalysis.com/stocks/PLTR/' } } },
+    )
+    expect(r?.toolName).toBe('unified_browser')
+    expect((r?.args as { url: string }).url).toBe('https://stockanalysis.com/stocks/PLTR/forecast/')
+  })
+
+  it('recovers "the GME financials page" on stockanalysis.com', () => {
+    const r = synthesizeToolCallFromNarration(
+      'open the GME financials page next.',
+      { lastSuccessfulToolRequest: { name: 'unified_browser', request: { action: 'open', url: 'https://stockanalysis.com/stocks/GME/' } } },
+    )
+    expect((r?.args as { url: string }).url).toBe('https://stockanalysis.com/stocks/GME/financials/')
+  })
+
+  it('recovers the forecast page on marketbeat reusing the prior exchange', () => {
+    const r = synthesizeToolCallFromNarration(
+      'proceed to the PLTR forecast page now.',
+      { lastSuccessfulToolRequest: { name: 'unified_browser', request: { action: 'open', url: 'https://marketbeat.com/stocks/NASDAQ/PLTR/' } } },
+    )
+    expect(r?.toolName).toBe('unified_browser')
+    expect((r?.args as { url: string }).url).toBe('https://marketbeat.com/stocks/NASDAQ/PLTR/forecast/')
+  })
+
+  it('does not fabricate a marketbeat URL when the prior page has no exchange', () => {
+    const r = synthesizeToolCallFromNarration(
+      'proceed to the PLTR forecast page now.',
+      { lastSuccessfulToolRequest: { name: 'unified_browser', request: { action: 'open', url: 'https://marketbeat.com/' } } },
+    )
+    expect(r).toBeNull()
+  })
+
+  it('recovers the yahoo finance forecast page', () => {
+    const r = synthesizeToolCallFromNarration(
+      'open the PLTR forecast page next.',
+      { lastSuccessfulToolRequest: { name: 'unified_browser', request: { action: 'open', url: 'https://finance.yahoo.com/quote/PLTR' } } },
+    )
+    expect((r?.args as { url: string }).url).toBe('https://finance.yahoo.com/quote/PLTR/forecast')
+  })
+
+  it('falls back to the prior-URL ticker when the prose has no symbol', () => {
+    const r = synthesizeToolCallFromNarration(
+      'proceed to the forecast page now.',
+      { lastSuccessfulToolRequest: { name: 'unified_browser', request: { action: 'open', url: 'https://stockanalysis.com/stocks/NVDA/' } } },
+    )
+    expect((r?.args as { url: string }).url).toBe('https://stockanalysis.com/stocks/NVDA/forecast/')
+  })
+})

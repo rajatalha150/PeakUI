@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   __test__,
+  buildMalformedWrapperNudgeText,
   buildNarrationNudgeText,
   describeToolDisplayName,
   type NarrationNudgeContext,
@@ -203,4 +204,44 @@ describe('nudge page-name catalog symmetry with synthesizer', () => {
 it('exposes __test__ helpers', () => {
   expect(__test__.WRAPPER_EXAMPLES.unified_browser).toContain('unified_browser')
   expect(__test__.TOOL_DISPLAY_NAME.shell).toBe('shell')
+})
+
+describe('buildMalformedWrapperNudgeText', () => {
+  it('names the function_calls format and shows the correct shape', () => {
+    const text = buildMalformedWrapperNudgeText('function_calls')
+    expect(text).toContain('function_calls')
+    expect(text).toContain('<openclaw_tool name="TOOL_NAME">{"field":"value"}</openclaw_tool>')
+    expect(text).toContain('not include any other wrapper')
+  })
+
+  it('names the qwen_tokens format specifically', () => {
+    const text = buildMalformedWrapperNudgeText('qwen_tokens')
+    expect(text).toContain('Qwen-style special tokens')
+  })
+
+  it('falls back to the generic invalid-block text for an unknown format', () => {
+    const text = buildMalformedWrapperNudgeText('unknown_format')
+    expect(text).toContain('did not contain a valid tool block')
+  })
+})
+
+describe('nudge page-name pre-fill for financial sites', () => {
+  it('pre-fills the stockanalysis forecast URL and matches the synthesizer', async () => {
+    const { synthesizeToolCallFromNarration } = await import('./openclaw-narration-recovery')
+    const prior = { name: 'unified_browser' as const, request: { action: 'open', url: 'https://stockanalysis.com/stocks/PLTR/' } }
+    const prose = 'open the PLTR forecast page next.'
+    const synth = synthesizeToolCallFromNarration(prose, { lastSuccessfulToolRequest: prior })
+    expect(synth).not.toBeNull()
+    const synthUrl = (synth!.args as { url: string }).url
+    const nudge = buildNarrationNudgeText({ lastSuccessfulToolRequest: prior, proseContent: prose, invalidToolBlock: false })
+    expect(nudge).toContain(synthUrl)
+  })
+
+  it('does not pre-fill a stockanalysis-shaped URL when the prior site is marketbeat', () => {
+    const prior = { name: 'unified_browser' as const, request: { action: 'open', url: 'https://marketbeat.com/' } }
+    const nudge = buildNarrationNudgeText({ lastSuccessfulToolRequest: prior, proseContent: 'open the PLTR forecast page', invalidToolBlock: false })
+    // No fabricated /stocks/PLTR/forecast/ on marketbeat (synthesizer returns
+    // null there; nudge must not invent the path).
+    expect(nudge).not.toContain('marketbeat.com/stocks/PLTR/forecast/')
+  })
 })

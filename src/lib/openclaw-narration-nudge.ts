@@ -88,7 +88,7 @@ export function describeToolDisplayName(name: string | undefined | null): string
  * would auto-recover. If you add a new catalog entry, add the matching
  * pattern here too — the test suite asserts the symmetry.
  */
-const PAGE_NAME_PATTERNS: ReadonlyArray<{ regex: RegExp; buildPath: (m: RegExpMatchArray) => string }> = [
+const PAGE_NAME_PATTERNS: ReadonlyArray<{ regex: RegExp; buildPath: (m: RegExpMatchArray) => string; site?: RegExp }> = [
   { regex: /\b(?:the\s+)?top\s+options\s+(?:whale\s+)?flow(?:\s+page)?\b/i, buildPath: () => '/market-data/top-options-flow' },
   { regex: /\b(?:the\s+)?(?:top\s+)?dark\s*pool(?:\s+(?:and|&)\s+(?:equit(?:y|ies)\s+)?(?:whale\s+)?flow)?(?:\s+(?:scanner|page))?\b/i, buildPath: () => '/market-data/top-dark-pool-flow' },
   { regex: /\b(?:the\s+)?top\s+open\s+interest(?:\s+(?:changes|change|movements?))?\b/i, buildPath: () => '/market-data/top-open-interest' },
@@ -108,6 +108,30 @@ const PAGE_NAME_PATTERNS: ReadonlyArray<{ regex: RegExp; buildPath: (m: RegExpMa
     regex: /\b(?:the\s+)?([A-Z]{1,5})\s+institutional\s+(?:ownership|holders?)\b/i,
     buildPath: (m) => `/institutional/holders-of-${(m[1] || '').toLowerCase()}/`,
   },
+  // Financial-research site pages — kept in lockstep with KNOWN_SITE_PAGES in
+  // openclaw-narration-recovery.ts so the nudge example URL is the same one the
+  // synthesizer would dispatch. These build ticker-relative `/stocks/T/...`
+  // paths, which is the stockanalysis.com shape. Yahoo (`/quote/T`) and
+  // MarketBeat (`/stocks/{EXCHANGE}/T`) use different shapes that only the
+  // synthesizer can build correctly (it has the prior URL to extract the
+  // ticker / exchange), so the nudge pre-fill is scoped to stockanalysis via
+  // the `site` guard; on the other sites the nudge falls back to the generic
+  // placeholder and the synthesizer does the real recovery.
+  {
+    regex: /\b(?:the\s+)?([A-Z]{1,5})\s+forecast(?:\s+page)?\b/i,
+    buildPath: (m) => `/stocks/${(m[1] || '').toUpperCase()}/forecast/`,
+    site: /^https?:\/\/(?:www\.)?stockanalysis\.com\//i,
+  },
+  {
+    regex: /\b(?:the\s+)?([A-Z]{1,5})\s+financials?\b/i,
+    buildPath: (m) => `/stocks/${(m[1] || '').toUpperCase()}/financials/`,
+    site: /^https?:\/\/(?:www\.)?stockanalysis\.com\//i,
+  },
+  {
+    regex: /\b(?:the\s+)?([A-Z]{1,5})\s+options(?:\s+(?:page|chain))?\b/i,
+    buildPath: (m) => `/stocks/${(m[1] || '').toUpperCase()}/options/`,
+    site: /^https?:\/\/(?:www\.)?stockanalysis\.com\//i,
+  },
 ]
 
 /**
@@ -119,7 +143,8 @@ function resolvePrefilledUrl(
   prose: string,
   prevUrl: string,
 ): string | null {
-  for (const { regex, buildPath } of PAGE_NAME_PATTERNS) {
+  for (const { regex, buildPath, site } of PAGE_NAME_PATTERNS) {
+    if (site && !site.test(prevUrl)) continue
     const m = prose.match(regex)
     if (!m) continue
     const path = buildPath(m)
@@ -171,6 +196,47 @@ const FALLBACK_EXAMPLE = '<openclaw_tool name="<registered tool name>">{"<field>
 
 const GENERIC_INVALID_TEXT =
   'Your last message did not contain a valid tool block — either the wrapper was malformed, incomplete, or duplicated. Re-emit exactly ONE complete tool call (the registered tool names and the exact wrapper format are listed in the system prompt). If no tool is needed, give your final answer directly in plain text instead of starting a wrapper.'
+
+/**
+ * Specific guidance for each malformed-wrapper format `detectMalformedToolWrapper`
+ * can identify. Naming the exact mistake (and showing the single correct shape)
+ * breaks the second-attempt loop that a generic nudge produces — the model
+ * otherwise re-emits the same wrong SDK format and burns the nudge budget.
+ */
+const MALFORMED_WRAPPER_GUIDANCE: Readonly<Record<string, string>> = {
+  function_calls:
+    'You used the Anthropic-SDK `<function_calls>` / `<invoke>` / `<parameter>` convention. This runtime does NOT parse that — it is stripped and treated as no tool call at all.',
+  antml:
+    'You used the `<antml:function_calls>` namespaced convention. This runtime does NOT parse that — it is stripped and treated as no tool call at all.',
+  invoke:
+    'You used the Anthropic-SDK `<invoke>` convention. This runtime does NOT parse that — it is stripped and treated as no tool call at all.',
+  parameter:
+    'You used the Anthropic-SDK `<parameter name="...">` convention. This runtime does NOT parse that — it is stripped and treated as no tool call at all.',
+  tool_use:
+    'You used a `<tool_use>` wrapper. This runtime does NOT parse that — it is stripped and treated as no tool call at all.',
+  tool_call:
+    'You used a `<tool_call>` wrapper. This runtime does NOT parse that — it is stripped and treated as no tool call at all.',
+  qwen_tokens:
+    'You emitted Qwen-style special tokens (`<|tool_call|>`, `<|im_start|>`, `<|end_of_turn|>`). This runtime strips them and treats the message as no tool call at all.',
+}
+
+/**
+ * Build a nudge that names the specific malformed wrapper the model emitted
+ * and shows the one correct shape. Falls back to the generic invalid-block
+ * text when the format is not in the map (e.g. a truncated/duplicated
+ * `<openclaw_tool>` rather than a foreign SDK convention).
+ */
+export function buildMalformedWrapperNudgeText(format: string): string {
+  const guidance = MALFORMED_WRAPPER_GUIDANCE[format]
+  if (!guidance) return GENERIC_INVALID_TEXT
+  return `${guidance}
+
+This system uses exactly ONE tool-call format:
+
+<openclaw_tool name="TOOL_NAME">{"field":"value"}</openclaw_tool>
+
+Re-emit your intended call in that exact form (TOOL_NAME is one of the registered tools listed in the system prompt; the JSON payload must match that tool's documented fields). Do not include any other wrapper, tag, or special token. If no tool is needed, give your final answer directly in plain text.`
+}
 
 /**
  * Build the recovery-nudge message.

@@ -217,6 +217,19 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
   ].filter(Boolean) as string[];
 
   const lines: string[] = [
+    // ─── Tool call protocol (load-bearing, hoisted to the very top) ──────────
+    // Local models with limited context attend most to the first lines of the
+    // system prompt. The single most-violated rule in real transcripts is that
+    // the model narrates an action ("Let me search…") and stops without the
+    // wrapper. Pinning the protocol + a concrete positive example to the top
+    // maximises adherence. The detailed primer further down remains the
+    // authoritative reference; nothing is removed — this is reinforcement only.
+    'TOOL CALL PROTOCOL (most important rule): When you intend to call a tool, the VERY FIRST thing in your reply must be the complete tool block — no preamble, no narration. The runtime only acts on a `<openclaw_tool name="...">{json}</openclaw_tool>` wrapper. Emit exactly one block per reply; request the next tool only after the previous result returns.',
+    'Correct: <openclaw_tool name="web">{"query":"palantir q2 2026 earnings"}</openclaw_tool>',
+    'Wrong: "Let me search for Palantir earnings." with no wrapper, or any preamble like "Running:", "Now writing…", "Next step:…", or "I will…" placed before the wrapper. Put any explanation AFTER the wrapper or omit it.',
+    'Use real values in the JSON — never copy placeholder templates such as `<value>`, `<command to run>`, or `<https URL>`; a placeholder value is rejected and the call is dropped, so the turn is wasted.',
+    'Do NOT use any other tool-call format (such as <function_calls>, <invoke>, <parameter>, <antml:function_calls>, <tool_use>, or Qwen tokens like <|tool_call|>) — this runtime strips them and treats the reply as no tool call at all.',
+    'If no tool is needed, answer in plain text with no wrapper.',
     `You are ${agentName}, a local-first desktop agent workspace embedded in PeakUI.`,
     `You are currently connected to ${providerLabel}.`,
     'Behave like a task workspace, not a generic chat assistant.',
