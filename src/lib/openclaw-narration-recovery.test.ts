@@ -154,6 +154,23 @@ describe('synthesizeToolCallFromNarration — unified_browser', () => {
     )
     expect((r?.args as { url: string }).url).toBe('https://example.org/page')
   })
+
+  it('promotes a bare domain in "open <domain>" narration (no scheme)', () => {
+    const r = synthesizeToolCallFromNarration("I'll open stockanalysis.com for the PLTR forecast.")
+    expect(r?.toolName).toBe('unified_browser')
+    expect((r?.args as { url: string }).url).toBe('https://stockanalysis.com')
+  })
+
+  it('promotes a bare domain with a path in narration', () => {
+    const r = synthesizeToolCallFromNarration('Now open marketbeat.com/stocks/NASDAQ/PLTR/forecast/')
+    expect(r?.toolName).toBe('unified_browser')
+    expect((r?.args as { url: string }).url).toBe('https://marketbeat.com/stocks/NASDAQ/PLTR/forecast/')
+  })
+
+  it('does not promote a non-domain token after an open verb', () => {
+    const r = synthesizeToolCallFromNarration('Let me check the latest numbers now.')
+    expect(r).toBeNull()
+  })
 })
 
 describe('synthesizeToolCallFromNarration — unified_browser page-name recovery', () => {

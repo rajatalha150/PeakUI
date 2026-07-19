@@ -19,6 +19,7 @@
 import {
   OPENCLAW_TOOL_NAMES,
   OpenClawToolRequest,
+  normalizeUrlToken,
 } from './openclaw-tools'
 
 export interface NarrationRecovery {
@@ -103,9 +104,9 @@ const CODE_BLOCK_RE_LIST: ReadonlyArray<RegExp> = [
   /```(?:node)\s*\n([\s\S]+?)\n```/i,
 ]
 
-const UNIFIED_BROWSER_URL_RE = /\bnavigat(?:e|ing)\s+(?:to|over to)\s+(?:<url>)?(https?:\/\/[^\s<>"'`]+)/i
-const UNIFIED_BROWSER_URL_RE_2 = /\bopen(?:ing)?\s+(?:<url>)?(https?:\/\/[^\s<>"'`]+)\s+in\s+(?:a |the )?browser\b/i
-const UNIFIED_BROWSER_URL_RE_3 = /\b(?:let me|i'?ll|i will|now|proceed(?:ing)? to|going to|about to)?\s*(?:open|visit|fetch|load|check)\s+(?:the\s+)?(?:page\s+|article\s+|site\s+)?(?:at\s+)?(?:<url>)?(https?:\/\/[^\s<>"'`]+)/i
+const UNIFIED_BROWSER_URL_RE = /\bnavigat(?:e|ing)\s+(?:to|over to)\s+(?:<url>)?((?:https?:\/\/)?[^\s<>"'`]+)/i
+const UNIFIED_BROWSER_URL_RE_2 = /\bopen(?:ing)?\s+(?:<url>)?((?:https?:\/\/)?[^\s<>"'`]+)\s+in\s+(?:a |the )?browser\b/i
+const UNIFIED_BROWSER_URL_RE_3 = /\b(?:let me|i'?ll|i will|now|proceed(?:ing)? to|going to|about to)?\s*(?:open|visit|fetch|load|check)\s+(?:the\s+)?(?:page\s+|article\s+|site\s+)?(?:at\s+)?(?:<url>)?((?:https?:\/\/)?[^\s<>"'`]+)/i
 
 const UNIFIED_BROWSER_SEARCH_RE_LIST: ReadonlyArray<RegExp> = [
   /\b(?:let me|i'?ll|i will|now|proceed(?:ing)? to|going to|about to|want to|need to)?\s*(?:run\s+)?(?:a\s+)?(?:unified(?:_|-|\s+)?browser|shared browser|live browser)\s+search\s+(?:for\s+)?["“”'`]*([^\n"“”'`]+?)[.)\]"'`<,!?:;\s]*$/i,
@@ -416,8 +417,13 @@ function synthesizeUnifiedBrowser(content: string): NarrationRecovery | null {
   const m1 = content.match(UNIFIED_BROWSER_URL_RE)
   const m2 = content.match(UNIFIED_BROWSER_URL_RE_2)
   const m3 = content.match(UNIFIED_BROWSER_URL_RE_3)
-  const url = (m1?.[1] || m2?.[1] || m3?.[1] || '').trim().replace(/[.,;:!?…]+$/g, '')
-  if (!url || !/^https?:\/\//i.test(url)) return null
+  const raw = (m1?.[1] || m2?.[1] || m3?.[1] || '').trim()
+  if (!raw) return null
+  // Accept a full https:// URL or promote a bare domain/domain+path
+  // ("stockanalysis.com/stocks/pltr") so narration without a scheme still
+  // recovers a real call instead of stalling on the nudge path.
+  const url = normalizeUrlToken(raw)
+  if (!url) return null
   return {
     toolName: 'unified_browser',
     args: { action: 'open', url, description: 'auto-recovered from prose narration' },

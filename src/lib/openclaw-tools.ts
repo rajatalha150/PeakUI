@@ -446,6 +446,53 @@ function parseToolJson<T>(raw: string): T | null {
   }
 }
 
+/**
+ * A field value the model copied verbatim from a recovery-nudge template, e.g.
+ * `<https URL>`, `<value>`, `<command to run>`, `<what to inspect>`. These pass
+ * a naive `.trim()` truthiness check and then dispatch a broken call (a browser
+ * `open` to the literal string `<https URL>`). Reject them so the call is
+ * treated as malformed and the model is re-nudged with the example-free path.
+ *
+ * Conservative: only matches a value that is *entirely* an angle-bracketed
+ * descriptive token (letters/digits/spaces/`_`/`.`/`-`), so real values such as
+ * `<App />` (contains `/`), `<div>foo</div>` (contains `>` mid-string), or a
+ * URL containing query punctuation are kept.
+ */
+const TEMPLATE_PLACEHOLDER_RE = /^<[a-z][a-z0-9 _.\-]*>$/i
+
+export function isTemplatePlaceholder(value: unknown): boolean {
+  return typeof value === 'string' && TEMPLATE_PLACEHOLDER_RE.test(value.trim())
+}
+
+/**
+ * Trim a tool string field and collapse a copied template placeholder to empty
+ * so the existing empty/required-field checks route the call to the malformed
+ * branch instead of dispatching it.
+ */
+function cleanFieldValue(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const trimmed = value.trim()
+  if (!trimmed || TEMPLATE_PLACEHOLDER_RE.test(trimmed)) return ''
+  return trimmed
+}
+
+/**
+ * Normalize a URL-ish token captured from prose. Keeps an explicit scheme, or
+ * promotes a bare domain / domain+path (`stockanalysis.com/stocks/pltr`) to
+ * `https://` so narration like "open stockanalysis.com" recovers a real call
+ * instead of stalling on the nudge path. Returns `null` when the token is not a
+ * recognizable URL so the caller falls through.
+ */
+const BARE_DOMAIN_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.[a-z]{2,}(?:\.[a-z]{2,})?(?:\/[^\s]*)?$/i
+
+export function normalizeUrlToken(token: string): string | null {
+  const t = token.trim().replace(/[.,;:!?…)]+$/, '')
+  if (!t) return null
+  if (/^https?:\/\//i.test(t)) return t
+  if (BARE_DOMAIN_RE.test(t)) return `https://${t}`
+  return null
+}
+
 function findToolBlock(content: string): { toolName: string; rawBlock: string; rawJson: string } | null {
   const match = content.match(TOOL_BLOCK_PATTERN)
   if (match) {
@@ -581,10 +628,12 @@ function parseToolIntentFromProse(content: string): OpenClawToolRequest | undefi
     }
   }
 
-  const urlOpen = cleaned.match(/\b(?:open|visit|fetch|load|check)\s+(?:the\s+)?(?:page\s+|article\s+|site\s+)?(?:at\s+)?["“”'`]*(https?:\/\/[^\s<>"'`]+)/i)
+  const urlOpen = cleaned.match(/\b(?:open|visit|fetch|load|check)\s+(?:the\s+)?(?:page\s+|article\s+|site\s+)?(?:at\s+)?["“”'`]*((?:https?:\/\/)?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.[a-z]{2,}(?:\.[a-z]{2,})?(?:\/[^\s<>"'`]*)?)/i)
   if (urlOpen) {
-    const url = urlOpen[1].trim()
-    return { name: 'unified_browser', request: { action: 'open', url } }
+    const url = normalizeUrlToken(urlOpen[1])
+    if (url) {
+      return { name: 'unified_browser', request: { action: 'open', url } }
+    }
   }
 
   const docCreate = cleaned.match(/\b(?:creat(?:e|ing)|generat(?:e|ing)|build(?:ing)?|mak(?:e|ing)|render(?:ing)?|produc(?:e|ing)|writ(?:e|ing))\s+(?:a\s+|the\s+)?(?:new\s+)?(PDF|pdf|Excel|excel|spreadsheet|Word|word|docx|document|deck|slides|presentation|CSV|csv)/i)
@@ -643,7 +692,7 @@ export function extractOpenClawToolRequest(content: string): {
       if (!parsed) {
         return { cleanedContent: stripAllToolTags(content) }
       }
-      const query = typeof parsed.query === 'string' ? parsed.query.trim() : ''
+      const query = cleanFieldValue(parsed.query)
       if (!query) {
         return { cleanedContent: stripAllToolTags(content) }
       }
@@ -667,7 +716,7 @@ export function extractOpenClawToolRequest(content: string): {
       if (!parsed) {
         return { cleanedContent: stripAllToolTags(content) }
       }
-      const command = typeof parsed.command === 'string' ? parsed.command.trim() : ''
+      const command = cleanFieldValue(parsed.command)
       if (!command) {
         return { cleanedContent: stripAllToolTags(content) }
       }
@@ -694,7 +743,11 @@ export function extractOpenClawToolRequest(content: string): {
       const runtime = parsed.runtime === 'python' || parsed.runtime === 'node'
         ? parsed.runtime
         : null
-      const code = typeof parsed.code === 'string' ? parsed.code : ''
+      const codeRaw = typeof parsed.code === 'string' ? parsed.code : ''
+      // Reject a copied `<script body>` placeholder, but otherwise preserve the
+      // raw bytes (leading/trailing newlines are common and meaningful in code).
+      const codeTrimmed = codeRaw.trim()
+      const code = codeTrimmed && TEMPLATE_PLACEHOLDER_RE.test(codeTrimmed) ? '' : codeRaw
       const args = Array.isArray(parsed.args)
         ? parsed.args.filter((entry): entry is string => typeof entry === 'string').slice(0, 20)
         : undefined
@@ -743,16 +796,18 @@ export function extractOpenClawToolRequest(content: string): {
           : undefined,
       }
 
-      if (typeof parsed.url === 'string' && parsed.url.trim()) {
-        request.url = parsed.url.trim()
+      const browserUrl = cleanFieldValue(parsed.url)
+      if (browserUrl) {
+        request.url = browserUrl
       }
 
       if (typeof parsed.linkIndex === 'number' && Number.isInteger(parsed.linkIndex) && parsed.linkIndex >= 0) {
         request.linkIndex = parsed.linkIndex
       }
 
-      if (typeof parsed.linkText === 'string' && parsed.linkText.trim()) {
-        request.linkText = parsed.linkText.trim()
+      const linkText = cleanFieldValue(parsed.linkText)
+      if (linkText) {
+        request.linkText = linkText
       }
 
       if (typeof parsed.formIndex === 'number' && Number.isInteger(parsed.formIndex) && parsed.formIndex >= 0) {
@@ -807,24 +862,27 @@ export function extractOpenClawToolRequest(content: string): {
           : undefined,
       }
 
-      if (typeof parsed.query === 'string' && parsed.query.trim()) {
-        request.query = parsed.query.trim()
+      const ubQuery = cleanFieldValue(parsed.query)
+      if (ubQuery) {
+        request.query = ubQuery
       }
 
       if (typeof parsed.providerId === 'string' && /^[a-z0-9-]{2,64}$/i.test(parsed.providerId.trim())) {
         request.providerId = parsed.providerId.trim().toLowerCase()
       }
 
-      if (typeof parsed.url === 'string' && parsed.url.trim()) {
-        request.url = parsed.url.trim()
+      const ubUrl = cleanFieldValue(parsed.url)
+      if (ubUrl) {
+        request.url = ubUrl
       }
 
       if (typeof parsed.linkIndex === 'number' && Number.isInteger(parsed.linkIndex) && parsed.linkIndex >= 0) {
         request.linkIndex = parsed.linkIndex
       }
 
-      if (typeof parsed.linkText === 'string' && parsed.linkText.trim()) {
-        request.linkText = parsed.linkText.trim()
+      const ubLinkText = cleanFieldValue(parsed.linkText)
+      if (ubLinkText) {
+        request.linkText = ubLinkText
       }
 
       if (typeof parsed.formIndex === 'number' && Number.isInteger(parsed.formIndex) && parsed.formIndex >= 0) {
@@ -856,16 +914,23 @@ export function extractOpenClawToolRequest(content: string): {
         request.depth = parsed.depth
       }
 
-      if (typeof parsed.selector === 'string' && parsed.selector.trim()) {
-        request.selector = parsed.selector.trim()
+      const selector = cleanFieldValue(parsed.selector)
+      if (selector) {
+        request.selector = selector
       }
 
       if (typeof parsed.text === 'string') {
-        request.text = parsed.text
+        // Preserve an explicit empty-string `type` (clearing a field) but
+        // nullify a copied `<text>`/`<value>` placeholder so the `type`
+        // action falls through to the malformed branch instead of typing
+        // the literal placeholder.
+        const t = parsed.text.trim()
+        request.text = t && TEMPLATE_PLACEHOLDER_RE.test(t) ? undefined : parsed.text
       }
 
-      if (typeof parsed.key === 'string' && parsed.key.trim()) {
-        request.key = parsed.key.trim()
+      const pressKey = cleanFieldValue(parsed.key)
+      if (pressKey) {
+        request.key = pressKey
       }
 
       if (typeof parsed.tabIndex === 'number' && Number.isInteger(parsed.tabIndex) && parsed.tabIndex >= 0) {
@@ -1375,7 +1440,7 @@ export function extractOpenClawToolRequest(content: string): {
         return { cleanedContent: stripAllToolTags(content) }
       }
 
-      const url = typeof parsed.url === 'string' ? parsed.url.trim() : ''
+      const url = cleanFieldValue(parsed.url)
       if (!url) {
         return { cleanedContent: stripAllToolTags(content) }
       }
@@ -1398,7 +1463,7 @@ export function extractOpenClawToolRequest(content: string): {
     if (!parsed) {
       return { cleanedContent: stripAllToolTags(content) }
     }
-    const requestedPath = typeof parsed.path === 'string' ? parsed.path.trim() : ''
+    const requestedPath = cleanFieldValue(parsed.path)
     const action = isFilesystemAction(parsed.action) ? parsed.action : null
 
     if (!requestedPath || !action) {
@@ -1415,7 +1480,15 @@ export function extractOpenClawToolRequest(content: string): {
     }
 
     if (typeof parsed.content === 'string') {
-      request.content = parsed.content
+      // Nullify a copied `<content>` placeholder so a write/append falls
+      // through to the malformed branch instead of writing the literal
+      // token to disk.
+      const c = parsed.content.trim()
+      request.content = c && TEMPLATE_PLACEHOLDER_RE.test(c) ? undefined : parsed.content
+    }
+
+    if ((action === 'write' || action === 'append') && request.content === undefined) {
+      return { cleanedContent: stripAllToolTags(content) }
     }
 
     if (parsed.createDirectories === true) {

@@ -317,3 +317,80 @@ describe('openclaw tool parsing', () => {
     expect(extracted.cleanedContent).not.toContain('<function_calls>')
   })
 })
+
+describe('template placeholder guard', () => {
+  it('rejects a copied <https URL> placeholder in unified_browser open (no broken dispatch)', () => {
+    const input = '<openclaw_tool name="unified_browser">{"action":"open","url":"<https URL>","description":"<what to inspect>"}</openclaw_tool>'
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request).toBeUndefined()
+  })
+
+  it('rejects a copied <https URL> placeholder in the browser tool', () => {
+    const input = '<openclaw_tool name="browser">{"action":"open","url":"<https URL>"}</openclaw_tool>'
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request).toBeUndefined()
+  })
+
+  it('rejects a copied <value> placeholder for web query', () => {
+    const input = '<openclaw_tool name="web">{"query":"<value>"}</openclaw_tool>'
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request).toBeUndefined()
+  })
+
+  it('rejects a copied <command to run> placeholder for shell', () => {
+    const input = '<openclaw_tool name="shell">{"command":"<command to run>","description":"<what it does>"}</openclaw_tool>'
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request).toBeUndefined()
+  })
+
+  it('rejects a copied <path> placeholder for filesystem', () => {
+    const input = '<openclaw_tool name="filesystem">{"action":"read","path":"<path>"}</openclaw_tool>'
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request).toBeUndefined()
+  })
+
+  it('keeps a real value that merely contains angle brackets mid-string (not a placeholder)', () => {
+    const input = '<openclaw_tool name="code">{"runtime":"node","code":"const el = <App />;","description":"render"}</openclaw_tool>'
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request?.name).toBe('code')
+    if (extracted.request?.name !== 'code') throw new Error('expected code')
+    expect(extracted.request.request.code).toBe('const el = <App />;')
+  })
+
+  it('still accepts a real unified_browser open with a proper URL', () => {
+    const input = '<openclaw_tool name="unified_browser">{"action":"open","url":"https://stockanalysis.com/stocks/pltr/"}</openclaw_tool>'
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request?.name).toBe('unified_browser')
+    if (extracted.request?.name !== 'unified_browser') throw new Error('expected ub')
+    expect(extracted.request.request.url).toBe('https://stockanalysis.com/stocks/pltr/')
+  })
+})
+
+describe('bare-domain URL promotion from prose', () => {
+  it('promotes a bare domain in "open <domain>" narration (no scheme)', () => {
+    const extracted = extractOpenClawToolRequest('I\'ll open stockanalysis.com for the PLTR forecast.')
+    expect(extracted.request?.name).toBe('unified_browser')
+    if (extracted.request?.name !== 'unified_browser') throw new Error('expected ub')
+    expect(extracted.request.request.action).toBe('open')
+    expect(extracted.request.request.url).toBe('https://stockanalysis.com')
+  })
+
+  it('promotes a bare domain with a path', () => {
+    const extracted = extractOpenClawToolRequest('Now open marketbeat.com/stocks/NASDAQ/PLTR/forecast/')
+    expect(extracted.request?.name).toBe('unified_browser')
+    if (extracted.request?.name !== 'unified_browser') throw new Error('expected ub')
+    expect(extracted.request.request.url).toBe('https://marketbeat.com/stocks/NASDAQ/PLTR/forecast/')
+  })
+
+  it('still recovers a full https URL from prose', () => {
+    const extracted = extractOpenClawToolRequest('Let me visit https://example.org/page to check the listing.')
+    expect(extracted.request?.name).toBe('unified_browser')
+    if (extracted.request?.name !== 'unified_browser') throw new Error('expected ub')
+    expect(extracted.request.request.url).toBe('https://example.org/page')
+  })
+
+  it('does not promote a non-domain token', () => {
+    const extracted = extractOpenClawToolRequest('Let me check the latest numbers now.')
+    expect(extracted.request).toBeUndefined()
+  })
+})
