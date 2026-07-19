@@ -121,7 +121,8 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 |---|---|
 | `/api/chat/completions` | Streaming chat and WorkSpaces generation |
 | `/api/chat/completed` | Session finalization after generation |
-| `/api/chats` | List, create, update, delete sessions |
+| `/api/chats` | List, create, update, delete sessions (list returns lean rows without the `messages` transcript) |
+| `/api/chats/[id]` | Fetch a single session's full DTO including the `messages` transcript (lazy-loaded on open/switch) |
 | `/api/chats/[id]/branch` | Fork a session from a selected message |
 | `/api/settings` | Per-user app and WorkSpaces settings |
 | `/api/rag/*` | Knowledge Base upload, search, health, diagnostics |

@@ -20,6 +20,7 @@ PeakUI opens directly into WorkSpaces. Workspace, Knowledge Base, Settings, task
 - **Tags**: Apply reusable tags to task threads for cross-folder filtering.
 - **Search**: Search task-thread titles and saved message content from the rail.
 - **Session actions**: Rename, pin, copy, delete, move to folder, and toggle tags from each WorkSpaces task thread menu.
+- **Lean session list + lazy transcripts**: The session rail loads from `GET /api/chats`, which returns lean rows containing identity, metadata, tags, branch info, `summary`, `contextSummary`, `analytics`, and `ragSources` — but **not** the `messages` transcript. The active session's transcript is fetched on demand from `GET /api/chats/[id]` when a thread is opened or switched to, and cached on the in-memory row so re-selecting, copy-to-clipboard, and branch-compare don't refetch. This keeps the sidebar load constant-time regardless of how many threads or how large each transcript is. The init path fans settings/folders/tags/sessions out in parallel with per-call retry and 10s fail-fast timeouts.
 
 ### File & Media Attachments
 

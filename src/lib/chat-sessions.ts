@@ -279,11 +279,13 @@ export function deriveChatTitle(messages: StoredChatMessage[]): string {
 type SessionRecord = {
   id: string;
   title: string;
-  messages: string;
+  // Heavy columns are optional so list queries can project them out and let
+  // toClientSession synthesize empty placeholders for the sidebar shape.
+  messages?: string;
   summary: string | null;
-  contextSummary: string | null;
-  contextSummaryUpdatedAt: Date | null;
-  analyticsJson: string;
+  contextSummary?: string | null;
+  contextSummaryUpdatedAt?: Date | null;
+  analyticsJson?: string;
   autoContinueMode: string;
   autoContinueMaxSteps: number;
   lastAutoContinueAt: Date | null;
@@ -299,7 +301,7 @@ type SessionRecord = {
   branchChildrenCount: number;
   ragEnabled: boolean;
   ragQuery: string | null;
-  ragSourcesJson: string | null;
+  ragSourcesJson?: string | null;
 };
 
 function computeBranchDepth(sessionId: string, parentById: Map<string, string | null>, cache = new Map<string, number>()): number {
@@ -343,13 +345,13 @@ function toClientSession(
     surface: normalizeSurface(session.surface),
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
-    messages: parseStoredChatMessages(session.messages),
+    messages: session.messages ? parseStoredChatMessages(session.messages) : [],
     folderId: session.folderId,
     tags: session.tags,
     summary: session.summary,
-    contextSummary: session.contextSummary,
-    contextSummaryUpdatedAt: session.contextSummaryUpdatedAt,
-    analytics: parseAnalyticsJson(session.analyticsJson),
+    contextSummary: session.contextSummary ?? null,
+    contextSummaryUpdatedAt: session.contextSummaryUpdatedAt ?? null,
+    analytics: session.analyticsJson ? parseAnalyticsJson(session.analyticsJson) : null,
     autoContinueMode: normalizeSessionAutoContinueMode(session.autoContinueMode),
     autoContinueMaxSteps: normalizeSessionAutoContinueMaxSteps(session.autoContinueMaxSteps, 3),
     lastAutoContinueAt: session.lastAutoContinueAt,
@@ -360,7 +362,7 @@ function toClientSession(
     branchDepth,
     ragEnabled: Boolean(session.ragEnabled),
     ragQuery: session.ragQuery ?? null,
-    ragSources: parseStoredMessageSources(session.ragSourcesJson),
+    ragSources: session.ragSourcesJson ? parseStoredMessageSources(session.ragSourcesJson) : [],
   };
 }
 
@@ -508,11 +510,11 @@ function mergeAssistantMessage(messages: StoredChatMessage[], assistantMessage: 
 function mapSessionRows(rows: Array<{
   id: string;
   title: string;
-  messages: string;
+  messages?: string;
   summary: string | null;
-  contextSummary: string | null;
-  contextSummaryUpdatedAt: Date | null;
-  analyticsJson: string;
+  contextSummary?: string | null;
+  contextSummaryUpdatedAt?: Date | null;
+  analyticsJson?: string;
   autoContinueMode: string;
   autoContinueMaxSteps: number;
   lastAutoContinueAt: Date | null;
@@ -543,23 +545,42 @@ function mapSessionRows(rows: Array<{
 }
 
 export async function listChatSessions(userId: string, surface: ChatSessionSurface = 'chat', folderId?: string | null): Promise<ChatSessionDto[]> {
+  // Lean projection: omit only the heavy `messages` transcript column. The
+  // small/capped columns (summary, contextSummary, analyticsJson,
+  // ragSourcesJson) stay so sidebar features (analytics pill, working-memory
+  // status, summary) render without a per-session detail fetch. The active
+  // session's `messages` are loaded separately via getChatSessionById. This
+  // avoids transferring and JSON.parsing every session's full transcript on
+  // each refresh, which was the 20-30s list-load bottleneck.
   const sessions = await prisma.chatSession.findMany({
     where: {
       userId,
       surface,
       ...(folderId !== undefined ? { folderId: folderId || undefined } : {}),
     },
-    include: {
-      tags: {
-        include: {
-          tag: true,
-        },
-      },
-      _count: {
-        select: {
-          childSessions: true,
-        },
-      },
+    select: {
+      id: true,
+      title: true,
+      pinned: true,
+      surface: true,
+      createdAt: true,
+      updatedAt: true,
+      folderId: true,
+      summary: true,
+      contextSummary: true,
+      contextSummaryUpdatedAt: true,
+      analyticsJson: true,
+      parentSessionId: true,
+      branchFromMessageId: true,
+      branchLabel: true,
+      autoContinueMode: true,
+      autoContinueMaxSteps: true,
+      lastAutoContinueAt: true,
+      ragEnabled: true,
+      ragQuery: true,
+      ragSourcesJson: true,
+      tags: { select: { tag: { select: { id: true, name: true, color: true } } } },
+      _count: { select: { childSessions: true } },
     },
     orderBy: [{ pinned: 'desc' }, { updatedAt: 'desc' }],
   });

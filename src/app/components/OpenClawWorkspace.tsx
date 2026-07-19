@@ -2982,6 +2982,16 @@ export default function OpenClawWorkspace({
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([]);
   const [sessionListPage, setSessionListPage] = useState(0);
   const [selectedSessionInfo, setSelectedSessionInfo] = useState<string>('');
+  const [sessionMessagesLoading, setSessionMessagesLoading] = useState(false);
+  // Guards the active-session transcript fetch so a slow response from a
+  // previously-selected session cannot overwrite the chat history of the
+  // session the user actually switched to.
+  const activeSessionLoadRef = useRef<string | null>(null);
+  // Cache of full session DTOs (with messages/analytics/contextSummary) loaded
+  // on demand via GET /api/chats/[id]. The sidebar list is lean, so any feature
+  // that needs the transcript (copy, branch-compare, re-open) hydrates the
+  // in-memory row through this cache to avoid refetching.
+  const [sessionDetailCache, setSessionDetailCache] = useState<Record<string, OpenClawSession>>({});
   const [ragEnabled, setRagEnabled] = useState(() => getStoredRagEnabled() ?? false);
   const [ragFolderPath, setRagFolderPath] = useState<string | null>(null);
   const [ragFolderPopoverOpen, setRagFolderPopoverOpen] = useState(false);
@@ -3489,7 +3499,7 @@ export default function OpenClawWorkspace({
   };
 
   const loadSettings = async () => {
-    const res = await fetch('/api/settings');
+    const res = await fetch('/api/settings', { signal: AbortSignal.timeout(10000) });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     const parsed = parseOpenClawSettingsResponse(data as Record<string, unknown>);
@@ -3562,17 +3572,78 @@ export default function OpenClawWorkspace({
     }
   };
 
-  const loadSessions = async () => {
-    const res = await fetch('/api/chats?surface=openclaw');
+  // Fetches the full DTO (with messages/analytics/contextSummary) for a single
+  // session via GET /api/chats/[id], caches it, and hydrates the in-memory
+  // sidebar row so any consumer that needs the transcript sees it without a
+  // refetch. Returns null on failure (never throws).
+  const fetchSessionDetail = async (sessionId: string): Promise<OpenClawSession | null> => {
+    if (sessionDetailCache[sessionId]?.messages?.length) {
+      return sessionDetailCache[sessionId];
+    }
+    try {
+      const res = await fetch(`/api/chats/${encodeURIComponent(sessionId)}`, {
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) return null;
+      const detail = normalizeOpenClawSession(await res.json());
+      if (detail) {
+        setSessionDetailCache(prev => ({ ...prev, [sessionId]: detail }));
+        updateSessionRecord(detail);
+      }
+      return detail;
+    } catch (error) {
+      if (!(error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError'))) {
+        console.error('Failed to load WorkSpaces session detail:', error);
+      }
+      return null;
+    }
+  };
+
+  // Loads the active session's transcript. The list endpoint returns lean rows
+  // (no `messages`) for the sidebar, so the active session's messages are
+  // loaded lazily on open/switch. Never throws: a failure blanks the chat area
+  // but does not break init.
+  const loadActiveSessionMessages = async (sessionId: string): Promise<void> => {
+    activeSessionLoadRef.current = sessionId;
+    setSessionMessagesLoading(true);
+    try {
+      const detail = await fetchSessionDetail(sessionId);
+      // Stale response: the user switched to another session while this was in flight.
+      if (activeSessionLoadRef.current !== sessionId) return;
+      setChatHistory(detail ? sanitizeOpenClawMessages(detail.messages || []) : []);
+    } finally {
+      if (activeSessionLoadRef.current === sessionId) {
+        setSessionMessagesLoading(false);
+      }
+    }
+  };
+
+  const loadSessions = async (options: { restoreActive?: boolean } = {}) => {
+    const res = await fetch('/api/chats?surface=openclaw', {
+      signal: AbortSignal.timeout(10000),
+    });
     const data = await res.json();
     if (!Array.isArray(data)) throw new Error('Failed to load WorkSpaces sessions');
 
     const nextSessions = sanitizeOpenClawSessions(data);
     setSessions(nextSessions);
     setSelectedSessionIds(current => current.filter(id => nextSessions.some(session => session?.id === id)));
+
+    // Refresh-only callers (folder/tag ops) just need the updated list; they
+    // must not wipe the active thread's chat history, which the lean list no
+    // longer carries. Keep the footer info fresh from the lean row.
+    if (!options.restoreActive) {
+      const current = nextSessions.find(session => session?.id === currentSessionId);
+      if (current) {
+        setSelectedSessionInfo(`${current.title} · updated ${formatTimestamp(current.updatedAt)}`);
+      }
+      return;
+    }
+
     const storedSelection = getStoredCurrentSessionSelection();
 
     if (storedSelection === OPENCLAW_DRAFT_TASK_ID) {
+      activeSessionLoadRef.current = null;
       setCurrentSessionId(null);
       setChatHistory([]);
       setCanvasArtifacts([]);
@@ -3591,7 +3662,9 @@ export default function OpenClawWorkspace({
 
     if (nextSession) {
       setCurrentSessionId(nextSession.id);
-      setChatHistory(sanitizeOpenClawMessages(nextSession.messages || []));
+      // The lean list no longer carries `messages`; hydrate the transcript via
+      // the single-session endpoint so the sidebar list stays cheap to load.
+      setChatHistory([]);
       // Restore the RAG draft so reopened WorkSpaces threads re-hydrate the
       // composer with the last search text. The user's current ragEnabled toggle
       // is preserved; toggling it on and sending re-runs the search.
@@ -3599,7 +3672,9 @@ export default function OpenClawWorkspace({
       setCanvasSearchQuery('');
       loadCanvasArtifacts(nextSession.id, { query: '' });
       setSelectedSessionInfo(`${nextSession.title} · updated ${formatTimestamp(nextSession.updatedAt)}`);
+      void loadActiveSessionMessages(nextSession.id);
     } else {
+      activeSessionLoadRef.current = null;
       setCurrentSessionId(null);
       setChatHistory([]);
       setCanvasArtifacts([]);
@@ -3612,13 +3687,13 @@ export default function OpenClawWorkspace({
   };
 
   const loadFolders = async () => {
-    const res = await fetch('/api/folders');
+    const res = await fetch('/api/folders', { signal: AbortSignal.timeout(10000) });
     const data = await res.json();
     setFolders(Array.isArray(data) ? data : []);
   };
 
   const loadChatTags = async () => {
-    const res = await fetch('/api/chat-tags');
+    const res = await fetch('/api/chat-tags', { signal: AbortSignal.timeout(10000) });
     const data = await res.json();
     setTags(Array.isArray(data) ? data : []);
   };
@@ -4090,27 +4165,41 @@ export default function OpenClawWorkspace({
     void (async () => {
       const isNetworkError = (error: unknown): boolean => {
         if (error instanceof TypeError) return true
+        if (error instanceof DOMException && (error.name === 'TimeoutError' || error.name === 'AbortError')) return true
         const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase()
-        return message.includes('network') || message.includes('failed to fetch')
+        return message.includes('network')
+          || message.includes('failed to fetch')
+          || message.includes('timeout')
+          || message.includes('aborted')
       }
 
-      const loadCritical = async (attempt = 1): Promise<void> => {
-        try {
-          // Critical path: render chat list as fast as possible.
-          await Promise.all([loadSettings(), loadFolders(), loadChatTags()])
-          // Load sessions immediately after the shared metadata so the chat list renders.
-          await loadSessions()
-        } catch (error) {
-          if (isNetworkError(error) && attempt < 3) {
-            await new Promise(resolve => window.setTimeout(resolve, 500 * attempt))
-            return loadCritical(attempt + 1)
+      // Per-call retry with backoff: a transient failure retries only the
+      // failing call, not the whole init bundle (avoids re-fetching the
+      // successful endpoints on every attempt).
+      const withRetry = async <T,>(fn: () => Promise<T>, attempts = 3): Promise<T> => {
+        for (let attempt = 1; ; attempt += 1) {
+          try {
+            return await fn()
+          } catch (error) {
+            if (isNetworkError(error) && attempt < attempts) {
+              await new Promise(resolve => window.setTimeout(resolve, 500 * attempt))
+              continue
+            }
+            throw error
           }
-          throw error
         }
       }
 
       try {
-        await loadCritical()
+        // Critical path: settings/folders/tags/sessions are mutually
+        // independent (each only needs the auth cookie), so fan them out
+        // together instead of gating the chat list behind the metadata triple.
+        await Promise.all([
+          withRetry(() => loadSettings()),
+          withRetry(() => loadFolders()),
+          withRetry(() => loadChatTags()),
+          withRetry(() => loadSessions({ restoreActive: true })),
+        ])
       } catch (error) {
         console.error('Failed to initialize WorkSpaces workspace:', error)
       }
@@ -4132,6 +4221,21 @@ export default function OpenClawWorkspace({
     })();
     // load only once on mount
   }, []);
+
+  // Branch-compare reads messages/analytics/contextSummary from the selected
+  // sessions, which the lean sidebar list no longer carries. Hydrate the full
+  // DTO for each compared session on demand when the compare modal is open.
+  /* eslint-disable react-hooks/exhaustive-deps */
+  useEffect(() => {
+    if (!branchCompareOpen) return;
+    const leftId = branchCompareLeftId || currentSessionId || '';
+    const rightId = branchCompareRightId;
+    [leftId, rightId].forEach(id => {
+      if (!id || sessionDetailCache[id]?.messages?.length) return;
+      void fetchSessionDetail(id);
+    });
+  }, [branchCompareOpen, branchCompareLeftId, branchCompareRightId, currentSessionId, sessionDetailCache]);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   useEffect(() => {
     if (settingsRevision <= 0) return;
@@ -4375,7 +4479,7 @@ export default function OpenClawWorkspace({
     ]);
   };
 
-  const switchSession = (session: OpenClawSession) => {
+  const switchSession = async (session: OpenClawSession) => {
     if (isStreaming) {
       setSelectedSessionInfo('Stop the current WorkSpaces run before switching task threads.');
       return;
@@ -4383,7 +4487,6 @@ export default function OpenClawWorkspace({
     closeMobileChrome();
     requestScrollReset();
     setCurrentSessionId(session.id);
-    setChatHistory(sanitizeOpenClawMessages(session.messages || []));
     setCanvasSearchQuery('');
     loadCanvasArtifacts(session.id, { query: '' });
     resetComposerDraftState();
@@ -4396,6 +4499,16 @@ export default function OpenClawWorkspace({
     setCreateMenuOpen(false);
     setRenamingSessionId(null);
     setRenameValue('');
+    if (session.messages?.length) {
+      // Fast path: transcript already in memory (branched or just-created session).
+      activeSessionLoadRef.current = session.id;
+      setChatHistory(sanitizeOpenClawMessages(session.messages));
+      setSessionMessagesLoading(false);
+    } else {
+      // Lean list row: fetch the transcript for the selected session.
+      setChatHistory([]);
+      await loadActiveSessionMessages(session.id);
+    }
   };
 
   const openAutomationNudgeSession = (nudge: AutomationNotificationState) => {
@@ -4512,7 +4625,10 @@ export default function OpenClawWorkspace({
       body: JSON.stringify({
         id: currentSession.id,
         surface: 'openclaw',
-        messages: stripAttachmentVisionData(currentSession.messages),
+        // The sidebar row is lean (no `messages`); use the live chat history,
+        // which is the authoritative transcript for the active session, so a
+        // memory clear/refresh never writes an empty message array.
+        messages: stripAttachmentVisionData(sanitizeOpenClawMessages(chatHistory)),
         clearContextSummary: action === 'clear',
         refreshContextSummary: action === 'refresh',
       }),
@@ -7126,7 +7242,11 @@ export default function OpenClawWorkspace({
   };
 
   const handleCopySession = async (session: OpenClawSession) => {
-    const text = sanitizeOpenClawMessages(session.messages)
+    // The sidebar row may be lean (no `messages`); fetch the transcript on demand.
+    const sourceMessages = session.messages?.length
+      ? session.messages
+      : (await fetchSessionDetail(session.id))?.messages || [];
+    const text = sanitizeOpenClawMessages(sourceMessages)
       .filter(messageItem => messageItem?.role !== 'system')
       .map(messageItem => {
         const attachments = messageItem.attachments?.length
@@ -12959,7 +13079,7 @@ export default function OpenClawWorkspace({
             )}
 
             <div className="openclaw-rail-footer">
-              {configSaving ? 'Saving settings...' : configError || connectionSummary || modelControlNote || selectedSessionInfo}
+              {configSaving ? 'Saving settings...' : sessionMessagesLoading ? 'Loading WorkSpaces thread…' : configError || connectionSummary || modelControlNote || selectedSessionInfo}
             </div>
           </>
         )}
