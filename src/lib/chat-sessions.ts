@@ -337,6 +337,7 @@ function parseAnalyticsJson(value: string): SessionAnalytics | null {
 function toClientSession(
   session: SessionRecord,
   branchDepth = 0,
+  preParsedMessages?: StoredChatMessage[],
 ): ChatSessionDto {
   return {
     id: session.id,
@@ -345,7 +346,9 @@ function toClientSession(
     surface: normalizeSurface(session.surface),
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
-    messages: session.messages ? parseStoredChatMessages(session.messages) : [],
+    // Reuse an already-normalized transcript when the caller has it in memory
+    // (save/finalize/branch paths) instead of re-parsing the stored string.
+    messages: preParsedMessages ?? (session.messages ? parseStoredChatMessages(session.messages) : []),
     folderId: session.folderId,
     tags: session.tags,
     summary: session.summary,
@@ -531,7 +534,7 @@ function mapSessionRows(rows: Array<{
   ragEnabled?: boolean;
   ragQuery?: string | null;
   ragSourcesJson?: string | null;
-}>): ChatSessionDto[] {
+}>, messagesOverride?: Map<string, StoredChatMessage[]>): ChatSessionDto[] {
   const parentById = new Map(rows.map(row => [row.id, row.parentSessionId]));
   const depthCache = new Map<string, number>();
   return rows.map(row => toClientSession({
@@ -541,7 +544,7 @@ function mapSessionRows(rows: Array<{
     ragEnabled: Boolean(row.ragEnabled),
     ragQuery: row.ragQuery ?? null,
     ragSourcesJson: row.ragSourcesJson ?? null,
-  }, computeBranchDepth(row.id, parentById, depthCache)));
+  }, computeBranchDepth(row.id, parentById, depthCache), messagesOverride?.get(row.id)));
 }
 
 export async function listChatSessions(userId: string, surface: ChatSessionSurface = 'chat', folderId?: string | null): Promise<ChatSessionDto[]> {
@@ -655,7 +658,7 @@ export async function upsertChatSession(userId: string, input: SaveChatSessionIn
         },
       });
 
-      return { created: false, session: mapSessionRows([updated])[0]! };
+      return { created: false, session: mapSessionRows([updated], new Map([[updated.id, payload.messages]]))[0]! };
     }
   }
 
@@ -686,7 +689,7 @@ export async function upsertChatSession(userId: string, input: SaveChatSessionIn
     },
   });
 
-  return { created: true, session: mapSessionRows([created])[0]! };
+  return { created: true, session: mapSessionRows([created], new Map([[created.id, payload.messages]]))[0]! };
 }
 
 export async function updateChatSession(
@@ -750,7 +753,7 @@ export async function updateChatSession(
     },
   });
 
-  return mapSessionRows([updated])[0] ?? null;
+  return mapSessionRows([updated], new Map([[updated.id, payload.messages]]))[0] ?? null;
 }
 
 export async function deleteChatSession(userId: string, sessionId: string): Promise<boolean> {
@@ -912,7 +915,7 @@ export async function finalizeChatSession(
         },
       });
 
-  return mapSessionRows([saved])[0] ?? null;
+  return mapSessionRows([saved], new Map([[saved.id, nextMessages]]))[0] ?? null;
 }
 
 export async function branchChatSession(
@@ -922,7 +925,7 @@ export async function branchChatSession(
   const existing = await prisma.chatSession.findUnique({
     where: { id: input.sessionId },
     include: {
-      tags: true,
+      tags: { include: { tag: true } },
     },
   });
   if (!existing || existing.userId !== userId) return null;
@@ -980,5 +983,12 @@ export async function branchChatSession(
     });
   }
 
-  return getChatSessionById(userId, created.id);
+  // The branch's tags are copies of the source session's tags (just attached
+  // via createMany above), so build the DTO from the just-created row + the
+  // in-memory branchMessages + the source tags instead of doing a second
+  // findUnique round-trip and re-parsing the stored transcript.
+  return mapSessionRows(
+    [{ ...created, tags: existing.tags }],
+    new Map([[created.id, branchMessages]]),
+  )[0] ?? null;
 }

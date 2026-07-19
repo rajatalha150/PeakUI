@@ -4,17 +4,20 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 // exercised without a live database. Only chatSession.findMany / findUnique
 // are touched by these two functions. vi.hoisted runs before the hoisted
 // vi.mock factory so the fns are initialized in time.
-const { findMany, findUnique } = vi.hoisted(() => ({
+const { findMany, findUnique, create, userSettingsFindUnique } = vi.hoisted(() => ({
   findMany: vi.fn(),
   findUnique: vi.fn(),
+  create: vi.fn(),
+  userSettingsFindUnique: vi.fn(),
 }))
 vi.mock('./prisma', () => ({
   prisma: {
-    chatSession: { findMany, findUnique },
+    chatSession: { findMany, findUnique, create },
+    userSettings: { findUnique: userSettingsFindUnique },
   },
 }))
 
-import { listChatSessions, getChatSessionById } from './chat-sessions'
+import { listChatSessions, getChatSessionById, upsertChatSession } from './chat-sessions'
 
 const baseRow = {
   userId: 'user-1',
@@ -45,6 +48,8 @@ describe('listChatSessions lean projection', () => {
   beforeEach(() => {
     findMany.mockReset()
     findUnique.mockReset()
+    create.mockReset()
+    userSettingsFindUnique.mockReset()
   })
 
   it('projects out the heavy messages column from the list query', async () => {
@@ -103,5 +108,44 @@ describe('listChatSessions lean projection', () => {
     const result = await getChatSessionById('user-1', 's3')
 
     expect(result).toBeNull()
+  })
+})
+
+describe('upsertChatSession write path', () => {
+  beforeEach(() => {
+    findMany.mockReset()
+    findUnique.mockReset()
+    create.mockReset()
+    userSettingsFindUnique.mockReset()
+  })
+
+  it('returns the in-memory messages without a redundant DB re-read / re-parse on create', async () => {
+    // getUserSettings falls back to DEFAULT_SETTINGS when no row exists.
+    userSettingsFindUnique.mockResolvedValue(null)
+    const inputMessages = [
+      { role: 'user', content: 'hello world', createdAt: '2026-01-01T00:00:00.000Z' },
+    ]
+    create.mockResolvedValue({
+      ...baseRow,
+      id: 's4',
+      userId: 'user-1',
+      // Server row stores a serialized transcript we should NOT need to re-read.
+      messages: JSON.stringify(inputMessages),
+    })
+
+    const result = await upsertChatSession('user-1', {
+      surface: 'openclaw',
+      messages: inputMessages,
+    })
+
+    expect(result.created).toBe(true)
+    // The returned DTO carries the normalized in-memory messages directly,
+    // proving the messagesOverride path (no re-parse of the stored string).
+    expect(result.session.id).toBe('s4')
+    expect(result.session.messages).toHaveLength(1)
+    expect(result.session.messages[0]?.content).toBe('hello world')
+    // Exactly one DB write; no follow-up findUnique to reload the row.
+    expect(create).toHaveBeenCalledTimes(1)
+    expect(findUnique).not.toHaveBeenCalled()
   })
 })
