@@ -131,6 +131,13 @@ export interface AppSettings {
   ragTopK: number
   ollamaUseCloudApi: boolean
   ollamaApiKey: string
+  /**
+   * Starred / favorite models, persisted server-side so they follow the user
+   * across browsers/devices (not just localStorage). Stored in the DB (and
+   * in AppSettings) as a JSON-encoded string array of `provider:modelName`
+   * keys; the client parses it into its `favoriteModels: string[]` state.
+   */
+  openClawFavoriteModels: string
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -199,6 +206,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ragTopK: 8,
   ollamaUseCloudApi: false,
   ollamaApiKey: '',
+  openClawFavoriteModels: '[]',
 }
 
 export function normalizeRagMode(value: unknown): RagMode {
@@ -387,6 +395,51 @@ export function normalizeOpenClawAutomationExecutionModel(value: unknown): strin
   return typeof value === 'string' ? value.trim() : ''
 }
 
+/**
+ * Maximum number of starred models kept per user, and the max length of a
+ * single `provider:modelName` key. Caps bound the stored column and guard
+ * against a runaway or malicious payload.
+ */
+const MAX_FAVORITE_MODELS = 256
+const MAX_FAVORITE_KEY_LEN = 200
+
+/**
+ * Normalize the user's starred-model list. Accepts either a JSON-encoded
+ * string (the DB column shape) or a raw array (the client POST body). Each
+ * entry is trimmed, stripped of control characters, length-capped, and
+ * de-duplicated; the total count is capped. Unknown / non-string entries
+ * are dropped. Returns a fresh array (never the input by reference).
+ */
+export function normalizeOpenClawFavoriteModels(value: unknown): string[] {
+  let list: unknown
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) return []
+    try {
+      list = JSON.parse(trimmed)
+    } catch {
+      return []
+    }
+  } else {
+    list = value
+  }
+
+  if (!Array.isArray(list)) return []
+
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const entry of list) {
+    if (typeof entry !== 'string') continue
+    const cleaned = entry.trim().replace(/[\u0000-\u001F\u007F]/g, '').slice(0, MAX_FAVORITE_KEY_LEN)
+    if (!cleaned) continue
+    if (seen.has(cleaned)) continue
+    seen.add(cleaned)
+    out.push(cleaned)
+    if (out.length >= MAX_FAVORITE_MODELS) break
+  }
+  return out
+}
+
 export function normalizeOpenClawAutomationExecutionMaxRunsPerHour(value: unknown): number {
   return Math.round(clampNumber(value, 1, 60, DEFAULT_SETTINGS.openClawAutomationExecutionMaxRunsPerHour))
 }
@@ -520,6 +573,7 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     ),
     ragEnabled: normalizeBoolean(settings?.ragEnabled, DEFAULT_SETTINGS.ragEnabled),
     ragTopK: normalizeRagTopK(settings?.ragTopK),
+    openClawFavoriteModels: JSON.stringify(normalizeOpenClawFavoriteModels(settings?.openClawFavoriteModels)),
   }
 }
 

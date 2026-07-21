@@ -22,6 +22,7 @@ import {
   normalizeOpenClawBrowserMode,
   normalizeOpenClawAutomationExecutionMaxRunsPerHour,
   normalizeOpenClawAutomationExecutionModel,
+  normalizeOpenClawFavoriteModels,
   normalizeOpenClawUwafBrowserMode,
   normalizeOpenClawUwafDefaultMode,
   normalizeOpenClawHostAccessMode,
@@ -113,6 +114,7 @@ interface SettingsBody {
   ragTopK?: unknown;
   ollamaUseCloudApi?: unknown;
   ollamaApiKey?: unknown;
+  openClawFavoriteModels?: unknown;
 }
 
 // GET: Return user settings (create defaults if none exist)
@@ -295,6 +297,11 @@ export async function POST(req: Request) {
       } else {
         data.ragTopK = 8;
       }
+    }
+    if (body.openClawFavoriteModels !== undefined) {
+      // Stored as a JSON-encoded string in the column; normalized (deduped,
+      // capped, control-char-stripped) on the way in and out.
+      data.openClawFavoriteModels = JSON.stringify(normalizeOpenClawFavoriteModels(body.openClawFavoriteModels));
     }
 
     const settings = await prisma.userSettings.upsert({

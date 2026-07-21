@@ -503,6 +503,7 @@ interface OpenClawSettings {
   openClawUserProfileRole: string;
   openClawUserProfilePreferences: string;
   openClawUserProfileContext: string;
+  openClawFavoriteModels: string[];
 }
 
 interface ParsedOpenClawSettingsResponse {
@@ -759,6 +760,27 @@ function parseOpenClawToolAccess(
   };
 }
 
+/**
+ * Parse the server's `openClawFavoriteModels` payload into the client's
+ * `string[]` state. The server stores/sends a JSON-encoded array string
+ * (the DB column shape); accept a raw array too, defensively, so a future
+ * API change can't break the UI. Always returns a fresh array of strings.
+ */
+function parseFavoriteModelsPayload(value: unknown): string[] {
+  let list: unknown = value;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      list = JSON.parse(trimmed);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(list)) return [];
+  return list.filter((entry): entry is string => typeof entry === 'string');
+}
+
 function parseOpenClawSettingsResponse(data: Record<string, unknown>): ParsedOpenClawSettingsResponse {
   const settings: OpenClawSettings = {
     openClawProvider: data.openClawProvider === 'openai-compatible' ? 'openai-compatible' : 'ollama',
@@ -837,6 +859,7 @@ function parseOpenClawSettingsResponse(data: Record<string, unknown>): ParsedOpe
     openClawUserProfileRole: typeof data.openClawUserProfileRole === 'string' ? data.openClawUserProfileRole : '',
     openClawUserProfilePreferences: typeof data.openClawUserProfilePreferences === 'string' ? data.openClawUserProfilePreferences : '',
     openClawUserProfileContext: typeof data.openClawUserProfileContext === 'string' ? data.openClawUserProfileContext : '',
+    openClawFavoriteModels: parseFavoriteModelsPayload(data.openClawFavoriteModels),
   };
 
   const permissions = parseOpenClawPermissions(data.permissions);
@@ -2961,6 +2984,10 @@ export default function OpenClawWorkspace({
   const [baseUrl, setBaseUrl] = useState('');
   const [modelSupportsVision, setModelSupportsVision] = useState(false);
   const visionCapabilityCacheRef = useRef<Map<string, boolean>>(new Map());
+  // Guards a one-time migration of localStorage-only favorites into the
+  // server-side store the first time we load settings and find the server
+  // list empty. After that the server is authoritative for favorites.
+  const migratedFavoritesRef = useRef(false);
   const [configSaving, setConfigSaving] = useState(false);
   const [configError, setConfigError] = useState('');
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -3134,7 +3161,9 @@ export default function OpenClawWorkspace({
     try {
       window.localStorage.setItem(OPENCLAW_MODEL_FAVORITES_STORAGE, JSON.stringify(favoriteModels));
     } catch {
-      // Ignore storage errors; favorites are a local UI preference.
+      // Ignore storage errors; localStorage is only a first-paint cache
+      // now — the server (/api/settings openClawFavoriteModels) is the
+      // authoritative store, so a write failure here is non-fatal.
     }
   }, [favoriteModels]);
 
@@ -3517,6 +3546,31 @@ export default function OpenClawWorkspace({
     setDraftSessionAutoContinueMaxSteps(nextSettings.openClawSessionAutoContinueMaxSteps);
     if (getStoredRagEnabled() === null) {
       setRagEnabled(nextSettings.ragEnabled);
+    }
+
+    // Favorites are server-authoritative. Adopt the server list so a star
+    // set in one browser appears in every other. On the very first load
+    // after this change, if the server has no favorites yet but this
+    // browser previously saved some to localStorage, migrate them up once.
+    setFavoriteModels(nextSettings.openClawFavoriteModels);
+    if (
+      !migratedFavoritesRef.current &&
+      nextSettings.openClawFavoriteModels.length === 0
+    ) {
+      migratedFavoritesRef.current = true;
+      try {
+        const localRaw = window.localStorage.getItem(OPENCLAW_MODEL_FAVORITES_STORAGE);
+        const localParsed = localRaw ? JSON.parse(localRaw) : [];
+        const localFavs = Array.isArray(localParsed)
+          ? localParsed.filter((entry): entry is string => typeof entry === 'string')
+          : [];
+        if (localFavs.length > 0) {
+          setFavoriteModels(localFavs);
+          void saveFavoriteModels(localFavs);
+        }
+      } catch {
+        // localStorage read/parse failure is non-fatal; server stays empty.
+      }
     }
 
     const templateId = (nextSettings.openClawPersonaTemplate as OpenClawPersonaTemplateId) || 'custom';
@@ -4461,13 +4515,42 @@ export default function OpenClawWorkspace({
 
   const getModelFavoriteKey = (modelName: string, modelProvider = provider) => `${modelProvider}:${modelName}`;
 
+  // Persist the favorite-model list to the server. Lighter than
+  // `saveSettingsPatch` (no theme/model/draft re-application, no
+  // configSaving spinner) so a star toggle is a cheap, non-disruptive sync.
+  // Server is authoritative; on success we reconcile local state to the
+  // server-normalized list (deduped/capped) to stay exactly in sync.
+  const saveFavoriteModels = async (next: string[]) => {
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ openClawFavoriteModels: next }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const parsed = parseOpenClawSettingsResponse(data as Record<string, unknown>);
+      const reconciled = parsed.settings.openClawFavoriteModels;
+      setSettings(prev => prev ? { ...prev, openClawFavoriteModels: reconciled } : prev);
+      setFavoriteModels(reconciled);
+    } catch {
+      // Best-effort: a failed sync leaves the local star in place; the
+      // next successful toggle or settings load re-converges with server.
+    }
+  };
+
   const toggleFavoriteModel = (event: React.MouseEvent, modelName: string) => {
     event.preventDefault();
     event.stopPropagation();
     const key = getModelFavoriteKey(modelName);
-    setFavoriteModels(current => current.includes(key)
-      ? current.filter(entry => entry !== key)
-      : [...current, key]);
+    setFavoriteModels(current => {
+      const next = current.includes(key)
+        ? current.filter(entry => entry !== key)
+        : [...current, key];
+      void saveFavoriteModels(next);
+      return next;
+    });
   };
 
   const refreshModels = async () => {

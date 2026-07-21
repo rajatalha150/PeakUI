@@ -103,6 +103,7 @@ model UserSettings {
   openClawMaxToolRoundsPerTurn               Int      @default(100)
   ollamaApiKey                               String   @default("")
   ollamaUseCloudApi                          Boolean  @default(false)
+  openClawFavoriteModels                     String   @default("[]")
   user                                       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
