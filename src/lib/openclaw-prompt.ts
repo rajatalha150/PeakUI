@@ -304,7 +304,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
         'SHELL EXECUTION CAPABILITY: You can request to run shell commands on the user\'s system.',
         shellTarget === 'host'
           ? 'The shell is currently configured to run on the host machine through a localhost executor, so commands see the host PATH and installed programs.'
-          : 'The shell currently runs inside the PeakUI runtime container, so verify available programs before depending on them.',
+          : 'The shell currently runs inside the PeakUI runtime container. The host Docker daemon socket is mounted into the container, so Docker CLI commands such as docker ps, docker images, and docker logs work and reach the host daemon — run them directly when asked. Do not pre-refuse or pre-empt a non-blocked command by assuming a program is missing; if a command is allowed by the policy below, attempt it and report the actual shell output (including any "command not found" or permission error) instead of guessing the result.',
         shellTarget === 'host'
           ? `Host shell commands are constrained by approval rules, timeouts, output caps, and approved working-directory roots. The managed WorkSpaces workspace is available at ${getOpenClawWorkspaceHostRoot()}.`
           : 'Do not use shell for host file or directory inspection when the filesystem tool can do the job. Container paths may differ from host paths such as /home or /tmp.',
