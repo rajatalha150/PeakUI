@@ -5,6 +5,10 @@ html[data-theme="aurora"] {
   --color-scheme: dark;
   --bg-base: #0a0a0f;
   --bg-surface: rgba(20, 20, 25, 0.7);
+  --bg-primary: #141419;
+  --bg-secondary: #1c1c24;
+  --bg-soft: #18181f;
+  --bg-elevated: #20202a;
   --bg-glass: rgba(255, 255, 255, 0.03);
   --bg-radial-top: rgba(139, 92, 246, 0.15);
   --bg-radial-bottom: rgba(59, 130, 246, 0.1);
@@ -37,6 +41,10 @@ html[data-theme="graphite"] {
   --color-scheme: dark;
   --bg-base: #212121;
   --bg-surface: rgba(32, 32, 32, 0.85);
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #262626;
+  --bg-soft: #222222;
+  --bg-elevated: #2a2a2a;
   --bg-glass: rgba(255, 255, 255, 0.04);
   --bg-radial-top: transparent;
   --bg-radial-bottom: transparent;
@@ -64,6 +72,10 @@ html[data-theme="midnight"] {
   --color-scheme: dark;
   --bg-base: #070b14;
   --bg-surface: rgba(13, 20, 36, 0.78);
+  --bg-primary: #0d1424;
+  --bg-secondary: #131c33;
+  --bg-soft: #10182a;
+  --bg-elevated: #18213a;
   --bg-glass: rgba(255, 255, 255, 0.035);
   --bg-radial-top: rgba(6, 182, 212, 0.13);
   --bg-radial-bottom: rgba(167, 139, 250, 0.09);
@@ -90,6 +102,10 @@ html[data-theme="evergreen"] {
   --color-scheme: light;
   --bg-base: #f4efe7;
   --bg-surface: rgba(255, 251, 245, 0.84);
+  --bg-primary: #fbf8f2;
+  --bg-secondary: #f1ebde;
+  --bg-soft: #f6f1e8;
+  --bg-elevated: #ffffff;
   --bg-glass: rgba(255, 255, 255, 0.7);
   --bg-radial-top: rgba(47, 107, 99, 0.14);
   --bg-radial-bottom: rgba(123, 90, 51, 0.09);
@@ -116,6 +132,10 @@ html[data-theme="burgundy"] {
   --color-scheme: light;
   --bg-base: #eef2f6;
   --bg-surface: rgba(255, 255, 255, 0.84);
+  --bg-primary: #ffffff;
+  --bg-secondary: #eef2f7;
+  --bg-soft: #f4f6fa;
+  --bg-elevated: #ffffff;
   --bg-glass: rgba(255, 255, 255, 0.68);
   --bg-radial-top: rgba(53, 92, 125, 0.14);
   --bg-radial-bottom: rgba(140, 90, 67, 0.09);
