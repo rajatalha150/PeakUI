@@ -41,6 +41,24 @@ Most AI chat interfaces send your prompts, documents, and browsing history to so
 
 ## Quick Start
 
+### 0. One-command install (optional)
+
+If Docker is already installed, skip the manual steps below and deploy the
+whole stack with a single command — it clones the repo, generates a `.env`
+with random secrets, builds, and starts everything detached:
+
+```bash
+# Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.sh | sh
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.ps1 | iex
+```
+
+Re-running the same command upgrades an existing deployment (`git pull` +
+rebuild). Then jump to step 3 below. The manual steps that follow are for when
+you prefer to clone and configure by hand.
+
 ### 1. Start Ollama
 
 ```bash

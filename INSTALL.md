@@ -2,6 +2,32 @@
 
 PeakUI runs as a Docker Compose stack: a Next.js app container, a PostgreSQL database, and an optional Tor proxy for UWAF stealth browsing.
 
+## Quick install (one command)
+
+If Docker is already installed, you can deploy the whole stack with a single
+command — it clones the repo, generates a `.env` with random secrets, builds,
+and starts everything detached, then prints the URL.
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.sh | sh
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.ps1 | iex
+```
+
+The installer is idempotent — re-running it `git pull`s the latest code and
+rebuilds, so the same command upgrades an existing deployment. It auto-selects
+the right compose file per OS (host networking on Linux, bridge networking on
+macOS/Windows) and writes OS-appropriate `DATABASE_URL` / `OLLAMA_HOST` values.
+
+The only hard prerequisite is Docker. Ollama is a soft prerequisite: the stack
+comes up without it, and you point PeakUI at your Ollama host in Settings
+after first login. To clone manually instead, run `./scripts/install.sh`
+(Linux/macOS) or `.\scripts\install.ps1` (Windows) from the repo root.
+
 ## Requirements
 
 - Docker and Docker Compose
