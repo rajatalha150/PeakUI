@@ -14,7 +14,7 @@ import {
 } from '@/lib/permissions'
 import { prisma } from '@/lib/prisma'
 import { getCurrentAuth } from '@/lib/request-auth'
-import { DEFAULT_SETTINGS } from '@/lib/settings'
+import { DEFAULT_SETTINGS, getUserSettings } from '@/lib/settings'
 
 function isRole(value: unknown): value is Role {
   return value === 'ADMIN' || value === 'MANAGER' || value === 'USER'
@@ -109,7 +109,7 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const { error } = await requireUserManager()
+    const { error, auth } = await requireUserManager()
     if (error) return error
 
     const body = await request.json() as {
@@ -149,6 +149,17 @@ export async function POST(request: Request) {
     }
 
     const passwordHash = await bcrypt.hash(body.password as string, 12)
+
+    // Inherit only the creating admin's Ollama host so a new account lands on
+    // the same reachable Ollama endpoint (e.g. 0.0.0.0 vs 127.0.0.1) instead of
+    // the bare default, which can be unreachable depending on the deployment.
+    // Every other setting starts from DEFAULT_SETTINGS.
+    const adminSettings = await getUserSettings(auth.user.id)
+    const inheritedSettings = {
+      ...DEFAULT_SETTINGS,
+      ollamaHost: adminSettings.ollamaHost,
+    }
+
     const user = await prisma.user.create({
       data: {
         username,
@@ -157,7 +168,7 @@ export async function POST(request: Request) {
         isActive,
         permissionOverrides,
         settings: {
-          create: DEFAULT_SETTINGS,
+          create: inheritedSettings,
         },
       },
       select: {

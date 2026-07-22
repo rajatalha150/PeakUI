@@ -106,7 +106,6 @@ type ImageAttachmentMode = 'vision-only' | 'vision+ocr' | 'ocr-only';
 const MOBILE_BREAKPOINT = 960;
 const HUMAN_BROWSER_ASSIST_TIMEOUT_MS = 10 * 60 * 1000;
 const SESSION_PAGE_SIZE = 15;
-const OPENCLAW_MODEL_FAVORITES_STORAGE = 'peakui-openclaw-model-favorites';
 
 /**
  * Parse a fetch() response body as JSON, but degrade gracefully when
@@ -2971,23 +2970,15 @@ export default function OpenClawWorkspace({
   const [streamPhase, setStreamPhase] = useState<UiStreamPhase | null>(null);
   const [liveStats, setLiveStats] = useState<{ tps: number; tokens: number } | null>(null);
   const [selectedModel, setSelectedModel] = useState('');
-  const [favoriteModels, setFavoriteModels] = useState<string[]>(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const parsed = JSON.parse(window.localStorage.getItem(OPENCLAW_MODEL_FAVORITES_STORAGE) || '[]');
-      return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === 'string') : [];
-    } catch {
-      return [];
-    }
-  });
+  const [favoriteModels, setFavoriteModels] = useState<string[]>([]);
+  // Favorites are server-authoritative and per-user (UserSettings.openClawFavoriteModels),
+  // so they are NOT seeded from localStorage — localStorage is shared across every
+  // account on a browser and would leak one user's favorites into another's. The
+  // server list is adopted in loadSettings once settings resolve.
   const [provider, setProvider] = useState<OpenClawProvider>('ollama');
   const [baseUrl, setBaseUrl] = useState('');
   const [modelSupportsVision, setModelSupportsVision] = useState(false);
   const visionCapabilityCacheRef = useRef<Map<string, boolean>>(new Map());
-  // Guards a one-time migration of localStorage-only favorites into the
-  // server-side store the first time we load settings and find the server
-  // list empty. After that the server is authoritative for favorites.
-  const migratedFavoritesRef = useRef(false);
   const [configSaving, setConfigSaving] = useState(false);
   const [configError, setConfigError] = useState('');
   const [modelsLoading, setModelsLoading] = useState(false);
@@ -3156,16 +3147,6 @@ export default function OpenClawWorkspace({
   useEffect(() => {
     browserInterruptedRef.current = browserInterrupted;
   }, [browserInterrupted]);
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(OPENCLAW_MODEL_FAVORITES_STORAGE, JSON.stringify(favoriteModels));
-    } catch {
-      // Ignore storage errors; localStorage is only a first-paint cache
-      // now — the server (/api/settings openClawFavoriteModels) is the
-      // authoritative store, so a write failure here is non-fatal.
-    }
-  }, [favoriteModels]);
 
   const {
     handleScroll: handleChatScroll,
@@ -3548,30 +3529,11 @@ export default function OpenClawWorkspace({
       setRagEnabled(nextSettings.ragEnabled);
     }
 
-    // Favorites are server-authoritative. Adopt the server list so a star
-    // set in one browser appears in every other. On the very first load
-    // after this change, if the server has no favorites yet but this
-    // browser previously saved some to localStorage, migrate them up once.
+    // Favorites are server-authoritative and per-user — adopt the server
+    // list directly. We deliberately do NOT read localStorage here: that key
+    // is shared across all accounts on a browser, so seeding from it would
+    // leak another user's favorites into this account.
     setFavoriteModels(nextSettings.openClawFavoriteModels);
-    if (
-      !migratedFavoritesRef.current &&
-      nextSettings.openClawFavoriteModels.length === 0
-    ) {
-      migratedFavoritesRef.current = true;
-      try {
-        const localRaw = window.localStorage.getItem(OPENCLAW_MODEL_FAVORITES_STORAGE);
-        const localParsed = localRaw ? JSON.parse(localRaw) : [];
-        const localFavs = Array.isArray(localParsed)
-          ? localParsed.filter((entry): entry is string => typeof entry === 'string')
-          : [];
-        if (localFavs.length > 0) {
-          setFavoriteModels(localFavs);
-          void saveFavoriteModels(localFavs);
-        }
-      } catch {
-        // localStorage read/parse failure is non-fatal; server stays empty.
-      }
-    }
 
     const templateId = (nextSettings.openClawPersonaTemplate as OpenClawPersonaTemplateId) || 'custom';
     const serverPersona = applyPersonaTemplate(templateId, {
