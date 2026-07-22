@@ -36,4 +36,14 @@ ENV PORT=3000
 ENV HOSTNAME=::
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
-CMD ["sh", "-c", "mkdir -p /mnt/openclaw/workspace /var/lib/peakui && if [ -z \"${JWT_SECRET:-}\" ] || [ ${#JWT_SECRET} -lt 32 ]; then if [ -f /var/lib/peakui/jwt-secret ]; then export JWT_SECRET=\"$(cat /var/lib/peakui/jwt-secret)\"; else export JWT_SECRET=\"$(head -c 48 /dev/urandom | base64 | tr -d '\\n' | cut -c1-64)\"; printf '%s' \"$JWT_SECRET\" >/var/lib/peakui/jwt-secret; chmod 600 /var/lib/peakui/jwt-secret; fi; fi && OPENCLAW_HOST_WORKSPACE_DIR=\"${OPENCLAW_HOST_WORKSPACE_DIR:-/home/raza/.peakui/workspace}\" && if [ \"$OPENCLAW_HOST_WORKSPACE_DIR\" != \"/mnt/openclaw/workspace\" ] && [ ! -e \"$OPENCLAW_HOST_WORKSPACE_DIR\" ] && ! printf '%s' \"$OPENCLAW_HOST_WORKSPACE_DIR\" | grep -qE '^[A-Za-z]:'; then mkdir -p \"$(dirname \"$OPENCLAW_HOST_WORKSPACE_DIR\")\" && ln -s /mnt/openclaw/workspace \"$OPENCLAW_HOST_WORKSPACE_DIR\"; fi && npx prisma db push && node server.js"]
+# `db push --accept-data-loss`: on upgrade, existing databases can have rows in
+# tables where a newer schema.prisma adds a unique/@@unique constraint. Plain
+# `db push` refuses non-interactively ("Use the --accept-data-loss flag") and
+# exits non-zero, which skips `node server.js` and leaves the container in a
+# restart loop with no web server. The flag proceeds past that prompt so
+# additive constraint changes apply on upgrade. It does NOT silently drop data
+# for column/table removals at runtime (those still require explicit schema
+# edits); for unique-constraint additions it applies the constraint, failing
+# loudly if real duplicate rows exist. We use db push (not migrate deploy)
+# because installer-created DBs have no migration baseline.
+CMD ["sh", "-c", "mkdir -p /mnt/openclaw/workspace /var/lib/peakui && if [ -z \"${JWT_SECRET:-}\" ] || [ ${#JWT_SECRET} -lt 32 ]; then if [ -f /var/lib/peakui/jwt-secret ]; then export JWT_SECRET=\"$(cat /var/lib/peakui/jwt-secret)\"; else export JWT_SECRET=\"$(head -c 48 /dev/urandom | base64 | tr -d '\\n' | cut -c1-64)\"; printf '%s' \"$JWT_SECRET\" >/var/lib/peakui/jwt-secret; chmod 600 /var/lib/peakui/jwt-secret; fi; fi && OPENCLAW_HOST_WORKSPACE_DIR=\"${OPENCLAW_HOST_WORKSPACE_DIR:-/home/raza/.peakui/workspace}\" && if [ \"$OPENCLAW_HOST_WORKSPACE_DIR\" != \"/mnt/openclaw/workspace\" ] && [ ! -e \"$OPENCLAW_HOST_WORKSPACE_DIR\" ] && ! printf '%s' \"$OPENCLAW_HOST_WORKSPACE_DIR\" | grep -qE '^[A-Za-z]:'; then mkdir -p \"$(dirname \"$OPENCLAW_HOST_WORKSPACE_DIR\")\" && ln -s /mnt/openclaw/workspace \"$OPENCLAW_HOST_WORKSPACE_DIR\"; fi && npx prisma db push --accept-data-loss && node server.js"]

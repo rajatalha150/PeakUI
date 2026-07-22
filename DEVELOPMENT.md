@@ -68,6 +68,13 @@ npx prisma studio
 
 Do not use `npx prisma db push --force-reset` on a real database.
 
+The production container entrypoint runs `npx prisma db push --accept-data-loss`
+(not `migrate deploy`) because installer-created databases have no migration
+baseline. The `--accept-data-loss` flag is required so that, on upgrade, adding a
+unique/`@@unique` constraint to a table that already has rows does not refuse
+non-interactively and leave the container in a restart loop. Keep the flag when
+editing the Dockerfile `CMD`. See the comment above the `CMD` for details.
+
 ## Code Style
 
 - TypeScript strict mode is enabled.
