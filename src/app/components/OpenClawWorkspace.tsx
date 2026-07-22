@@ -5254,10 +5254,29 @@ export default function OpenClawWorkspace({
     request: OpenClawCodeToolRequest,
     options: { messageId: string; sessionId: string }
   ): Promise<CodeToolResultEntry> => {
+    // Resolve the code-sandbox workspacePath so generated projects land in the
+    // active per-user workspace, not the shared workspace root:
+    //  - absolute / Windows host path (host-access mode): pass through unchanged
+    //  - relative path from the model: anchor it under the active workspace's
+    //    managed relative path (e.g. users/<id>/workspaces/default/<project>)
+    //  - omitted: use the active workspace directly, else the server's session fallback
+    const aiWorkspacePath = request.workspacePath?.trim();
+    let resolvedWorkspacePath: string | undefined;
+    if (aiWorkspacePath && (aiWorkspacePath.startsWith('/') || isWindowsHostPath(aiWorkspacePath))) {
+      resolvedWorkspacePath = aiWorkspacePath;
+    } else if (aiWorkspacePath) {
+      const base = currentWorkspace?.relativePath?.replace(/\/+$/, '');
+      resolvedWorkspacePath = base
+        ? `${base}/${aiWorkspacePath.replace(/^\/+/, '')}`
+        : aiWorkspacePath;
+    } else {
+      resolvedWorkspacePath = currentWorkspace?.relativePath || undefined;
+    }
+
     const payload = {
       ...request,
       sessionId: options.sessionId,
-      workspacePath: request.workspacePath?.trim() || currentWorkspace?.relativePath || undefined,
+      workspacePath: resolvedWorkspacePath,
     };
 
     try {

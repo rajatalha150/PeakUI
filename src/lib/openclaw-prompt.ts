@@ -360,7 +360,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
         'Only request writes inside those approved writable roots.',
         'When writing a file, send the full target content you want persisted. Do not assume patch utilities exist unless you actually use shell separately.',
         'If you need to create parent folders first, set createDirectories to true.',
-        `CRITICAL: Always use an absolute host path under an approved writable root. The account default workspace root is ${context.workspaceHostRoot || getOpenClawWorkspaceHostRoot()}. For projects inside the active workspace, prefix the path with that root (e.g. ${context.workspaceHostRoot || getOpenClawWorkspaceHostRoot()}/projects/<project>/file.ext).`,
+        `CRITICAL: Always use an absolute host path under an approved writable root.${workspace ? ` The active selected workspace root is ${workspace.hostPath} (managed relative path: ${workspace.relativePath}); place ALL project files and folders under this per-user workspace, never at the shared parent root — e.g. ${workspace.hostPath}/<project>/file.ext` : ` The account default workspace root is ${context.workspaceHostRoot || getOpenClawWorkspaceHostRoot()}; for projects inside the active workspace, prefix the path with that root (e.g. ${context.workspaceHostRoot || getOpenClawWorkspaceHostRoot()}/projects/<project>/file.ext)`}.`,
         'CRITICAL: Bare relative paths such as TVControlApp/settings.gradle or ./TVControlApp/settings.gradle are rejected by the filesystem tool. Always include the full host path starting with the account default workspace root or the equivalent absolute path.',
         'EFFICIENCY: For large project scaffolds with many files, prefer a single code-sandbox script that writes all files at once instead of chaining many individual filesystem tool calls. Only read files back if the user asks for verification or if a build/test fails.',
       );
@@ -378,7 +378,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
         'The sandbox is workspace-scoped, time-limited, output-limited, and returns generated files. It is not a full VM, and private/local network targets remain unavailable through the browser tool.',
         'Prefer the sandbox over shell for quick scripts or data-processing tasks.',
         `Use this exact format:\n${OPENCLAW_CODE_TOOL_EXAMPLE}`,
-        `workspacePath is optional. Relative paths are resolved under the account default workspace root (${context.workspaceHostRoot || getOpenClawWorkspaceHostRoot()}). If omitted, the run uses the current selected WorkSpaces workspace.`,
+        `workspacePath is optional.${workspace ? ` Relative paths are anchored under the active selected workspace (${workspace.hostPath}, managed relative path: ${workspace.relativePath}); for a new project pass just the project name (e.g. "disk-analyzer") and it will be placed inside this per-user workspace. Use an absolute host path only when you intentionally want to write outside the active workspace.` : ` Relative paths are resolved under the account default workspace root (${context.workspaceHostRoot || getOpenClawWorkspaceHostRoot()}).`} If omitted, the run uses the current selected WorkSpaces workspace.`,
         'Do not request package installs or long-running daemons through the code tool.',
         'After a code result arrives, use the actual stdout, stderr, exit code, and artifact list to continue.',
       );

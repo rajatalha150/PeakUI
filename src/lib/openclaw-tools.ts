@@ -218,7 +218,7 @@ export const OPENCLAW_FILESYSTEM_TOOL_EXAMPLE = `<openclaw_tool name="filesystem
 </openclaw_tool>`
 
 export const OPENCLAW_FILESYSTEM_WRITE_TOOL_EXAMPLE = `<openclaw_tool name="filesystem">
-{"action":"write","path":"~/.peakui/workspace/projects/tvcontrol/settings.gradle","content":"rootProject.name = \"TVControlApp\"\\n","createDirectories":true}
+{"action":"write","path":"~/.peakui/workspace/users/<your-user-id>/workspaces/default/tvcontrol/settings.gradle","content":"rootProject.name = \"TVControlApp\"\\n","createDirectories":true}
 </openclaw_tool>`
 
 export const OPENCLAW_CODE_TOOL_EXAMPLE = `<openclaw_tool name="code">
