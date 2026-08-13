@@ -145,7 +145,22 @@ function draftValueForField(fieldName: string, draft: TaxReturnDraft): string | 
   return null
 }
 
-export async function fillTaxPdfForm(templatePdf: Buffer, draft: TaxReturnDraft, flatten = false): Promise<{ bytes: Buffer; filledFields: string[]; warnings: string[] }> {
+const TRUTHY = new Set(['1', 'true', 'yes', 'y', 'x', 'on', 'checked', 'check'])
+
+/**
+ * Fill an AcroForm PDF template. Values are resolved per field as:
+ *   explicit `fields[fieldName]`  →  else the auto-extracted `draft` value.
+ * The `fields` overlay lets the agent supply values the auto-draft does not
+ * cover (e.g. Schedule C/D line items), so any IRS form can be filled from
+ * client data rather than only the W-2/1099 subset. Unmatched explicit field
+ * names are returned as warnings so the agent can correct them.
+ */
+export async function fillTaxPdfForm(
+  templatePdf: Buffer,
+  draft: TaxReturnDraft,
+  flatten = false,
+  fields: Record<string, string> = {},
+): Promise<{ bytes: Buffer; filledFields: string[]; warnings: string[] }> {
   const pdfDoc = await PDFDocument.load(templatePdf)
   const form = pdfDoc.getForm()
   const warnings: string[] = []
@@ -156,11 +171,16 @@ export async function fillTaxPdfForm(templatePdf: Buffer, draft: TaxReturnDraft,
 
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica)
   const filledFields: string[] = []
+  const explicitNames = new Set(Object.keys(fields))
 
   for (const field of form.getFields()) {
     const name = field.getName()
-    const value = draftValueForField(name, draft)
-    if (!value) continue
+    const explicit = fields[name]
+    const value = explicit !== undefined && explicit !== null
+      ? String(explicit)
+      : draftValueForField(name, draft)
+    explicitNames.delete(name)
+    if (value === undefined || value === null || value === '') continue
 
     try {
       const textField = form.getTextField(name)
@@ -169,13 +189,22 @@ export async function fillTaxPdfForm(templatePdf: Buffer, draft: TaxReturnDraft,
     } catch {
       try {
         const checkbox = form.getCheckBox(name)
-        if (value === 'true' || value === 'yes' || value === '1') {
+        if (TRUTHY.has(value.toLowerCase())) {
           checkbox.check()
           filledFields.push(name)
         }
       } catch {
-        // Unsupported field type for this MVP.
+        // Unsupported field type for this pass (radio/dropdown/etc.).
       }
+    }
+  }
+
+  // Explicit field names that did not match any AcroForm field — likely a
+  // typo or a wrong field name guessed by the agent. Surface them so the agent
+  // can call inspect_form and correct the mapping.
+  for (const unmatched of explicitNames) {
+    if (String(fields[unmatched]).trim() !== '') {
+      warnings.push(`Supplied field did not match any form field: ${unmatched}`)
     }
   }
 

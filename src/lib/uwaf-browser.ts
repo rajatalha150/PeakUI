@@ -99,11 +99,26 @@ async function runWithTimeout<T extends object>(work: Promise<T>, budgetMs: numb
   return { ...(result as T), timedOut: false }
 }
 
+// Login-detection text patterns. The visible-password-field check in
+// detectLoginRequirement is the authoritative signal; these text patterns
+// are a fallback ONLY for JS-rendered login pages where no password field
+// was found in the form inventory. They must be SPECIFIC login-page-BODY
+// phrases, never bare words:
+//   - Bare `\bemail\b` / `\bpassword\b` false-positived on DuckDuckGo SERPs
+//     ("Email Protection" footer) and "best password managers" articles.
+//   - Bare `\blog in\b` / `\bsign in\b` false-positive on the nav chrome of
+//     nearly every commercial site (Barchart, etc. carry a "Log In" nav
+//     link). A nav LINK is not an auth gate — it drove the model to abandon
+//     a page that had actually loaded with usable data.
+// Keep only phrases that essentially only appear ON a login/credential
+// page, so a page that merely *links* to a login is not flagged as gated.
 const LOGIN_PATTERNS = [
-  /\blog in\b/i,
-  /\bsign in\b/i,
-  /\bpassword\b/i,
-  /\bemail\b/i,
+  /\benter your password\b/i,
+  /\bforgot your password\b/i,
+  /\blog\s*in to your account\b/i,
+  /\bsign\s*in to your account\b/i,
+  /\blog\s*in to continue\b/i,
+  /\bsign\s*in to continue\b/i,
   /\btwo-factor\b/i,
   /\bmfa\b/i,
   /\bone-time code\b/i,
@@ -736,10 +751,16 @@ async function listTabs(context: BrowserContext, activePage: Page): Promise<{ ta
 }
 
 function detectLoginRequirement(title: string, markdown: string, forms: UwafBrowserForm[]): boolean {
+  // Authoritative signal: a real login form with a password field on the
+  // page. A page that merely *links* to a login ("Log In" nav link) does not
+  // have one and is not gated.
   if (forms.some(form => form.fields.some(field => field.type === 'password'))) {
     return true
   }
 
+  // Fallback for JS-rendered credential pages with no detectable password
+  // field: match only strong login-page-BODY phrases (see LOGIN_PATTERNS),
+  // never bare "log in"/"sign in" nav-link text.
   const haystack = `${title}\n${markdown.slice(0, 4_000)}`
   return LOGIN_PATTERNS.some(pattern => pattern.test(haystack))
 }
@@ -2116,4 +2137,5 @@ export { assertPublicHttpUrl }
 export const __test__ = {
   runWithTimeout,
   PER_PROVIDER_FALLBACK_BUDGET_MS,
+  detectLoginRequirement,
 }

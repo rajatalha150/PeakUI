@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState, useDeferredValue, useCallb
 import { isWindowsHostPath } from '@/lib/openclaw-path-check';
 import { randomUUID } from '@/lib/uuid';
 import Image from 'next/image';
-import { Activity, AlertCircle, BookOpen, Bot, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Database, Download, FileText, Folder, Globe, ListTodo, Loader2, Menu, MessageSquare, MoreHorizontal, Paperclip, Pin, Plus, Redo2, RefreshCw, Send, Server, Shield, Square, Star, Tag, Trash2, Wand2, Wifi, WifiOff, X } from 'lucide-react';
+import { Activity, AlertCircle, BookOpen, Bot, Calculator, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Database, Download, FileText, Folder, Globe, ListTodo, Loader2, Menu, MessageSquare, MoreHorizontal, Paperclip, Pin, Plus, Redo2, RefreshCw, Send, Server, Shield, Square, Star, Tag, Trash2, Wand2, Wifi, WifiOff, X } from 'lucide-react';
 import { ChatMessageContent, AssistantDownloads, ThinkingBlock } from './ChatMessageContent';
 import HelpHint from './HelpHint';
 import SourceChips from './SourceChips';
@@ -93,6 +93,13 @@ import {
 } from '@/lib/openclaw-narration-recovery';
 import { buildMalformedWrapperNudgeText, buildNarrationNudgeText } from '@/lib/openclaw-narration-nudge';
 import { compactStaleToolResults } from '@/lib/openclaw-context-compaction';
+import {
+  buildForcedSynthesisNudge,
+  buildObjectiveAnchorMessage,
+  buildObjectiveDivergenceNudge,
+  isSearchRequestRelevantToObjective,
+} from '@/lib/openclaw-objective-guard';
+import { wrapUntrustedToolResult } from '@/lib/openclaw-tool-output-trust';
 import UwafNetworkPanel from './UwafNetworkPanel';
 import LiveBrowserView from './LiveBrowserView';
 import BrowserModal from './BrowserModal';
@@ -1022,8 +1029,30 @@ interface WebToolResultEntry {
   error?: string;
 }
 
+interface IrsFormSummaryEntry {
+  formId: string;
+  filename: string;
+  title: string;
+  sizeBytes: number;
+}
+
+interface IrsFormFieldEntry {
+  name: string;
+  type: string;
+}
+
+interface IrsFormDetailEntry {
+  formId: string;
+  filename: string;
+  title: string;
+  fieldCount: number;
+  fields: IrsFormFieldEntry[];
+  pageText: string;
+  warnings: string[];
+}
+
 interface TaxReturnToolResultEntry {
-  action: 'generate_review_pdf' | 'fill_pdf_form';
+  action: 'generate_review_pdf' | 'fill_pdf_form' | 'list_forms' | 'inspect_form';
   success: boolean;
   artifact?: {
     id: string;
@@ -1035,6 +1064,8 @@ interface TaxReturnToolResultEntry {
   filledFields?: string[];
   warnings?: string[];
   missingFields?: string[];
+  forms?: IrsFormSummaryEntry[];
+  formDetail?: IrsFormDetailEntry;
   error?: string;
 }
 
@@ -1250,6 +1281,7 @@ const OPENCLAW_INTERNET_STORAGE = 'peakui-openclaw-internet-enabled';
 const OPENCLAW_RAG_STORAGE = 'peakui-openclaw-rag-enabled';
 const OPENCLAW_UNRESTRICTED_STORAGE = 'peakui-openclaw-unrestricted';
 const OPENCLAW_UNCENSORED_STORAGE = 'peakui-openclaw-uncensored';
+const OPENCLAW_ACCOUNTANT_STORAGE = 'peakui-openclaw-accountant';
 const OPENCLAW_AGENT_STORAGE = 'peakui-openclaw-agent-preferences';
 const OPENCLAW_RAIL_STORAGE = 'peakui-openclaw-rail-collapsed';
 const OPENCLAW_TASK_STATE_STORAGE = 'peakui-openclaw-task-states';
@@ -1258,6 +1290,17 @@ const OPENCLAW_PERSONA_STORAGE = 'peakui-openclaw-persona';
 const OPENCLAW_USER_PROFILE_STORAGE = 'peakui-openclaw-user-profile';
 const OPENCLAW_CURRENT_SESSION_STORAGE = 'peakui-openclaw-current-session';
 const OPENCLAW_CURRENT_WORKSPACE_STORAGE = 'peakui-openclaw-current-workspace';
+
+// The persisted RAG query is stored as `folder:<path> <query>` (see the send
+// path that composes ragQueryText). On rehydrate we split that prefix back out
+// so the Folders button reflects the scoped folder again and the composer only
+// shows the user's actual query text — not the raw `folder:` token.
+function splitFolderPrefix(ragQuery: string | null | undefined): { folder: string | null; query: string } {
+  const raw = typeof ragQuery === 'string' ? ragQuery : '';
+  const match = raw.match(/^folder:(\S+)\s*/);
+  if (!match) return { folder: null, query: raw };
+  return { folder: match[1], query: raw.slice(match[0].length) };
+}
 
 function getChatTitle(messages: OpenClawMessage[]) {
   const firstMessage = messages.find(message => message?.role === 'user' && message.content.trim());
@@ -1406,11 +1449,15 @@ function describeUwafBrowserRequest(request: OpenClawUwafBrowserToolRequest) {
 }
 
 function describeTaxReturnRequest(request: OpenClawTaxReturnToolRequest) {
-  if (request.description?.trim()) return `Tax PDF generation: ${request.description.trim()}`;
-  const folder = request.folder?.trim() ? ` from Knowledge Base folder \`${request.folder.trim()}\`` : '';
-  return request.action === 'fill_pdf_form'
-    ? `Filling a tax PDF form${folder}`
-    : `Generating a tax review PDF${folder}`;
+  if (request.description?.trim()) return `Tax tool: ${request.description.trim()}`
+  const folder = request.folder?.trim() ? ` from Knowledge Base folder \`${request.folder.trim()}\`` : ''
+  if (request.action === 'list_forms') return 'Listing available IRS forms'
+  if (request.action === 'inspect_form') return `Inspecting IRS form \`${request.formId?.trim() || '?'}\` fields`
+  if (request.action === 'fill_pdf_form') {
+    const target = request.formId?.trim() ? `IRS form \`${request.formId.trim()}\`` : 'a tax PDF form'
+    return `Filling ${target}${folder}`
+  }
+  return `Generating a tax review PDF${folder}`
 }
 
 function describePdfDocumentRequest(request: OpenClawPdfDocumentToolRequest) {
@@ -1737,6 +1784,28 @@ function normalizeExtractedToolRequestName(value: unknown): OpenClawMessage['too
     : undefined
 }
 
+// Detects whether the assistant message is a *delivered answer* (multi-
+// paragraph, substantive prose) as opposed to a one-line tool narration or
+// action announcement. Used by the forced-synthesis path: when the model
+// writes a real answer AND appends a redundant tool call (a common local-
+// model tic — "answer, then emit a wrapper anyway"), the prose answer is
+// already shown to the user, so we finalize it and stop instead of re-nudging
+// into a confusing "unable to converge" pause.
+//
+// Conservative by design: requires both length and multi-line structure, and
+// rejects anything detectMissingToolIntent flags as a tool narration/action
+// announcement. A single-line "Mermaid diagram: ..." narration or a short
+// "Let me create ..." lead-in will NOT match — those fall through to the
+// artifact-presenting path or re-nudge.
+function isSubstantiveProseAnswer(content: string): boolean {
+  const text = (content || '').trim();
+  if (text.length < 200) return false;
+  const nonEmptyLines = text.split('\n').map(line => line.trim()).filter(Boolean);
+  if (nonEmptyLines.length < 3) return false;
+  if (detectMissingToolIntent(text)) return false;
+  return true;
+}
+
 // Detects when an assistant message narrates an imminent tool action (e.g.
 // "Step 2 — Extract:", "Fetching the page now:") but ends without emitting a
 // tool block. These messages stall the agent loop because there is nothing to
@@ -2018,7 +2087,7 @@ function getOpenClawToolRequestSignature(request: OpenClawToolRequest) {
 
   if (request.name === 'tax_return') {
     const tax = request.request as OpenClawTaxReturnToolRequest
-    return `tax_return:${tax.action}:${tax.folder?.trim() || ''}:${tax.taxYear?.trim() || ''}:${tax.templateDocumentId?.trim() || ''}:${tax.flatten === true ? 'flatten' : ''}`;
+    return `tax_return:${tax.action}:${tax.folder?.trim() || ''}:${tax.taxYear?.trim() || ''}:${tax.templateDocumentId?.trim() || ''}:${tax.formId?.trim() || ''}:${tax.flatten === true ? 'flatten' : ''}:${Object.keys(tax.fields || {}).length}`
   }
 
   if (request.name === 'pdf_document') {
@@ -2209,11 +2278,13 @@ function formatShellToolResult(entry: ShellOutputEntry): string {
   ];
 
   if (entry.stdout?.trim()) {
-    lines.push('', 'STDOUT:', entry.stdout.trim());
+    // STDOUT can echo arbitrary external content (e.g. `curl` of a page) —
+    // wrap it as untrusted so any embedded instructions can't be obeyed.
+    lines.push('', 'STDOUT:', wrapUntrustedToolResult('shell', entry.stdout.trim()));
   }
 
   if (entry.stderr?.trim()) {
-    lines.push('', 'STDERR:', entry.stderr.trim());
+    lines.push('', 'STDERR:', wrapUntrustedToolResult('shell', entry.stderr.trim()));
   }
 
   lines.push('', 'Use this result to continue the task. Do not claim anything beyond what the command output shows.');
@@ -2372,7 +2443,10 @@ function formatWebToolResult(entry: WebToolResultEntry): string {
   lines.push(`Sources returned: ${entry.sources.length}`);
 
   if (entry.context?.trim()) {
-    lines.push('', 'Public web context:', entry.context.trim());
+    // Web context is raw external page/snippet text — wrap it as untrusted
+    // so embedded prompt-injection / delimiter forgery can't be read as
+    // instructions. The trusted "Public web context:" label stays outside.
+    lines.push('', 'Public web context:', wrapUntrustedToolResult('web', entry.context.trim()));
   }
 
   lines.push('', 'Use this result to continue the task. Base factual claims on these sources and cite them with inline markers like [^1].');
@@ -2409,7 +2483,8 @@ function formatBrowserToolResult(entry: BrowserToolResultEntry): string {
   }
 
   if (entry.text?.trim()) {
-    lines.push('', 'Page text:', entry.text.trim());
+    // Page text is raw rendered page content — wrap as untrusted.
+    lines.push('', 'Page text:', wrapUntrustedToolResult('browser', entry.text.trim()));
   }
 
   if (entry.links.length > 0) {
@@ -2439,7 +2514,7 @@ function formatBrowserToolResult(entry: BrowserToolResultEntry): string {
 
 function formatTaxReturnToolResult(entry: TaxReturnToolResultEntry): string {
   const lines = [
-    'Tax return PDF tool result:',
+    'Tax return tool result:',
     `Action: ${entry.action}`,
     `Status: ${entry.success ? 'completed' : 'failed'}`,
   ];
@@ -2447,6 +2522,61 @@ function formatTaxReturnToolResult(entry: TaxReturnToolResultEntry): string {
   if (!entry.success) {
     if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
     lines.push('', 'Use this result to continue the task. Do not claim a PDF was generated if this result failed.');
+    return lines.join('\n');
+  }
+
+  // Read-only catalog actions: no artifact, no client data.
+  if (entry.action === 'list_forms') {
+    const forms = entry.forms ?? [];
+    lines.push('', `Available IRS forms: ${forms.length}`);
+    forms.slice(0, 120).forEach(form => lines.push(`- ${form.formId} — ${form.title} (${form.filename})`));
+    if (forms.length === 0) {
+      lines.push('', 'No IRS forms found in the catalog. Ask the user to confirm the irs_forms directory is deployed.');
+    }
+    lines.push('', 'To fill a form, call inspect_form with the formId to get its exact field names, then fill_pdf_form with formId and fields.');
+    return lines.join('\n');
+  }
+
+  if (entry.action === 'inspect_form') {
+    const detail = entry.formDetail;
+    if (!detail) {
+      lines.push('', 'No form detail returned. Confirm the formId is valid (use list_forms to see available ids).');
+      return lines.join('\n');
+    }
+    lines.push(
+      '',
+      `Form: ${detail.title}`,
+      `Form id: ${detail.formId}`,
+      `Filename: ${detail.filename}`,
+      `Fillable fields: ${detail.fieldCount}`,
+    );
+    if (detail.fields.length > 0) {
+      const checkboxes = detail.fields.filter(field => field.type === 'checkbox');
+      const radios = detail.fields.filter(field => field.type === 'radio' || field.type === 'dropdown' || field.type === 'optionlist');
+      const other = detail.fields.filter(field => field.type !== 'checkbox' && field.type !== 'radio' && field.type !== 'dropdown' && field.type !== 'optionlist');
+      if (other.length > 0) {
+        lines.push('', 'Text / other fields (name — type):');
+        other.slice(0, 100).forEach(field => lines.push(`- ${field.name} — ${field.type}`));
+      }
+      if (checkboxes.length > 0) {
+        lines.push('', `Checkboxes (${checkboxes.length}) — check ONLY the ones the client's situation actually warrants; OMIT every other checkbox:`,
+          'To CHECK a box: include it in "fields" with a truthy value (e.g. "yes", "1", "x", "true").',
+          'To LEAVE a box unchecked: omit it from "fields" entirely. Do not pass "no" or "false" — just leave it out.');
+        checkboxes.slice(0, 120).forEach(field => lines.push(`- ${field.name}`));
+      }
+      if (radios.length > 0) {
+        lines.push('', 'Choice fields — radio / dropdown / option list (set the value that matches the client\'s situation):');
+        radios.slice(0, 80).forEach(field => lines.push(`- ${field.name} — ${field.type}`));
+      }
+    }
+    if (detail.pageText) {
+      lines.push('', 'First-page text (labels/line items) — match each checkbox/field to the line it controls:', detail.pageText.slice(0, 2000));
+    }
+    if (detail.warnings.length > 0) {
+      lines.push('', 'Warnings:');
+      detail.warnings.forEach(warning => lines.push(`- ${warning}`));
+    }
+    lines.push('', 'Use these exact field names when calling fill_pdf_form with this formId. For checkboxes, reason from the client documents about which boxes apply (filing status, dependents, credits, exemptions) and check only those — leave the rest unchecked by omitting them.');
     return lines.join('\n');
   }
 
@@ -2777,7 +2907,10 @@ function formatFetchSummarizeToolResult(entry: FetchSummarizeToolResultEntry): s
     lines.push('', 'Summary:');
     entry.summary.forEach(bullet => lines.push(`- ${bullet}`));
   }
-  if (entry.quote) lines.push('', `Key quote: "${entry.quote}"`);
+  if (entry.quote) {
+    // The key quote is verbatim text from the fetched page — wrap as untrusted.
+    lines.push('', `Key quote: "${wrapUntrustedToolResult('fetch_summarize', entry.quote)}"`);
+  }
 
   lines.push('', 'Use this result to answer the user. Cite the source URL explicitly.');
   return lines.join('\n');
@@ -3024,6 +3157,9 @@ export default function OpenClawWorkspace({
   });
   const [uncensoredEnabled, setUncensoredEnabled] = useState(() => {
     try { return window.sessionStorage.getItem(OPENCLAW_UNCENSORED_STORAGE) === 'true'; } catch { return false; }
+  });
+  const [accountantEnabled, setAccountantEnabled] = useState(() => {
+    try { return window.sessionStorage.getItem(OPENCLAW_ACCOUNTANT_STORAGE) === 'true'; } catch { return false; }
   });
   const [uwafCurrentUrl, setUwafCurrentUrl] = useState<string>('');
   const [uwafCurrentTitle, setUwafCurrentTitle] = useState<string>('');
@@ -3663,6 +3799,7 @@ export default function OpenClawWorkspace({
     if (storedSelection === OPENCLAW_DRAFT_TASK_ID) {
       activeSessionLoadRef.current = null;
       setCurrentSessionId(null);
+      setRagFolderPath(null);
       setChatHistory([]);
       setCanvasArtifacts([]);
       setCanvasNextCursor(null);
@@ -3685,8 +3822,12 @@ export default function OpenClawWorkspace({
       setChatHistory([]);
       // Restore the RAG draft so reopened WorkSpaces threads re-hydrate the
       // composer with the last search text. The user's current ragEnabled toggle
-      // is preserved; toggling it on and sending re-runs the search.
-      setMessage(nextSession.ragQuery ?? '');
+      // is preserved; toggling it on and sending re-runs the search. The saved
+      // ragQuery may carry a `folder:<path>` prefix — split it back out so the
+      // Folders button shows the scoped folder and the composer stays clean.
+      const restored = splitFolderPrefix(nextSession.ragQuery);
+      setRagFolderPath(restored.folder);
+      setMessage(restored.query);
       setCanvasSearchQuery('');
       loadCanvasArtifacts(nextSession.id, { query: '' });
       setSelectedSessionInfo(`${nextSession.title} · updated ${formatTimestamp(nextSession.updatedAt)}`);
@@ -4538,8 +4679,12 @@ export default function OpenClawWorkspace({
     loadCanvasArtifacts(session.id, { query: '' });
     resetComposerDraftState();
     // Restore the RAG draft after resetComposerDraftState so the saved query
-    // is what the user sees, not a freshly cleared composer.
-    setMessage(session.ragQuery ?? '');
+    // is what the user sees, not a freshly cleared composer. Split any
+    // `folder:<path>` prefix back out so the Folders button reflects the
+    // folder this thread was scoped to.
+    const restored = splitFolderPrefix(session.ragQuery);
+    setRagFolderPath(restored.folder);
+    setMessage(restored.query);
     setLastSubmission(null);
     setSelectedSessionInfo(`${session.title} · updated ${formatTimestamp(session.updatedAt)}`);
     setSessionMenuOpen(null);
@@ -4813,6 +4958,18 @@ export default function OpenClawWorkspace({
       const nextValue = !prev;
       try {
         window.sessionStorage.setItem(OPENCLAW_UNCENSORED_STORAGE, String(nextValue));
+      } catch {
+        // Ignore browser storage failures.
+      }
+      return nextValue;
+    });
+  };
+
+  const toggleAccountant = () => {
+    setAccountantEnabled(prev => {
+      const nextValue = !prev;
+      try {
+        window.sessionStorage.setItem(OPENCLAW_ACCOUNTANT_STORAGE, String(nextValue));
       } catch {
         // Ignore browser storage failures.
       }
@@ -5875,6 +6032,33 @@ export default function OpenClawWorkspace({
         ? data.draft as Record<string, unknown>
         : {};
 
+      const forms = Array.isArray(data.forms)
+        ? (data.forms as Record<string, unknown>[]).filter(Boolean).map((form): IrsFormSummaryEntry => ({
+            formId: typeof form.formId === 'string' ? form.formId : '',
+            filename: typeof form.filename === 'string' ? form.filename : '',
+            title: typeof form.title === 'string' ? form.title : '',
+            sizeBytes: typeof form.sizeBytes === 'number' ? form.sizeBytes : 0,
+          })).filter(form => form.formId)
+        : undefined;
+
+      const rawForm = data.form && typeof data.form === 'object' ? data.form as Record<string, unknown> : null;
+      const formDetail = rawForm && typeof rawForm.formId === 'string'
+        ? {
+            formId: String(rawForm.formId),
+            filename: typeof rawForm.filename === 'string' ? String(rawForm.filename) : '',
+            title: typeof rawForm.title === 'string' ? String(rawForm.title) : '',
+            fieldCount: typeof rawForm.fieldCount === 'number' ? rawForm.fieldCount : 0,
+            fields: Array.isArray(rawForm.fields)
+              ? (rawForm.fields as Record<string, unknown>[]).map((f): IrsFormFieldEntry => ({
+                  name: typeof f.name === 'string' ? f.name : '',
+                  type: typeof f.type === 'string' ? f.type : 'other',
+                })).filter(f => f.name)
+              : [],
+            pageText: typeof rawForm.pageText === 'string' ? rawForm.pageText : '',
+            warnings: Array.isArray(rawForm.warnings) ? (rawForm.warnings as unknown[]).filter((w): w is string => typeof w === 'string') : [],
+          }
+        : undefined;
+
       return {
         action: request.action,
         success: data.success !== false,
@@ -5895,6 +6079,8 @@ export default function OpenClawWorkspace({
         filledFields: Array.isArray(data.filledFields) ? data.filledFields.filter((field: unknown): field is string => typeof field === 'string') : [],
         warnings: Array.isArray(data.warnings) ? data.warnings.filter((warning: unknown): warning is string => typeof warning === 'string') : [],
         missingFields: Array.isArray(draft.missingFields) ? draft.missingFields.filter((field: unknown): field is string => typeof field === 'string') : [],
+        forms,
+        formDetail,
       };
     } catch (error) {
       return {
@@ -7883,6 +8069,7 @@ export default function OpenClawWorkspace({
         rag_topk: options.ragTopK,
         unrestricted: unrestrictedEnabled,
         uncensored: uncensoredEnabled,
+        accountant: accountantEnabled,
         messages: options.conversationMessages.map(message => {
           const displayImages = (message.images ?? []).map(img => ({
             data: img.data,
@@ -8181,6 +8368,25 @@ export default function OpenClawWorkspace({
         });
       }
 
+      // Objective re-anchor (#1): the objective brief sits at the top of
+      // contextMessages, so on a long tool session it gets buried under the
+      // growing tool-result history and a local model loses the thread (the
+      // "agent declared on-topic results off-topic and pivoted topics"
+      // failure). This short reminder is injected as the LAST message every
+      // round (see conversationMessages below) so the objective wins recency.
+      // It is transient — never persisted to sessionHistory — so it does not
+      // accumulate or get compacted.
+      const objectiveAnchorText = buildObjectiveAnchorMessage(effectiveObjective);
+      const objectiveAnchorMessage: OpenClawMessage | null = objectiveAnchorText
+        ? {
+            id: randomUUID(),
+            role: 'user',
+            content: objectiveAnchorText,
+            hidden: true,
+            createdAt: new Date().toISOString(),
+          }
+        : null;
+
       if (activeSources.length > 0) {
         updateChatMessage(assistantMessageId, current => ({
           ...current,
@@ -8202,6 +8408,17 @@ export default function OpenClawWorkspace({
       // 2-cycle/3-cycle breaks instead of bouncing until the iteration cap.
       const RECENT_SIGNATURE_RING_SIZE = 6;
       const recentToolSignatures: string[] = [];
+      // Objective-divergence guard (#2): tracks whether the agent has
+      // already produced an on-topic search result this turn. The guard only
+      // hard-blocks a search when it BOTH diverges from the objective AND the
+      // agent already has a usable on-topic result — so the first exploratory
+      // search is never blocked, but the "pivot away after on-topic results"
+      // failure (the demonstrated bug) is caught. `objectiveDivergenceCount`
+      // bounds the guard so it cannot loop forever; after the budget the
+      // search is allowed through rather than deadlocking the turn.
+      let hadRelevantSearchResult = false;
+      const MAX_OBJECTIVE_DIVERGENCE_NUDGES = 2;
+      let objectiveDivergenceCount = 0;
       // Tracks the most recent successfully-executed tool (any kind) so the
       // recovery layer can (a) regenerate the prior document artifact when
       // the narration says "regenerate it" / "render the same thing again",
@@ -8220,6 +8437,139 @@ export default function OpenClawWorkspace({
       const MAX_TOOL_ROUNDS = settings.openClawMaxToolRoundsPerTurn ?? 25;
       const MAX_TOOL_LOOP_ITERATIONS = Math.max(40, MAX_TOOL_ROUNDS * 2);
       let executedToolRounds = 0;
+      // Forced final synthesis (#2): when the agent is stuck — cycling on the
+      // same tool call, or about to hit the productive tool budget — disable
+      // further tool dispatch for the turn and demand a plain-text answer (or
+      // an explicit request for more turns). Closes the "looped and never
+      // answered" failures (chat-1: degenerate wrapper spam after a good
+      // search; chat-2: re-extracting the same SERP until the loop broke with
+      // no answer). It arms at the 2nd duplicate tool request, or within
+      // NEAR_BUDGET_MARGIN of the per-turn budget; the reminder cap bounds how
+      // many times we re-nudge a model that keeps emitting tool calls after
+      // being told to stop, before we surface a visible pause.
+      const NEAR_BUDGET_MARGIN = 3;
+      const FORCED_SYNTHESIS_REMINDER_MAX = 2;
+      let forceFinalSynthesis = false;
+      let forcedSynthesisReminderCount = 0;
+      // True once a canvas/document artifact (mermaid, pdf, slides, …) has been
+      // successfully produced this turn. A duplicate tool call after this point
+      // is the model redundantly re-emitting the finished work — the task is
+      // done, so we present the artifact and stop instead of cycling into the
+      // "unable to converge" pause. This is the direct fix for "it created the
+      // file but kept going".
+      let producedArtifactThisTurn = false;
+      /**
+       * Push a short, visible "created your <artifact>" message and end the
+       * turn. Used when an artifact was produced and the model is flailing
+       * with redundant re-calls instead of presenting it. Best-effort
+       * filename from the last successful document tool; falls back to a
+       * generic label.
+       */
+      const finalizeWithArtifactMessage = (): void => {
+        const filename = lastSuccessfulToolRequest?.filename?.trim();
+        const subject = filename ? `\`${filename}\`` : 'your file';
+        const done: OpenClawMessage = {
+          id: randomUUID(),
+          role: 'assistant',
+          content: `I've created ${subject} — view it in the Canvas/Files panel. Reply "continue" if you'd like changes or refinements.`,
+          createdAt: new Date().toISOString(),
+        };
+        setChatHistory(prev => [...prev, done]);
+        sessionHistory = [...sessionHistory, done];
+        finalAssistantMessage = done;
+        lastToolRequestSignature = null;
+      };
+      /**
+       * Enforce forced final synthesis for THIS turn once armed. Called every
+       * round after the assistant message is normalized.
+       *   - Returns 'continue' when the model is still attempting a tool call
+       *     (or narrating one): re-inject the stop-and-answer nudge (bounded
+       *     by FORCED_SYNTHESIS_REMINDER_MAX) and re-stream.
+       *   - Returns 'break' when the reminders are exhausted and the model
+       *     still won't stop calling tools: surface a visible pause so the
+       *     user can grant more turns ("continue") or rephrase, and end the
+       *     turn.
+       *   - Returns null when the model produced a clean plain-text answer
+       *     (no tool tag, no narration): falls through to the normal no-tool
+       *     path which finalizes the answer.
+       */
+      const handleForcedSynthesisAttempt = (args: {
+        request: OpenClawToolRequest | null | undefined;
+        rawToolTagPresent: boolean;
+        content: string;
+      }): 'continue' | 'break' | null => {
+        if (!forceFinalSynthesis) return null;
+        // A clean plain-text answer is exactly what we wanted — let the
+        // normal no-request path finalize it.
+        const cleanAnswer =
+          !args.request && !args.rawToolTagPresent && !detectMissingToolIntent(args.content);
+        if (cleanAnswer) return null;
+        // The model wrote a real, multi-paragraph answer AND appended a
+        // redundant tool call (a common local-model tic). The prose answer is
+        // already the visible assistant message — finalize it and stop, rather
+        // than re-nudging into a confusing "unable to converge" pause that
+        // appears *after* the answer was already delivered.
+        if (isSubstantiveProseAnswer(args.content)) {
+          lastToolRequestSignature = null;
+          return 'break';
+        }
+        // A canvas/document artifact was produced this turn — the task is
+        // done. Present it and stop instead of letting the model keep
+        // re-calling the tool.
+        if (producedArtifactThisTurn) {
+          finalizeWithArtifactMessage();
+          return 'break';
+        }
+        if (forcedSynthesisReminderCount < FORCED_SYNTHESIS_REMINDER_MAX && !controller.signal.aborted) {
+          forcedSynthesisReminderCount += 1;
+          const reminder: OpenClawMessage = {
+            id: randomUUID(),
+            role: 'user',
+            content: buildForcedSynthesisNudge(),
+            hidden: true,
+            createdAt: new Date().toISOString(),
+          };
+          sessionHistory = [...sessionHistory, reminder];
+          setChatHistory(prev => [...prev, reminder]);
+          lastToolRequestSignature = null;
+          setLiveStats(null);
+          setStreamPhase(null);
+          return 'continue';
+        }
+        // Nothing was produced (no artifact, no real answer) and the model
+        // keeps calling tools — this is the only case where the "unable to
+        // converge" pause is honest. If the last tool result was a failure
+        // (e.g. a filesystem read blocked by no approved read root), surface
+        // the Code/Error/Action-required so the user learns the real reason
+        // the loop stalled instead of a generic "I kept cycling" apology.
+        if (!controller.signal.aborted) {
+          const lastFailure = [...sessionHistory]
+            .reverse()
+            .find(
+              m => m.role === 'user' && m.hidden && /Status:\s*failed/i.test(m.content),
+            );
+          let detail = '';
+          if (lastFailure) {
+            const lines = lastFailure.content.split('\n');
+            const picked = lines
+              .filter(line => /^(Code|Error|Action required|Action):\s*/i.test(line))
+              .map(line => line.trim())
+              .slice(0, 3);
+            if (picked.length > 0) detail = `\n\nThe last tool call failed with:\n${picked.join('\n')}`;
+          }
+          const pauseNotice: OpenClawMessage = {
+            id: randomUUID(),
+            role: 'assistant',
+            content: `I've been unable to converge on an answer after ${executedToolRounds} tool step(s) — I kept hitting the same barrier instead of making progress.${detail} Reply "continue" to let me keep working with more tool steps, or tell me specifically what you need (or fix the blocker above) so I can move forward.`,
+            createdAt: new Date().toISOString(),
+          };
+          setChatHistory(prev => [...prev, pauseNotice]);
+          sessionHistory = [...sessionHistory, pauseNotice];
+          finalAssistantMessage = pauseNotice;
+        }
+        lastToolRequestSignature = null;
+        return 'break';
+      };
 
       for (let toolRound = 0; toolRound < MAX_TOOL_LOOP_ITERATIONS; toolRound += 1) {
         if (toolRound > 0) {
@@ -8243,7 +8593,13 @@ export default function OpenClawWorkspace({
           // Storage and the user-visible transcript are untouched — this only
           // shrinks what is sent to the model on this round. See
           // openclaw-context-compaction.ts.
-          conversationMessages: [...contextMessages, ...compactStaleToolResults(sessionHistory)],
+          conversationMessages: [
+            ...contextMessages,
+            ...compactStaleToolResults(sessionHistory),
+            // Re-anchor the objective as the final message so it wins recency
+            // over the growing tool-result history (see objectiveAnchorMessage).
+            ...(objectiveAnchorMessage ? [objectiveAnchorMessage] : []),
+          ],
           chatId,
           prompt,
           ragEnabledForTurn: toolRound === 0 ? ragEnabled : false,
@@ -8340,6 +8696,21 @@ export default function OpenClawWorkspace({
 
         sessionHistory = [...sessionHistory, normalizedAssistant];
         finalAssistantMessage = normalizedAssistant;
+
+        // Forced final synthesis (#2): if tools were disabled this turn and the
+        // model is STILL attempting a tool (or narrating one), re-nudge it
+        // (bounded) or surface a visible pause so the user can grant more
+        // turns. A clean plain-text answer falls through to the normal
+        // no-request path and ends the turn.
+        {
+          const verdict = handleForcedSynthesisAttempt({
+            request,
+            rawToolTagPresent,
+            content: normalizedAssistant.content,
+          });
+          if (verdict === 'continue') continue;
+          if (verdict === 'break') break;
+        }
 
         if (!request) {
           // The model either emitted a malformed/duplicate tool block, or it
@@ -8462,9 +8833,44 @@ export default function OpenClawWorkspace({
           }
 
           // Recovery nudges are exhausted but the model was clearly mid-action.
-          // Surface a clear, visible pause instead of silently ending so the
-          // user understands why the run stopped and can resume it. Include
-          // the tool name we believe the model was trying to call, the last
+          // Before giving up with an apology: if we already collected evidence
+          // this turn (a search ran, a tool succeeded), arm forced synthesis
+          // and give the model ONE plain-text answer turn from what it gathered
+          // — the chat-1 failure was exactly this: 8 good sources, then a
+          // degenerate wrapper-spam, then a "kept coming back malformed" stall
+          // and NEVER an answer. Tools are disabled so it can't keep emitting
+          // broken wrappers; it must answer or ask for more turns. Only fall
+          // through to the visible stall if it STILL can't answer after the
+          // reminder budget.
+          const collectedEvidence =
+            executedToolRounds > 0 || hadRelevantSearchResult || Boolean(lastSuccessfulToolRequest);
+          if (
+            (invalidToolBlock || promisedToolButStopped || Boolean(malformedWrapperFormat))
+            && collectedEvidence
+            && !forceFinalSynthesis
+            && !controller.signal.aborted
+          ) {
+            forceFinalSynthesis = true;
+            const synthesisNotice: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: buildForcedSynthesisNudge(),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, synthesisNotice];
+            setChatHistory(prev => [...prev, synthesisNotice]);
+            lastToolRequestSignature = null;
+            setLiveStats(null);
+            setStreamPhase(null);
+            continue;
+          }
+
+          // Recovery nudges are exhausted and forced synthesis either already
+          // failed or there was no evidence to synthesize from. Surface a
+          // clear, visible pause instead of silently ending so the user
+          // understands why the run stopped and can resume it. Include the
+          // tool name we believe the model was trying to call, the last
           // snippet it emitted, and a fresh re-run prompt so the user can
           // either continue or rephrase without confusion.
           if ((invalidToolBlock || promisedToolButStopped || Boolean(malformedWrapperFormat)) && !controller.signal.aborted) {
@@ -8509,6 +8915,31 @@ export default function OpenClawWorkspace({
 
         missingToolNudgeCount = 0;
         executedToolRounds += 1;
+
+        // Near-budget forced synthesis (#2): just before we would hard-pause
+        // at MAX_TOOL_ROUNDS, arm forced synthesis so the model gets a chance
+        // to answer from collected evidence (or ask the user for more turns)
+        // instead of being cut off mid-action with no answer at all.
+        if (
+          !forceFinalSynthesis
+          && executedToolRounds >= MAX_TOOL_ROUNDS - NEAR_BUDGET_MARGIN
+          && !controller.signal.aborted
+        ) {
+          forceFinalSynthesis = true;
+          const synthesisNotice: OpenClawMessage = {
+            id: randomUUID(),
+            role: 'user',
+            content: buildForcedSynthesisNudge(),
+            hidden: true,
+            createdAt: new Date().toISOString(),
+          };
+          sessionHistory = [...sessionHistory, synthesisNotice];
+          setChatHistory(prev => [...prev, synthesisNotice]);
+          lastToolRequestSignature = null;
+          setLiveStats(null);
+          setStreamPhase(null);
+          continue;
+        }
 
         // Reached the productive tool-step budget for this turn. Pause cleanly
         // with a visible explanation rather than dropping the last requested
@@ -8557,6 +8988,47 @@ export default function OpenClawWorkspace({
           sessionHistory = [...sessionHistory, duplicateNotice];
           setChatHistory(prev => [...prev, duplicateNotice]);
 
+          // If a canvas/document artifact was already produced this turn, a
+          // duplicate tool call is the model redundantly re-emitting finished
+          // work — the task is done. Present the artifact and stop now, rather
+          // than nudging and cycling (the "created the file but kept going"
+          // failure). A genuine refinement would change the title/content and
+          // produce a different signature, so a same-signature repeat is never
+          // a real new step.
+          if (producedArtifactThisTurn && !controller.signal.aborted) {
+            finalizeWithArtifactMessage();
+            break;
+          }
+
+          // Forced final synthesis (#2): the first repeat (count 1) got a
+          // "don't repeat — use the result to answer" nudge and we continued.
+          // If the model repeats AGAIN (count 2) it is not taking the hint —
+          // it is stuck (the chat-2 failure: looping on `extract` of the same
+          // SERP, then the loop broke here with NO answer). Arm forced
+          // synthesis so the model answers from collected evidence (or asks
+          // the user for more turns) instead of silently breaking. The
+          // enforcement block above then drives the actual answer turn.
+          if (
+            duplicateToolRequestCount > 1
+            && !forceFinalSynthesis
+            && !controller.signal.aborted
+          ) {
+            forceFinalSynthesis = true;
+            const synthesisNotice: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: buildForcedSynthesisNudge(),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, synthesisNotice];
+            setChatHistory(prev => [...prev, synthesisNotice]);
+            lastToolRequestSignature = null;
+            setLiveStats(null);
+            setStreamPhase(null);
+            continue;
+          }
+
           if (duplicateToolRequestCount > 1) {
             break;
           }
@@ -8570,6 +9042,43 @@ export default function OpenClawWorkspace({
         recentToolSignatures.push(effectiveToolSignature)
         if (recentToolSignatures.length > RECENT_SIGNATURE_RING_SIZE) {
           recentToolSignatures.shift()
+        }
+
+        // Objective-divergence guard (#2): before dispatching a SEARCH, check
+        // whether the query is on-topic for the user's objective. If it is
+        // unrelated AND we already have a usable on-topic result, nudge the
+        // model to refine the query (not switch the topic) and skip the
+        // off-topic dispatch. This is the direct fix for the "agent declared
+        // on-topic results off-topic and pivoted to an unrelated search"
+        // failure. Bounded by MAX_OBJECTIVE_DIVERGENCE_NUDGES so it cannot
+        // deadlock the turn; after the budget the search is allowed through.
+        // Only web / unified_browser:search are checked — URL/command
+        // relevance is too noisy to hard-block without false positives.
+        if (objectiveAnchorMessage) {
+          const relevance = isSearchRequestRelevantToObjective(effectiveObjective, request)
+          if (
+            !relevance.relevant
+            && relevance.signal
+            && hadRelevantSearchResult
+            && objectiveDivergenceCount < MAX_OBJECTIVE_DIVERGENCE_NUDGES
+            && !controller.signal.aborted
+          ) {
+            objectiveDivergenceCount += 1
+            const divergenceText = buildObjectiveDivergenceNudge(effectiveObjective, request, true)
+            const divergenceNotice: OpenClawMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: divergenceText,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            }
+            sessionHistory = [...sessionHistory, divergenceNotice]
+            setChatHistory(prev => [...prev, divergenceNotice])
+            lastToolRequestSignature = null
+            setLiveStats(null)
+            setStreamPhase(null)
+            continue
+          }
         }
 
         if (inferredFilesystemRequest) {
@@ -8622,6 +9131,10 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (webResult.sources.length > 0) {
               currentSources = mergeMessageSources(currentSources, webResult.sources);
+              // A successful search that returned sources counts as the
+              // on-topic result the divergence guard waits for before it will
+              // hard-block a later off-topic search.
+              hadRelevantSearchResult = true;
             }
             lastSuccessfulToolRequest = {
               name: 'web',
@@ -8754,6 +9267,16 @@ export default function OpenClawWorkspace({
               setUwafCurrentUrl(uwafResult.currentUrl);
               setUwafCurrentTitle(uwafResult.title);
             }
+            // A unified_browser search that returned result blocks counts as
+            // the on-topic result the divergence guard waits for. Only count
+            // search actions (opens are not topic-bearing).
+            if (
+              uwafResult.success
+              && (uwafResult.action === 'search')
+              && (uwafResult.resultCount ?? 0) > 0
+            ) {
+              hadRelevantSearchResult = true;
+            }
             lastSuccessfulToolRequest = {
               name: 'unified_browser',
               request: request.request,
@@ -8787,15 +9310,23 @@ export default function OpenClawWorkspace({
         if (request.name === 'tax_return') {
           lastToolRequestSignature = effectiveToolSignature;
           duplicateToolRequestCount = 0;
+          // list_forms / inspect_form only read the public IRS form catalog —
+          // no client data, no artifact — so skip the approval dialog and run
+          // them directly. fill/review still go through approval.
+          const isReadOnlyTaxAction =
+            request.request.action === 'list_forms' || request.request.action === 'inspect_form';
           try {
             setStreamPhase('tool-code');
-            const taxResult = await requestTaxReturnAction(request.request, {
-              messageId: nextAssistantId,
-              sessionId: chatId,
-            });
+            const taxResult = isReadOnlyTaxAction
+              ? await executeTaxReturnAction({ ...request.request, sessionId: chatId, messageId: nextAssistantId })
+              : await requestTaxReturnAction(request.request, {
+                  messageId: nextAssistantId,
+                  sessionId: chatId,
+                });
             setStreamPhase(null);
-            if (taxResult.success) {
+            if (taxResult.success && !isReadOnlyTaxAction) {
               void loadCanvasArtifacts(chatId);
+              producedArtifactThisTurn = true;
               lastSuccessfulToolRequest = {
                 name: 'tax_return',
                 request: request.request,
@@ -8817,7 +9348,7 @@ export default function OpenClawWorkspace({
             const errorMessage: OpenClawMessage = {
               id: randomUUID(),
               role: 'user',
-              content: `Tax PDF generation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Ask the user to verify the Knowledge Base folder and source documents, then retry.`,
+              content: `Tax tool failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Ask the user to verify the Knowledge Base folder and source documents, then retry.`,
               hidden: true,
               createdAt: new Date().toISOString(),
             };
@@ -8839,6 +9370,7 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (pdfResult.success) {
               void loadCanvasArtifacts(chatId);
+              producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'pdf_document', description: meta?.description, filename: meta?.filename, request: request.request };
             }
@@ -8879,6 +9411,7 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (workbookResult.success) {
               void loadCanvasArtifacts(chatId);
+              producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'workbook_document', description: meta?.description, filename: meta?.filename, request: request.request };
             }
@@ -8919,6 +9452,7 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (wordResult.success) {
               void loadCanvasArtifacts(chatId);
+              producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'word_document', description: meta?.description, filename: meta?.filename, request: request.request };
             }
@@ -8959,6 +9493,7 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (csvResult.success) {
               void loadCanvasArtifacts(chatId);
+              producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'csv_document', description: meta?.description, filename: meta?.filename, request: request.request };
             }
@@ -8999,6 +9534,7 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (emailResult.success) {
               void loadCanvasArtifacts(chatId);
+              producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'email_document', description: meta?.description, filename: meta?.filename, request: request.request };
             }
@@ -9079,6 +9615,7 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (markdownResult.success) {
               void loadCanvasArtifacts(chatId);
+              producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'markdown_document', description: meta?.description, filename: meta?.filename, request: request.request };
             }
@@ -9119,6 +9656,7 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (slidesResult.success) {
               void loadCanvasArtifacts(chatId);
+              producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'slides_document', description: meta?.description, filename: meta?.filename, request: request.request };
             }
@@ -9159,6 +9697,7 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (archiveResult.success) {
               void loadCanvasArtifacts(chatId);
+              producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'archive_document', description: meta?.description, filename: meta?.filename, request: request.request };
             }
@@ -9199,6 +9738,7 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (calendarResult.success) {
               void loadCanvasArtifacts(chatId);
+              producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'calendar_document', description: meta?.description, filename: meta?.filename, request: request.request };
             }
@@ -9239,6 +9779,7 @@ export default function OpenClawWorkspace({
             setStreamPhase(null);
             if (mermaidResult.success) {
               void loadCanvasArtifacts(chatId);
+              producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'mermaid_document', description: meta?.description, filename: meta?.filename, request: request.request };
             }
@@ -9700,6 +10241,7 @@ export default function OpenClawWorkspace({
     ragEnabled ? 'RAG' : null,
     unrestrictedEnabled ? 'Unrestricted' : null,
     uncensoredEnabled ? 'Uncensored' : null,
+    accountantEnabled ? 'Accountant' : null,
     uwafBrowserEnabled
       ? uwafBrowserMode === 'stealth'
         ? 'Stealth'
@@ -9867,6 +10409,18 @@ export default function OpenClawWorkspace({
             >
               <span>Uncensored</span>
               <span>{uncensoredEnabled ? 'On' : 'Off'}</span>
+            </button>
+            <button
+              type="button"
+              className={`mobile-topbar-menu-item${accountantEnabled ? ' is-active' : ''}`}
+              style={accountantEnabled ? { color: '#10b981', borderColor: '#10b981', background: 'rgba(16, 185, 129, 0.12)' } : undefined}
+              onClick={() => {
+                toggleAccountant();
+                setMobileHeaderMenuOpen(false);
+              }}
+            >
+              <span>Accountant</span>
+              <span>{accountantEnabled ? 'On' : 'Off'}</span>
             </button>
             {selectedModelIsOllama && (
               <button
@@ -10293,6 +10847,19 @@ export default function OpenClawWorkspace({
                   </span>
                   <span>{uncensoredEnabled ? 'On' : 'Off'}</span>
                 </button>
+
+                <button
+                  type="button"
+                  className={`openclaw-mode-action${accountantEnabled ? ' is-active' : ''}`}
+                  onClick={() => toggleAccountant()}
+                  title="Act as a CPA/accountant/financial advisor with access to the IRS form catalog"
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Calculator size={15} color={accountantEnabled ? '#10b981' : 'var(--text-secondary)'} />
+                    Accountant
+                  </span>
+                  <span>{accountantEnabled ? 'On' : 'Off'}</span>
+                </button>
               </div>
             </Popover>
           )}
@@ -10491,6 +11058,7 @@ export default function OpenClawWorkspace({
                     {ragEnabled && <span className="openclaw-pill accent">Knowledge Base on</span>}
                     {unrestrictedEnabled && <span className="openclaw-pill" style={{ background: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' }}>Unrestricted</span>}
                     {uncensoredEnabled && <span className="openclaw-pill" style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}>Uncensored</span>}
+                    {accountantEnabled && <span className="openclaw-pill" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10b981' }}>Accountant</span>}
                   </div>
                 </div>
               </div>

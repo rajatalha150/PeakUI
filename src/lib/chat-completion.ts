@@ -19,6 +19,7 @@ import {
 } from '@/lib/response-format';
 import { buildOpenClawSystemPrompt, buildChatInternetToolPrompt } from '@/lib/openclaw-prompt';
 import type { OpenClawPersona, OpenClawUserProfile } from '@/lib/openclaw-persona';
+import { buildAccountantPersonaPrompt } from '@/lib/openclaw-accountant-persona';
 import { normalizeOpenClawProvider } from '@/lib/settings';
 import { getModelContextRecommendation, shouldUseCompactToolManifest } from './model-context';
 import { unloadOtherOllamaModels } from '@/lib/ollama-control';
@@ -244,6 +245,7 @@ interface IncomingChatBody {
   internet_tool_enabled?: unknown;
   unrestricted?: unknown;
   uncensored?: unknown;
+  accountant?: unknown;
   rag_enabled?: unknown;
   rag_query?: unknown;
   rag_topk?: unknown;
@@ -856,6 +858,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
       : normalizeInternetEnabled(body.internet_tool_enabled);
     const unrestricted = body.unrestricted === true;
     const uncensored = body.uncensored === true;
+    const accountant = body.accountant === true;
 
     // RAG / Knowledge Base settings — use per-request flag if provided, else fall back to user settings
     const ragEnabled = Object.prototype.hasOwnProperty.call(body, 'rag_enabled')
@@ -945,7 +948,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
 
     const latestUserContent = [...nonSystemMessages].reverse().find(message => message.role === 'user')?.content || ''
     const promptBuildStartedAt = performance.now();
-    const openClawPrompt = surface === 'openclaw'
+    let openClawPrompt = surface === 'openclaw'
       ? buildOpenClawSystemPrompt({
           provider: provider === 'openai-compatible' ? 'openai-compatible' : 'ollama',
           model: requestedModel,
@@ -984,6 +987,12 @@ export async function createChatCompletionResponse(req: NextRequest) {
           toolManifestMode: shouldUseCompactToolManifest(requestedModel, provider) ? 'compact' : 'full',
         })
       : '';
+    // Accountant mode: append a CPA/accountant/financial-advisor persona to the
+    // WorkSpaces system prompt. Composes with Unrestricted/Uncensored/Knowledge
+    // Base because openClawPrompt is included in every system-prompt branch.
+    if (openClawPrompt && accountant) {
+      openClawPrompt = `${openClawPrompt}\n\n${buildAccountantPersonaPrompt()}`;
+    }
     const chatInternetPrompt = surface === 'chat' && internetToolEnabled
       ? buildChatInternetToolPrompt()
       : '';

@@ -82,10 +82,14 @@ export interface OpenClawUwafBrowserToolRequest {
 }
 
 export interface OpenClawTaxReturnToolRequest {
-  action: 'generate_review_pdf' | 'fill_pdf_form'
+  action: 'generate_review_pdf' | 'fill_pdf_form' | 'list_forms' | 'inspect_form'
   folder?: string
   taxYear?: string
   templateDocumentId?: string
+  /** IRS form id (e.g. "f1040", "f1040sd") resolved from the bundled irs_forms catalog. */
+  formId?: string
+  /** Explicit field-name -> value overlay applied on top of the auto-extracted draft. */
+  fields?: Record<string, string>
   flatten?: boolean
   description?: string
 }
@@ -235,6 +239,18 @@ export const OPENCLAW_UWAF_BROWSER_TOOL_EXAMPLE = `<openclaw_tool name="unified_
 
 export const OPENCLAW_TAX_RETURN_TOOL_EXAMPLE = `<openclaw_tool name="tax_return">
 {"action":"generate_review_pdf","folder":"2025/taxes","taxYear":"2025","description":"Create a downloadable tax review PDF from the enabled Knowledge Base folder"}
+</openclaw_tool>`
+
+export const OPENCLAW_TAX_LIST_FORMS_TOOL_EXAMPLE = `<openclaw_tool name="tax_return">
+{"action":"list_forms","description":"List the available IRS forms in the catalog"}
+</openclaw_tool>`
+
+export const OPENCLAW_TAX_INSPECT_FORM_TOOL_EXAMPLE = `<openclaw_tool name="tax_return">
+{"action":"inspect_form","formId":"f1040","description":"Show the fillable fields and labels for Form 1040 before filling"}
+</openclaw_tool>`
+
+export const OPENCLAW_TAX_FILL_FORM_TOOL_EXAMPLE = `<openclaw_tool name="tax_return">
+{"action":"fill_pdf_form","formId":"f1040","folder":"2025/taxes","taxYear":"2025","fields":{"f1_first_name":"Jane","f1_last_name":"Doe","f1_ssn":"123-45-6789"},"description":"Fill Form 1040 for the client in the Knowledge Base folder"}
 </openclaw_tool>`
 
 export const OPENCLAW_PDF_DOCUMENT_TOOL_EXAMPLE = `<openclaw_tool name="pdf_document">
@@ -1038,7 +1054,12 @@ export function extractOpenClawToolRequest(content: string): {
         return { cleanedContent: stripAllToolTags(content) }
       }
 
-      const action = parsed.action === 'fill_pdf_form' ? 'fill_pdf_form' : parsed.action === 'generate_review_pdf' ? 'generate_review_pdf' : null
+      const action =
+        parsed.action === 'fill_pdf_form' ? 'fill_pdf_form'
+        : parsed.action === 'generate_review_pdf' ? 'generate_review_pdf'
+        : parsed.action === 'list_forms' ? 'list_forms'
+        : parsed.action === 'inspect_form' ? 'inspect_form'
+        : null
       if (!action) {
         return { cleanedContent: stripAllToolTags(content) }
       }
@@ -1059,11 +1080,28 @@ export function extractOpenClawToolRequest(content: string): {
       if (typeof parsed.templateDocumentId === 'string' && parsed.templateDocumentId.trim()) {
         request.templateDocumentId = parsed.templateDocumentId.trim()
       }
+      if (typeof parsed.formId === 'string' && parsed.formId.trim()) {
+        request.formId = parsed.formId.trim()
+      }
+      if (parsed.fields && typeof parsed.fields === 'object' && !Array.isArray(parsed.fields)) {
+        const fields: Record<string, string> = {}
+        for (const [key, value] of Object.entries(parsed.fields)) {
+          if (typeof key === 'string' && key.trim() && (typeof value === 'string' || typeof value === 'number')) {
+            fields[key.trim()] = String(value)
+          }
+        }
+        if (Object.keys(fields).length > 0) request.fields = fields
+      }
       if (parsed.flatten === true) {
         request.flatten = true
       }
 
-      if (action === 'fill_pdf_form' && !request.templateDocumentId) {
+      // fill_pdf_form needs a template source: either an uploaded template
+      // document id, or a bundled IRS form id. inspect_form needs a formId.
+      if (action === 'fill_pdf_form' && !request.templateDocumentId && !request.formId) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      if (action === 'inspect_form' && !request.formId) {
         return { cleanedContent: stripAllToolTags(content) }
       }
 

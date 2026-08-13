@@ -56,3 +56,68 @@ describe('uwaf-browser: runWithTimeout', () => {
     expect(result).toEqual({ timedOut: true })
   })
 })
+
+describe('uwaf-browser: detectLoginRequirement', () => {
+  it('does NOT flag a DuckDuckGo-style SERP that merely mentions "email"', async () => {
+    const { __test__ } = await loadUwafBrowser()
+    // Real DDG markdown includes "Email Protection" in the footer. The old
+    // bare /\bemail\b/ pattern false-positived here, marking a public search
+    // page as "requires authentication."
+    const markdown = 'DuckDuckGo\nSearch the web privately.\nEmail Protection\nPrivacy in your inbox.'
+    const forms = [{ index: 0, method: 'GET', action: 'https://duckduckgo.com/', fields: [{ name: 'q', type: 'text' }] }]
+    expect(__test__.detectLoginRequirement('results', markdown, forms as any)).toBe(false)
+  })
+
+  it('does NOT flag a "best password managers" article (bare "password")', async () => {
+    const { __test__ } = await loadUwafBrowser()
+    const markdown = 'The best password managers of 2026 — reviews and ratings.'
+    expect(__test__.detectLoginRequirement('Best Password Managers', markdown, [])).toBe(false)
+  })
+
+  it('flags a page with a visible password field (the strong signal)', async () => {
+    const { __test__ } = await loadUwafBrowser()
+    const forms = [{ index: 0, method: 'POST', action: '/login', fields: [{ name: 'password', type: 'password' }] }]
+    expect(__test__.detectLoginRequirement('Account', '', forms as any)).toBe(true)
+  })
+
+  it('flags a JS-rendered login page by its "Sign in" phrase', async () => {
+    const { __test__ } = await loadUwafBrowser()
+    const markdown = 'Welcome back. Sign in to your account to continue.'
+    expect(__test__.detectLoginRequirement('Sign In', markdown, [])).toBe(true)
+  })
+
+  it('flags "enter your password" phrase (contextual, not bare)', async () => {
+    const { __test__ } = await loadUwafBrowser()
+    const markdown = 'Please enter your password to access the dashboard.'
+    expect(__test__.detectLoginRequirement('Login', markdown, [])).toBe(true)
+  })
+
+  it('does NOT flag a Barchart-style page whose only login signal is a "Log In" nav link', async () => {
+    const { __test__ } = await loadUwafBrowser()
+    // A commercial site's nav often carries "Log In" / "Sign In" links AND a
+    // "Sign Up" button, while the actual page body is usable market data.
+    // There is no password field on this page (the link points elsewhere).
+    // The old bare /\blog\s*in\b/ pattern marked this as auth-gated and made
+    // the model abandon a working source.
+    const markdown = [
+      'Barchart | Stocks, Futures and Forex',
+      'Log In  Sign Up  Markets  Options  Futures',
+      'Most Active Options — high implied volatility movers for today.',
+      'AAPL  Vol 45,231  IV 38.2%  Open Int 12,000',
+    ].join('\n')
+    const forms = [{ index: 0, method: 'GET', action: '/search', fields: [{ name: 'q', type: 'text' }] }]
+    expect(__test__.detectLoginRequirement('Barchart', markdown, forms as any)).toBe(false)
+  })
+
+  it('does NOT flag a bare "Sign In" nav button with no login form', async () => {
+    const { __test__ } = await loadUwafBrowser()
+    const markdown = 'Sign In  Products  Pricing  Docs  Contact'
+    expect(__test__.detectLoginRequirement('Acme', markdown, [])).toBe(false)
+  })
+
+  it('flags a "log in to your account" phrase (page-body, not nav)', async () => {
+    const { __test__ } = await loadUwafBrowser()
+    const markdown = 'Welcome back — log in to your account to view your portfolio.'
+    expect(__test__.detectLoginRequirement('Login', markdown, [])).toBe(true)
+  })
+})

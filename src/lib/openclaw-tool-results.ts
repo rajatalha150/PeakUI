@@ -7,6 +7,8 @@
  * React. The component just imports the formatter it needs.
  */
 
+import { wrapUntrustedToolResult } from './openclaw-tool-output-trust';
+
 /**
  * Max number of characters of page text to keep in the tool result message
  * for non-search browser actions (open, click, extract, research_batch, …).
@@ -430,10 +432,15 @@ export function formatUwafBrowserToolResult(entry: UwafBrowserToolResultEntry): 
 
   if (entry.text?.trim()) {
     const textBudget = entry.action === 'search' ? MAX_TEXT_CHARS_SEARCH : MAX_TEXT_CHARS_OPEN;
-    lines.push('', 'Page content:', truncateWithMarker(entry.text.trim(), textBudget));
+    // Page content is raw rendered page text (SERP bodies, article text) —
+    // the primary prompt-injection vector. Truncate first to bound the size,
+    // then wrap as untrusted so embedded instructions / forged delimiters
+    // can't be read as task signals. The trusted "Page content:" label and
+    // the structured link/form lists below stay outside the wrap.
+    lines.push('', 'Page content:', wrapUntrustedToolResult('uwaf-browser', truncateWithMarker(entry.text.trim(), textBudget)));
   } else if (entry.markdown?.trim()) {
     const textBudget = entry.action === 'search' ? MAX_TEXT_CHARS_SEARCH : MAX_TEXT_CHARS_OPEN;
-    lines.push('', 'Page content (Markdown):', truncateWithMarker(entry.markdown.trim(), textBudget));
+    lines.push('', 'Page content (Markdown):', wrapUntrustedToolResult('uwaf-browser', truncateWithMarker(entry.markdown.trim(), textBudget)));
   }
 
   const compactedLinks = compactLinks(entry.links);

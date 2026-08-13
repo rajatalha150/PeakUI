@@ -45,8 +45,9 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
     toolName: 'tax_return',
     requiresWorkspace: true,
     promptLines: [
-      'TAX PDF CAPABILITY: When the user has enabled a Knowledge Base tax folder and asks for a downloadable tax return PDF, use the tax_return tool.',
-      'Use generate_review_pdf for W-2/1099 review packets; use fill_pdf_form only when a fillable PDF template id is provided.',
+      'TAX PDF CAPABILITY: When the user asks for a tax return or an official IRS form, use the tax_return tool.',
+      'Use list_forms to see available IRS forms; inspect_form with a formId to see a form\'s fillable fields before filling.',
+      'Use fill_pdf_form with a formId (e.g. "f1040") to fill an official IRS form, or with templateDocumentId for an uploaded template; pass derived client values in fields. Use generate_review_pdf for W-2/1099 review packets.',
     ],
     example: OPENCLAW_TAX_RETURN_TOOL_EXAMPLE,
   },
