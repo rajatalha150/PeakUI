@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildOllamaKeepAlive, isOllamaCloudModel } from './ollama-keepalive'
+import { buildOllamaKeepAlive, isOllamaCloudModel, parseKeepAliveMs } from './ollama-keepalive'
 
 const baseSettings = {
   modelKeepAlive: true,
@@ -44,5 +44,32 @@ describe('buildOllamaKeepAlive', () => {
 
   it('returns undefined for a "0" duration (keep_alive 0 means unload)', () => {
     expect(buildOllamaKeepAlive({ ...baseSettings, ollamaKeepAlive: '0' }, 'gemma4')).toBeUndefined()
+  })
+})
+
+describe('parseKeepAliveMs', () => {
+  it('parses the preset durations', () => {
+    expect(parseKeepAliveMs('5m')).toBe(5 * 60_000)
+    expect(parseKeepAliveMs('30m')).toBe(30 * 60_000)
+    expect(parseKeepAliveMs('1h')).toBe(60 * 60_000)
+    expect(parseKeepAliveMs('2h')).toBe(120 * 60_000)
+  })
+
+  it('parses custom Ollama-style durations', () => {
+    expect(parseKeepAliveMs('45s')).toBe(45_000)
+    expect(parseKeepAliveMs('1500ms')).toBe(1500)
+    expect(parseKeepAliveMs('10m')).toBe(600_000)
+  })
+
+  it('is case-insensitive and trims whitespace', () => {
+    expect(parseKeepAliveMs('  30M ')).toBe(30 * 60_000)
+  })
+
+  it('returns 0 for the "0" unload sentinel and invalid values', () => {
+    expect(parseKeepAliveMs('0')).toBe(0)
+    expect(parseKeepAliveMs('')).toBe(0)
+    expect(parseKeepAliveMs('abc')).toBe(0)
+    expect(parseKeepAliveMs('30')).toBe(0)
+    expect(parseKeepAliveMs('1.5h')).toBe(0)
   })
 })

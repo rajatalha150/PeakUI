@@ -1314,6 +1314,15 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                 const enabled = !settings.modelKeepAlive;
                 update('modelKeepAlive', enabled);
                 if (enabled && settings.ollamaKeepAlive === '0') update('ollamaKeepAlive', '30m');
+                // Enabling keep-alive means "keep this model resident", so load
+                // the current model now and pin it for the keep-alive window.
+                if (enabled && settings.openClawModel.trim()) {
+                  void fetch('/api/ollama/keep-loaded', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: settings.openClawModel.trim() }),
+                  }).catch(() => {});
+                }
               }}
               style={{
                 width: '100%',

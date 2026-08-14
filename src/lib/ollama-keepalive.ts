@@ -11,6 +11,19 @@ export function isOllamaCloudModel(model: string): boolean {
   return /:cloud$/i.test(model.trim())
 }
 
+/**
+ * Parse an Ollama-style keep-alive duration into milliseconds.
+ * Accepts `ms`, `s`, `m`, and `h` suffixes ("30m", "1h", "1500ms", "45s").
+ * Returns 0 for unparseable values and for "0" (the unload sentinel).
+ */
+export function parseKeepAliveMs(value: string): number {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : ''
+  const match = /^(\d+)(ms|s|m|h)$/.exec(raw)
+  if (!match) return 0
+  const multipliers: Record<string, number> = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 }
+  return Number(match[1]) * multipliers[match[2]]
+}
+
 export interface KeepAliveSettings {
   modelKeepAlive: boolean
   ollamaKeepAlive: string

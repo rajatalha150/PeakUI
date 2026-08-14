@@ -2,6 +2,7 @@ import { isSameOllamaModel } from './embedding-models'
 
 const OLLAMA_PS_TIMEOUT_MS = 4000
 const OLLAMA_STOP_TIMEOUT_MS = 15000
+const OLLAMA_LOAD_TIMEOUT_MS = 60000
 
 interface OllamaPsResponse {
   models?: Array<{
@@ -79,6 +80,53 @@ export async function stopRunningOllamaModel(baseUrl: string, selectedModel: str
 
   await stopOllamaModel(baseUrl, runningModel, parentSignal, apiKey)
   return runningModel
+}
+
+export interface EnsureOllamaModelLoadedOptions {
+  /** keep_alive duration to pin the model with, e.g. "30m". Never "0". */
+  keepAlive: string
+  apiKey?: string
+  parentSignal?: AbortSignal
+}
+
+/**
+ * Make sure a model is resident in Ollama and pin it for the keep-alive
+ * duration. Uses the same empty-prompt `/api/generate` warmup Ollama
+ * recognizes as a pure load request (`done_reason: "load"`, no tokens
+ * generated), so the model stays loaded for `keep_alive` after this call
+ * without emitting any output.
+ */
+export async function ensureOllamaModelLoaded(
+  baseUrl: string,
+  model: string,
+  options: EnsureOllamaModelLoadedOptions,
+): Promise<{ model: string; loaded: boolean; alreadyLoaded: boolean }> {
+  const runningModels = await listRunningOllamaModels(baseUrl, options.parentSignal, options.apiKey)
+  if (runningModels.some(runningModel => isSameOllamaModel(runningModel, model))) {
+    return { model, loaded: true, alreadyLoaded: true }
+  }
+
+  const response = await fetch(`${baseUrl}/api/generate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.apiKey?.trim() ? { Authorization: 'Bearer ' + options.apiKey.trim() } : {}),
+    },
+    body: JSON.stringify({
+      model,
+      prompt: '',
+      keep_alive: options.keepAlive,
+      stream: false,
+    }),
+    signal: createAbortSignal(OLLAMA_LOAD_TIMEOUT_MS, options.parentSignal),
+  })
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    throw new Error(text || `Failed to load "${model}" in Ollama.`)
+  }
+
+  return { model, loaded: true, alreadyLoaded: false }
 }
 
 export async function unloadOtherOllamaModels(baseUrl: string, selectedModel: string, apiKey?: string, parentSignal?: AbortSignal): Promise<string[]> {

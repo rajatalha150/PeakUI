@@ -43,6 +43,7 @@ import {
   type OpenClawUserProfile,
 } from '@/lib/openclaw-persona';
 import type { OllamaHealthSummary } from '@/lib/ollama-health';
+import { parseKeepAliveMs } from '@/lib/ollama-keepalive';
 import ShellCommandModal from './ShellCommandModal';
 import ShellOutput from './ShellOutput';
 import CanvasPanel from './CanvasPanel';
@@ -3184,6 +3185,10 @@ export default function OpenClawWorkspace({
     });
   }, []);
   const [stoppingModel, setStoppingModel] = useState(false);
+  // When keep-alive is on, PeakUI re-loads the selected model if it is not
+  // resident. A user-initiated "Stop model" suppresses that for one keep-alive
+  // window so an explicit stop is not immediately undone.
+  const keepLoadedSuppressedUntilRef = useRef(0);
   const [modelControlNote, setModelControlNote] = useState('');
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [headerModeMenuOpen, setHeaderModeMenuOpen] = useState<string | null>(null);
@@ -4192,6 +4197,19 @@ export default function OpenClawWorkspace({
         throw new Error(typeof data.error === 'string' ? data.error : 'Failed to inspect Ollama health');
       }
       setOllamaHealth(data);
+      // Keep-alive means "keep this model resident", so when it is on and the
+      // selected local model is not currently loaded, load it now and pin it
+      // for the keep-alive window. A user-initiated "Stop model" suppresses
+      // this so an explicit stop is not immediately undone.
+      if (
+        settings?.modelKeepAlive
+        && provider === 'ollama'
+        && data.online
+        && data.selectedModelLoaded === false
+        && Date.now() >= keepLoadedSuppressedUntilRef.current
+      ) {
+        void keepSelectedModelLoaded(modelName, host);
+      }
     } catch (error) {
       setOllamaHealth({
         ok: false,
@@ -4213,6 +4231,24 @@ export default function OpenClawWorkspace({
       });
     } finally {
       setOllamaHealthLoading(false);
+    }
+  };
+
+  const keepSelectedModelLoaded = async (modelName = selectedModel, host = settings?.ollamaHost || 'http://127.0.0.1:11434') => {
+    if (!modelName) return;
+    try {
+      const res = await fetch('/api/ollama/keep-loaded', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: modelName, host }),
+      });
+      const data = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Failed to keep model loaded');
+      }
+      void refreshOllamaHealth(modelName, host);
+    } catch (error) {
+      console.error('Keep-loaded error:', error);
     }
   };
 
@@ -4478,6 +4514,9 @@ export default function OpenClawWorkspace({
 
   /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
+    // A different model (or host) starts a fresh keep-alive residency window,
+    // so any prior "Stop model" suppression no longer applies.
+    keepLoadedSuppressedUntilRef.current = 0;
     if (!settings || provider !== 'ollama') {
       setOllamaHealth(null);
       return;
@@ -4917,6 +4956,12 @@ export default function OpenClawWorkspace({
         const stoppedModel = typeof data.model === 'string' && data.model.trim() ? data.model : selectedModel;
         setModelControlNote(`${stoppedModel} stopped. The next request will reload it.`);
       }
+
+      // Keep-alive normally re-loads a missing selected model. An explicit
+      // "Stop model" overrides that for one keep-alive window so the model
+      // stays unloaded until the user actually uses it again.
+      const keepAliveWindowMs = settings?.modelKeepAlive ? parseKeepAliveMs(settings?.ollamaKeepAlive || '') : 0;
+      keepLoadedSuppressedUntilRef.current = keepAliveWindowMs > 0 ? Date.now() + keepAliveWindowMs : 0;
 
       if (provider !== 'ollama') {
         void verifyConnection(provider, baseUrl, apiKey, settings?.ollamaHost || 'http://127.0.0.1:11434');
