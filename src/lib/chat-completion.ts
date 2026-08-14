@@ -26,7 +26,7 @@ import { unloadOtherOllamaModels } from '@/lib/ollama-control';
 import { getHostExecutorStatus } from './openclaw-host-executor';
 import type { ServerStreamStatus } from '@/lib/stream-status';
 import { isHuggingFaceRouterUrl } from './chat-platforms';
-import { trimMessagesToFit, estimateMessageTokens, estimateStringTokens } from './message-trim';
+import { trimMessagesToFit, estimateMessageTokens, estimateStringTokens, collapseSystemMessages } from './message-trim';
 import { normalizeImageMimeType, shouldNormalizeImageForCompatibility } from './file-shared';
 import { convertImageBufferToJpeg } from './image-normalization';
 import { getOpenClawWorkspaceContext } from './openclaw-project-workspaces';
@@ -341,7 +341,8 @@ async function normalizeImageForOllama(image: InternalImagePayload): Promise<str
 }
 
 async function buildOllamaMessages(messages: InternalChatMessage[]): Promise<OllamaChatMessage[]> {
-  return Promise.all(messages.map(async message => {
+  const normalized = collapseSystemMessages(messages);
+  return Promise.all(normalized.map(async message => {
     if (!message.images?.length) {
       return {
         role: message.role,
@@ -361,7 +362,8 @@ async function buildOllamaMessages(messages: InternalChatMessage[]): Promise<Oll
 function buildOllamaGeneratePrompt(messages: InternalChatMessage[]): string {
   const parts: string[] = [];
 
-  for (const message of messages) {
+  const normalized = collapseSystemMessages(messages);
+  for (const message of normalized) {
     const content = message.content?.trim();
     if (!content) continue;
     const label = message.role === 'system'
@@ -709,6 +711,7 @@ async function streamOpenAICompatibleResponse(options: {
   onContent?: () => void;
 }) {
   options.onRequestStart?.();
+  const messages = collapseSystemMessages(options.messages);
   const response = await fetch(`${options.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -717,7 +720,7 @@ async function streamOpenAICompatibleResponse(options: {
     },
     body: JSON.stringify({
       model: options.model,
-      messages: options.messages.map(message => ({
+      messages: messages.map(message => ({
         role: message.role,
         content: message.content ?? '',
         ...(message.images?.length ? { images: message.images.map(image => image.data) } : {}),

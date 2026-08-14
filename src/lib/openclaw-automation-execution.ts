@@ -6,6 +6,7 @@ import { buildOpenClawSystemPrompt } from './openclaw-prompt'
 import { unloadOtherOllamaModels } from './ollama-control'
 import { getOpenClawWorkspaceContext } from './openclaw-project-workspaces'
 import { buildMemoryContext, loadLongTermMemory, loadRecentMemory } from './memory'
+import { collapseSystemMessages } from './message-trim'
 import {
   finalizeChatSession,
   parseStoredChatMessages,
@@ -102,7 +103,11 @@ async function callOllamaForAutomation(options: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: options.model,
-      messages: options.messages,
+      // Unattended runs stack several system messages (system prompt, automation
+      // context, memory, long-term memory). Some model chat templates reject any
+      // system message that is not first, so collapse them into one leading
+      // system message before sending.
+      messages: collapseSystemMessages(options.messages),
       stream: false,
       ...(options.keepAlive ? { keep_alive: options.keepAlive } : {}),
       options: ollamaOptions,
