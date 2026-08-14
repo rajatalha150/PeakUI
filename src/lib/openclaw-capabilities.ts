@@ -60,6 +60,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
     promptLines: [
       'EXCEL WORKBOOK CAPABILITY: When the user asks for a downloadable spreadsheet, use the workbook_document tool.',
       'Use sheets, typed columns, and totals for structured data; keep the chat response download-first after the tool succeeds.',
+      'The full structure is recommended but not required: a title with a description (or just a title) is sufficient — a Notes sheet is generated automatically.',
     ],
     example: OPENCLAW_WORKBOOK_DOCUMENT_TOOL_EXAMPLE,
   },
@@ -83,6 +84,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
     promptLines: [
       'CSV EXPORT CAPABILITY: When the user asks for a downloadable CSV spreadsheet, table data export, or structured data in CSV format, use the csv_document tool.',
       'Provide headers and rows, or raw CSV content. The result is a downloadable .csv artifact.',
+      'The full structure is recommended but not required: a title with a description (or just a title) is sufficient — the description becomes the body.',
     ],
     example: OPENCLAW_CSV_DOCUMENT_TOOL_EXAMPLE,
   },
@@ -94,6 +96,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
     promptLines: [
       'EMAIL WRITER CAPABILITY: When the user asks to draft, write, or generate an email message, use the email_document tool.',
       'Include to, from, subject, and a professional plain-text body. The result is a downloadable .eml file that opens in any email client.',
+      'The full structure is recommended but not required: a title with a description (or just a title) is sufficient — the subject and body are derived automatically.',
     ],
     example: OPENCLAW_EMAIL_DOCUMENT_TOOL_EXAMPLE,
   },
@@ -105,6 +108,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
     promptLines: [
       'MARKDOWN DOCUMENT CAPABILITY: When the user asks for a downloadable Markdown file (.md), a markdown version of a document, or a markdown export, use the markdown_document tool.',
       'Provide the full markdown body in the content field. The result is a downloadable .md Canvas artifact with a clickable /api/canvas/artifacts/<id>/download link. Do NOT write markdown files to the filesystem as a workaround.',
+      'The full structure is recommended but not required: a title with a description (or just a title) is sufficient — the description becomes the body, or a title heading is used.',
     ],
     example: OPENCLAW_MARKDOWN_DOCUMENT_TOOL_EXAMPLE,
   },

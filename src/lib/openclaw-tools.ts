@@ -1165,7 +1165,10 @@ export function extractOpenClawToolRequest(content: string): {
 
       const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
       const sheets = Array.isArray(parsed.sheets) ? parsed.sheets.slice(0, 20) : []
-      if (!title || sheets.length === 0) {
+      // The full structure is a strong recommendation, not a requirement: a
+      // title alone (optionally with a description) is enough to generate a
+      // workbook. The route synthesizes a Notes sheet when none has rows.
+      if (!title) {
         return { cleanedContent: stripAllToolTags(content) }
       }
 
@@ -1182,7 +1185,7 @@ export function extractOpenClawToolRequest(content: string): {
               ? parsed.description.trim()
               : undefined,
             template: isWorkbookTemplate(parsed.template) ? parsed.template : undefined,
-            sheets,
+            sheets: sheets.length ? sheets : undefined,
             metadata: parsed.metadata && typeof parsed.metadata === 'object' ? parsed.metadata : undefined,
           },
         },
@@ -1241,7 +1244,10 @@ export function extractOpenClawToolRequest(content: string): {
       const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
       const contentText = typeof parsed.content === 'string' ? parsed.content.trim() : ''
       const rows = Array.isArray(parsed.rows) ? parsed.rows : undefined
-      if (!title || (!contentText && !(rows && rows.length > 0))) {
+      // The full structure is a strong recommendation, not a requirement: a
+      // title alone (optionally with a description) is enough to generate a
+      // CSV. The route falls back to the description as the body.
+      if (!title) {
         return { cleanedContent: stripAllToolTags(content) }
       }
 
@@ -1274,7 +1280,12 @@ export function extractOpenClawToolRequest(content: string): {
       const subject = typeof parsed.subject === 'string' ? parsed.subject.trim() : ''
       const body = typeof parsed.body === 'string' ? parsed.body.trim() : ''
       const title = typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim() : ''
-      if (!subject || !body) {
+      const description = typeof parsed.description === 'string' && parsed.description.trim() ? parsed.description.trim() : ''
+      // The full structure is a strong recommendation, not a requirement: a
+      // title alone (optionally with a description) is enough to generate an
+      // email draft. The route defaults the subject from the title and the
+      // body from the description.
+      if (!subject && !body && !title && !description) {
         return { cleanedContent: stripAllToolTags(content) }
       }
 
@@ -1310,7 +1321,11 @@ export function extractOpenClawToolRequest(content: string): {
 
       const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
       const contentText = typeof parsed.content === 'string' ? parsed.content.trim() : ''
-      if (!title || !contentText) {
+      // The full structure is a strong recommendation, not a requirement: a
+      // title alone (optionally with a description) is enough to generate a
+      // markdown file. The route falls back to the description as the body,
+      // then to a title heading.
+      if (!title) {
         return { cleanedContent: stripAllToolTags(content) }
       }
 

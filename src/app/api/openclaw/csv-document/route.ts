@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import { createCsvCanvasArtifact } from '@/lib/csv/csv-artifacts'
-import { normalizeCsvDocumentInput, csvDocumentHasRenderableContent, type CsvDocumentInput } from '@/lib/csv/csv-schema'
+import { normalizeCsvDocumentInput, ensureCsvRenderableContent, type CsvDocumentInput } from '@/lib/csv/csv-schema'
 import { renderCsvDocument } from '@/lib/csv/csv-renderer'
 
 export const runtime = 'nodejs'
@@ -34,9 +34,7 @@ export async function POST(request: NextRequest) {
     if (!sessionId) {
       return NextResponse.json({ error: 'sessionId is required' }, { status: 400 })
     }
-    if (!csvDocumentHasRenderableContent(normalized)) {
-      return NextResponse.json({ error: 'headers/rows or raw content are required' }, { status: 400 })
-    }
+    ensureCsvRenderableContent(normalized)
 
     const csvBytes = renderCsvDocument(normalized)
     const sourceContent = JSON.stringify(normalized, null, 2)

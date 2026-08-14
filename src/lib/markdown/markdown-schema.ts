@@ -39,3 +39,18 @@ export function normalizeMarkdownDocumentInput(input: MarkdownDocumentInput): No
 export function markdownDocumentHasRenderableContent(document: NormalizedMarkdownDocument): boolean {
   return document.content.trim().length > 0
 }
+
+/**
+ * Ensures a markdown document has renderable content. The full structure is a
+ * strong recommendation, not a requirement: a title alone (optionally with a
+ * description) is enough to generate a valid .md file. Falls back to the
+ * description as the body, then to a title heading.
+ */
+export function ensureMarkdownRenderableContent(document: NormalizedMarkdownDocument): void {
+  if (markdownDocumentHasRenderableContent(document)) return
+  if (document.description) {
+    document.content = document.description
+  } else {
+    document.content = `# ${document.title}`
+  }
+}

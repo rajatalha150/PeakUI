@@ -80,3 +80,14 @@ export function normalizeCsvDocumentInput(input: CsvDocumentInput): NormalizedCs
 export function csvDocumentHasRenderableContent(document: NormalizedCsvDocument): boolean {
   return document.content.trim().length > 0
 }
+
+/**
+ * Ensures a CSV document has renderable content. The full structure is a
+ * strong recommendation, not a requirement: a title alone (optionally with a
+ * description) is enough to generate a valid .csv file. Falls back to the
+ * description as the body, then to the title as a single cell.
+ */
+export function ensureCsvRenderableContent(document: NormalizedCsvDocument): void {
+  if (csvDocumentHasRenderableContent(document)) return
+  document.content = document.description || document.title
+}

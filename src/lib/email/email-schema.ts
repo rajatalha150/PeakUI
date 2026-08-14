@@ -101,3 +101,19 @@ export function normalizeEmailDocumentInput(input: EmailDocumentInput): Normaliz
 export function emailDocumentHasRenderableContent(document: NormalizedEmailDocument): boolean {
   return document.subject.trim().length > 0 && document.body.trim().length > 0
 }
+
+/**
+ * Ensures an email document has renderable content. The full structure is a
+ * strong recommendation, not a requirement: a title alone (optionally with a
+ * description) is enough to generate a valid .eml draft. Defaults the subject
+ * from the title and the body from the description when either is missing.
+ */
+export function ensureEmailRenderableContent(document: NormalizedEmailDocument): void {
+  if (emailDocumentHasRenderableContent(document)) return
+  if (!document.subject.trim()) {
+    document.subject = document.title
+  }
+  if (!document.body.trim() && document.description) {
+    document.body = document.description
+  }
+}

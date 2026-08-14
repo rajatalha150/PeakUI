@@ -138,6 +138,80 @@ describe('openclaw tool parsing', () => {
     expect(extracted.request.request.sections).toBeUndefined()
   })
 
+  it('accepts a title-only workbook_document request (structure is recommended, not required)', () => {
+    const input = [
+      '<openclaw_tool name="workbook_document">',
+      JSON.stringify({
+        title: 'Q3 Budget',
+        description: 'Planned spend for the third quarter.',
+      }),
+      '</openclaw_tool>',
+    ].join('\n')
+
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request?.name).toBe('workbook_document')
+    if (extracted.request?.name !== 'workbook_document') throw new Error('Expected workbook_document request')
+    expect(extracted.request.request.title).toBe('Q3 Budget')
+    expect(extracted.request.request.description).toBe('Planned spend for the third quarter.')
+    expect(extracted.request.request.sheets).toBeUndefined()
+  })
+
+  it('accepts a title-only csv_document request (structure is recommended, not required)', () => {
+    const input = [
+      '<openclaw_tool name="csv_document">',
+      JSON.stringify({
+        title: 'Customer List',
+        description: 'Name, email, plan',
+      }),
+      '</openclaw_tool>',
+    ].join('\n')
+
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request?.name).toBe('csv_document')
+    if (extracted.request?.name !== 'csv_document') throw new Error('Expected csv_document request')
+    expect(extracted.request.request.title).toBe('Customer List')
+    expect(extracted.request.request.description).toBe('Name, email, plan')
+    expect(extracted.request.request.content).toBeUndefined()
+    expect(extracted.request.request.rows).toBeUndefined()
+  })
+
+  it('accepts a title-only email_document request (structure is recommended, not required)', () => {
+    const input = [
+      '<openclaw_tool name="email_document">',
+      JSON.stringify({
+        title: 'Follow-up',
+        description: 'Checking in on the proposal.',
+      }),
+      '</openclaw_tool>',
+    ].join('\n')
+
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request?.name).toBe('email_document')
+    if (extracted.request?.name !== 'email_document') throw new Error('Expected email_document request')
+    expect(extracted.request.request.title).toBe('Follow-up')
+    expect(extracted.request.request.description).toBe('Checking in on the proposal.')
+    expect(extracted.request.request.subject).toBe('')
+    expect(extracted.request.request.body).toBe('')
+  })
+
+  it('accepts a title-only markdown_document request (structure is recommended, not required)', () => {
+    const input = [
+      '<openclaw_tool name="markdown_document">',
+      JSON.stringify({
+        title: 'Release Notes',
+        description: 'What changed in v0.14.',
+      }),
+      '</openclaw_tool>',
+    ].join('\n')
+
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request?.name).toBe('markdown_document')
+    if (extracted.request?.name !== 'markdown_document') throw new Error('Expected markdown_document request')
+    expect(extracted.request.request.title).toBe('Release Notes')
+    expect(extracted.request.request.description).toBe('What changed in v0.14.')
+    expect(extracted.request.request.content).toBe('')
+  })
+
   it('drops invalid template values for workbook_document', () => {
     const input = [
       '<openclaw_tool name="workbook_document">',

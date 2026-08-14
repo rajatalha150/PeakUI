@@ -260,3 +260,27 @@ export function normalizeWorkbookDocumentInput(input: WorkbookDocumentInput): No
 export function workbookHasRenderableContent(workbook: NormalizedWorkbookDocument): boolean {
   return workbook.sheets.some(sheet => sheet.tables?.some(table => table.rows.length > 0))
 }
+
+/**
+ * Ensures a workbook has renderable content. The full structure is a strong
+ * recommendation, not a requirement: a title alone (optionally with a
+ * description) is enough to generate a valid .xlsx file. When no sheet has
+ * rows, synthesizes a single "Notes" sheet from the description (or title)
+ * lines so the workbook still opens with something useful.
+ */
+export function ensureWorkbookRenderableContent(workbook: NormalizedWorkbookDocument): void {
+  if (workbookHasRenderableContent(workbook)) return
+  const lines = (workbook.description || workbook.title)
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+  workbook.sheets = [{
+    name: safeSheetName(workbook.title, 'Sheet 1'),
+    title: workbook.title,
+    tables: [{
+      title: workbook.title,
+      columns: [{ header: 'Notes', key: 'Notes' }],
+      rows: lines.length ? lines.map(line => [line]) : [[workbook.title]],
+    }],
+  }]
+}

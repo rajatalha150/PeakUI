@@ -157,7 +157,8 @@ Do not use markdown tables, shell, filesystem, or the code sandbox for normal wo
 Required fields:
 
 - `title`: Workbook title.
-- `sheets`: At least one sheet with rows.
+
+The full structure is a **strong recommendation, not a requirement**: a title alone (optionally with a `description`) is enough to generate a valid XLSX. When no sheet has rows, a single "Notes" sheet is synthesized from the description (or title) lines so the workbook still opens with something useful.
 
 Common optional fields:
 
@@ -200,6 +201,12 @@ PeakUI's `csv_document` tool turns structured row data into a downloadable `.csv
 }
 ```
 
+Required fields:
+
+- `title`: Document title.
+
+The full structure is a **strong recommendation, not a requirement**: a title alone (optionally with a `description`) is enough to generate a valid CSV. If only a `description` is supplied, it becomes the body; otherwise the title is used as a single cell.
+
 ## Output
 
 - A Canvas artifact with `kind: "data"` and `extension: "csv"`.
@@ -238,6 +245,12 @@ PeakUI's `email_document` tool generates a downloadable `.eml` email draft from 
 }
 ```
 
+Required fields:
+
+- `title`: Document title.
+
+The full structure is a **strong recommendation, not a requirement**: a title alone (optionally with a `description`) is enough to generate a valid `.eml` draft. The subject defaults from the title and the body from the description when either is missing.
+
 ## Output
 
 - A Canvas artifact with MIME type `message/rfc822` and extension `.eml`.
@@ -272,6 +285,12 @@ PeakUI's `markdown_document` tool generates a downloadable `.md` Canvas artifact
   "description": "Create a downloadable Markdown version of the blueprint"
 }
 ```
+
+Required fields:
+
+- `title`: Document title.
+
+The full structure is a **strong recommendation, not a requirement**: a title alone (optionally with a `description`) is enough to generate a valid `.md` file. If only a `description` is supplied, it becomes the body; otherwise a title heading is used.
 
 ## Output
 

@@ -4,7 +4,7 @@ import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import { createMarkdownCanvasArtifact } from '@/lib/markdown/markdown-artifacts'
 import {
   normalizeMarkdownDocumentInput,
-  markdownDocumentHasRenderableContent,
+  ensureMarkdownRenderableContent,
   type MarkdownDocumentInput,
 } from '@/lib/markdown/markdown-schema'
 import { renderMarkdownDocument } from '@/lib/markdown/markdown-renderer'
@@ -40,9 +40,7 @@ export async function POST(request: NextRequest) {
     if (!sessionId) {
       return NextResponse.json({ error: 'sessionId is required' }, { status: 400 })
     }
-    if (!markdownDocumentHasRenderableContent(normalized)) {
-      return NextResponse.json({ error: 'content is required' }, { status: 400 })
-    }
+    ensureMarkdownRenderableContent(normalized)
 
     const markdownBytes = renderMarkdownDocument(normalized)
     const sourceContent = JSON.stringify(normalized, null, 2)

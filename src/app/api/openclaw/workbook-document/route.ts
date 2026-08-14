@@ -4,7 +4,7 @@ import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import { createWorkbookCanvasArtifact } from '@/lib/workbook/workbook-artifacts'
 import {
   normalizeWorkbookDocumentInput,
-  workbookHasRenderableContent,
+  ensureWorkbookRenderableContent,
   type WorkbookDocumentInput,
 } from '@/lib/workbook/workbook-schema'
 import { renderWorkbookDocument } from '@/lib/workbook/workbook-renderer'
@@ -38,9 +38,7 @@ export async function POST(request: NextRequest) {
     if (!sessionId) {
       return NextResponse.json({ error: 'sessionId is required' }, { status: 400 })
     }
-    if (!workbookHasRenderableContent(normalized)) {
-      return NextResponse.json({ error: 'At least one sheet with rows is required' }, { status: 400 })
-    }
+    ensureWorkbookRenderableContent(normalized)
 
     const workbookBytes = await renderWorkbookDocument(normalized)
     const sourceContent = JSON.stringify(normalized, null, 2)

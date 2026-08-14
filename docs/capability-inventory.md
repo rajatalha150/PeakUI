@@ -10,10 +10,10 @@ Tool guidance used to be written directly into the WorkSpaces prompt. As PeakUI 
 
 - `pdf_document`: Creates downloadable PDF Canvas artifacts. Source-editable. A title alone (optionally with a `description`) is sufficient; the full structure (sections, fields, tables, callouts) is a strong recommendation, not a requirement — and when provided, renders as a themed, per-template professional PDF.
 - `word_document`: Creates downloadable Word DOCX Canvas artifacts. Source-editable. A title alone (optionally with a `description`) is sufficient; the full structure (content, sections, fields, tables, callouts) is a strong recommendation, not a requirement.
-- `workbook_document`: Creates downloadable Excel XLSX Canvas artifacts. Source-editable.
-- `csv_document`: Creates downloadable CSV Canvas artifacts.
-- `email_document`: Creates downloadable `.eml` email draft Canvas artifacts.
-- `markdown_document`: Creates downloadable Markdown `.md` Canvas artifacts. Source-editable.
+- `workbook_document`: Creates downloadable Excel XLSX Canvas artifacts. Source-editable. A title alone (optionally with a `description`) is sufficient; the full structure (sheets, typed columns, totals) is a strong recommendation, not a requirement — a Notes sheet is synthesized when no sheet has rows.
+- `csv_document`: Creates downloadable CSV Canvas artifacts. A title alone (optionally with a `description`) is sufficient; the full structure (headers, rows, raw content) is a strong recommendation, not a requirement — the description becomes the body when no data is supplied.
+- `email_document`: Creates downloadable `.eml` email draft Canvas artifacts. A title alone (optionally with a `description`) is sufficient; the full structure (to, from, subject, body) is a strong recommendation, not a requirement — the subject and body are derived from the title/description when missing.
+- `markdown_document`: Creates downloadable Markdown `.md` Canvas artifacts. Source-editable. A title alone (optionally with a `description`) is sufficient; the full structure is a strong recommendation, not a requirement — the description becomes the body (or a title heading is used) when no content is supplied.
 - `slides_document`: Creates downloadable PowerPoint `.pptx` Canvas artifacts.
 - `archive_document`: Creates downloadable `.zip` Canvas artifacts.
 - `calendar_document`: Creates downloadable `.ics` calendar artifacts.

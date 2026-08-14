@@ -28,10 +28,14 @@ Small local models were producing malformed tool calls and truncated responses b
 
 ### Changed — Document tool structure is a recommendation, not a requirement
 
-Small local models kept failing the `word_document` and `pdf_document` tools with "content, sections, fields, tables, or callouts are required" because they sent `{title, description}`-only requests. Both tools now accept a title alone (optionally with a description) and still produce a valid file:
+Small local models kept failing the document tools with "content, sections, fields, tables, or callouts are required" because they sent `{title, description}`-only requests. All six tools now accept a title alone (optionally with a description) and still produce a valid file:
 
 - **`word_document`** — the parser in `openclaw-tools.ts` now requires only `title`; `word-document/route.ts` no longer 400s on an empty structure and promotes `description` → `content` so a title-only request still renders a valid `.docx`.
 - **`pdf_document`** — the identical fix: parser requires only `title`, `pdf-document/route.ts` promotes `description` → `content` instead of 400ing.
+- **`markdown_document`** — parser requires only `title`; `markdown-document/route.ts` falls back to the `description` as the body, then to a `# title` heading.
+- **`csv_document`** — parser requires only `title`; `csv-document/route.ts` falls back to the `description` as the body, then to the title as a single cell.
+- **`email_document`** — parser requires at least one of `subject`/`body`/`title`/`description`; `email-document/route.ts` defaults the subject from the title and the body from the description.
+- **`workbook_document`** — parser requires only `title`; `workbook-document/route.ts` synthesizes a single "Notes" sheet from the description (or title) lines when no sheet has rows.
 - **Capability prompts** (`openclaw-capabilities.ts`) now tell the model the full structure is recommended but not required — a title with a simple content string (or just a title and description) is sufficient.
 
 ### Changed — Themed PDF renderer

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import { createEmailCanvasArtifact } from '@/lib/email/email-artifacts'
-import { normalizeEmailDocumentInput, emailDocumentHasRenderableContent, type EmailDocumentInput } from '@/lib/email/email-schema'
+import { normalizeEmailDocumentInput, ensureEmailRenderableContent, type EmailDocumentInput } from '@/lib/email/email-schema'
 import { renderEmailDocument } from '@/lib/email/email-renderer'
 
 export const runtime = 'nodejs'
@@ -36,9 +36,7 @@ export async function POST(request: NextRequest) {
     if (!sessionId) {
       return NextResponse.json({ error: 'sessionId is required' }, { status: 400 })
     }
-    if (!emailDocumentHasRenderableContent(normalized)) {
-      return NextResponse.json({ error: 'subject and body are required' }, { status: 400 })
-    }
+    ensureEmailRenderableContent(normalized)
 
     const emlBytes = renderEmailDocument(normalized)
     const sourceContent = JSON.stringify(normalized, null, 2)
