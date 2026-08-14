@@ -26,7 +26,8 @@ WorkSpaces is the primary app shell. Generation settings are saved per user in `
 
 - PeakUI does not send request-level `keep_alive` by default. Ollama's own lifecycle and queueing behavior control when local models stay resident or unload.
 - Settings -> Generation keeps Model Keep Alive as an opt-in local Ollama tuning option with quick values (`5m`, `30m`, `1h`, `2h`) plus custom Ollama-style durations such as `10m` or `1h`.
-- PeakUI does not send `keep_alive` to Ollama-hosted cloud model aliases such as `*:cloud`, because those requests are remote and should not use local runner residency hints.
+- PeakUI does not send `keep_alive` to Ollama-hosted cloud model aliases such as `*:cloud`, nor when `Use Ollama Cloud API` is enabled, because those requests are remote and should not use local runner residency hints.
+- Keep-alive applies to any model served by the local Ollama runner, including Hugging Face-hosted GGUF models (`hf.co/...`) that Ollama downloads and serves locally.
 - PeakUI still does not issue background model warmup prompts.
 - WorkSpaces exposes a `Stop model` button next to its local-model controls.
 - That button unloads the currently selected local model through an authenticated app route so the next request starts from a fresh load.

@@ -26,6 +26,7 @@ import { unloadOtherOllamaModels } from '@/lib/ollama-control';
 import { getHostExecutorStatus } from './openclaw-host-executor';
 import type { ServerStreamStatus } from '@/lib/stream-status';
 import { isHuggingFaceRouterUrl } from './chat-platforms';
+import { buildOllamaKeepAlive } from './ollama-keepalive';
 import { trimMessagesToFit, estimateMessageTokens, estimateStringTokens, collapseSystemMessages } from './message-trim';
 import { normalizeImageMimeType, shouldNormalizeImageForCompatibility } from './file-shared';
 import { convertImageBufferToJpeg } from './image-normalization';
@@ -514,15 +515,6 @@ function buildOllamaOptions(settings: AppSettings, numCtx: number | null): Recor
     options.num_ctx = numCtx
   }
   return options
-}
-
-function isOllamaCloudModel(model: string): boolean {
-  return /:cloud$/i.test(model.trim())
-}
-
-function buildOllamaKeepAlive(settings: AppSettings, model: string): string | undefined {
-  if (!settings.modelKeepAlive || isOllamaCloudModel(model)) return undefined
-  return settings.ollamaKeepAlive === '0' ? undefined : settings.ollamaKeepAlive
 }
 
 function roundTimingMs(value: number | null | undefined): number | null {

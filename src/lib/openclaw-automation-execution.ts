@@ -4,6 +4,7 @@ import { getUserSettings } from './settings'
 import { getModelCapacityProfile } from './model-context'
 import { buildOpenClawSystemPrompt } from './openclaw-prompt'
 import { unloadOtherOllamaModels } from './ollama-control'
+import { buildOllamaKeepAlive } from './ollama-keepalive'
 import { getOpenClawWorkspaceContext } from './openclaw-project-workspaces'
 import { buildMemoryContext, loadLongTermMemory, loadRecentMemory } from './memory'
 import { collapseSystemMessages } from './message-trim'
@@ -30,15 +31,6 @@ interface OllamaChatResponse {
   message?: {
     content?: unknown
   }
-}
-
-function isOllamaCloudModel(model: string): boolean {
-  return /:cloud$/i.test(model.trim())
-}
-
-function buildAutomationKeepAlive(settings: Awaited<ReturnType<typeof getUserSettings>>, model: string): string | undefined {
-  if (!settings.modelKeepAlive || isOllamaCloudModel(model)) return undefined
-  return settings.ollamaKeepAlive === '0' ? undefined : settings.ollamaKeepAlive
 }
 
 function previewText(value: string, maxLength = 280) {
@@ -354,7 +346,7 @@ async function executeAutomationRun(runId: string) {
       useModelDefaultTemperature: settings.ollamaUseModelDefaultTemperature,
       contextLength: settings.contextLength,
       useModelDefaultContext: settings.ollamaUseModelDefaultContext,
-      keepAlive: buildAutomationKeepAlive(settings, resolvedModel),
+      keepAlive: buildOllamaKeepAlive(settings, resolvedModel),
     })
 
     await prisma.chatSession.update({
