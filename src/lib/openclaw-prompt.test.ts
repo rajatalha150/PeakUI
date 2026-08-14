@@ -36,7 +36,7 @@ describe('buildOpenClawSystemPrompt', () => {
     const prompt = buildOpenClawSystemPrompt({
       ...baseContext,
       latestUserQuery: 'hello',
-      toolManifestMode: 'compact',
+      promptTier: 'compact',
     })
     expect(prompt).toContain('SHELL EXECUTION: available')
     expect(prompt).toContain('FILESYSTEM: available')
@@ -49,7 +49,7 @@ describe('buildOpenClawSystemPrompt', () => {
     const prompt = buildOpenClawSystemPrompt({
       ...baseContext,
       latestUserQuery: 'run git status',
-      toolManifestMode: 'compact',
+      promptTier: 'compact',
     })
     expect(prompt).toContain('SHELL EXECUTION CAPABILITY')
     expect(prompt).toContain('Use this exact format')
@@ -59,7 +59,7 @@ describe('buildOpenClawSystemPrompt', () => {
     const prompt = buildOpenClawSystemPrompt({
       ...baseContext,
       latestUserQuery: 'create a pdf report',
-      toolManifestMode: 'compact',
+      promptTier: 'compact',
     })
     expect(prompt).toContain('PDF DOCUMENT CAPABILITY')
   })
@@ -112,6 +112,63 @@ describe('buildOpenClawSystemPrompt', () => {
     expect(prompt).toContain('step-by-step navigation')
     expect(prompt).toContain('JS-heavy pages')
     expect(prompt).toContain('form interaction or login')
+  })
+})
+
+describe('buildOpenClawSystemPrompt — graduated prompt tiers', () => {
+  it('minimal tier drops verbose core-protocol rules but keeps the protocol and rules 1-3', () => {
+    const prompt = buildOpenClawSystemPrompt({
+      ...baseContext,
+      promptTier: 'minimal',
+      latestUserQuery: 'hello',
+    })
+    expect(prompt).toContain('TOOL CALL PROTOCOL')
+    expect(prompt).toContain('(1)')
+    expect(prompt).toContain('(3)')
+    expect(prompt).not.toContain('(4)')
+    expect(prompt).not.toContain('(7)')
+    expect(prompt).not.toContain('(9)')
+    expect(prompt).not.toContain('RECOVERY BEHAVIOR:')
+    expect(prompt).not.toContain('CLEAR-GOAL SINGLE-SHOT MODE:')
+    expect(prompt).not.toContain('NO FAKE STACK PIVOTS:')
+  })
+
+  it('minimal tier keeps one-line tool notes even when the query signals tool intent', () => {
+    const prompt = buildOpenClawSystemPrompt({
+      ...baseContext,
+      promptTier: 'minimal',
+      latestUserQuery: 'run git status',
+    })
+    expect(prompt).toContain('SHELL EXECUTION: available')
+    expect(prompt).not.toContain('SHELL EXECUTION CAPABILITY')
+  })
+
+  it('minimal tier omits document capability examples even on document intent', () => {
+    const prompt = buildOpenClawSystemPrompt({
+      ...baseContext,
+      promptTier: 'minimal',
+      latestUserQuery: 'create a pdf report',
+    })
+    expect(prompt).not.toContain('PDF DOCUMENT CAPABILITY')
+  })
+
+  it('full tier includes all document capability examples regardless of query', () => {
+    const prompt = buildOpenClawSystemPrompt({
+      ...baseContext,
+      promptTier: 'full',
+      latestUserQuery: 'hello',
+    })
+    expect(prompt).toContain('PDF DOCUMENT CAPABILITY')
+  })
+
+  it('standard tier keeps full tool sections but gates document examples on query', () => {
+    const prompt = buildOpenClawSystemPrompt({
+      ...baseContext,
+      promptTier: 'standard',
+      latestUserQuery: 'hello',
+    })
+    expect(prompt).toContain('SHELL EXECUTION CAPABILITY')
+    expect(prompt).not.toContain('PDF DOCUMENT CAPABILITY')
   })
 })
 

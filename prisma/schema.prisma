@@ -46,6 +46,7 @@ model UserSettings {
   exclusiveOllamaModels                      Boolean  @default(false)
   openClawProvider                           String   @default("ollama")
   openClawModel                              String   @default("")
+  openClawPromptTier                         String   @default("auto")
   openClawBaseUrl                            String   @default("")
   ragModel                                   String   @default("nomic-embed-text")
   ragMode                                    String   @default("semantic")

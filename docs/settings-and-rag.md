@@ -43,6 +43,14 @@ WorkSpaces is the primary app shell. Generation settings are saved per user in `
 - The Ollama health strip and `Stop model` control only appear when the currently selected model is actually running on Ollama.
 - When the provider is local Ollama, WorkSpaces no longer performs the extra OpenAI-compatible-style verify round trip during routine model refresh/switch flows; it relies on model discovery and Ollama health for the local path.
 
+### Model-Capacity Adaptation
+
+- PeakUI detects each model's capacity (parameter size + native context window) via Ollama `/api/show` (cached 5 min per model, with name-based fallback) and adapts both the system prompt and the `num_ctx` window to it.
+- **Prompt Detail Level** (`UserSettings.openClawPromptTier`): `auto` (default) picks the tier from the detected capacity; manual `minimal` / `compact` / `standard` / `full` overrides detection. Stored in `UserSettings.openClawPromptTier` and normalized on read/write through `/api/settings`.
+- Tier mapping: `minimal` (≤4B), `compact` (≤9B), `standard` (≤30B), `full` (>30B or cloud). `minimal` drops the verbose core-protocol rules, recovery behavior, single-shot mode, and all document examples so the manifest fits a 2048-token window; `full` includes every document example.
+- When `/api/show` reports a native context window, the default `num_ctx` is raised when the model comfortably allows it (≤9B → 8192 when native ≥ 8192; ≤4B → 4096 when native ≥ 4096) and both the default and the hard cap are clamped to the native window. The existing OOM backoff loop still steps down automatically if a raise is too aggressive for the GPU.
+- Both interactive WorkSpaces chats and unattended automation runs honor the tier, so background runs no longer send a 17KB full prompt to an 8B model.
+
 ### Exclusive Ollama Switching
 
 - Stored as `UserSettings.exclusiveOllamaModels`.

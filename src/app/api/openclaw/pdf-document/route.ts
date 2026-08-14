@@ -34,8 +34,13 @@ export async function POST(request: NextRequest) {
     if (!sessionId) {
       return NextResponse.json({ error: 'sessionId is required' }, { status: 400 })
     }
+    // The full structure (content, sections, fields, tables, callouts) is a
+    // strong recommendation, not a hard requirement. If the model only supplied
+    // a title and/or description, still generate a PDF rather than failing.
     if (!pdfDocumentHasRenderableContent(normalized)) {
-      return NextResponse.json({ error: 'content, sections, fields, tables, or callouts are required' }, { status: 400 })
+      if (normalized.description) {
+        normalized.content = normalized.description
+      }
     }
     if (normalized.content.length > 60_000) {
       return NextResponse.json({ error: 'PDF content is too large for a single generated document' }, { status: 413 })

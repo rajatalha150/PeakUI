@@ -148,72 +148,42 @@ function createEmptyWorkingMemory(): WorkingMemory {
   };
 }
 
+const TOOL_RESULT_PREFIXES: ReadonlyArray<readonly [prefix: string, label: string]> = [
+  ['Shell command result:', 'shell'],
+  ['Filesystem tool result:', 'filesystem'],
+  ['Web research tool result:', 'web'],
+  ['Code execution result:', 'code'],
+  ['Browser tool result:', 'browser'],
+  ['UWAF browser tool result:', 'unified browser'],
+  ['Tax return PDF tool result:', 'tax return'],
+  ['PDF document tool result:', 'PDF document'],
+  ['Excel workbook tool result:', 'Excel workbook'],
+  ['Word document tool result:', 'Word document'],
+];
+
 function summarizeToolResult(message: SessionMessageLike) {
   const content = (message.content || '').trim();
   if (!message.hidden) return '';
 
-  if (content.startsWith('Shell command result:')) {
-    return `Tool result (shell): ${summarizeText(content.slice('Shell command result:'.length), 220)}`;
-  }
-  if (content.startsWith('Filesystem tool result:')) {
-    return `Tool result (filesystem): ${summarizeText(content.slice('Filesystem tool result:'.length), 220)}`;
-  }
-  if (content.startsWith('Web research tool result:')) {
-    return `Tool result (web): ${summarizeText(content.slice('Web research tool result:'.length), 220)}`;
-  }
-  if (content.startsWith('Code execution result:')) {
-    return `Tool result (code): ${summarizeText(content.slice('Code execution result:'.length), 220)}`;
-  }
-  if (content.startsWith('Browser tool result:')) {
-    return `Tool result (browser): ${summarizeText(content.slice('Browser tool result:'.length), 220)}`;
-  }
-  if (content.startsWith('UWAF browser tool result:')) {
-    return `Tool result (unified browser): ${summarizeText(content.slice('UWAF browser tool result:'.length), 220)}`;
-  }
-  if (content.startsWith('Tax return PDF tool result:')) {
-    return `Tool result (tax return): ${summarizeText(content.slice('Tax return PDF tool result:'.length), 220)}`;
-  }
-  if (content.startsWith('PDF document tool result:')) {
-    return `Tool result (PDF document): ${summarizeText(content.slice('PDF document tool result:'.length), 220)}`;
-  }
-  if (content.startsWith('Excel workbook tool result:')) {
-    return `Tool result (Excel workbook): ${summarizeText(content.slice('Excel workbook tool result:'.length), 220)}`;
-  }
-  if (content.startsWith('Word document tool result:')) {
-    return `Tool result (Word document): ${summarizeText(content.slice('Word document tool result:'.length), 220)}`;
+  for (const [prefix, label] of TOOL_RESULT_PREFIXES) {
+    if (content.startsWith(prefix)) {
+      return `Tool result (${label}): ${summarizeText(content.slice(prefix.length), 220)}`;
+    }
   }
 
   return content ? `Hidden result: ${summarizeText(content, 220)}` : '';
 }
 
-function summarizeMessage(message: SessionMessageLike) {
-  if (message.hidden) {
-    return summarizeToolResult(message);
-  }
-
-  if (message.role === 'user') {
-    return `User request: ${summarizeText(message.content || '', 220)}`;
-  }
-
-  if (message.role === 'assistant') {
-    const parts: string[] = [];
-    if (message.toolRequest) {
-      parts.push(`Assistant requested ${message.toolRequest}`);
-    }
-    if ((message.content || '').trim()) {
-      parts.push(`Assistant response: ${summarizeText(message.content || '', 220)}`);
-    }
-    if (message.thinking?.trim()) {
-      parts.push(`Reasoning summary: ${summarizeText(message.thinking, 160)}`);
-    }
-    return parts.join(' · ');
-  }
-
-  return `System note: ${summarizeText(message.content || '', 180)}`;
-}
-
 function uniqueLines(lines: string[]) {
-  return lines.filter((line, index) => line && lines.indexOf(line) === index);
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const line of lines) {
+    if (line && !seen.has(line)) {
+      seen.add(line);
+      unique.push(line);
+    }
+  }
+  return unique;
 }
 
 function normalizeMemoryLine(value: string): string {
@@ -261,22 +231,44 @@ function parseExistingWorkingMemory(existingSummary: string): WorkingMemory {
 
   if (parsedStructured) return memory;
 
+  const legacyRules: ReadonlyArray<{
+    test: (line: string) => boolean;
+    section: (memory: WorkingMemory) => WorkingMemorySectionKey;
+  }> = [
+    {
+      test: line => /^User request:/i.test(line),
+      section: memory => (memory.objective.length === 0 ? 'objective' : 'currentStatus'),
+    },
+    { test: line => /^Assistant response:/i.test(line), section: () => 'currentStatus' },
+    { test: line => /^Tool result|^Hidden result/i.test(line), section: () => 'filesFoldersArtifacts' },
+    { test: line => /\?$/.test(line), section: () => 'openQuestions' },
+    { test: () => true, section: () => 'currentStatus' },
+  ];
+
   for (const line of existing.split('\n').map(entry => entry.trim()).filter(Boolean)) {
-    if (/^User request:/i.test(line)) {
-      pushMemory(memory, memory.objective.length === 0 ? 'objective' : 'currentStatus', line);
-    } else if (/^Assistant response:/i.test(line)) {
-      pushMemory(memory, 'currentStatus', line);
-    } else if (/^Tool result|^Hidden result/i.test(line)) {
-      pushMemory(memory, 'filesFoldersArtifacts', line);
-    } else if (/\?$/.test(line)) {
-      pushMemory(memory, 'openQuestions', line);
-    } else {
-      pushMemory(memory, 'currentStatus', line);
+    for (const rule of legacyRules) {
+      if (rule.test(line)) {
+        pushMemory(memory, rule.section(memory), line);
+        break;
+      }
     }
   }
 
   return memory;
 }
+
+const TASK_STATE_RULES: ReadonlyArray<{
+  label: RegExp;
+  section: WorkingMemorySectionKey;
+  limit: number;
+  transform?: (value: string) => string;
+}> = [
+  { label: /^Objective:/i, section: 'objective', limit: 1 },
+  { label: /^Current status:/i, section: 'currentStatus', limit: 3 },
+  { label: /^Next step:/i, section: 'nextStep', limit: 2 },
+  { label: /^Done criteria:/i, section: 'importantDecisions', limit: 3, transform: value => `Done when: ${value}` },
+  { label: /^Pinned checklist:/i, section: 'nextStep', limit: 3 },
+];
 
 function extractTaskStateFromSystemMessage(content: string, memory: WorkingMemory) {
   if (!/WorkSpaces task state:|Open Claw task state:/i.test(content)) return;
@@ -287,13 +279,44 @@ function extractTaskStateFromSystemMessage(content: string, memory: WorkingMemor
     const value = rest.join('\n').trim();
     if (!value) continue;
 
-    if (/^Objective:/i.test(label)) pushMemory(memory, 'objective', value, 1);
-    if (/^Current status:/i.test(label)) pushMemory(memory, 'currentStatus', value, 3);
-    if (/^Next step:/i.test(label)) pushMemory(memory, 'nextStep', value, 2);
-    if (/^Done criteria:/i.test(label)) pushMemory(memory, 'importantDecisions', `Done when: ${value}`, 3);
-    if (/^Pinned checklist:/i.test(label)) pushMemory(memory, 'nextStep', value, 3);
+    for (const rule of TASK_STATE_RULES) {
+      if (rule.label.test(label)) {
+        pushMemory(memory, rule.section, rule.transform ? rule.transform(value) : value, rule.limit);
+        break;
+      }
+    }
   }
 }
+
+const USER_MESSAGE_RULES: ReadonlyArray<{
+  test: (text: string) => boolean;
+  section: WorkingMemorySectionKey;
+}> = [
+  {
+    test: text => /\b(?:remember|always|never|prefer|preference|do not|don't|dont|make sure|use this|leave .* alone|keep .* there)\b/i.test(text),
+    section: 'userPreferences',
+  },
+  {
+    test: text => /\b(?:we decided|decision|go with|choose|chosen|selected|use .* instead|we will|we're going to|approved|confirmed)\b/i.test(text),
+    section: 'importantDecisions',
+  },
+  {
+    test: text => /\b(?:file|folder|pdf|docx|xlsx|workbook|artifact|canvas|knowledge base|rag|workspace|directory|path)\b/i.test(text),
+    section: 'filesFoldersArtifacts',
+  },
+  {
+    test: text => /\b(?:issue|problem|bug|error|failing|unable|broken|stuck|regression|missing)\b/i.test(text),
+    section: 'currentStatus',
+  },
+  {
+    test: text => /\?$/.test(text) || /\b(?:question|unclear|figure out|investigate|audit)\b/i.test(text),
+    section: 'openQuestions',
+  },
+  {
+    test: text => /\b(?:next|after this|one more thing|once done|then|follow up|lastly|before redeploy|redeploy|commit|push)\b/i.test(text),
+    section: 'nextStep',
+  },
+];
 
 function classifyUserMessage(content: string, memory: WorkingMemory, options: { isFirstUser: boolean }) {
   const text = summarizeText(content, 500);
@@ -303,30 +326,20 @@ function classifyUserMessage(content: string, memory: WorkingMemory, options: { 
     pushMemory(memory, 'objective', text, 1);
   }
 
-  if (/\b(?:remember|always|never|prefer|preference|do not|don't|dont|make sure|use this|leave .* alone|keep .* there)\b/i.test(text)) {
-    pushMemory(memory, 'userPreferences', text);
-  }
-
-  if (/\b(?:we decided|decision|go with|choose|chosen|selected|use .* instead|we will|we're going to|approved|confirmed)\b/i.test(text)) {
-    pushMemory(memory, 'importantDecisions', text);
-  }
-
-  if (/\b(?:file|folder|pdf|docx|xlsx|workbook|artifact|canvas|knowledge base|rag|workspace|directory|path)\b/i.test(text)) {
-    pushMemory(memory, 'filesFoldersArtifacts', text);
-  }
-
-  if (/\b(?:issue|problem|bug|error|failing|unable|broken|stuck|regression|missing)\b/i.test(text)) {
-    pushMemory(memory, 'currentStatus', text);
-  }
-
-  if (/\?$/.test(text) || /\b(?:question|unclear|figure out|investigate|audit)\b/i.test(text)) {
-    pushMemory(memory, 'openQuestions', text);
-  }
-
-  if (/\b(?:next|after this|one more thing|once done|then|follow up|lastly|before redeploy|redeploy|commit|push)\b/i.test(text)) {
-    pushMemory(memory, 'nextStep', text);
+  for (const rule of USER_MESSAGE_RULES) {
+    if (rule.test(text)) pushMemory(memory, rule.section, text);
   }
 }
+
+const ASSISTANT_MESSAGE_RULES: ReadonlyArray<{
+  test: (content: string) => boolean;
+  section: WorkingMemorySectionKey;
+}> = [
+  {
+    test: content => /\b(?:next step|follow up|remaining|todo|pending|should)\b/i.test(content),
+    section: 'nextStep',
+  },
+];
 
 function classifyAssistantMessage(message: SessionMessageLike, memory: WorkingMemory) {
   const content = summarizeText(message.content || '', 500);
@@ -336,12 +349,16 @@ function classifyAssistantMessage(message: SessionMessageLike, memory: WorkingMe
     pushMemory(memory, 'filesFoldersArtifacts', `Assistant used ${message.toolRequest}: ${content}`);
   }
 
-  if (message.role === 'assistant' || /\b(?:done|implemented|fixed|updated|verified|tests? passed|build passed|committed|pushed|redeployed|diagnosed)\b/i.test(content)) {
+  // Assistant responses always update current status. The original
+  // `message.role === 'assistant' || regex` was unconditional for assistant
+  // messages (this function is only called for them), so the role guard alone
+  // preserves the exact behavior.
+  if (message.role === 'assistant') {
     pushMemory(memory, 'currentStatus', content);
   }
 
-  if (/\b(?:next step|follow up|remaining|todo|pending|should)\b/i.test(content)) {
-    pushMemory(memory, 'nextStep', content);
+  for (const rule of ASSISTANT_MESSAGE_RULES) {
+    if (rule.test(content)) pushMemory(memory, rule.section, content);
   }
 }
 
@@ -393,6 +410,10 @@ export function normalizeMaxToolRoundsPerTurn(value: unknown, fallback = 100) {
   return Math.min(250, Math.max(1, Math.round(parsed)));
 }
 
+function num(raw: Record<string, unknown>, key: string): number {
+  return typeof raw[key] === 'number' ? (raw[key] as number) : 0;
+}
+
 export function normalizeSessionAnalytics(raw: unknown): SessionAnalytics | null {
   if (!isRecord(raw)) return null;
 
@@ -406,23 +427,23 @@ export function normalizeSessionAnalytics(raw: unknown): SessionAnalytics | null
   }
 
   return {
-    totalMessages: typeof raw.totalMessages === 'number' ? raw.totalMessages : 0,
-    visibleMessages: typeof raw.visibleMessages === 'number' ? raw.visibleMessages : 0,
-    hiddenMessages: typeof raw.hiddenMessages === 'number' ? raw.hiddenMessages : 0,
-    userMessages: typeof raw.userMessages === 'number' ? raw.userMessages : 0,
-    assistantMessages: typeof raw.assistantMessages === 'number' ? raw.assistantMessages : 0,
-    systemMessages: typeof raw.systemMessages === 'number' ? raw.systemMessages : 0,
-    toolCalls: typeof raw.toolCalls === 'number' ? raw.toolCalls : 0,
+    totalMessages: num(raw, 'totalMessages'),
+    visibleMessages: num(raw, 'visibleMessages'),
+    hiddenMessages: num(raw, 'hiddenMessages'),
+    userMessages: num(raw, 'userMessages'),
+    assistantMessages: num(raw, 'assistantMessages'),
+    systemMessages: num(raw, 'systemMessages'),
+    toolCalls: num(raw, 'toolCalls'),
     toolCallsByType,
-    assistantTokens: typeof raw.assistantTokens === 'number' ? raw.assistantTokens : 0,
-    assistantDurationSeconds: typeof raw.assistantDurationSeconds === 'number' ? raw.assistantDurationSeconds : 0,
-    averageTps: typeof raw.averageTps === 'number' ? raw.averageTps : 0,
-    sourceCount: typeof raw.sourceCount === 'number' ? raw.sourceCount : 0,
-    imageCount: typeof raw.imageCount === 'number' ? raw.imageCount : 0,
-    attachmentCount: typeof raw.attachmentCount === 'number' ? raw.attachmentCount : 0,
+    assistantTokens: num(raw, 'assistantTokens'),
+    assistantDurationSeconds: num(raw, 'assistantDurationSeconds'),
+    averageTps: num(raw, 'averageTps'),
+    sourceCount: num(raw, 'sourceCount'),
+    imageCount: num(raw, 'imageCount'),
+    attachmentCount: num(raw, 'attachmentCount'),
     firstMessageAt: typeof raw.firstMessageAt === 'string' ? raw.firstMessageAt : null,
     lastMessageAt: typeof raw.lastMessageAt === 'string' ? raw.lastMessageAt : null,
-    timeSpanSeconds: typeof raw.timeSpanSeconds === 'number' ? raw.timeSpanSeconds : 0,
+    timeSpanSeconds: num(raw, 'timeSpanSeconds'),
   };
 }
 
@@ -442,6 +463,11 @@ export function computeSessionAnalytics(
   },
 ): SessionAnalytics {
   const toolCallsByType: SessionAnalytics['toolCallsByType'] = {};
+  let visibleMessages = 0;
+  let hiddenMessages = 0;
+  let userMessages = 0;
+  let assistantMessages = 0;
+  let systemMessages = 0;
   let assistantTokens = 0;
   let assistantDurationSeconds = 0;
   let totalTpsWeight = 0;
@@ -451,6 +477,13 @@ export function computeSessionAnalytics(
   let attachmentCount = 0;
 
   for (const message of messages) {
+    if (message.hidden) hiddenMessages += 1;
+    else visibleMessages += 1;
+
+    if (message.role === 'user') userMessages += 1;
+    else if (message.role === 'assistant') assistantMessages += 1;
+    else if (message.role === 'system') systemMessages += 1;
+
     if (message.toolRequest) {
       toolCallsByType[message.toolRequest] = (toolCallsByType[message.toolRequest] || 0) + 1;
     }
@@ -487,11 +520,11 @@ export function computeSessionAnalytics(
 
   return {
     totalMessages: messages.length,
-    visibleMessages: messages.filter(message => !message.hidden).length,
-    hiddenMessages: messages.filter(message => message.hidden).length,
-    userMessages: messages.filter(message => message.role === 'user').length,
-    assistantMessages: messages.filter(message => message.role === 'assistant').length,
-    systemMessages: messages.filter(message => message.role === 'system').length,
+    visibleMessages,
+    hiddenMessages,
+    userMessages,
+    assistantMessages,
+    systemMessages,
     toolCalls: Object.values(toolCallsByType).reduce((sum, count) => sum + count, 0),
     toolCallsByType,
     assistantTokens,
@@ -623,7 +656,10 @@ export function applyContextManagement<TMessage extends SessionMessageLike>(
   const existingSummary = sanitizeWorkingMemorySummary(options.existingSummary || '');
   const rawTokenEstimate = estimateMessageTokens(messages);
   const nearLimitThreshold = Math.floor(options.contextLength * 0.75);
-  const nonSystemCount = messages.filter(message => message.role !== 'system').length;
+  let nonSystemCount = 0;
+  for (const message of messages) {
+    if (message.role !== 'system') nonSystemCount += 1;
+  }
   const hasOlderTurnsOutsideRawWindow = nonSystemCount > normalizeSessionPreserveTurns(options.preserveTurns, 6) * 2;
   const shouldSummarize = options.summaryEnabled
     && (rawTokenEstimate >= options.summaryTargetTokens || hasOlderTurnsOutsideRawWindow);

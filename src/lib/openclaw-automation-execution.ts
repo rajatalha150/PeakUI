@@ -1,6 +1,7 @@
 import crypto from 'node:crypto'
 import { prisma } from './prisma'
 import { getUserSettings } from './settings'
+import { getModelCapacityProfile } from './model-context'
 import { buildOpenClawSystemPrompt } from './openclaw-prompt'
 import { unloadOtherOllamaModels } from './ollama-control'
 import { getOpenClawWorkspaceContext } from './openclaw-project-workspaces'
@@ -276,9 +277,13 @@ async function executeAutomationRun(runId: string) {
       ? buildMemoryContext(recentMemories)
       : ''
 
+    const capacityProfile = await getModelCapacityProfile(resolvedModel, 'ollama', settings.ollamaHost).catch(() => null)
     const systemPrompt = buildOpenClawSystemPrompt({
       provider: 'ollama',
       model: resolvedModel,
+      promptTier: settings.openClawPromptTier === 'auto'
+        ? (capacityProfile?.promptTier ?? 'full')
+        : settings.openClawPromptTier,
       persona: {
         name: settings.openClawPersonaName,
         tone: settings.openClawPersonaTone,

@@ -2,7 +2,27 @@ import React from 'react'
 import { Document, Page, StyleSheet, Text, View, renderToBuffer } from '@react-pdf/renderer'
 import type { NormalizedPdfDocument, PdfDocumentField, PdfDocumentTable } from './document-schema'
 
-const styles = StyleSheet.create({
+/**
+ * Per-template accent palettes. Each template gets its own primary color and
+ * soft tint so structured documents render as distinct, polished reports
+ * rather than one flat look.
+ */
+const TEMPLATE_ACCENTS: Record<NormalizedPdfDocument['template'], { primary: string; soft: string; border: string }> = {
+  report: { primary: '#4f46e5', soft: '#eef2ff', border: '#c7d2fe' },
+  memo: { primary: '#b45309', soft: '#fffbeb', border: '#fcd34d' },
+  letter: { primary: '#0284c7', soft: '#f0f9ff', border: '#7dd3fc' },
+  invoice: { primary: '#047857', soft: '#ecfdf5', border: '#6ee7b7' },
+  checklist: { primary: '#7c3aed', soft: '#f5f3ff', border: '#c4b5fd' },
+  form: { primary: '#be123c', soft: '#fff1f2', border: '#fda4af' },
+}
+
+const CALLOUT_LABELS: Record<string, string> = {
+  warning: 'WARNING',
+  success: 'SUCCESS',
+  note: 'NOTE',
+}
+
+const baseStyles = StyleSheet.create({
   page: {
     padding: 42,
     fontSize: 10,
@@ -13,14 +33,14 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: 20,
     paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#d1d5db',
+    borderBottomWidth: 2,
+    borderBottomColor: '#e5e7eb',
   },
   eyebrow: {
     fontSize: 8,
-    color: '#4f46e5',
     fontWeight: 700,
     marginBottom: 5,
+    letterSpacing: 1.2,
   },
   title: {
     fontSize: 22,
@@ -34,10 +54,20 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 15,
   },
+  sectionHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 7,
+  },
+  sectionAccentBar: {
+    width: 3,
+    height: 14,
+    marginRight: 6,
+    borderRadius: 1.5,
+  },
   sectionTitle: {
     fontSize: 13,
     fontWeight: 700,
-    marginBottom: 7,
   },
   paragraph: {
     marginBottom: 7,
@@ -48,7 +78,6 @@ const styles = StyleSheet.create({
   },
   bullet: {
     width: 12,
-    color: '#4f46e5',
   },
   bulletText: {
     flexGrow: 1,
@@ -67,9 +96,9 @@ const styles = StyleSheet.create({
   fieldLabel: {
     width: 150,
     padding: 7,
-    color: '#4b5563',
-    backgroundColor: '#f9fafb',
     fontWeight: 700,
+    borderRightWidth: 1,
+    borderRightColor: '#f3f4f6',
   },
   fieldValue: {
     flexGrow: 1,
@@ -84,6 +113,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: '#e5e7eb',
+    borderRadius: 6,
   },
   tableRow: {
     flexDirection: 'row',
@@ -96,8 +126,6 @@ const styles = StyleSheet.create({
     padding: 6,
     fontSize: 8,
     fontWeight: 700,
-    color: '#374151',
-    backgroundColor: '#f3f4f6',
   },
   tableCell: {
     flexGrow: 1,
@@ -109,16 +137,13 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     padding: 9,
     borderLeftWidth: 3,
-    borderLeftColor: '#4f46e5',
-    backgroundColor: '#eef2ff',
+    borderRadius: 4,
   },
-  calloutWarning: {
-    borderLeftColor: '#d97706',
-    backgroundColor: '#fffbeb',
-  },
-  calloutSuccess: {
-    borderLeftColor: '#059669',
-    backgroundColor: '#ecfdf5',
+  calloutLabel: {
+    fontSize: 7,
+    fontWeight: 700,
+    letterSpacing: 1,
+    marginBottom: 3,
   },
   calloutTitle: {
     fontWeight: 700,
@@ -156,14 +181,20 @@ function splitParagraphs(content: string): string[] {
     .filter(Boolean)
 }
 
-function renderFieldGrid(fields: PdfDocumentField[], keyPrefix: string) {
+function renderFieldGrid(
+  fields: PdfDocumentField[],
+  keyPrefix: string,
+  accent: { primary: string; soft: string; border: string },
+) {
   if (fields.length === 0) return null
   return (
-    <View style={styles.fieldGrid}>
+    <View style={[baseStyles.fieldGrid, { borderColor: accent.border }]}>
       {fields.map((field, index) => (
-        <View key={`${keyPrefix}-field-${index}`} style={styles.fieldRow}>
-          <Text style={styles.fieldLabel}>{field.label}</Text>
-          <Text style={styles.fieldValue}>{field.value}</Text>
+        <View key={`${keyPrefix}-field-${index}`} style={baseStyles.fieldRow}>
+          <Text style={[baseStyles.fieldLabel, { color: accent.primary, backgroundColor: accent.soft }]}>
+            {field.label}
+          </Text>
+          <Text style={baseStyles.fieldValue}>{field.value}</Text>
         </View>
       ))}
     </View>
@@ -175,18 +206,29 @@ function tableCellValue(row: Record<string, string> | string[], column: string, 
   return row[column] ?? ''
 }
 
-function renderTable(table: PdfDocumentTable, index: number) {
+function renderTable(
+  table: PdfDocumentTable,
+  index: number,
+  accent: { primary: string; soft: string; border: string },
+) {
   return (
-    <View key={`table-${index}`} style={styles.section} wrap={false}>
-      {table.title ? <Text style={styles.tableTitle}>{table.title}</Text> : null}
-      <View style={styles.table}>
-        <View style={styles.tableRow}>
-          {table.columns.map(column => <Text key={column} style={styles.tableHeader}>{column}</Text>)}
+    <View key={`table-${index}`} style={baseStyles.section} wrap={false}>
+      {table.title ? <Text style={[baseStyles.tableTitle, { color: accent.primary }]}>{table.title}</Text> : null}
+      <View style={[baseStyles.table, { borderColor: accent.border }]}>
+        <View style={[baseStyles.tableRow, { backgroundColor: accent.soft }]}>
+          {table.columns.map(column => (
+            <Text key={column} style={[baseStyles.tableHeader, { color: accent.primary }]}>{column}</Text>
+          ))}
         </View>
         {table.rows.map((row, rowIndex) => (
-          <View key={`row-${rowIndex}`} style={styles.tableRow}>
+          <View
+            key={`row-${rowIndex}`}
+            style={rowIndex % 2 === 1
+              ? [baseStyles.tableRow, { backgroundColor: '#f9fafb' }]
+              : baseStyles.tableRow}
+          >
             {table.columns.map((column, columnIndex) => (
-              <Text key={`${rowIndex}-${column}`} style={styles.tableCell}>
+              <Text key={`${rowIndex}-${column}`} style={baseStyles.tableCell}>
                 {tableCellValue(row, column, columnIndex)}
               </Text>
             ))}
@@ -197,13 +239,33 @@ function renderTable(table: PdfDocumentTable, index: number) {
   )
 }
 
-function calloutStyle(tone: string | undefined) {
-  if (tone === 'warning') return [styles.callout, styles.calloutWarning]
-  if (tone === 'success') return [styles.callout, styles.calloutSuccess]
-  return styles.callout
+function renderCallout(
+  callout: { tone?: 'note' | 'warning' | 'success'; title?: string; text: string },
+  key: string,
+) {
+  const tone = callout.tone || 'note'
+  const palette = tone === 'warning' ? { primary: '#b45309', soft: '#fffbeb', border: '#fcd34d' }
+    : tone === 'success' ? { primary: '#047857', soft: '#ecfdf5', border: '#6ee7b7' }
+      : { primary: '#0284c7', soft: '#f0f9ff', border: '#7dd3fc' }
+  return (
+    <View
+      key={key}
+      style={[
+        baseStyles.callout,
+        { borderLeftColor: palette.primary, backgroundColor: palette.soft },
+      ]}
+    >
+      <Text style={[baseStyles.calloutLabel, { color: palette.primary }]}>
+        {CALLOUT_LABELS[tone]}
+      </Text>
+      {callout.title ? <Text style={baseStyles.calloutTitle}>{callout.title}</Text> : null}
+      <Text>{callout.text}</Text>
+    </View>
+  )
 }
 
 function GeneratedPdfDocument({ document }: { document: NormalizedPdfDocument }) {
+  const accent = TEMPLATE_ACCENTS[document.template] || TEMPLATE_ACCENTS.report
   const footer = document.metadata.footer || 'Generated by PeakUI'
   return (
     <Document
@@ -211,72 +273,65 @@ function GeneratedPdfDocument({ document }: { document: NormalizedPdfDocument })
       author={document.metadata.author || 'PeakUI'}
       subject={document.metadata.subject || document.subtitle || document.title}
     >
-      <Page size="LETTER" style={styles.page}>
-        <View style={styles.header}>
-          <Text style={styles.eyebrow}>{templateLabel(document.template)}</Text>
-          <Text style={styles.title}>{document.title}</Text>
-          {document.subtitle ? <Text style={styles.subtitle}>{document.subtitle}</Text> : null}
+      <Page size="LETTER" style={baseStyles.page}>
+        <View style={[baseStyles.header, { borderBottomColor: accent.border }]}>
+          <Text style={[baseStyles.eyebrow, { color: accent.primary }]}>
+            {templateLabel(document.template).toUpperCase()}
+          </Text>
+          <Text style={baseStyles.title}>{document.title}</Text>
+          {document.subtitle ? <Text style={baseStyles.subtitle}>{document.subtitle}</Text> : null}
         </View>
 
-        {document.callouts.map((callout, index) => (
-          <View
-            key={`callout-${index}`}
-            style={calloutStyle(callout.tone)}
-          >
-            {callout.title ? <Text style={styles.calloutTitle}>{callout.title}</Text> : null}
-            <Text>{callout.text}</Text>
-          </View>
-        ))}
+        {document.callouts.map((callout, index) => renderCallout(callout, `callout-${index}`))}
 
-        {renderFieldGrid(document.fields, 'root')}
-        {document.tables.map(renderTable)}
+        {renderFieldGrid(document.fields, 'root', accent)}
+        {document.tables.map((table, index) => renderTable(table, index, accent))}
 
         {document.sections.map((section, index) => (
-          <View key={`section-${index}`} style={styles.section}>
-            {section.heading ? <Text style={styles.sectionTitle}>{section.heading}</Text> : null}
-            {section.callouts?.map((callout, calloutIndex) => (
-              <View
-                key={`section-callout-${calloutIndex}`}
-                style={calloutStyle(callout.tone)}
-              >
-                {callout.title ? <Text style={styles.calloutTitle}>{callout.title}</Text> : null}
-                <Text>{callout.text}</Text>
+          <View key={`section-${index}`} style={baseStyles.section}>
+            {section.heading ? (
+              <View style={baseStyles.sectionHeadingRow}>
+                <View style={[baseStyles.sectionAccentBar, { backgroundColor: accent.primary }]} />
+                <Text style={[baseStyles.sectionTitle, { color: accent.primary }]}>{section.heading}</Text>
               </View>
+            ) : null}
+            {section.callouts?.map((callout, calloutIndex) => (
+              renderCallout(callout, `section-${index}-callout-${calloutIndex}`)
             ))}
             {section.body ? splitParagraphs(section.body).map((paragraph, paragraphIndex) => (
-              <Text key={`paragraph-${paragraphIndex}`} style={styles.paragraph}>{paragraph}</Text>
+              <Text key={`paragraph-${index}-${paragraphIndex}`} style={baseStyles.paragraph}>{paragraph}</Text>
             )) : null}
             {section.bullets?.map((bullet, bulletIndex) => (
-              <View key={`bullet-${bulletIndex}`} style={styles.bulletRow}>
-                <Text style={styles.bullet}>•</Text>
-                <Text style={styles.bulletText}>{bullet}</Text>
+              <View key={`bullet-${index}-${bulletIndex}`} style={baseStyles.bulletRow}>
+                <Text style={[baseStyles.bullet, { color: accent.primary }]}>•</Text>
+                <Text style={baseStyles.bulletText}>{bullet}</Text>
               </View>
             ))}
-            {section.fields ? renderFieldGrid(section.fields, `section-${index}`) : null}
-            {section.tables?.map((table, tableIndex) => renderTable(table, Number(`${index}${tableIndex}`)))}
+            {section.fields ? renderFieldGrid(section.fields, `section-${index}`, accent) : null}
+            {section.tables?.map((table, tableIndex) => renderTable(table, Number(`${index}${tableIndex}`), accent))}
           </View>
         ))}
 
         {document.content ? (
-          <View style={styles.section}>
+          <View style={baseStyles.section}>
             {splitParagraphs(document.content).map((paragraph, index) => {
               const heading = /^(#{1,3})\s+(.+)$/.exec(paragraph)
-              if (heading) return <Text key={`content-${index}`} style={styles.sectionTitle}>{heading[2]}</Text>
+              if (heading) return <Text key={`content-${index}`} style={baseStyles.sectionTitle}>{heading[2]}</Text>
               const bulletLines = paragraph.split('\n').filter(line => /^[-*]\s+/.test(line.trim()))
               if (bulletLines.length > 0 && bulletLines.length === paragraph.split('\n').filter(Boolean).length) {
                 return bulletLines.map((line, bulletIndex) => (
-                  <View key={`content-${index}-${bulletIndex}`} style={styles.bulletRow}>
-                    <Text style={styles.bullet}>•</Text>
-                    <Text style={styles.bulletText}>{line.replace(/^[-*]\s+/, '')}</Text>
+                  <View key={`content-${index}-${bulletIndex}`} style={baseStyles.bulletRow}>
+                    <Text style={[baseStyles.bullet, { color: accent.primary }]}>•</Text>
+                    <Text style={baseStyles.bulletText}>{line.replace(/^[-*]\s+/, '')}</Text>
                   </View>
                 ))
               }
-              return <Text key={`content-${index}`} style={styles.paragraph}>{paragraph.replace(/^#{1,3}\s+/, '')}</Text>
+              return <Text key={`content-${index}`} style={baseStyles.paragraph}>{paragraph.replace(/^#{1,3}\s+/, '')}</Text>
             })}
           </View>
         ) : null}
 
-        <View style={styles.footer} fixed>
+        <View style={baseStyles.footer} fixed>
           <Text>{footer}</Text>
           <Text render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`} />
         </View>

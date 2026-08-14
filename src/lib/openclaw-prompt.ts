@@ -1,4 +1,5 @@
 import type { OpenClawProvider } from './settings';
+import type { PromptTier } from './model-context';
 import type { ShellExecutionTarget } from './shell-execution';
 import { buildPersonaBrief, buildUserProfileBrief, type OpenClawPersona, type OpenClawUserProfile } from './openclaw-persona';
 import { getOpenClawWorkspaceContainerRoot, getOpenClawWorkspaceHostRoot } from './openclaw-workspace';
@@ -70,18 +71,22 @@ export interface OpenClawPromptContext {
    */
   activeCapabilityIds?: Set<string>;
   /**
-   * Latest user message. When combined with `toolManifestMode: 'compact'`,
-   * detailed tool instructions are only included if the query signals that
-   * the user wants to use a tool. Otherwise the model gets a short one-line
-   * manifest of available tools.
+   * Latest user message. When combined with `promptTier: 'compact'`, detailed
+   * tool instructions are only included if the query signals that the user
+   * wants to use a tool. Otherwise the model gets a short one-line manifest of
+   * available tools.
    */
   latestUserQuery?: string;
   /**
    * Controls how verbose the tool sections are. 'full' (default) emits the
-   * complete instructions and examples. 'compact' emits one-line availability
-   * notes for tools that the latest query does not obviously need.
+   * complete instructions and examples. 'standard' is identical to 'full' but
+   * keeps document capability examples query-gated. 'compact' emits one-line
+   * availability notes for tools the latest query does not obviously need.
+   * 'minimal' always emits one-line notes, drops the verbose core-protocol
+   * rules, and omits document examples — for very small local models whose
+   * context window cannot fit the full manifest next to the conversation.
    */
-  toolManifestMode?: 'full' | 'compact';
+  promptTier?: PromptTier;
 }
 
 const TOOL_INTENT_KEYWORDS: Record<'internet' | 'shell' | 'filesystem' | 'filesystemWrite' | 'code' | 'browser' | 'uwaf', string[]> = {
@@ -98,6 +103,15 @@ function queryMatchesToolIntent(query: string | undefined, keywords: string[]): 
   if (!query || !query.trim()) return false
   const normalized = query.trim().toLowerCase()
   return keywords.some(keyword => normalized.includes(keyword.toLowerCase()))
+}
+
+/**
+ * Whether a tool section should emit its full instructions. 'full' and
+ * 'standard' always do; 'compact' only when the latest query signals intent;
+ * 'minimal' never does (one-line availability note only).
+ */
+function shouldEmitFullToolSection(tier: PromptTier, intent: boolean): boolean {
+  return tier === 'full' || tier === 'standard' || (tier === 'compact' && intent)
 }
 
 /**
@@ -216,6 +230,9 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     uwafBrowserAvailable && context.internetToolEnabled ? 'unified browser' : null,
   ].filter(Boolean) as string[];
 
+  const tier = context.promptTier ?? 'full';
+  const minimal = tier === 'minimal';
+
   const lines: string[] = [
     // ─── Tool call protocol (load-bearing, hoisted to the very top) ──────────
     // Local models with limited context attend most to the first lines of the
@@ -265,23 +282,32 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     'Rules: (1) The wrapper tag is mandatory — raw JSON is rejected as "invalid tool block".',
     '(2) `name` must be one of the registered tool names listed in this prompt (e.g. `mermaid_document`, `pdf_document`, `filesystem`). A wrong or invented name is rejected.',
     '(3) The JSON payload must match the documented field names for that tool — mismatched or guessed field names are rejected.',
-    '(4) Emit exactly one tool block per response. Never include two tool blocks in the same message; request the next tool only after the previous result arrives.',
-    '(5) If you say you are about to use a tool (e.g. "fetching", "next step: render"), the matching tool block MUST appear in the same message — do not end a message on a bare action description.',
-    '(6) If no tool is needed, give the final answer as plain text with no wrapper.',
-    '(7) NEVER end a message with bare action narration ("Let me check…", "Next step: render…") without the matching <openclaw_tool> wrapper in the same message.',
-    '(8) Stay on the user\'s actual question. If the user\'s most recent message is a follow-up to a prior turn, do not pivot to an unrelated topic (VPN setup, anonymity, censorship workarounds, etc.) just because a search returned results on that topic. If you cannot answer from the prior turn, say so and ask the user to clarify rather than chase a tangent.',
-    '(9) Do NOT use any other tool-call format. The runtime only parses <openclaw_tool name="...">...</openclaw_tool>. Other SDK conventions such as <tool_call>, <function_calls>, <invoke name="...">, <parameter name="...">, <tool_use>, <antml:function_calls>, or special tokens like <|tool_call|>, <|im_start|>, <|im_end|>, <|end_of_turn|> are silently stripped from your reply and treated as no tool call at all — you will lose the turn. Stick to the single wrapper shown above.',
+    // Rules 4-9 are dropped in 'minimal' tier: the one-line tool notes and the
+    // TOOL CALL PROTOCOL block above already cover the single-block rule and
+    // format hygiene, and every dropped token is room for the conversation.
+    ...(minimal ? [] : [
+      '(4) Emit exactly one tool block per response. Never include two tool blocks in the same message; request the next tool only after the previous result arrives.',
+      '(5) If you say you are about to use a tool (e.g. "fetching", "next step: render"), the matching tool block MUST appear in the same message — do not end a message on a bare action description.',
+      '(6) If no tool is needed, give the final answer as plain text with no wrapper.',
+      '(7) NEVER end a message with bare action narration ("Let me check…", "Next step: render…") without the matching <openclaw_tool> wrapper in the same message.',
+      '(8) Stay on the user\'s actual question. If the user\'s most recent message is a follow-up to a prior turn, do not pivot to an unrelated topic (VPN setup, anonymity, censorship workarounds, etc.) just because a search returned results on that topic. If you cannot answer from the prior turn, say so and ask the user to clarify rather than chase a tangent.',
+      '(9) Do NOT use any other tool-call format. The runtime only parses <openclaw_tool name="...">...</openclaw_tool>. Other SDK conventions such as <tool_call>, <function_calls>, <invoke name="...">, <parameter name="...">, <tool_use>, <antml:function_calls>, or special tokens like <|tool_call|>, <|im_start|>, <|im_end|>, <|end_of_turn|> are silently stripped from your reply and treated as no tool call at all — you will lose the turn. Stick to the single wrapper shown above.',
+    ]),
     // ────────────────────────────────────────────────────────────────────────
-    'RECOVERY BEHAVIOR: If you narrate a tool action without emitting the wrapper, the runtime will try to auto-recover by inferring a tool call from your prose. For high-confidence patterns (`filesystem`/`stat`/`read`/`list` with a clear path, `shell` with a back-quoted command, `web`/`fetch_summarize` with a URL or quoted query, `unified_browser` navigate-to-URL, `tax_return` with a year, and document regeneration describing the prior artifact) the runtime executes the inferred call directly. For other phrasings it appends a hidden user note asking you to retry with the wrapper. In either case the user sees the tool result and the next step — recovery is silent.',
+    ...(minimal ? [] : [
+      'RECOVERY BEHAVIOR: If you narrate a tool action without emitting the wrapper, the runtime will try to auto-recover by inferring a tool call from your prose. For high-confidence patterns (`filesystem`/`stat`/`read`/`list` with a clear path, `shell` with a back-quoted command, `web`/`fetch_summarize` with a URL or quoted query, `unified_browser` navigate-to-URL, `tax_return` with a year, and document regeneration describing the prior artifact) the runtime executes the inferred call directly. For other phrasings it appends a hidden user note asking you to retry with the wrapper. In either case the user sees the tool result and the next step — recovery is silent.',
+    ]),
     'After each tool result arrives, decide whether to answer, ask one clarification, or request the next tool.',
-    'CLEAR-GOAL SINGLE-SHOT MODE: If the user gives a clear, well-scoped task such as "create X project in workspace" or "set up Y in workspace", execute it in the fewest tool calls possible. Prefer a single code-sandbox script that checks prerequisites, writes all files, and reports success. Do not probe with separate shell `which` / `java -version` checks unless the task explicitly depends on a specific toolchain; instead, write the portable project files and let the user build on their own machine.',
-    'NO FAKE STACK PIVOTS: If the requested toolchain (e.g. Flutter, Android SDK, Java) is not available in the container, do not pretend an alternative (e.g. Electron, web app) produces the same artifact (e.g. an APK). Either build the closest valid artifact with the available stack and clearly label what it is, or ask the user whether to install the toolchain or accept a different output format.',
+    ...(minimal ? [] : [
+      'CLEAR-GOAL SINGLE-SHOT MODE: If the user gives a clear, well-scoped task such as "create X project in workspace" or "set up Y in workspace", execute it in the fewest tool calls possible. Prefer a single code-sandbox script that checks prerequisites, writes all files, and reports success. Do not probe with separate shell `which` / `java -version` checks unless the task explicitly depends on a specific toolchain; instead, write the portable project files and let the user build on their own machine.',
+      'NO FAKE STACK PIVOTS: If the requested toolchain (e.g. Flutter, Android SDK, Java) is not available in the container, do not pretend an alternative (e.g. Electron, web app) produces the same artifact (e.g. an APK). Either build the closest valid artifact with the available stack and clearly label what it is, or ask the user whether to install the toolchain or accept a different output format.',
+    ]),
     `Current model: ${context.model || 'unspecified'}.`,
   ];
 
   if (context.internetToolEnabled && !uwafBrowserAvailable) {
     const internetIntent = queryMatchesToolIntent(context.latestUserQuery, TOOL_INTENT_KEYWORDS.internet);
-    if (context.toolManifestMode !== 'compact' || internetIntent) {
+    if (shouldEmitFullToolSection(tier, internetIntent)) {
       lines.push(buildChatInternetToolPrompt());
     } else {
       lines.push('WEB RESEARCH: available when the user asks for current external information. Use one web tool block per response.');
@@ -289,7 +315,9 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
   }
 
   const activeCapabilityIds = context.activeCapabilityIds
-    ?? selectCapabilityIdsForQuery(context.latestUserQuery, Boolean(context.workspace));
+    ?? (tier === 'full' ? undefined
+      : tier === 'minimal' ? new Set<string>()
+      : selectCapabilityIdsForQuery(context.latestUserQuery, Boolean(context.workspace)));
   lines.push(...buildCapabilityPromptLines({
     workspaceAvailable: Boolean(context.workspace),
     includeFuture: false,
@@ -298,7 +326,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
 
   if (context.shellEnabled) {
     const shellIntent = queryMatchesToolIntent(context.latestUserQuery, TOOL_INTENT_KEYWORDS.shell);
-    if (context.toolManifestMode !== 'compact' || shellIntent) {
+    if (shouldEmitFullToolSection(tier, shellIntent)) {
       lines.push(
         'SHELL EXECUTION CAPABILITY: You can request to run shell commands on the user\'s system.',
         shellTarget === 'host'
@@ -328,7 +356,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
 
   if (filesystemAvailable) {
     const fsIntent = queryMatchesToolIntent(context.latestUserQuery, TOOL_INTENT_KEYWORDS.filesystem);
-    if (context.toolManifestMode !== 'compact' || fsIntent) {
+    if (shouldEmitFullToolSection(tier, fsIntent)) {
       lines.push(
         'FILESYSTEM CAPABILITY: You can inspect approved host files and directories in read-only mode.',
         'Use the host path exactly as the user would see it, not an internal container path.',
@@ -349,7 +377,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
 
   if (filesystemWriteAvailable) {
     const fsWriteIntent = queryMatchesToolIntent(context.latestUserQuery, TOOL_INTENT_KEYWORDS.filesystemWrite);
-    if (context.toolManifestMode !== 'compact' || fsWriteIntent) {
+    if (shouldEmitFullToolSection(tier, fsWriteIntent)) {
       lines.push(
         'FILESYSTEM WRITE CAPABILITY: You can create folders and write text files inside approved writable host roots.',
         'Use filesystem write actions for small, explicit text changes when the user wants files created or edited.',
@@ -370,7 +398,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
 
   if (codeExecutionAvailable) {
     const codeIntent = queryMatchesToolIntent(context.latestUserQuery, TOOL_INTENT_KEYWORDS.code);
-    if (context.toolManifestMode !== 'compact' || codeIntent) {
+    if (shouldEmitFullToolSection(tier, codeIntent)) {
       lines.push(
         'CODE SANDBOX CAPABILITY: You can run short Python or Node scripts inside a managed WorkSpaces workspace.',
         'Use this when you need to execute code, inspect runtime behavior, transform data, or generate artifacts that are easier to produce programmatically than by reasoning alone.',
@@ -388,7 +416,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
 
   if (browserAvailable && context.internetToolEnabled) {
     const browserIntent = queryMatchesToolIntent(context.latestUserQuery, TOOL_INTENT_KEYWORDS.browser);
-    if (context.toolManifestMode !== 'compact' || browserIntent) {
+    if (shouldEmitFullToolSection(tier, browserIntent)) {
       lines.push(
         'BROWSER CAPABILITY: You can navigate public web pages, inspect links/forms, and extract page content using a controlled browsing session.',
         'This browser is limited to public HTTP/HTTPS pages. Local/private hosts, non-standard ports, and credentialed URLs are blocked.',
@@ -409,7 +437,7 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
 
   if (uwafBrowserAvailable && context.internetToolEnabled) {
     const uwafIntent = queryMatchesToolIntent(context.latestUserQuery, TOOL_INTENT_KEYWORDS.uwaf);
-    if (context.toolManifestMode !== 'compact' || uwafIntent) {
+    if (shouldEmitFullToolSection(tier, uwafIntent)) {
       const modeLabel = uwafBrowserMode === 'stealth' ? 'Stealth (Tor-routed)' : 'Direct (clear web)';
       const stealthProviderLine = listSearchProvidersForPrompt('stealth');
       lines.push(

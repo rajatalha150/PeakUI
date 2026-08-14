@@ -53,6 +53,23 @@ switching is automatically skipped when **Use Ollama Cloud API** is enabled,
 because the cloud endpoint does not expose the local `/api/ps` running-models
 endpoint.
 
+### Small model gets cut off mid-sentence or produces malformed tool calls
+
+PeakUI now detects each model's capacity (parameter size + native context
+window via Ollama `/api/show`) and adapts the system prompt and `num_ctx`
+window to it. An 8B model like `gemma4` should automatically get the
+`compact` prompt tier and a raised 8192 `num_ctx` (candidates
+`[8192, 4096, 2048, 1024, 512]`). If a small model still truncates:
+
+- Confirm the detected tier in Settings → Generation → **Prompt Detail Level**
+  (defaults to `auto`). If it is pinned to `full`, the 17KB+ manifest is
+  eating the window — switch back to `auto` or pick `compact` / `minimal`.
+- Verify the model's native context is being honored: `ollama show <model>`
+  prints the context length, and the app clamps `num_ctx` to it.
+- If the model still OOMs at the raised window, the existing backoff loop
+  steps down to the next candidate automatically; lowering the Context Window
+  slider manually makes responses start faster.
+
 ### "Ollama returned 401 while listing running models" with cloud mode enabled
 
 The local `/api/ps` endpoint is not available on Ollama Cloud. Update to the

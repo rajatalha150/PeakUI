@@ -8,8 +8,8 @@ Tool guidance used to be written directly into the WorkSpaces prompt. As PeakUI 
 
 ## Current Native Capabilities
 
-- `pdf_document`: Creates downloadable PDF Canvas artifacts. Source-editable.
-- `word_document`: Creates downloadable Word DOCX Canvas artifacts. Source-editable.
+- `pdf_document`: Creates downloadable PDF Canvas artifacts. Source-editable. A title alone (optionally with a `description`) is sufficient; the full structure (sections, fields, tables, callouts) is a strong recommendation, not a requirement — and when provided, renders as a themed, per-template professional PDF.
+- `word_document`: Creates downloadable Word DOCX Canvas artifacts. Source-editable. A title alone (optionally with a `description`) is sufficient; the full structure (content, sections, fields, tables, callouts) is a strong recommendation, not a requirement.
 - `workbook_document`: Creates downloadable Excel XLSX Canvas artifacts. Source-editable.
 - `csv_document`: Creates downloadable CSV Canvas artifacts.
 - `email_document`: Creates downloadable `.eml` email draft Canvas artifacts.

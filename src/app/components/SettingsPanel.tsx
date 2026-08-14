@@ -15,6 +15,7 @@ interface UserSettings {
   exclusiveOllamaModels: boolean;
   openClawProvider: string;
   openClawModel: string;
+  openClawPromptTier: string;
   openClawBaseUrl: string;
   shellExecutionTarget: 'container' | 'host';
   shellExecutionMode: string;
@@ -149,6 +150,7 @@ const INITIAL_SETTINGS: UserSettings = {
   exclusiveOllamaModels: false,
   openClawProvider: 'ollama',
   openClawModel: '',
+  openClawPromptTier: 'auto',
   openClawBaseUrl: '',
   shellExecutionTarget: 'container',
   shellExecutionMode: 'ask-first',
@@ -1552,6 +1554,21 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               placeholder="gpt-4o-mini"
             />
           )}
+        </Field>
+
+        <Field label="Prompt Detail Level" help="Auto picks the tier from the model's detected parameter size and native context window. Manual selection overrides detection. Smaller tiers shrink the system prompt so small local models keep room for the conversation and response.">
+          <select
+            className="input-field"
+            value={settings.openClawPromptTier}
+            onChange={e => update('openClawPromptTier', e.target.value)}
+            style={{ width: '100%' }}
+          >
+            <option value="auto">Auto (recommended)</option>
+            <option value="minimal">Minimal (≤4B models)</option>
+            <option value="compact">Compact (≤9B models)</option>
+            <option value="standard">Standard (≤30B models)</option>
+            <option value="full">Full (large / cloud models)</option>
+          </select>
         </Field>
 
         <Field label="Unattended Model Execution" help="Allow automation schedules, heartbeat check-ins, monitors, and wake events to launch background WorkSpaces model runs without an active browser tab. This currently supports local Ollama only.">

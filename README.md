@@ -29,7 +29,7 @@ Most AI chat interfaces send your prompts, documents, and browsing history to so
 |---|---|
 | **WorkSpaces** | Main agent shell for task threads, model selection, modes, tools, settings, and Knowledge Base |
 | **Workspace Files panel** | Right-rail GUI over the active workspace's files: virtualized tree, type-dispatched preview, in-place editor with ETag conflict detection, upload, multi-select + bulk ops (copy paths / zip / delete), rename, move-to, right-click context menu, and live SSE updates whenever the model writes a file |
-| **Local models** | Ollama-first generation with health checks, model stop, exclusive switching, and context backoff |
+| **Local models** | Ollama-first generation with health checks, model stop, exclusive switching, context backoff, and model-capacity-aware prompt tiers + context windows (small models get a trimmed manifest and a raised `num_ctx`; large/cloud models keep the full manifest) |
 | **Remote providers** | OpenAI-compatible endpoints, including Hugging Face router, TGI, vLLM, and SGLang-style servers |
 | **Knowledge Base** | PostgreSQL-backed document index with semantic, keyword, hybrid RRF, source chips, and full-access mode |
 | **Canvas** | Compact artifact rows, modal previews (PDF, image, markdown, code, table, chart, ZIP, ICS), source-editable binary artifacts, downloads, bundles, revisions, lineage, search, restore, exports, and a server-side preview endpoint for Excel/Word/email/slides/Mermaid inline rendering |

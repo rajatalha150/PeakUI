@@ -18,6 +18,7 @@ import {
   normalizeOpenClawFileAccessMode,
   normalizeOpenClawFileWriteMode,
   normalizeOpenClawProvider,
+  normalizeOpenClawPromptTier,
   normalizeOpenClawCodeExecutionMode,
   normalizeOpenClawBrowserMode,
   normalizeOpenClawAutomationExecutionMaxRunsPerHour,
@@ -59,6 +60,7 @@ interface SettingsBody {
   exclusiveOllamaModels?: unknown;
   openClawProvider?: unknown;
   openClawModel?: unknown;
+  openClawPromptTier?: unknown;
   openClawBaseUrl?: unknown;
   shellExecutionTarget?: unknown;
   shellExecutionMode?: unknown;
@@ -181,6 +183,7 @@ export async function POST(req: Request) {
     if (body.exclusiveOllamaModels !== undefined) data.exclusiveOllamaModels = normalizeBoolean(body.exclusiveOllamaModels);
     if (body.openClawProvider !== undefined) data.openClawProvider = normalizeOpenClawProvider(body.openClawProvider);
     if (body.openClawModel !== undefined) data.openClawModel = String(body.openClawModel);
+    if (body.openClawPromptTier !== undefined) data.openClawPromptTier = normalizeOpenClawPromptTier(body.openClawPromptTier);
     if (body.openClawBaseUrl !== undefined) data.openClawBaseUrl = normalizeOpenClawBaseUrl(body.openClawBaseUrl);
     if (body.shellExecutionTarget !== undefined) data.shellExecutionTarget = normalizeShellExecutionTarget(body.shellExecutionTarget);
     if (body.ragModel !== undefined) data.ragModel = normalizeRagModel(body.ragModel);

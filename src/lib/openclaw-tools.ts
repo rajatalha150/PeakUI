@@ -254,7 +254,7 @@ export const OPENCLAW_TAX_FILL_FORM_TOOL_EXAMPLE = `<openclaw_tool name="tax_ret
 </openclaw_tool>`
 
 export const OPENCLAW_PDF_DOCUMENT_TOOL_EXAMPLE = `<openclaw_tool name="pdf_document">
-{"title":"Project Report","filename":"project-report.pdf","template":"report","subtitle":"Prepared by PeakUI","sections":[{"heading":"Executive Summary","body":"This PDF uses structured sections instead of plain markdown."},{"heading":"Next Steps","bullets":["Review the draft","Download the PDF","Request revisions if needed"]}],"tables":[{"title":"Budget","columns":["Item","Amount"],"rows":[{"Item":"Hosting","Amount":"$299"},{"Item":"Support","Amount":"$500"}]}],"description":"Create a polished downloadable project report PDF"}
+{"title":"Project Report","filename":"project-report.pdf","template":"report","subtitle":"Prepared by PeakUI","fields":[{"label":"Status","value":"Draft"},{"label":"Owner","value":"PeakUI"}],"sections":[{"heading":"Executive Summary","body":"This PDF uses structured sections instead of plain markdown."},{"heading":"Next Steps","bullets":["Review the draft","Download the PDF","Request revisions if needed"]}],"tables":[{"title":"Budget","columns":["Item","Amount"],"rows":[{"Item":"Hosting","Amount":"$299"},{"Item":"Support","Amount":"$500"}]}],"callouts":[{"tone":"note","title":"Note","text":"Figures are estimates and may change before the final version."}],"description":"Create a polished downloadable project report PDF"}
 </openclaw_tool>`
 
 export const OPENCLAW_WORKBOOK_DOCUMENT_TOOL_EXAMPLE = `<openclaw_tool name="workbook_document">
@@ -1122,13 +1122,10 @@ export function extractOpenClawToolRequest(content: string): {
 
       const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
       const contentText = typeof parsed.content === 'string' ? parsed.content.trim() : ''
-      const hasStructuredContent = Boolean(
-        Array.isArray(parsed.sections) && parsed.sections.length
-        || Array.isArray(parsed.fields) && parsed.fields.length
-        || Array.isArray(parsed.tables) && parsed.tables.length
-        || Array.isArray(parsed.callouts) && parsed.callouts.length
-      )
-      if (!title || (!contentText && !hasStructuredContent)) {
+      // The full structure is a strong recommendation, not a requirement: a
+      // title alone (optionally with a description) is enough to generate a
+      // PDF. The route falls back to the description as body content.
+      if (!title) {
         return { cleanedContent: stripAllToolTags(content) }
       }
 
@@ -1200,13 +1197,10 @@ export function extractOpenClawToolRequest(content: string): {
 
       const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
       const contentText = typeof parsed.content === 'string' ? parsed.content.trim() : ''
-      const hasStructuredContent = Boolean(
-        Array.isArray(parsed.sections) && parsed.sections.length
-        || Array.isArray(parsed.fields) && parsed.fields.length
-        || Array.isArray(parsed.tables) && parsed.tables.length
-        || Array.isArray(parsed.callouts) && parsed.callouts.length
-      )
-      if (!title || (!contentText && !hasStructuredContent)) {
+      // The full structure is a strong recommendation, not a requirement: a
+      // title alone (optionally with a description) is enough to generate a
+      // document. The route falls back to the description as body content.
+      if (!title) {
         return { cleanedContent: stripAllToolTags(content) }
       }
 

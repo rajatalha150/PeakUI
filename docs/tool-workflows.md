@@ -10,6 +10,7 @@ PeakUI can create downloadable PDF artifacts from WorkSpaces through the generic
 
 - Accepts a title, filename, and either markdown-like content or structured sections, fields, tables, and callouts from the assistant.
 - Renders a polished server-side PDF with pagination, headings, bullets, tables, label/value fields, callouts, and footer text.
+- When the model supplies the full structure, the renderer styles it per-template: each template (report / memo / letter / invoice / checklist / form) gets its own accent palette, with accent-colored eyebrow + header rule, section headings with an accent bar, zebra-striped tables with tinted headers, tone-labeled callouts (NOTE / WARNING / SUCCESS) with colored left borders, and field grids with a tinted label column.
 - Stores the generated PDF as a Canvas artifact tied to the current WorkSpaces session.
 - Stores a sibling `.source.json` Canvas artifact in the same bundle so the source contract can be inspected or regenerated later.
 - Returns a secure `/api/canvas/artifacts/<id>/download` URL that appears in chat as a download button.
@@ -38,7 +39,8 @@ Do not use shell, filesystem, or the code sandbox for normal PDF generation unle
 Required fields:
 
 - `title`: Display title rendered at the top of the PDF.
-- At least one renderable body source: `content`, `sections`, `fields`, `tables`, or `callouts`.
+
+The full structure is a **strong recommendation, not a requirement**: a title alone (optionally with a `description`) is enough to generate a valid PDF. If only a `description` is supplied, it is promoted to the body content. For the most beautiful result, model the document with `sections`, `fields`, `tables`, and `callouts` — each element is styled with color, spacing, and layout, so structured documents render as polished, professional PDFs.
 
 Optional fields:
 
@@ -101,7 +103,8 @@ Do not use markdown, shell, filesystem, or the code sandbox for normal Word docu
 Required fields:
 
 - `title`: Document title.
-- At least one of `content`, `sections`, `fields`, `tables`, or `callouts`.
+
+The full structure is a **strong recommendation, not a requirement**: a title alone (optionally with a `description`) is enough to generate a valid DOCX. If only a `description` is supplied, it is promoted to the body content.
 
 Common optional fields:
 

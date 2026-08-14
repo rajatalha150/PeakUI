@@ -59,6 +59,12 @@ export function getEffectiveOpenClawWorkspaceHostRoot(
 export type OpenClawUwafBrowserMode = 'deny' | 'direct' | 'stealth'
 export type OpenClawUwafDefaultMode = 'direct' | 'stealth'
 export type OpenClawAutomationExecutionProvider = 'ollama'
+/**
+ * Prompt detail tier for the OpenClaw system prompt. 'auto' detects the tier
+ * from the model's parameter size and native context; a manual value overrides
+ * detection.
+ */
+export type OpenClawPromptTier = 'auto' | 'minimal' | 'compact' | 'standard' | 'full'
 
 export const MIN_CONTEXT_LENGTH = 512
 export const MAX_CONTEXT_LENGTH = 131072
@@ -75,6 +81,7 @@ export interface AppSettings {
   exclusiveOllamaModels: boolean
   openClawProvider: OpenClawProvider
   openClawModel: string
+  openClawPromptTier: OpenClawPromptTier
   openClawBaseUrl: string
   ragModel: string
   ragMode: RagMode
@@ -150,6 +157,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   exclusiveOllamaModels: false,
   openClawProvider: 'ollama',
   openClawModel: '',
+  openClawPromptTier: 'auto',
   openClawBaseUrl: '',
   ragModel: DEFAULT_EMBEDDING_MODEL,
   ragMode: 'semantic',
@@ -222,6 +230,11 @@ export function normalizeRagTopK(value: unknown): number {
 
 export function normalizeOpenClawProvider(value: unknown): OpenClawProvider {
   return value === 'openai-compatible' ? 'openai-compatible' : 'ollama'
+}
+
+export function normalizeOpenClawPromptTier(value: unknown): OpenClawPromptTier {
+  const valid: OpenClawPromptTier[] = ['auto', 'minimal', 'compact', 'standard', 'full']
+  return valid.includes(value as OpenClawPromptTier) ? (value as OpenClawPromptTier) : 'auto'
 }
 
 export function normalizeBoolean(value: unknown, fallback = false): boolean {
@@ -458,6 +471,7 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     exclusiveOllamaModels: normalizeBoolean(settings?.exclusiveOllamaModels, DEFAULT_SETTINGS.exclusiveOllamaModels),
     openClawProvider: normalizeOpenClawProvider(settings?.openClawProvider),
     openClawModel: typeof settings?.openClawModel === 'string' ? settings.openClawModel.trim() : DEFAULT_SETTINGS.openClawModel,
+    openClawPromptTier: normalizeOpenClawPromptTier(settings?.openClawPromptTier),
     openClawBaseUrl: normalizeOpenClawBaseUrl(settings?.openClawBaseUrl),
     ragModel: normalizeRagModel(settings?.ragModel),
     ragMode: normalizeRagMode(settings?.ragMode),

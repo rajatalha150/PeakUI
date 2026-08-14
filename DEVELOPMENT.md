@@ -89,6 +89,7 @@ editing the Dockerfile `CMD`. See the comment above the `CMD` for details.
 - `src/lib/chat-completion.ts` is the shared streaming completion pipeline.
 - `src/lib/chat-sessions.ts` handles session persistence, branching, and analytics.
 - `src/lib/session-intelligence.ts` manages context compression and continuation.
+- `src/lib/model-context.ts` detects model capacity (parameter size + native context window via Ollama `/api/show`) and maps it to a prompt tier (`minimal` / `compact` / `standard` / `full`) and a `num_ctx` recommendation. `openclaw-prompt.ts` consumes the tier; `chat-completion.ts` and `openclaw-automation-execution.ts` fetch the profile before building the prompt.
 - `src/instrumentation.ts` starts the server-side automation worker.
 
 ## Internal Naming

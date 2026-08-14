@@ -38,8 +38,13 @@ export async function POST(request: NextRequest) {
     if (!sessionId) {
       return NextResponse.json({ error: 'sessionId is required' }, { status: 400 })
     }
+    // The full structure (content, sections, fields, tables, callouts) is a
+    // strong recommendation, not a hard requirement. If the model only supplied
+    // a title and/or description, still generate a document rather than failing.
     if (!wordDocumentHasRenderableContent(normalized)) {
-      return NextResponse.json({ error: 'content, sections, fields, tables, or callouts are required' }, { status: 400 })
+      if (normalized.description) {
+        normalized.content = normalized.description
+      }
     }
 
     const documentBytes = await renderWordDocument(normalized)

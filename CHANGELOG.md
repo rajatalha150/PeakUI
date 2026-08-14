@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Universal model-capacity-aware prompt & context adaptation
+
+Small local models were producing malformed tool calls and truncated responses because the OpenClaw system prompt ate most of the `num_ctx` window. gemma4 (an 8B model) got the "compact" manifest (~2,370 tokens) at 4096 `num_ctx`, leaving almost no room for conversation + response. The fix is universal: PeakUI now detects each model's capacity (parameter size + native context window) and gives it the prompt and window accordingly — for 4B, 9B, 30B, 100B, and cloud models alike, with a manual setting as a fallback.
+
+- **`getModelCapacityProfile` in `src/lib/model-context.ts`** — async, cached 5 min per model, queries Ollama `/api/show` (handles BOTH API shapes: old `details.parameter_size` + `model_info["<family>.context_length"]`, new `general.parameter_count` + `general.context_length`), falls back to name-based heuristics on any failure. Returns `{ parameterSizeB, nativeContextLength, isCloud, promptTier, recommendedContext, maxContext }`. Non-Ollama providers get the cloud profile immediately without a fetch.
+- **Graduated prompt tiers** — `PromptTier = 'minimal' | 'compact' | 'standard' | 'full'` (≤4B / ≤9B / ≤30B / >30B; cloud → full; unknown → compact). `openclaw-prompt.ts` replaced the binary `toolManifestMode` with `promptTier`: `minimal` drops core-protocol rules 4-9 + RECOVERY + CLEAR-GOAL + NO FAKE STACK PIVOTS + all document examples (~6.5KB); `compact` = the old compact manifest (~9.5KB); `standard` = the old full manifest (~17KB); `full` = the old full manifest + ALL document examples (~26.8KB).
+- **Native-context rules** — when `/api/show` reports a native window, the default is raised when the model comfortably allows it (≤9B → 4096→8192 when native ≥ 8192; ≤4B → 2048→4096 when native ≥ 4096) and both values are clamped to the native window (rounded to a multiple of 512). Safe because the existing `isContextMemoryError` retry loop backs off on OOM.
+- **New `openClawPromptTier` setting** — `auto` (default; picks the tier from the detected capacity) or a manual override (`minimal` / `compact` / `standard` / `full`). Wired through `src/lib/settings.ts`, `/api/settings`, the SettingsPanel "Prompt Detail Level" select, and a new Prisma column (`20260813_add_openclaw_prompt_tier` migration).
+- **Both prompt callers pass the tier** — `chat-completion.ts` fetches the profile before the prompt build and threads it into `buildContextCandidates` (so gemma4's `num_ctx` candidates become `[8192, 4096, 2048, 1024, 512]` instead of `[4096, ...]`); `openclaw-automation-execution.ts` does the same for unattended runs.
+- **Measured on a reference host:** gemma4 = 8.0B / native 131072 → compact tier with ~5,125 tokens of response headroom (was ~1,000); nemotron-3.5-lightning = 32.9B → full; muse-glimmer = 27.9B → standard.
+
+### Changed — Session intelligence is now fully data-driven
+
+`src/lib/session-intelligence.ts` was refactored from a chain of `if` statements into rule tables + loops, so behavior is declarative and easy to extend:
+
+- `TOOL_RESULT_PREFIXES` (tool-result summarization), `USER_MESSAGE_RULES` / `ASSISTANT_MESSAGE_RULES` (memory classification), `TASK_STATE_RULES` (task-state extraction), and `legacyRules` (legacy memory parsing, catch-all default) replace the old if-chains.
+- Perf: `computeSessionAnalytics` is single-pass (was 5 filter passes), `uniqueLines` is Set-based (was O(n²) `indexOf`), `applyContextManagement` counts non-system messages in one loop. Dead `summarizeMessage` removed.
+- Benchmark on a 200-message session: sub-millisecond before AND after (0.33/0.60/0.05ms vs 0.34/0.61/0.04ms) — this is a code-quality win, not a latency win; the JS side was already negligible.
+
+### Changed — Document tool structure is a recommendation, not a requirement
+
+Small local models kept failing the `word_document` and `pdf_document` tools with "content, sections, fields, tables, or callouts are required" because they sent `{title, description}`-only requests. Both tools now accept a title alone (optionally with a description) and still produce a valid file:
+
+- **`word_document`** — the parser in `openclaw-tools.ts` now requires only `title`; `word-document/route.ts` no longer 400s on an empty structure and promotes `description` → `content` so a title-only request still renders a valid `.docx`.
+- **`pdf_document`** — the identical fix: parser requires only `title`, `pdf-document/route.ts` promotes `description` → `content` instead of 400ing.
+- **Capability prompts** (`openclaw-capabilities.ts`) now tell the model the full structure is recommended but not required — a title with a simple content string (or just a title and description) is sufficient.
+
+### Changed — Themed PDF renderer
+
+`src/lib/pdf/rich-document-pdf.tsx` was upgraded so structured PDFs render as polished, professional documents:
+
+- Per-template accent palettes (report / memo / letter / invoice / checklist / form each get a primary + soft + border color).
+- Accent-colored eyebrow + header rule, section headings with an accent bar, zebra-striped tables with tinted headers, callouts with tone labels (NOTE / WARNING / SUCCESS) and colored left borders, and field grids with a tinted label column.
+- The capability prompt now says structured documents render as polished professional PDFs, and the `OPENCLAW_PDF_DOCUMENT_TOOL_EXAMPLE` was expanded to show `fields` + `callouts`.
+
+## [Unreleased]
+
 ### Changed — WorkSpaces tool-calling robustness (long-session stalls, loops, wrong-format recovery)
 - **Within-turn tool-result compaction (the big one):** the agent loop resends the full `sessionHistory` to the model on every round, and tool results are stored as hidden `role: 'user'` messages up to 6000 chars each. On a long browsing/shell session the context grew ~10k+ chars/round, and local models degrade in tool-call format adherence as the context balloons — the root cause of "tool calls get worse as the session grows." New `src/lib/openclaw-context-compaction.ts` runs a pure, storage-agnostic `compactStaleToolResults` pass at resend time (`OpenClawWorkspace.tsx` builds `conversationMessages` from it): it keeps the 4 most-recent tool results in full and replaces only the *bodies* of older large results (≥1500 chars) with a compact stub that preserves the identifying metadata (header, command, path, status, exit code, …). Storage and the user-visible transcript are untouched — only what is resent to the model shrinks. Small results (errors, stat metadata) are left intact. `trimMessagesToFit` still runs afterward as the hard eviction; compaction is the softer, tool-aware pass that runs first.
 - **Cycle-detection loop guard:** `lastToolRequestSignature` only caught an immediate A→A repeat, so an A→B→A→B ping-pong (the loop shape seen in real browsing transcripts) slipped past it. Added a 6-entry `recentToolSignatures` ring alongside the existing immediately-previous check; a repeat of any recent signature now trips the duplicate guard with a "you are looping" notice and breaks the cycle instead of bouncing until the iteration cap. Immediate-repeat behavior (A→A→A breaks on the third) is unchanged.

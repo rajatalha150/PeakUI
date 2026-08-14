@@ -32,4 +32,15 @@ describe('renderWordDocument', () => {
     expect(buffer.byteLength).toBeGreaterThan(1000)
     expect(buffer.subarray(0, 2).toString('utf8')).toBe('PK')
   })
+
+  it('renders a valid DOCX from a title-only document (no structured content)', async () => {
+    const normalized = normalizeWordDocumentInput({
+      title: 'Meeting Notes',
+      description: 'Notes from the project kickoff.',
+    })
+
+    const buffer = await renderWordDocument(normalized)
+    expect(buffer.byteLength).toBeGreaterThan(1000)
+    expect(buffer.subarray(0, 2).toString('utf8')).toBe('PK')
+  })
 })

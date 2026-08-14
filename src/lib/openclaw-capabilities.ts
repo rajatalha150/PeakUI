@@ -34,7 +34,8 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
     toolName: 'pdf_document',
     promptLines: [
       'PDF DOCUMENT CAPABILITY: When the user asks for a downloadable PDF, use the pdf_document tool.',
-      'Prefer structured sections, fields, tables, and callouts over long markdown body text.',
+      'The full structure is recommended but not required: a title with a simple content string (or just a title and description) is sufficient.',
+      'For the most beautiful result, model the document with sections, fields, tables, and callouts — each element is styled with color, spacing, and layout, so structured documents render as polished, professional PDFs.',
     ],
     example: OPENCLAW_PDF_DOCUMENT_TOOL_EXAMPLE,
   },
@@ -70,6 +71,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
     promptLines: [
       'WORD DOCUMENT CAPABILITY: When the user asks for a downloadable Word document, use the word_document tool.',
       'Use fields for metadata, sections for prose, tables for structured comparisons, and callouts for notes or next steps.',
+      'The full structure is recommended but not required: a title with a simple content string (or just a title and description) is sufficient.',
     ],
     example: OPENCLAW_WORD_DOCUMENT_TOOL_EXAMPLE,
   },

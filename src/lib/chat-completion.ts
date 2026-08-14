@@ -21,7 +21,7 @@ import { buildOpenClawSystemPrompt, buildChatInternetToolPrompt } from '@/lib/op
 import type { OpenClawPersona, OpenClawUserProfile } from '@/lib/openclaw-persona';
 import { buildAccountantPersonaPrompt } from '@/lib/openclaw-accountant-persona';
 import { normalizeOpenClawProvider } from '@/lib/settings';
-import { getModelContextRecommendation, shouldUseCompactToolManifest } from './model-context';
+import { getModelContextRecommendation, getModelCapacityProfile, type ModelCapacityProfile } from './model-context';
 import { unloadOtherOllamaModels } from '@/lib/ollama-control';
 import { getHostExecutorStatus } from './openclaw-host-executor';
 import type { ServerStreamStatus } from '@/lib/stream-status';
@@ -462,10 +462,11 @@ function buildContextCandidates(
   preferNativeDefault: boolean,
   modelName: string,
   provider: ChatProvider,
+  profile?: ModelCapacityProfile | null,
 ): Array<number | null> {
-  const recommendation = provider === 'ollama'
+  const recommendation = profile ?? (provider === 'ollama'
     ? getModelContextRecommendation(modelName, provider)
-    : null;
+    : null);
   const hardCap = recommendation && !recommendation.isCloud
     ? Math.min(LOCAL_OLLAMA_CONTEXT_CAP, recommendation.maxContext)
     : LOCAL_OLLAMA_CONTEXT_CAP;
@@ -481,7 +482,12 @@ function buildContextCandidates(
   // native default. Native defaults for modern models can be large (8k+)
   // and cause first-token stalls on CPU-bound small models.
   if (recommendation && !recommendation.isCloud) {
-    const startContext = Math.min(recommendation.defaultContext, hardCap);
+    const startContext = Math.min(
+      'recommendedContext' in recommendation
+        ? recommendation.recommendedContext
+        : recommendation.defaultContext,
+      hardCap,
+    );
     return buildNumericContextCandidates(startContext, hardCap);
   }
 
@@ -947,6 +953,12 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const effectiveUwafBrowserMode = internetToolEnabled ? effectiveToolAccess.uwafBrowserMode : 'deny';
 
     const latestUserContent = [...nonSystemMessages].reverse().find(message => message.role === 'user')?.content || ''
+    // Detect the model's capacity (parameter size + native context) so the
+    // prompt tier and num_ctx match it. Cached 5 min per model; falls back to
+    // name heuristics on any failure, so this never blocks the turn.
+    const capacityProfile = surface === 'openclaw' && provider === 'ollama'
+      ? await getModelCapacityProfile(requestedModel, provider, baseUrl)
+      : null;
     const promptBuildStartedAt = performance.now();
     let openClawPrompt = surface === 'openclaw'
       ? buildOpenClawSystemPrompt({
@@ -984,7 +996,9 @@ export async function createChatCompletionResponse(req: NextRequest) {
               }
             : undefined,
           latestUserQuery: latestUserContent,
-          toolManifestMode: shouldUseCompactToolManifest(requestedModel, provider) ? 'compact' : 'full',
+          promptTier: settings.openClawPromptTier === 'auto'
+            ? (capacityProfile?.promptTier ?? 'full')
+            : settings.openClawPromptTier,
         })
       : '';
     // Accountant mode: append a CPA/accountant/financial-advisor persona to the
@@ -1635,6 +1649,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
               preferNativeContext,
               requestedModel,
               provider,
+              capacityProfile,
             );
 
             for (const numCtx of contextCandidates) {

@@ -50,6 +50,24 @@ describe('openclaw tool parsing', () => {
     expect(extracted.request.request.tables?.[0]?.columns).toEqual(['Item', 'Amount'])
   })
 
+  it('accepts a title-only pdf_document request (structure is recommended, not required)', () => {
+    const input = [
+      '<openclaw_tool name="pdf_document">',
+      JSON.stringify({
+        title: 'Quarterly Summary',
+        description: 'A concise summary of the quarter.',
+      }),
+      '</openclaw_tool>',
+    ].join('\n')
+
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request?.name).toBe('pdf_document')
+    if (extracted.request?.name !== 'pdf_document') throw new Error('Expected pdf_document request')
+    expect(extracted.request.request.title).toBe('Quarterly Summary')
+    expect(extracted.request.request.description).toBe('A concise summary of the quarter.')
+    expect(extracted.request.request.sections).toBeUndefined()
+  })
+
   it('parses structured workbook_document requests', () => {
     const input = [
       '<openclaw_tool name="workbook_document">',
@@ -100,6 +118,24 @@ describe('openclaw tool parsing', () => {
     expect(extracted.request.request.template).toBe('proposal')
     expect(extracted.request.request.sections?.[0]?.heading).toBe('Summary')
     expect(extracted.request.request.tables?.[0]?.columns).toEqual(['Item', 'Amount'])
+  })
+
+  it('accepts a title-only word_document request (structure is recommended, not required)', () => {
+    const input = [
+      '<openclaw_tool name="word_document">',
+      JSON.stringify({
+        title: 'Meeting Notes',
+        description: 'Notes from the project kickoff.',
+      }),
+      '</openclaw_tool>',
+    ].join('\n')
+
+    const extracted = extractOpenClawToolRequest(input)
+    expect(extracted.request?.name).toBe('word_document')
+    if (extracted.request?.name !== 'word_document') throw new Error('Expected word_document request')
+    expect(extracted.request.request.title).toBe('Meeting Notes')
+    expect(extracted.request.request.description).toBe('Notes from the project kickoff.')
+    expect(extracted.request.request.sections).toBeUndefined()
   })
 
   it('drops invalid template values for workbook_document', () => {

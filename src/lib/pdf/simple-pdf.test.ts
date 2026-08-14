@@ -39,4 +39,37 @@ describe('renderSimplePdf', () => {
     expect(buffer.byteLength).toBeGreaterThan(500)
     expect(loaded.getPageCount()).toBeGreaterThan(0)
   })
+
+  it('creates a valid PDF from a title-only request (no structured content)', async () => {
+    const buffer = await renderPdfDocument({
+      title: 'Meeting Notes',
+      description: 'Notes from the kickoff meeting.',
+    })
+
+    const loaded = await PDFDocument.load(buffer)
+    expect(buffer.byteLength).toBeGreaterThan(500)
+    expect(loaded.getPageCount()).toBeGreaterThan(0)
+  })
+
+  it('renders a themed PDF across templates with callouts and zebra tables', async () => {
+    const buffer = await renderPdfDocument({
+      title: 'Invoice',
+      template: 'invoice',
+      subtitle: 'March 2026',
+      fields: [{ label: 'Invoice #', value: 'INV-1042' }],
+      sections: [{
+        heading: 'Line Items',
+        tables: [{
+          title: 'Services',
+          columns: ['Service', 'Amount'],
+          rows: [{ Service: 'Consulting', Amount: '$1,200' }, { Service: 'Hosting', Amount: '$300' }],
+        }],
+        callouts: [{ tone: 'success', title: 'Paid', text: 'Thank you for your business.' }],
+      }],
+    })
+
+    const loaded = await PDFDocument.load(buffer)
+    expect(buffer.byteLength).toBeGreaterThan(500)
+    expect(loaded.getPageCount()).toBeGreaterThan(0)
+  })
 })
