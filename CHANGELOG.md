@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — Model reaches for shell+curl instead of the web tool for current data
+
+For queries like "analyze pltr", the model improvised with `shell` + `curl` to scrape finance/news pages and got nothing back, because those sites are JavaScript-rendered. Two gaps caused it: (1) nothing in the prompt told the model *when* to pick `web` over `shell`, and (2) "analyze pltr" didn't match the `internet` intent keywords, so the full web-research instructions were never emitted (only a one-line "WEB RESEARCH: available" note).
+
+- **Always-on `TOOL SELECTION` routing block** in `buildOpenClawSystemPrompt`, emitted in every tier (including `minimal`), pinning the intent→tool mapping: current/external info → `web` (with an explicit "NEVER use shell with curl/wget to scrape a page" rule), local-machine facts → `filesystem`/`shell`, navigation/JS/forms/login → `browser`/`unified_browser`, running code → `code` sandbox.
+- **Expanded `internet` intent keywords** (`stock`, `ticker`, `price`, `quote`, `market`, `analyze`, `analysis`, `earnings`, `financial`, `weather`, `statistics`, `stats`) so market-data and analysis queries trigger the full web-research instructions.
+
 ### Fixed — Clipboard copy on non-secure contexts (whole chats + messages)
 
 `navigator.clipboard.writeText` is only available in secure contexts (HTTPS or `localhost`). When PeakUI was accessed over plain HTTP on a LAN IP, every copy button — copy whole chat, copy message, code blocks, shell output, Canvas artifacts, and workspace-file paths — silently failed (or threw). A shared `copyToClipboard` helper (`src/lib/clipboard.ts`) now falls back to the legacy `document.execCommand('copy')` textarea trick when the Clipboard API is unavailable, and all copy sites route through it.

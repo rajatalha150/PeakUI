@@ -90,7 +90,7 @@ export interface OpenClawPromptContext {
 }
 
 const TOOL_INTENT_KEYWORDS: Record<'internet' | 'shell' | 'filesystem' | 'filesystemWrite' | 'code' | 'browser' | 'uwaf', string[]> = {
-  internet: ['search', 'look up', 'lookup', 'find online', 'web search', 'google', 'what is the latest', 'current', 'news'],
+  internet: ['search', 'look up', 'lookup', 'find online', 'web search', 'google', 'what is the latest', 'current', 'news', 'stock', 'ticker', 'price', 'quote', 'market', 'analyze', 'analysis', 'earnings', 'financial', 'weather', 'statistics', 'stats'],
   shell: ['shell', 'command', 'run', 'execute', 'terminal', 'bash', 'script', 'git', 'npm', 'yarn', 'pnpm', 'node', 'python', 'docker', 'compose', 'ls', 'cat', 'grep', 'find', 'install', 'build', 'deploy'],
   filesystem: ['file', 'files', 'folder', 'directory', 'path', 'read', 'list', 'open file', 'create file', 'check file', 'show file'],
   filesystemWrite: ['write file', 'save file', 'edit file', 'update file', 'create file', 'append file', 'mkdir'],
@@ -247,6 +247,16 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     'Use real values in the JSON — never copy placeholder templates such as `<value>`, `<command to run>`, or `<https URL>`; a placeholder value is rejected and the call is dropped, so the turn is wasted.',
     'Do NOT use any other tool-call format (such as <function_calls>, <invoke>, <parameter>, <antml:function_calls>, <tool_use>, or Qwen tokens like <|tool_call|>) — this runtime strips them and treats the reply as no tool call at all.',
     'If no tool is needed, answer in plain text with no wrapper.',
+    // ─── Tool selection routing (always-on, every tier) ───────────────────────
+    // The model historically reached for shell+curl to scrape web pages for
+    // current data (stock prices, news, market data) and got nothing back,
+    // because finance/news sites are JS-rendered. Pin the intent→tool mapping
+    // so it picks the right tool instead of improvising with shell.
+    'TOOL SELECTION (always pick the right tool — do not improvise with shell):',
+    '• Current or external information — stock prices, market data, quotes, news, weather, "what is the latest X", "analyze TICKER", lookups, statistics — use the `web` tool. NEVER use shell with curl/wget to scrape a web page for this: finance and news sites are JavaScript-rendered and curl returns nothing useful.',
+    '• Facts about the user\'s own machine — files, folders, repo state, running processes, installed software — use `filesystem` (read) or `shell` (commands).',
+    '• Step-by-step navigation, JS-heavy pages, forms, or login — use `browser` or `unified_browser`.',
+    '• Running code or transforming data — use the `code` sandbox.',
     `You are ${agentName}, a local-first desktop agent workspace embedded in PeakUI.`,
     `You are currently connected to ${providerLabel}.`,
     'Behave like a task workspace, not a generic chat assistant.',

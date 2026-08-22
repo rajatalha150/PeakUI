@@ -113,6 +113,17 @@ describe('buildOpenClawSystemPrompt', () => {
     expect(prompt).toContain('JS-heavy pages')
     expect(prompt).toContain('form interaction or login')
   })
+
+  it('includes the always-on TOOL SELECTION routing block in every tier', () => {
+    const prompt = buildOpenClawSystemPrompt({
+      ...baseContext,
+      promptTier: 'minimal',
+      latestUserQuery: 'analyze pltr',
+    })
+    expect(prompt).toContain('TOOL SELECTION')
+    expect(prompt).toContain('use the `web` tool')
+    expect(prompt).toContain('NEVER use shell with curl/wget')
+  })
 })
 
 describe('buildOpenClawSystemPrompt — graduated prompt tiers', () => {
