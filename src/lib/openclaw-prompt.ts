@@ -12,7 +12,7 @@ import {
   OPENCLAW_UWAF_BROWSER_TOOL_EXAMPLE,
   OPENCLAW_WEB_TOOL_EXAMPLE,
 } from './openclaw-tools';
-import { buildCapabilityPromptLines, listActiveCapabilityLabels, selectCapabilityIdsForQuery } from './openclaw-capabilities';
+import { buildCapabilityPromptLines, listActiveCapabilityLabels, listCapabilitySignatures, selectCapabilityIdsForQuery } from './openclaw-capabilities';
 import { listSearchProvidersForPrompt } from './uwaf-search-providers';
 
 export function buildChatInternetToolPrompt(): string {
@@ -270,6 +270,27 @@ export function buildOpenClawSystemPrompt(context: OpenClawPromptContext): strin
     toolLabels.length > 0
       ? `Active real tools for this turn: ${toolLabels.join(', ')}.`
       : 'No external tools are available for this turn beyond the context already attached.',
+    // ─── Always-on compact tool manifest ──────────────────────────────────────
+    // Small local models get a trimmed prompt tier (minimal/compact/standard)
+    // whose verbose tool tutorials are dropped to fit the context window. When
+    // trimmed, the model previously only saw the human *label* ("browser",
+    // "PDF generation") with no tool `name` or JSON field names — so it
+    // hallucinated calls like `browser {"action":"open_url","query":"..."}`.
+    // This compact manifest is ALWAYS included (every tier) so the model knows
+    // the exact tool name and field signature for every active tool.
+    ...(toolLabels.length > 0
+      ? [
+          'TOOL MANIFEST (exact name + JSON signature for every tool available this turn — use these names and field names verbatim):',
+          ...(context.internetToolEnabled && !uwafBrowserAvailable ? ['web {"query":"..."}'] : []),
+          ...(context.shellEnabled ? ['shell {"command":"...","description":"..."}'] : []),
+          ...(filesystemAvailable ? ['filesystem {"action":"list|read|stat","path":"..."}'] : []),
+          ...(filesystemWriteAvailable ? ['filesystem {"action":"write|append|mkdir","path":"...","content":"...","createDirectories":true}'] : []),
+          ...(codeExecutionAvailable ? ['code {"runtime":"python|node","code":"...","filename":"...","workspacePath":"..."}'] : []),
+          ...(browserAvailable && context.internetToolEnabled ? ['browser {"action":"open","url":"...","description":"..."}'] : []),
+          ...(uwafBrowserAvailable && context.internetToolEnabled ? ['unified_browser {"action":"search|open","query":"..."|"url":"...","browserMode":"direct|stealth"}'] : []),
+          ...listCapabilitySignatures({ workspaceAvailable: Boolean(workspace) }),
+        ]
+      : []),
     // ─── Tool block primer ───────────────────────────────────────────────────
     // The runtime parses tool calls from assistant messages using the wrapper
     // syntax below. Every tool call MUST be wrapped this way — bare JSON,

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — Clipboard copy on non-secure contexts (whole chats + messages)
+
+`navigator.clipboard.writeText` is only available in secure contexts (HTTPS or `localhost`). When PeakUI was accessed over plain HTTP on a LAN IP, every copy button — copy whole chat, copy message, code blocks, shell output, Canvas artifacts, and workspace-file paths — silently failed (or threw). A shared `copyToClipboard` helper (`src/lib/clipboard.ts`) now falls back to the legacy `document.execCommand('copy')` textarea trick when the Clipboard API is unavailable, and all copy sites route through it.
+
+### Fixed — Small local models hallucinate tool names and fields
+
+Small local models (`minimal`/`compact`/`standard` prompt tiers) had their verbose tool tutorials trimmed to fit the context window, but the trimmed prompt left only the human *label* of each tool ("browser", "PDF generation") — never the actual tool `name` (`name="browser"`) or the JSON field names (`action: "open"`, `url`). The result was malformed calls like `browser {"action":"open_url","query":"..."}` (wrong action, wrong field, bare JSON with no wrapper), followed by "I described the next step but never emitted the matching tool block."
+
+- **Always-on compact tool manifest** — `buildOpenClawSystemPrompt` now emits a `TOOL MANIFEST` block in *every* tier (including `minimal`), listing each active tool's exact `name` and one-line JSON signature (`web {"query":"..."}`, `shell {"command":"..."}`, `browser {"action":"open","url":"..."}`, `pdf_document {"title":"..."}`, etc.). The core tools (shell/filesystem/code/browser/unified_browser/web) are enumerated inline from the existing availability flags; the document-generation tools come from new `signature` fields on each `OPENCLAW_CAPABILITIES` entry.
+- **New `listCapabilitySignatures`** in `src/lib/openclaw-capabilities.ts` exports the compact JSON signatures alongside `listActiveCapabilityLabels`.
+
 ### Added — Universal model-capacity-aware prompt & context adaptation
 
 Small local models were producing malformed tool calls and truncated responses because the OpenClaw system prompt ate most of the `num_ctx` window. gemma4 (an 8B model) got the "compact" manifest (~2,370 tokens) at 4096 `num_ctx`, leaving almost no room for conversation + response. The fix is universal: PeakUI now detects each model's capacity (parameter size + native context window) and gives it the prompt and window accordingly — for 4B, 9B, 30B, 100B, and cloud models alike, with a manual setting as a fallback.

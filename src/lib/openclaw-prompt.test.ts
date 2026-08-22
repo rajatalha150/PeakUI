@@ -239,6 +239,54 @@ describe('buildOpenClawSystemPrompt — stealth templates block wiring', () => {
   })
 })
 
+describe('buildOpenClawSystemPrompt — always-on tool manifest', () => {
+  it('includes exact tool name + JSON signatures even in minimal tier', () => {
+    const prompt = buildOpenClawSystemPrompt({
+      ...baseContext,
+      promptTier: 'minimal',
+      latestUserQuery: 'hello',
+    })
+    expect(prompt).toContain('TOOL MANIFEST')
+    // The core tools' exact names and field names must be visible so small
+    // models don't hallucinate `browser {"action":"open_url"}` style calls.
+    expect(prompt).toContain('shell {"command":"..."')
+    expect(prompt).toContain('filesystem {"action":"list|read|stat","path":"..."}')
+    expect(prompt).toContain('code {"runtime":"python|node"')
+  })
+
+  it('includes document tool signatures so trimmed tiers still know the names', () => {
+    const prompt = buildOpenClawSystemPrompt({
+      ...baseContext,
+      promptTier: 'minimal',
+      latestUserQuery: 'hello',
+    })
+    expect(prompt).toContain('pdf_document {"title":"..."')
+    expect(prompt).toContain('workbook_document {"title":"..."')
+    expect(prompt).toContain('mermaid_document {"title":"..."')
+  })
+
+  it('includes a browser signature with the correct action/url fields when the browser is enabled', () => {
+    const prompt = buildOpenClawSystemPrompt({
+      ...baseContext,
+      promptTier: 'minimal',
+      latestUserQuery: 'hello',
+      browserMode: 'read-only',
+      internetToolEnabled: true,
+    })
+    expect(prompt).toContain('browser {"action":"open","url":"..."')
+    expect(prompt).not.toContain('"action":"open_url"')
+  })
+
+  it('includes the manifest even with no shell/filesystem/code/browser enabled (document tools are always active)', () => {
+    const prompt = buildOpenClawSystemPrompt({
+      provider: 'ollama',
+      model: 'gemma4:latest',
+    })
+    expect(prompt).toContain('TOOL MANIFEST')
+    expect(prompt).toContain('pdf_document {"title":"..."')
+  })
+})
+
 describe('buildOpenClawSystemPrompt — tool format hygiene', () => {
   it('explicitly tells the model to NOT use other SDK tool-call formats', () => {
     const prompt = buildOpenClawSystemPrompt(baseContext)

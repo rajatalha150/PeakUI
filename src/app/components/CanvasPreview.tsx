@@ -2,6 +2,7 @@
 
 import React from 'react'
 import { Check, ChevronDown, ChevronUp, Copy, Download, Edit2, Loader2, Save, X } from 'lucide-react'
+import { copyToClipboard } from '@/lib/clipboard'
 import ArtifactPreviewContent from './ArtifactPreviewContent'
 import type { CanvasArtifactRecord } from '@/lib/canvas-artifacts'
 import { artifactSupportsTextEditing, buildArtifactExport, formatBytes, isLargeArtifactContent } from '@/lib/canvas-rendering'
@@ -39,7 +40,7 @@ export default function CanvasPreview({ artifact, onUpdate, onDelete, onDownload
 
   const handleCopy = React.useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(artifact.content || '')
+      await copyToClipboard(artifact.content || '')
       setCopied(true)
       window.setTimeout(() => setCopied(false), 2000)
     } catch {

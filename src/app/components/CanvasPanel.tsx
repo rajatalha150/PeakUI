@@ -1,6 +1,7 @@
 "use client"
 
 import React from 'react'
+import { copyToClipboard } from '@/lib/clipboard'
 import {
   Check,
   ChevronDown,
@@ -941,7 +942,7 @@ export default function CanvasPanel({
   const handleCopy = React.useCallback(async (artifact: CanvasArtifactRecord) => {
     try {
       const full = await loadFullArtifact(artifact)
-      await navigator.clipboard.writeText(full?.content ?? artifact.content ?? '')
+      await copyToClipboard(full?.content ?? artifact.content ?? '')
       setCopiedIds(prev => new Set(prev).add(artifact.id))
       window.setTimeout(() => {
         setCopiedIds(prev => {

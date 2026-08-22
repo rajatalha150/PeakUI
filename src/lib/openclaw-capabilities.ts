@@ -22,6 +22,8 @@ export interface OpenClawCapability {
   toolName?: string
   promptLines: string[]
   example?: string
+  /** Compact one-line JSON signature for the always-on tool manifest. */
+  signature?: string
   requiresWorkspace?: boolean
   future?: boolean
 }
@@ -38,6 +40,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
       'For the most beautiful result, model the document with sections, fields, tables, and callouts — each element is styled with color, spacing, and layout, so structured documents render as polished, professional PDFs.',
     ],
     example: OPENCLAW_PDF_DOCUMENT_TOOL_EXAMPLE,
+    signature: 'pdf_document {"title":"...","content":"..."}',
   },
   {
     id: 'tax-return-pdf',
@@ -51,6 +54,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
       'Use fill_pdf_form with a formId (e.g. "f1040") to fill an official IRS form, or with templateDocumentId for an uploaded template; pass derived client values in fields. Use generate_review_pdf for W-2/1099 review packets.',
     ],
     example: OPENCLAW_TAX_RETURN_TOOL_EXAMPLE,
+    signature: 'tax_return {"action":"generate_review_pdf"|"fill_pdf_form"|"list_forms"|"inspect_form","taxYear":"2025","formId":"f1040"}',
   },
   {
     id: 'workbook-document',
@@ -63,6 +67,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
       'The full structure is recommended but not required: a title with a description (or just a title) is sufficient — a Notes sheet is generated automatically.',
     ],
     example: OPENCLAW_WORKBOOK_DOCUMENT_TOOL_EXAMPLE,
+    signature: 'workbook_document {"title":"...","sheets":[{"name":"...","columns":[{"header":"..."}],"rows":[{...}]}]}',
   },
   {
     id: 'word-document',
@@ -75,6 +80,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
       'The full structure is recommended but not required: a title with a simple content string (or just a title and description) is sufficient.',
     ],
     example: OPENCLAW_WORD_DOCUMENT_TOOL_EXAMPLE,
+    signature: 'word_document {"title":"...","content":"...","sections":[{"heading":"...","body":"..."}]}',
   },
   {
     id: 'csv-document',
@@ -87,6 +93,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
       'The full structure is recommended but not required: a title with a description (or just a title) is sufficient — the description becomes the body.',
     ],
     example: OPENCLAW_CSV_DOCUMENT_TOOL_EXAMPLE,
+    signature: 'csv_document {"title":"...","headers":["..."],"rows":[{...}]}',
   },
   {
     id: 'email-document',
@@ -99,6 +106,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
       'The full structure is recommended but not required: a title with a description (or just a title) is sufficient — the subject and body are derived automatically.',
     ],
     example: OPENCLAW_EMAIL_DOCUMENT_TOOL_EXAMPLE,
+    signature: 'email_document {"title":"...","to":"...","subject":"...","body":"..."}',
   },
   {
     id: 'markdown-document',
@@ -111,6 +119,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
       'The full structure is recommended but not required: a title with a description (or just a title) is sufficient — the description becomes the body, or a title heading is used.',
     ],
     example: OPENCLAW_MARKDOWN_DOCUMENT_TOOL_EXAMPLE,
+    signature: 'markdown_document {"title":"...","content":"..."}',
   },
   {
     id: 'slides-document',
@@ -122,6 +131,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
       'Provide a title and an array of slides with explicit layouts (title, section, content, bullets, two-column, quote, closing). The result is a downloadable .pptx artifact.',
     ],
     example: OPENCLAW_SLIDES_DOCUMENT_TOOL_EXAMPLE,
+    signature: 'slides_document {"title":"...","slides":[{"layout":"title|bullets|two-column|closing","title":"...","bullets":["..."]}]}',
   },
   {
     id: 'archive-document',
@@ -133,6 +143,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
       'Provide a list of entries (filename, mimeType, content). The result is a downloadable .zip artifact.',
     ],
     example: OPENCLAW_ARCHIVE_DOCUMENT_TOOL_EXAMPLE,
+    signature: 'archive_document {"title":"...","entries":[{"name":"file.txt","mimeType":"text/plain","content":"..."}]}',
   },
   {
     id: 'calendar-document',
@@ -144,6 +155,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
       'Provide one or more events with title, start, end, and optional location/attendees. The result is a downloadable .ics artifact.',
     ],
     example: OPENCLAW_CALENDAR_DOCUMENT_TOOL_EXAMPLE,
+    signature: 'calendar_document {"title":"...","events":[{"title":"...","start":"...","end":"..."}]}',
   },
   {
     id: 'mermaid-document',
@@ -155,6 +167,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
       'Provide the Mermaid source in the diagram field. The result is a downloadable .svg (or .png) artifact that renders inline in Canvas.',
     ],
     example: OPENCLAW_MERMAID_DOCUMENT_TOOL_EXAMPLE,
+    signature: 'mermaid_document {"title":"...","diagram":"graph TD; A-->B","format":"svg|png"}',
   },
   {
     id: 'fetch-summarize',
@@ -166,6 +179,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
       'The result will include a title, 3-5 bullet summary, key quote, and source URL.',
     ],
     example: OPENCLAW_FETCH_SUMMARIZE_TOOL_EXAMPLE,
+    signature: 'fetch_summarize {"url":"https://..."}',
   },
   {
     id: 'stealth-search',
@@ -177,6 +191,7 @@ export const OPENCLAW_CAPABILITIES: OpenClawCapability[] = [
       'Set action to "search", provide the query, and set browserMode to "stealth". Results may include .onion links.',
     ],
     example: `<openclaw_tool name="unified_browser">\n{"action":"search","query":"privacy focused search engines","browserMode":"stealth","description":"Search via Tor"}\n</openclaw_tool>`,
+    signature: 'unified_browser {"action":"search","query":"...","browserMode":"stealth"}',
   },
   {
     id: 'mcp-skill-inventory',
@@ -194,6 +209,21 @@ export function listActiveCapabilityLabels(options: { workspaceAvailable: boolea
     .filter(capability => !capability.future)
     .filter(capability => !capability.requiresWorkspace || options.workspaceAvailable)
     .map(capability => capability.label)
+}
+
+/**
+ * Compact one-line JSON signatures for the built-in tools that live in
+ * `OPENCLAW_CAPABILITIES`. Emitted as part of the always-on tool manifest so
+ * small local models (whose verbose tutorials are trimmed to fit the context
+ * window) still know the exact tool name and field names instead of only the
+ * human label.
+ */
+export function listCapabilitySignatures(options: { workspaceAvailable: boolean }): string[] {
+  return OPENCLAW_CAPABILITIES
+    .filter(capability => !capability.future)
+    .filter(capability => !capability.requiresWorkspace || options.workspaceAvailable)
+    .filter(capability => capability.signature)
+    .map(capability => capability.signature as string)
 }
 
 export interface BuildCapabilityPromptOptions {

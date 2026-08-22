@@ -4,6 +4,7 @@ import React from 'react';
 import type { ResponsePresentation } from '@/lib/response-format';
 import { normalizeAssistantResponseContent } from '@/lib/response-normalizer';
 import type { MessageSource } from '@/lib/message-sources';
+import { copyToClipboard } from '@/lib/clipboard';
 
 type StructuredBlock =
   | { type: 'heading'; level: number; text: string }
@@ -432,7 +433,7 @@ function parseStructuredBlocks(content: string): StructuredBlock[] {
 function CodeBlock({ info, code, blockIndex }: { info: string; code: string; blockIndex: number }) {
   const [copied, setCopied] = React.useState(false);
   const handleCopy = React.useCallback(() => {
-    navigator.clipboard.writeText(code).then(() => {
+    copyToClipboard(code).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }).catch(() => {});

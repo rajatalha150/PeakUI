@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState, useDeferredValue, useCallback, memo } from 'react';
 import { isWindowsHostPath } from '@/lib/openclaw-path-check';
 import { randomUUID } from '@/lib/uuid';
+import { copyToClipboard } from '@/lib/clipboard';
 import Image from 'next/image';
 import { Activity, AlertCircle, BookOpen, Bot, Calculator, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Database, Download, FileText, Folder, Globe, ListTodo, Loader2, Menu, MessageSquare, MoreHorizontal, Paperclip, Pin, Plus, Redo2, RefreshCw, Send, Server, Shield, Square, Star, Tag, Trash2, Wand2, Wifi, WifiOff, X } from 'lucide-react';
 import { ChatMessageContent, AssistantDownloads, ThinkingBlock } from './ChatMessageContent';
@@ -7554,7 +7555,7 @@ export default function OpenClawWorkspace({
       })
       .join('\n\n');
     try {
-      await navigator.clipboard.writeText(text);
+      await copyToClipboard(text);
       setSelectedSessionInfo(`Copied "${session.title}" to clipboard.`);
     } catch {
       setSelectedSessionInfo(`Could not copy "${session.title}" to clipboard.`);
@@ -7565,7 +7566,7 @@ export default function OpenClawWorkspace({
   const handleCopyMessage = async (message: OpenClawMessage) => {
     const text = message.content || '';
     try {
-      await navigator.clipboard.writeText(text);
+      await copyToClipboard(text);
       setSelectedSessionInfo('Copied message to clipboard.');
     } catch {
       setSelectedSessionInfo('Could not copy message to clipboard.');

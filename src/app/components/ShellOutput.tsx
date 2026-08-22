@@ -4,6 +4,7 @@
 
 import React, { useState } from 'react'
 import { Terminal, Copy, Check, ChevronDown, ChevronRight } from 'lucide-react'
+import { copyToClipboard } from '@/lib/clipboard'
 
 interface ShellOutputProps {
   command: string
@@ -35,7 +36,7 @@ export default function ShellOutput({
       `Exit code: ${exitCode}`,
     ].filter(Boolean).join('\n\n')
 
-    navigator.clipboard.writeText(output)
+    void copyToClipboard(output).catch(() => {})
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
