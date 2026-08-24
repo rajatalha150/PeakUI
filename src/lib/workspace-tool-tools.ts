@@ -482,6 +482,287 @@ function findToolBlock(content: string): { toolName: string; rawBlock: string; r
     }
   }
 
+  // Foreign model-native tool-call formats (Qwen, Gemma, Llama, Mistral,
+  // GLM, Anthropic). Local GGUF models often emit their own native syntax
+  // instead of the custom <workspace_tool> wrapper; normalize them to the
+  // same { toolName, rawBlock, rawJson } shape so the per-tool validation
+  // below runs unchanged.
+  const foreign = findForeignToolBlock(content)
+  if (foreign) return foreign
+
+  return null
+}
+
+/**
+ * Foreign model-native tool-call formats, normalized to the same
+ * `{ toolName, rawBlock, rawJson }` shape the native `<workspace_tool>`
+ * parser produces. Local GGUF models (Qwen, Gemma, Llama, Mistral, GLM,
+ * Anthropic-style) often emit their own native syntax instead of the custom
+ * wrapper, and the old parser rejected all of them. This recognizes the
+ * common ones and normalizes them so the same per-tool validation runs on the
+ * result.
+ *
+ * Missing closing tags/brackets are tolerated: models truncate mid-stream.
+ */
+
+const WORKSPACE_TOOL_NAME_SET: ReadonlySet<string> = new Set(WORKSPACE_TOOL_NAMES)
+
+function normalizeForeignToolName(name: unknown): string | null {
+  if (typeof name !== 'string') return null
+  const trimmed = name.trim()
+  return WORKSPACE_TOOL_NAME_SET.has(trimmed) ? trimmed : null
+}
+
+/**
+ * Extract a balanced JSON object/array starting at (or after) `start`,
+ * skipping leading whitespace. Returns the exact substring and the index just
+ * past its closing bracket, or null when no JSON literal begins there.
+ */
+function extractBalancedJsonAt(content: string, start: number): { json: string; end: number } | null {
+  let i = start
+  while (i < content.length && (content[i] === ' ' || content[i] === '\t' || content[i] === '\n' || content[i] === '\r')) {
+    i += 1
+  }
+  if (i >= content.length || (content[i] !== '{' && content[i] !== '[')) return null
+  const opening = content[i]
+  const closing = opening === '{' ? '}' : ']'
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let j = i; j < content.length; j += 1) {
+    const ch = content[j]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') { inString = true; continue }
+    if (ch === opening) { depth += 1; continue }
+    if (ch === closing) {
+      depth -= 1
+      if (depth === 0) return { json: content.slice(i, j + 1), end: j + 1 }
+    }
+  }
+  return null
+}
+
+/**
+ * Parse a scalar value that may be a JSON literal (number/bool/null/object) or
+ * a bare string. Returns the unquoted string when it is not valid JSON.
+ */
+function parseForeignScalar(raw: string): unknown {
+  const trimmed = raw.trim()
+  if (!trimmed) return ''
+  if (trimmed.length >= 2 && trimmed[0] === '"' && trimmed[trimmed.length - 1] === '"') {
+    try { return JSON.parse(trimmed) } catch { return trimmed.slice(1, -1) }
+  }
+  try { return JSON.parse(trimmed) } catch { return trimmed }
+}
+
+/** Split on a top-level single-char delimiter, respecting quotes and nesting. */
+function splitTopLevel(raw: string, delimiter: string): string[] {
+  const parts: string[] = []
+  let depth = 0
+  let inString = false
+  let escaped = false
+  let current = ''
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i]
+    if (inString) {
+      current += ch
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') { inString = true; current += ch; continue }
+    if (ch === '{' || ch === '[' || ch === '(') { depth += 1; current += ch; continue }
+    if (ch === '}' || ch === ']' || ch === ')') { depth -= 1; current += ch; continue }
+    if (ch === delimiter && depth === 0) { parts.push(current); current = ''; continue }
+    current += ch
+  }
+  if (current.trim()) parts.push(current)
+  return parts
+}
+
+/** Index of the first top-level `=` in a Llama-3 kwarg, or -1. */
+function findTopLevelEquals(raw: string): number {
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (ch === '\\') escaped = true
+      else if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') { inString = true; continue }
+    if (ch === '{' || ch === '[' || ch === '(') { depth += 1; continue }
+    if (ch === '}' || ch === ']' || ch === ')') { depth -= 1; continue }
+    if (ch === '=' && depth === 0) return i
+  }
+  return -1
+}
+
+/** Parse Llama-3 `.call(k=v, ...)` kwargs into a record. */
+function parseLlama3Kwargs(raw: string): Record<string, unknown> | null {
+  const args: Record<string, unknown> = {}
+  for (const part of splitTopLevel(raw, ',')) {
+    const eq = findTopLevelEquals(part)
+    if (eq < 0) continue
+    const key = part.slice(0, eq).trim()
+    if (!key) continue
+    args[key] = parseForeignScalar(part.slice(eq + 1))
+  }
+  return Object.keys(args).length > 0 ? args : null
+}
+
+/** Extract `{ name, arguments }` from a parsed foreign JSON envelope. */
+function foreignEnvelopeToArgs(parsed: unknown): { name: string; args: Record<string, unknown> } | null {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const envelope = parsed as { name?: unknown; arguments?: unknown; parameters?: unknown }
+  const name = normalizeForeignToolName(envelope.name)
+  const args = envelope.arguments ?? envelope.parameters
+  if (!name || !args || typeof args !== 'object' || Array.isArray(args)) return null
+  return { name, args: args as Record<string, unknown> }
+}
+
+function findForeignToolBlock(content: string): { toolName: string; rawBlock: string; rawJson: string } | null {
+  // 1. Qwen / Hermes: <tool_call>{"name":"web","arguments":{...}}</tool_call>
+  //    (tolerates a missing </tool_call>). Distinguished from GLM by the `{`
+  //    immediately after the tag.
+  const qwenTag = /<tool_call>/i.exec(content)
+  if (qwenTag) {
+    const bodyStart = qwenTag.index + qwenTag[0].length
+    const balanced = extractBalancedJsonAt(content, bodyStart)
+    if (balanced) {
+      const envelope = foreignEnvelopeToArgs(parseToolJson(balanced.json))
+      if (envelope) {
+        return {
+          toolName: envelope.name,
+          rawBlock: content.slice(qwenTag.index, balanced.end),
+          rawJson: JSON.stringify(envelope.args),
+        }
+      }
+    }
+  }
+
+  // 2. Anthropic: <invoke name="web"><parameter name="query">x</parameter></invoke>
+  //    (standalone, or nested inside <function_calls>).
+  const invoke = /<invoke\s+name=["']([\w.\-]+)["']\s*>([\s\S]*?)(?:<\/invoke>|$)/i.exec(content)
+  if (invoke) {
+    const name = normalizeForeignToolName(invoke[1])
+    if (name) {
+      const args: Record<string, unknown> = {}
+      const paramRe = /<parameter\s+name=["']([\w.\-]+)["']\s*>([\s\S]*?)<\/parameter>/gi
+      let m: RegExpExecArray | null
+      while ((m = paramRe.exec(invoke[2])) !== null) {
+        const key = m[1].trim()
+        if (key) args[key] = parseForeignScalar(m[2])
+      }
+      if (Object.keys(args).length > 0) {
+        return { toolName: name, rawBlock: invoke[0], rawJson: JSON.stringify(args) }
+      }
+    }
+  }
+
+  // 3. Llama-3: <|python_tag|>web.call(query="x", k=2)
+  const llama = /<\|python_tag\|>\s*([\w.\-]+)\s*\.\s*call\s*\(([\s\S]*?)\)/i.exec(content)
+  if (llama) {
+    const name = normalizeForeignToolName(llama[1])
+    if (name) {
+      const args = parseLlama3Kwargs(llama[2])
+      if (args) {
+        return { toolName: name, rawBlock: llama[0], rawJson: JSON.stringify(args) }
+      }
+    }
+  }
+
+  // 4. Mistral: [TOOL_CALLS] [{"name":"web","arguments":{...}}]
+  const mistral = /\[TOOL_CALLS\]\s*\[/i.exec(content)
+  if (mistral) {
+    const balanced = extractBalancedJsonAt(content, mistral.index + mistral[0].length - 1)
+    if (balanced) {
+      const parsed = parseToolJson<unknown>(balanced.json)
+      const first = Array.isArray(parsed) ? parsed[0] : parsed
+      const envelope = foreignEnvelopeToArgs(first)
+      if (envelope) {
+        return {
+          toolName: envelope.name,
+          rawBlock: content.slice(mistral.index, balanced.end),
+          rawJson: JSON.stringify(envelope.args),
+        }
+      }
+    }
+  }
+
+  // 5. Gemma 4: <|tool_call>call:web{"query":"x"}<tool_call|>
+  const gemma = /<\|tool_call>\s*call\s*:\s*([\w.\-]+)\s*(\{[\s\S]*?\})/i.exec(content)
+  if (gemma) {
+    const name = normalizeForeignToolName(gemma[1])
+    if (name) {
+      const args = parseToolJson<Record<string, unknown>>(gemma[2])
+      if (args && typeof args === 'object' && !Array.isArray(args)) {
+        return { toolName: name, rawBlock: gemma[0], rawJson: JSON.stringify(args) }
+      }
+    }
+  }
+
+  // 6. GLM 4.5-4.7: <tool_call>web\n<arg_key>query</arg_key>\n<arg_value>x</arg_value></tool_call>
+  //    (tolerates a missing </tool_call>). Only reached when the Qwen branch
+  //    above did not find a `{` right after the tag.
+  const glm = /<tool_call>\s*([\w.\-]+)\s*(?=[\n<])([\s\S]*?)(?:<\/tool_call>|$)/i.exec(content)
+  if (glm) {
+    const name = normalizeForeignToolName(glm[1])
+    if (name) {
+      const args: Record<string, unknown> = {}
+      const argRe = /<arg_key>([\s\S]*?)<\/arg_key>\s*<arg_value>([\s\S]*?)<\/arg_value>/gi
+      let m: RegExpExecArray | null
+      while ((m = argRe.exec(glm[2])) !== null) {
+        const key = m[1].trim()
+        if (key) args[key] = parseForeignScalar(m[2])
+      }
+      if (Object.keys(args).length > 0) {
+        return { toolName: name, rawBlock: glm[0], rawJson: JSON.stringify(args) }
+      }
+    }
+  }
+
+  // 7. Qwen3.5 XML: <function=web><parameter>query</parameter>x</parameter></function>
+  //    (also the attribute form <function name="web">). The user runs several
+  //    Qwen3.5 models, which emit this natively.
+  const qwenXml = /<function(?:=([\w.\-]+)|\s+name=["']([\w.\-]+)["'])\s*>([\s\S]*?)(?:<\/function>|$)/i.exec(content)
+  if (qwenXml) {
+    const name = normalizeForeignToolName(qwenXml[1] ?? qwenXml[2])
+    if (name) {
+      const args: Record<string, unknown> = {}
+      const paramRe = /<parameter(?:=([\w.\-]+)|\s+name=["']([\w.\-]+)["'])\s*>([\s\S]*?)<\/parameter>/gi
+      let m: RegExpExecArray | null
+      while ((m = paramRe.exec(qwenXml[3])) !== null) {
+        const key = (m[1] ?? m[2]).trim()
+        if (key) args[key] = parseForeignScalar(m[3])
+      }
+      if (Object.keys(args).length > 0) {
+        return { toolName: name, rawBlock: qwenXml[0], rawJson: JSON.stringify(args) }
+      }
+    }
+  }
+
+  // 8. Mistral v11+ named: [TOOL_CALLS]web{"query":"x"} (and [ARGS] variant)
+  const mistralNamed = /\[TOOL_CALLS\]\s*([\w.\-]+)\s*(?:\[ARGS\])?\s*(\{[\s\S]*?\})/i.exec(content)
+  if (mistralNamed) {
+    const name = normalizeForeignToolName(mistralNamed[1])
+    if (name) {
+      const args = parseToolJson<Record<string, unknown>>(mistralNamed[2])
+      if (args && typeof args === 'object' && !Array.isArray(args)) {
+        return { toolName: name, rawBlock: mistralNamed[0], rawJson: JSON.stringify(args) }
+      }
+    }
+  }
+
   return null
 }
 
@@ -508,10 +789,24 @@ export function stripAllToolTags(content: string): string {
   cleaned = cleaned.replace(/<tool_call>[\s\S]*/gi, '')
   cleaned = cleaned.replace(/<tool_use>[\s\S]*?<\/tool_use>/gi, '')
   cleaned = cleaned.replace(/<tool_use>[\s\S]*/gi, '')
+  // Foreign model-native formats (Gemma, Llama-3, Mistral) — strip them so
+  // they never reach the user as visible text, mirroring the parser.
+  cleaned = cleaned.replace(/<\|tool_call>\s*call\s*:\s*[\w.\-]+\s*\{[\s\S]*?\}<tool_call\|>/gi, '')
+  cleaned = cleaned.replace(/<\|tool_call>\s*call\s*:\s*[\w.\-]+\s*\{[\s\S]*/gi, '')
+  cleaned = cleaned.replace(/<\|python_tag\|>\s*[\w.\-]+\s*\.\s*call\s*\([\s\S]*?\)/gi, '')
+  cleaned = cleaned.replace(/<\|python_tag\|>\s*[\w.\-]+\s*\.\s*call\s*\([\s\S]*/gi, '')
+  cleaned = cleaned.replace(/\[TOOL_CALLS\]\s*\[[\s\S]*?\]/gi, '')
+  cleaned = cleaned.replace(/\[TOOL_CALLS\]\s*\[[\s\S]*/gi, '')
+  cleaned = cleaned.replace(/\[TOOL_CALLS\]\s*[\w.\-]+\s*(?:\[ARGS\])?\s*\{[\s\S]*?\}/gi, '')
+  cleaned = cleaned.replace(/\[TOOL_CALLS\]\s*[\w.\-]+\s*(?:\[ARGS\])?\s*\{[\s\S]*/gi, '')
+  cleaned = cleaned.replace(/<function(?:=[\w.\-]+|\s+name=["'][\w.\-]+["'])\s*>[\s\S]*?<\/function>/gi, '')
+  cleaned = cleaned.replace(/<function(?:=[\w.\-]+|\s+name=["'][\w.\-]+["'])\s*>[\s\S]*/gi, '')
   // Strip the bare closing tokens that leak from those formats.
   cleaned = cleaned.replace(/<\/invoke>/gi, '')
   cleaned = cleaned.replace(/<\/parameter>/gi, '')
   cleaned = cleaned.replace(/<\/antml:function_calls>/gi, '')
+  cleaned = cleaned.replace(/<\/tool_call>/gi, '')
+  cleaned = cleaned.replace(/<tool_call\|>/gi, '')
   cleaned = cleaned.replace(/<\|tool_call\|>/gi, '')
   cleaned = cleaned.replace(/<\|tool_call_begin\|>/gi, '')
   cleaned = cleaned.replace(/<\|tool_call_end\|>/gi, '')
