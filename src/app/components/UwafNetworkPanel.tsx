@@ -41,7 +41,7 @@ interface UwafNetworkPanelProps {
   onModeChange: (mode: 'direct' | 'stealth') => void
   disabled?: boolean
   /**
-   * Controlled expand state. Owned by the parent (OpenClawWorkspace) so the
+   * Controlled expand state. Owned by the parent (WorkspaceToolWorkspace) so the
    * "max 2 expanded" accordion rule can be enforced centrally.
    */
   isExpanded: boolean
@@ -66,7 +66,7 @@ export default function UwafNetworkPanel({
     try {
       const params = new URLSearchParams({ level })
       if (options?.force) params.set('force', '1')
-      const res = await fetch(`/api/openclaw/uwaf-browser/status?${params.toString()}`)
+      const res = await fetch(`/api/workspace-tool/uwaf-browser/status?${params.toString()}`)
       if (!res.ok) throw new Error(`Status check failed: ${res.status}`)
       const data = await res.json()
       setStatus(data)

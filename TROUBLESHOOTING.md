@@ -43,6 +43,49 @@ ports:
 
 ## Ollama
 
+### Models take forever to load (or reload between messages)
+
+This is almost always a **VRAM vs. model-size** problem, not a code problem.
+Ollama keeps a model resident in GPU memory only while it fits; when the
+model is larger than the free VRAM, Ollama offloads layers to CPU/RAM, which
+makes every load slow (and every reload after keep-alive expires slow again).
+
+Diagnose it:
+
+```bash
+nvidia-smi --query-gpu=memory.total,memory.used,memory.free --format=csv
+nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv
+ollama show <model>   # prints parameter_size and quantization
+```
+
+Then fix the three things that matter, in order:
+
+1. **Pick a model that fits the free VRAM.** A Q4 7-8B model is ~4.5-5 GB; a
+   9B+ model is ~9 GB and won't fit a 12 GB card that's already running a
+   desktop. If the desktop compositor is eating VRAM (see below), a headless
+   box frees more room for the model.
+2. **Raise keep-alive.** Settings → Generation → **Keep model loaded** with a
+   long duration (e.g. `2h`, or `-1` to never unload). A short keep-alive
+   (e.g. `10m`) unloads the model after idle and forces a full reload on the
+   next message.
+3. **Lower the context window.** Turn **off** "Use Ollama default context" and
+   set Context Window to `4096`. A smaller KV cache keeps more layers on the
+   GPU and makes both load and first-token faster.
+
+### Freeing VRAM from the desktop (headless / remote-only hosts)
+
+If you access the machine remotely and don't need the local desktop, the
+compositor (COSMIC/GNOME/KDE) and its applets hold GPU memory and CPU that
+could go to the model. To run headless:
+
+```bash
+sudo systemctl set-default multi-user.target
+sudo systemctl isolate multi-user.target
+```
+
+This stops the greeter and desktop session immediately and on every future
+boot. Reversible with `sudo systemctl set-default graphical.target`.
+
 ### Model fails to load with "context length too large"
 
 Lower the **Context Window** in Settings → Generation, or enable **Use Ollama
@@ -101,12 +144,12 @@ On a Linux server with IPv6 issues, force IPv4: `curl -4 https://ollama.com`.
 Account permission is missing. Open **Settings** inside WorkSpaces and check
 the **Tool permissions** panel — it reports which capability is blocked and
 why. An admin needs to grant the corresponding permission
-(`openclaw.shell`, `openclaw.filesystem`, `openclaw.code`, etc.) in
+(`workspace-tool.shell`, `workspace-tool.filesystem`, `workspace-tool.code`, etc.) in
 User Management.
 
 ### Shell commands fail with "outside approved roots"
 
-The host executor restricts commands to the `OPENCLAW_HOST_WORKSPACE_DIR`
+The host executor restricts commands to the `WORKSPACE_TOOL_HOST_WORKSPACE_DIR`
 plus any additional roots configured in Settings → **Host shell roots**.
 Add the path you need or switch the shell target back to **container**.
 
@@ -156,7 +199,7 @@ the source sibling.
 ### Files I uploaded via the panel appear in chat immediately but my
 ### co-worker in another browser tab doesn't see them
 
-The panel subscribes to `/api/openclaw/workspaces/[id]/events` on mount.
+The panel subscribes to `/api/workspace-tool/workspaces/[id]/events` on mount.
 If a tab has been open for a long time, the subscription may have been
 silently disconnected by an aggressive proxy. Close and reopen the tab;
 the client reconnects with exponential backoff (500 ms → 5 s) on a
@@ -171,7 +214,7 @@ shell / filesystem tools for large migrations.
 
 The cap is intentional — anything larger should be split or downloaded
 file-by-file via **Download zip** with a curated path list. Adjust
-`MAX_ZIP_BYTES` in `src/app/api/openclaw/workspaces/[id]/files/zip/route.ts`
+`MAX_ZIP_BYTES` in `src/app/api/workspace-tool/workspaces/[id]/files/zip/route.ts`
 only if you know what you're doing (it can OOM the Node process).
 
 ### Editor shows "File changed on server"

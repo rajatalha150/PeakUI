@@ -10,12 +10,12 @@ import path from 'path'
 import { promisify } from 'util'
 import { getJwtSecret } from './auth'
 import {
-  ensureOpenClawWorkspaceAlias,
-  getOpenClawWorkspaceContainerRoot,
-  getOpenClawWorkspaceHostRoot,
+  ensureWorkspaceToolWorkspaceAlias,
+  getWorkspaceToolWorkspaceContainerRoot,
+  getWorkspaceToolWorkspaceHostRoot,
   isWindowsHostPath,
   normalizeHostPath,
-} from './openclaw-workspace'
+} from './workspace-tool-workspace'
 
 const execAsync = promisify(exec)
 const APPROVAL_TTL_MS = 10 * 60 * 1000
@@ -280,8 +280,8 @@ function hostRelativeToContainer(hostPath: string, hostRoot: string, containerRo
 }
 
 export function resolveContainerShellCwd(cwd?: string): string {
-  const containerRoot = getOpenClawWorkspaceContainerRoot()
-  const hostRoot = getOpenClawWorkspaceHostRoot()
+  const containerRoot = getWorkspaceToolWorkspaceContainerRoot()
+  const hostRoot = getWorkspaceToolWorkspaceHostRoot()
   const normalized = normalizeCwd(cwd)
   if (!normalized) return containerRoot
 
@@ -464,7 +464,7 @@ export async function executeCommand(
   const { timeout = 120000 } = options
 
   try {
-    await ensureOpenClawWorkspaceAlias()
+    await ensureWorkspaceToolWorkspaceAlias()
     const cwd = resolveContainerShellCwd(options.cwd)
     const { stdout, stderr } = await execAsync(command, {
       cwd,

@@ -13,10 +13,10 @@ interface UserSettings {
   modelKeepAlive: boolean;
   ollamaKeepAlive: string;
   exclusiveOllamaModels: boolean;
-  openClawProvider: string;
-  openClawModel: string;
-  openClawPromptTier: string;
-  openClawBaseUrl: string;
+  workspaceToolProvider: string;
+  workspaceToolModel: string;
+  workspaceToolPromptTier: string;
+  workspaceToolBaseUrl: string;
   shellExecutionTarget: 'container' | 'host';
   shellExecutionMode: string;
   shellAllowedCommands: string;
@@ -24,31 +24,31 @@ interface UserSettings {
   shellHostAllowedEnvVars: string;
   shellHostMaxTimeoutMs: number;
   shellHostMaxOutputBytes: number;
-  openClawFileAccessMode: string;
-  openClawAllowedPaths: string;
-  openClawFileWriteMode: string;
-  openClawWritablePaths: string;
-  openClawHostAccessMode: string;
-  openClawWorkspaceHostRoot: string;
-  openClawCodeExecutionMode: string;
-  openClawBrowserMode: string;
-  openClawUwafBrowserMode: string;
-  openClawUwafScreenshots: boolean;
-  openClawUwafDefaultMode: string;
-  openClawUwafLiveBrowser: boolean;
-  openClawAutomationExecutionEnabled: boolean;
-  openClawAutomationExecutionModel: string;
-  openClawAutomationExecutionMaxRunsPerHour: number;
-  openClawAutomationExecutionAttachWorkspace: boolean;
-  openClawAutomationExecutionAttachMemory: boolean;
-  openClawSessionAutoContinueDefault: 'manual' | 'ask' | 'safe';
-  openClawSessionAutoContinueMaxSteps: number;
-  openClawMaxToolRoundsPerTurn: number;
-  openClawSessionSummariesEnabled: boolean;
-  openClawSessionSummaryTargetTokens: number;
-  openClawSessionPreserveTurns: number;
-  openClawSessionAnalyticsEnabled: boolean;
-  openClawSessionBranchingEnabled: boolean;
+  workspaceToolFileAccessMode: string;
+  workspaceToolAllowedPaths: string;
+  workspaceToolFileWriteMode: string;
+  workspaceToolWritablePaths: string;
+  workspaceToolHostAccessMode: string;
+  workspaceToolWorkspaceHostRoot: string;
+  workspaceToolCodeExecutionMode: string;
+  workspaceToolBrowserMode: string;
+  workspaceToolUwafBrowserMode: string;
+  workspaceToolUwafScreenshots: boolean;
+  workspaceToolUwafDefaultMode: string;
+  workspaceToolUwafLiveBrowser: boolean;
+  workspaceToolAutomationExecutionEnabled: boolean;
+  workspaceToolAutomationExecutionModel: string;
+  workspaceToolAutomationExecutionMaxRunsPerHour: number;
+  workspaceToolAutomationExecutionAttachWorkspace: boolean;
+  workspaceToolAutomationExecutionAttachMemory: boolean;
+  workspaceToolSessionAutoContinueDefault: 'manual' | 'ask' | 'safe';
+  workspaceToolSessionAutoContinueMaxSteps: number;
+  workspaceToolMaxToolRoundsPerTurn: number;
+  workspaceToolSessionSummariesEnabled: boolean;
+  workspaceToolSessionSummaryTargetTokens: number;
+  workspaceToolSessionPreserveTurns: number;
+  workspaceToolSessionAnalyticsEnabled: boolean;
+  workspaceToolSessionBranchingEnabled: boolean;
   ragModel: string;
   ragMode: string;
   ragEnabled: boolean;
@@ -148,10 +148,10 @@ const INITIAL_SETTINGS: UserSettings = {
   modelKeepAlive: false,
   ollamaKeepAlive: '0',
   exclusiveOllamaModels: false,
-  openClawProvider: 'ollama',
-  openClawModel: '',
-  openClawPromptTier: 'auto',
-  openClawBaseUrl: '',
+  workspaceToolProvider: 'ollama',
+  workspaceToolModel: '',
+  workspaceToolPromptTier: 'auto',
+  workspaceToolBaseUrl: '',
   shellExecutionTarget: 'container',
   shellExecutionMode: 'ask-first',
   shellAllowedCommands: '',
@@ -159,31 +159,31 @@ const INITIAL_SETTINGS: UserSettings = {
   shellHostAllowedEnvVars: 'PATH\nHOME\nUSER\nSHELL\nLANG\nTERM',
   shellHostMaxTimeoutMs: 60000,
   shellHostMaxOutputBytes: 262144,
-  openClawFileAccessMode: 'read-only',
-  openClawAllowedPaths: '',
-  openClawFileWriteMode: 'ask-first',
-  openClawWritablePaths: '~/.peakui/workspace',
-  openClawHostAccessMode: 'deny',
-  openClawWorkspaceHostRoot: '',
-  openClawCodeExecutionMode: 'deny',
-  openClawBrowserMode: 'deny',
-  openClawUwafBrowserMode: 'deny',
-  openClawUwafScreenshots: false,
-  openClawUwafDefaultMode: 'direct',
-  openClawUwafLiveBrowser: true,
-  openClawAutomationExecutionEnabled: false,
-  openClawAutomationExecutionModel: '',
-  openClawAutomationExecutionMaxRunsPerHour: 6,
-  openClawAutomationExecutionAttachWorkspace: true,
-  openClawAutomationExecutionAttachMemory: true,
-  openClawSessionAutoContinueDefault: 'manual',
-  openClawSessionAutoContinueMaxSteps: 3,
-  openClawMaxToolRoundsPerTurn: 100,
-  openClawSessionSummariesEnabled: true,
-  openClawSessionSummaryTargetTokens: 6000,
-  openClawSessionPreserveTurns: 6,
-  openClawSessionAnalyticsEnabled: true,
-  openClawSessionBranchingEnabled: true,
+  workspaceToolFileAccessMode: 'read-only',
+  workspaceToolAllowedPaths: '',
+  workspaceToolFileWriteMode: 'ask-first',
+  workspaceToolWritablePaths: '~/.peakui/workspace',
+  workspaceToolHostAccessMode: 'deny',
+  workspaceToolWorkspaceHostRoot: '',
+  workspaceToolCodeExecutionMode: 'deny',
+  workspaceToolBrowserMode: 'deny',
+  workspaceToolUwafBrowserMode: 'deny',
+  workspaceToolUwafScreenshots: false,
+  workspaceToolUwafDefaultMode: 'direct',
+  workspaceToolUwafLiveBrowser: true,
+  workspaceToolAutomationExecutionEnabled: false,
+  workspaceToolAutomationExecutionModel: '',
+  workspaceToolAutomationExecutionMaxRunsPerHour: 6,
+  workspaceToolAutomationExecutionAttachWorkspace: true,
+  workspaceToolAutomationExecutionAttachMemory: true,
+  workspaceToolSessionAutoContinueDefault: 'manual',
+  workspaceToolSessionAutoContinueMaxSteps: 3,
+  workspaceToolMaxToolRoundsPerTurn: 100,
+  workspaceToolSessionSummariesEnabled: true,
+  workspaceToolSessionSummaryTargetTokens: 6000,
+  workspaceToolSessionPreserveTurns: 6,
+  workspaceToolSessionAnalyticsEnabled: true,
+  workspaceToolSessionBranchingEnabled: true,
   ragModel: 'nomic-embed-text',
   ragMode: 'semantic',
   ragEnabled: false,
@@ -388,7 +388,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
   const fetchHostAccessStatus = useCallback(async () => {
     setHostAccessStatusLoading(true);
     try {
-      const res = await fetch('/api/openclaw/filesystem', { cache: 'no-store' });
+      const res = await fetch('/api/workspace-tool/filesystem', { cache: 'no-store' });
       const data = await res.json().catch(() => ({})) as HostAccessStatus;
       setHostAccessStatus(data);
     } catch (error) {
@@ -434,7 +434,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
       const nextSettings = loadedSettings || INITIAL_SETTINGS;
       await Promise.all([
         fetchModels(nextSettings.ollamaHost, nextSettings.ollamaUseCloudApi),
-        authUser?.permissions.includes('openclaw.filesystem') ? fetchHostAccessStatus() : Promise.resolve(),
+        authUser?.permissions.includes('workspace-tool.filesystem') ? fetchHostAccessStatus() : Promise.resolve(),
       ]);
       if (authUser?.permissions.includes('users.manage')) {
         await fetchManagedUsers();
@@ -467,7 +467,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
         applyTheme(data.theme);
         onSettingsChange?.(data);
         void fetchModels(data.ollamaHost, data.ollamaUseCloudApi);
-        if (sessionUser?.permissions.includes('openclaw.filesystem')) void fetchHostAccessStatus();
+        if (sessionUser?.permissions.includes('workspace-tool.filesystem')) void fetchHostAccessStatus();
         setTimeout(() => setSaved(false), 3000);
       }
     } catch (e) {
@@ -599,7 +599,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
         .map(root => root.hostPath)
         .filter(Boolean);
       const workspaceRoot = mountedWritableRoots[0]
-        || prev.openClawWritablePaths.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean)[0]
+        || prev.workspaceToolWritablePaths.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean)[0]
         || '~/.peakui/workspace';
       const defaultReadRoots = mountedReadRoots.length > 0 ? mountedReadRoots : ['/home', '/tmp'];
 
@@ -609,10 +609,10 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           shellExecutionTarget: 'host',
           shellExecutionMode: 'ask-first',
           shellHostAllowedRoots: workspaceRoot,
-          openClawFileAccessMode: 'read-only',
-          openClawAllowedPaths: workspaceRoot,
-          openClawFileWriteMode: 'ask-first',
-          openClawWritablePaths: workspaceRoot,
+          workspaceToolFileAccessMode: 'read-only',
+          workspaceToolAllowedPaths: workspaceRoot,
+          workspaceToolFileWriteMode: 'ask-first',
+          workspaceToolWritablePaths: workspaceRoot,
         };
       }
 
@@ -622,10 +622,10 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           shellExecutionTarget: 'host',
           shellExecutionMode: 'ask-first',
           shellHostAllowedRoots: [...defaultReadRoots, workspaceRoot].filter((entry, index, all) => all.indexOf(entry) === index).join('\n'),
-          openClawFileAccessMode: 'read-only',
-          openClawAllowedPaths: defaultReadRoots.join('\n'),
-          openClawFileWriteMode: 'ask-first',
-          openClawWritablePaths: workspaceRoot,
+          workspaceToolFileAccessMode: 'read-only',
+          workspaceToolAllowedPaths: defaultReadRoots.join('\n'),
+          workspaceToolFileWriteMode: 'ask-first',
+          workspaceToolWritablePaths: workspaceRoot,
         };
       }
 
@@ -636,10 +636,10 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
         shellExecutionTarget: 'host',
         shellExecutionMode: 'ask-first',
         shellHostAllowedRoots: allMountedRoots.join('\n'),
-        openClawFileAccessMode: 'read-only',
-        openClawAllowedPaths: allMountedRoots.join('\n'),
-        openClawFileWriteMode: 'ask-first',
-        openClawWritablePaths: workspaceRoot,
+        workspaceToolFileAccessMode: 'read-only',
+        workspaceToolAllowedPaths: allMountedRoots.join('\n'),
+        workspaceToolFileWriteMode: 'ask-first',
+        workspaceToolWritablePaths: workspaceRoot,
       };
     });
     setSaved(false);
@@ -1316,11 +1316,11 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                 if (enabled && settings.ollamaKeepAlive === '0') update('ollamaKeepAlive', '30m');
                 // Enabling keep-alive means "keep this model resident", so load
                 // the current model now and pin it for the keep-alive window.
-                if (enabled && settings.openClawModel.trim()) {
+                if (enabled && settings.workspaceToolModel.trim()) {
                   void fetch('/api/ollama/keep-loaded', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ model: settings.openClawModel.trim() }),
+                    body: JSON.stringify({ model: settings.workspaceToolModel.trim() }),
                   }).catch(() => {});
                 }
               }}
@@ -1508,12 +1508,12 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               { value: 'ollama', label: 'Local Ollama' },
               { value: 'openai-compatible', label: 'OpenAI-compatible' },
             ].map(opt => {
-              const active = settings.openClawProvider === opt.value;
+              const active = settings.workspaceToolProvider === opt.value;
               return (
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => update('openClawProvider', opt.value)}
+                  onClick={() => update('workspaceToolProvider', opt.value)}
                   style={{
                     padding: '10px 12px',
                     borderRadius: '10px',
@@ -1531,23 +1531,23 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           </div>
         </Field>
 
-        {settings.openClawProvider === 'openai-compatible' && (
+        {settings.workspaceToolProvider === 'openai-compatible' && (
           <Field label="API Base URL" help="For example: https://api.openai.com/v1 or a local proxy endpoint.">
             <input
               className="input-field"
-              value={settings.openClawBaseUrl}
-              onChange={e => update('openClawBaseUrl', e.target.value)}
+              value={settings.workspaceToolBaseUrl}
+              onChange={e => update('workspaceToolBaseUrl', e.target.value)}
               placeholder="https://api.openai.com/v1"
             />
           </Field>
         )}
 
         <Field label="WorkSpaces Model" help="This model is remembered for the WorkSpaces workspace and reused automatically on return.">
-          {settings.openClawProvider === 'ollama' ? (
+          {settings.workspaceToolProvider === 'ollama' ? (
             <select
               className="input-field"
-              value={settings.openClawModel}
-              onChange={e => update('openClawModel', e.target.value)}
+              value={settings.workspaceToolModel}
+              onChange={e => update('workspaceToolModel', e.target.value)}
               style={{ width: '100%' }}
             >
               <option value="">— Pick a local model —</option>
@@ -1558,8 +1558,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           ) : (
             <input
               className="input-field"
-              value={settings.openClawModel}
-              onChange={e => update('openClawModel', e.target.value)}
+              value={settings.workspaceToolModel}
+              onChange={e => update('workspaceToolModel', e.target.value)}
               placeholder="gpt-4o-mini"
             />
           )}
@@ -1568,8 +1568,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
         <Field label="Prompt Detail Level" help="Auto picks the tier from the model's detected parameter size and native context window. Manual selection overrides detection. Smaller tiers shrink the system prompt so small local models keep room for the conversation and response.">
           <select
             className="input-field"
-            value={settings.openClawPromptTier}
-            onChange={e => update('openClawPromptTier', e.target.value)}
+            value={settings.workspaceToolPromptTier}
+            onChange={e => update('workspaceToolPromptTier', e.target.value)}
             style={{ width: '100%' }}
           >
             <option value="auto">Auto (recommended)</option>
@@ -1586,12 +1586,12 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               { value: true, label: 'Enabled', desc: 'Automation triggers may queue unattended background runs' },
               { value: false, label: 'Disabled', desc: 'Automation stays notification-only' },
             ].map(opt => {
-              const active = settings.openClawAutomationExecutionEnabled === opt.value;
+              const active = settings.workspaceToolAutomationExecutionEnabled === opt.value;
               return (
                 <button
                   key={opt.label}
                   type="button"
-                  onClick={() => update('openClawAutomationExecutionEnabled', opt.value)}
+                  onClick={() => update('workspaceToolAutomationExecutionEnabled', opt.value)}
                   style={{
                     padding: '10px 12px',
                     borderRadius: '10px',
@@ -1611,14 +1611,14 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           </div>
         </Field>
 
-        {settings.openClawAutomationExecutionEnabled && (
+        {settings.workspaceToolAutomationExecutionEnabled && (
           <>
             <Field label="Automation Execution Model" help="Model used for unattended background runs. Leave blank to fall back to the main WorkSpaces model.">
-              {settings.openClawProvider === 'ollama' ? (
+              {settings.workspaceToolProvider === 'ollama' ? (
                 <select
                   className="input-field"
-                  value={settings.openClawAutomationExecutionModel}
-                  onChange={e => update('openClawAutomationExecutionModel', e.target.value)}
+                  value={settings.workspaceToolAutomationExecutionModel}
+                  onChange={e => update('workspaceToolAutomationExecutionModel', e.target.value)}
                   style={{ width: '100%' }}
                 >
                   <option value="">Use WorkSpaces model</option>
@@ -1639,8 +1639,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                 type="number"
                 min={1}
                 max={60}
-                value={settings.openClawAutomationExecutionMaxRunsPerHour}
-                onChange={e => update('openClawAutomationExecutionMaxRunsPerHour', Math.max(1, Number(e.target.value) || 1))}
+                value={settings.workspaceToolAutomationExecutionMaxRunsPerHour}
+                onChange={e => update('workspaceToolAutomationExecutionMaxRunsPerHour', Math.max(1, Number(e.target.value) || 1))}
               />
             </Field>
 
@@ -1649,16 +1649,16 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                 <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.84rem', color: 'var(--text-primary)' }}>
                   <input
                     type="checkbox"
-                    checked={settings.openClawAutomationExecutionAttachWorkspace}
-                    onChange={e => update('openClawAutomationExecutionAttachWorkspace', e.target.checked)}
+                    checked={settings.workspaceToolAutomationExecutionAttachWorkspace}
+                    onChange={e => update('workspaceToolAutomationExecutionAttachWorkspace', e.target.checked)}
                   />
                   Attach selected workspace instructions (`BOOT.md`, `TOOLS.md`, skills)
                 </label>
                 <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.84rem', color: 'var(--text-primary)' }}>
                   <input
                     type="checkbox"
-                    checked={settings.openClawAutomationExecutionAttachMemory}
-                    onChange={e => update('openClawAutomationExecutionAttachMemory', e.target.checked)}
+                    checked={settings.workspaceToolAutomationExecutionAttachMemory}
+                    onChange={e => update('workspaceToolAutomationExecutionAttachMemory', e.target.checked)}
                   />
                   Attach recent memory and long-term memory
                 </label>
@@ -1674,12 +1674,12 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               { value: 'ask' as const, label: 'Ask', desc: 'Suggest continuation when a task stops mid-flow' },
               { value: 'safe' as const, label: 'Safe', desc: 'Automatically continue capped safe follow-up steps' },
             ].map(opt => {
-              const active = settings.openClawSessionAutoContinueDefault === opt.value;
+              const active = settings.workspaceToolSessionAutoContinueDefault === opt.value;
               return (
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => update('openClawSessionAutoContinueDefault', opt.value)}
+                  onClick={() => update('workspaceToolSessionAutoContinueDefault', opt.value)}
                   style={{
                     padding: '10px 12px',
                     borderRadius: '10px',
@@ -1705,8 +1705,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             type="number"
             min={1}
             max={10}
-            value={settings.openClawSessionAutoContinueMaxSteps}
-            onChange={e => update('openClawSessionAutoContinueMaxSteps', Math.max(1, Number(e.target.value) || 1))}
+            value={settings.workspaceToolSessionAutoContinueMaxSteps}
+            onChange={e => update('workspaceToolSessionAutoContinueMaxSteps', Math.max(1, Number(e.target.value) || 1))}
           />
         </Field>
 
@@ -1716,8 +1716,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             type="number"
             min={1}
             max={100}
-            value={settings.openClawMaxToolRoundsPerTurn}
-            onChange={e => update('openClawMaxToolRoundsPerTurn', Math.max(1, Math.min(100, Number(e.target.value) || 25)))}
+            value={settings.workspaceToolMaxToolRoundsPerTurn}
+            onChange={e => update('workspaceToolMaxToolRoundsPerTurn', Math.max(1, Math.min(100, Number(e.target.value) || 25)))}
           />
         </Field>
 
@@ -1726,8 +1726,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.84rem', color: 'var(--text-primary)' }}>
               <input
                 type="checkbox"
-                checked={settings.openClawSessionSummariesEnabled}
-                onChange={e => update('openClawSessionSummariesEnabled', e.target.checked)}
+                checked={settings.workspaceToolSessionSummariesEnabled}
+                onChange={e => update('workspaceToolSessionSummariesEnabled', e.target.checked)}
               />
               Enable rolling context summaries for long WorkSpaces sessions
             </label>
@@ -1740,8 +1740,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                   min={2048}
                   max={64000}
                   step={256}
-                  value={settings.openClawSessionSummaryTargetTokens}
-                  onChange={e => update('openClawSessionSummaryTargetTokens', Math.max(2048, Number(e.target.value) || 2048))}
+                  value={settings.workspaceToolSessionSummaryTargetTokens}
+                  onChange={e => update('workspaceToolSessionSummaryTargetTokens', Math.max(2048, Number(e.target.value) || 2048))}
                 />
                 <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: '5px', lineHeight: 1.45 }}>
                   Approximate token threshold before older turns are compressed.
@@ -1754,8 +1754,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                   type="number"
                   min={2}
                   max={16}
-                  value={settings.openClawSessionPreserveTurns}
-                  onChange={e => update('openClawSessionPreserveTurns', Math.max(2, Number(e.target.value) || 2))}
+                  value={settings.workspaceToolSessionPreserveTurns}
+                  onChange={e => update('workspaceToolSessionPreserveTurns', Math.max(2, Number(e.target.value) || 2))}
                 />
                 <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: '5px', lineHeight: 1.45 }}>
                   Keeps the latest conversation turns verbatim while older turns move into summary memory.
@@ -1770,16 +1770,16 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.84rem', color: 'var(--text-primary)' }}>
               <input
                 type="checkbox"
-                checked={settings.openClawSessionAnalyticsEnabled}
-                onChange={e => update('openClawSessionAnalyticsEnabled', e.target.checked)}
+                checked={settings.workspaceToolSessionAnalyticsEnabled}
+                onChange={e => update('workspaceToolSessionAnalyticsEnabled', e.target.checked)}
               />
               Enable per-session analytics
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '0.84rem', color: 'var(--text-primary)' }}>
               <input
                 type="checkbox"
-                checked={settings.openClawSessionBranchingEnabled}
-                onChange={e => update('openClawSessionBranchingEnabled', e.target.checked)}
+                checked={settings.workspaceToolSessionBranchingEnabled}
+                onChange={e => update('workspaceToolSessionBranchingEnabled', e.target.checked)}
               />
               Enable branching and compare workflows
             </label>
@@ -1989,12 +1989,12 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               { value: 'read-only', label: 'Read-only', desc: 'Allow WorkSpaces to inspect approved host files and directories' },
               { value: 'deny', label: 'Deny', desc: 'Block host filesystem access entirely' },
             ].map(opt => {
-              const active = settings.openClawFileAccessMode === opt.value;
+              const active = settings.workspaceToolFileAccessMode === opt.value;
               return (
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => update('openClawFileAccessMode', opt.value)}
+                  onClick={() => update('workspaceToolFileAccessMode', opt.value)}
                   style={{
                     padding: '10px 12px',
                     borderRadius: '10px',
@@ -2018,8 +2018,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           <textarea
             className="input-field"
             rows={5}
-            value={settings.openClawAllowedPaths}
-            onChange={e => update('openClawAllowedPaths', e.target.value)}
+            value={settings.workspaceToolAllowedPaths}
+            onChange={e => update('workspaceToolAllowedPaths', e.target.value)}
             placeholder={`/home\n/tmp`}
             style={{ width: '100%', resize: 'vertical', fontFamily: 'monospace' }}
           />
@@ -2035,12 +2035,12 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               { value: 'ask-first', label: 'Ask First', desc: 'Require approval before each write or mkdir action' },
               { value: 'auto-approve', label: 'Auto-approve', desc: 'Automatically allow writes inside approved writable roots' },
             ].map(opt => {
-              const active = settings.openClawFileWriteMode === opt.value;
+              const active = settings.workspaceToolFileWriteMode === opt.value;
               return (
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => update('openClawFileWriteMode', opt.value)}
+                  onClick={() => update('workspaceToolFileWriteMode', opt.value)}
                   style={{
                     padding: '10px 12px',
                     borderRadius: '10px',
@@ -2064,8 +2064,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           <textarea
             className="input-field"
             rows={4}
-            value={settings.openClawWritablePaths}
-            onChange={e => update('openClawWritablePaths', e.target.value)}
+            value={settings.workspaceToolWritablePaths}
+            onChange={e => update('workspaceToolWritablePaths', e.target.value)}
             placeholder={`~/.peakui/workspace`}
             style={{ width: '100%', resize: 'vertical', fontFamily: 'monospace' }}
           />
@@ -2082,8 +2082,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             including Docker. This is equivalent to giving the AI your login shell.
           </p>
           <select
-            value={settings.openClawHostAccessMode}
-            onChange={(e) => update('openClawHostAccessMode', e.target.value)}
+            value={settings.workspaceToolHostAccessMode}
+            onChange={(e) => update('workspaceToolHostAccessMode', e.target.value)}
             style={{ width: '100%', padding: 8, borderRadius: 4, marginBottom: 12 }}
           >
             <option value="deny">Deny — keep sandbox restrictions</option>
@@ -2091,7 +2091,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             <option value="auto-approve">Auto-approve — full host freedom</option>
           </select>
           <p style={{ margin: 0, fontSize: 12, opacity: 0.8 }}>
-            Requires the <strong>openclaw.host</strong> permission. Only managers or admins can enable this.
+            Requires the <strong>workspace-tool.host</strong> permission. Only managers or admins can enable this.
           </p>
         </div>
 
@@ -2103,12 +2103,12 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               { value: 'ask-first', label: 'Ask First', desc: 'Require approval before each code run' },
               { value: 'auto-approve', label: 'Auto-approve', desc: 'Automatically run sandbox requests in the managed workspace' },
             ].map(opt => {
-              const active = settings.openClawCodeExecutionMode === opt.value;
+              const active = settings.workspaceToolCodeExecutionMode === opt.value;
               return (
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => update('openClawCodeExecutionMode', opt.value)}
+                  onClick={() => update('workspaceToolCodeExecutionMode', opt.value)}
                   style={{
                     padding: '10px 12px',
                     borderRadius: '10px',
@@ -2135,12 +2135,12 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               { value: 'read-only', label: 'Read-only', desc: 'Allow navigation and scraping, but block form fill/submit actions' },
               { value: 'ask-first', label: 'Ask First', desc: 'Allow navigation and require approval before form submits' },
             ].map(opt => {
-              const active = settings.openClawBrowserMode === opt.value;
+              const active = settings.workspaceToolBrowserMode === opt.value;
               return (
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => update('openClawBrowserMode', opt.value)}
+                  onClick={() => update('workspaceToolBrowserMode', opt.value)}
                   style={{
                     padding: '10px 12px',
                     borderRadius: '10px',
@@ -2170,12 +2170,12 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               { value: 'direct', label: 'Direct', desc: 'Clear web only — standard browsing with sanitization' },
               { value: 'stealth', label: 'Stealth', desc: 'Tor-routed anonymous browsing including .onion sites' },
             ].map(opt => {
-              const active = settings.openClawUwafBrowserMode === opt.value;
+              const active = settings.workspaceToolUwafBrowserMode === opt.value;
               return (
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => update('openClawUwafBrowserMode', opt.value)}
+                  onClick={() => update('workspaceToolUwafBrowserMode', opt.value)}
                   style={{
                     padding: '10px 12px',
                     borderRadius: '10px',
@@ -2193,7 +2193,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               );
             })}
           </div>
-          {settings.openClawUwafBrowserMode !== 'deny' && (
+          {settings.workspaceToolUwafBrowserMode !== 'deny' && (
             <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
               <Field label="Default Mode" help="Set whether the UWAF browser defaults to Direct (Clear Web) or Stealth (Tor-routed) mode.">
                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -2201,12 +2201,12 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                     { value: 'direct', label: 'Direct (Clear Web)' },
                     { value: 'stealth', label: 'Stealth (Tor)' },
                   ].map(opt => {
-                    const active = settings.openClawUwafDefaultMode === opt.value;
+                    const active = settings.workspaceToolUwafDefaultMode === opt.value;
                     return (
                       <button
                         key={opt.value}
                         type="button"
-                        onClick={() => update('openClawUwafDefaultMode', opt.value)}
+                        onClick={() => update('workspaceToolUwafDefaultMode', opt.value)}
                         style={{
                           padding: '8px 12px',
                           borderRadius: '8px',
@@ -2226,16 +2226,16 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               </Field>
               <Field label="Live Browser" help="Launch a real interactive browser surface in the sidebar. When enabled, you can watch the actual browser session live and take over control using the Take Over button. When disabled, WorkSpaces can still use browser text extraction, but no live visual browser panel is shown.">
                 <div
-                  onClick={() => update('openClawUwafLiveBrowser', !settings.openClawUwafLiveBrowser)}
+                  onClick={() => update('workspaceToolUwafLiveBrowser', !settings.workspaceToolUwafLiveBrowser)}
                   style={{
                     position: 'relative', width: '48px', height: '26px', borderRadius: '13px',
-                    background: settings.openClawUwafLiveBrowser ? 'var(--accent-primary)' : 'rgba(255,255,255,0.1)',
+                    background: settings.workspaceToolUwafLiveBrowser ? 'var(--accent-primary)' : 'rgba(255,255,255,0.1)',
                     cursor: 'pointer', transition: 'all 0.2s',
                   }}
                 >
                   <div style={{
                     position: 'absolute', top: '3px',
-                    left: settings.openClawUwafLiveBrowser ? '25px' : '3px',
+                    left: settings.workspaceToolUwafLiveBrowser ? '25px' : '3px',
                     width: '20px', height: '20px', borderRadius: '50%',
                     background: '#fff', transition: 'left 0.2s',
                   }} />
@@ -2535,7 +2535,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {[
                 { key: 'chats', label: 'Chats', help: 'All sessions, pinned chats, folders, and tags.' },
-                { key: 'settings', label: 'Settings', help: 'Theme, models, OpenClaw options, and custom system prompt.' },
+                { key: 'settings', label: 'Settings', help: 'Theme, models, WorkspaceTool options, and custom system prompt.' },
                 { key: 'knowledgeBase', label: 'Knowledge base', help: 'Uploaded documents and their extracted content.' },
               ].map(opt => (
                 <div key={opt.key} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)' }}>

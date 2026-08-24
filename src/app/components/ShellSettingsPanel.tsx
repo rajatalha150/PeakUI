@@ -37,7 +37,7 @@ export default function ShellSettingsPanel({ onClose }: ShellSettingsPanelProps)
 
     const load = async () => {
       try {
-        const res = await fetch('/api/openclaw/shell/settings')
+        const res = await fetch('/api/workspace-tool/shell/settings')
         const data = await res.json().catch(() => ({}))
         if (!res.ok) {
           throw new Error(
@@ -82,7 +82,7 @@ export default function ShellSettingsPanel({ onClose }: ShellSettingsPanelProps)
     setSaving(true)
     setErrorMessage('')
     try {
-      const res = await fetch('/api/openclaw/shell/settings', {
+      const res = await fetch('/api/workspace-tool/shell/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -4,7 +4,7 @@
 // the workspace root. The server resolves it against the workspace container
 // path. Absolute paths, "../" escapes, and symlinks are all rejected by
 // resolveReadableContainerPaths / resolveWritableContainerPaths in
-// src/lib/openclaw-filesystem.ts before any disk access happens.
+// src/lib/workspace-tool-filesystem.ts before any disk access happens.
 
 export type WorkspaceFileKind = 'file' | 'directory'
 

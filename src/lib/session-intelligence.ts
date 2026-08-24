@@ -271,7 +271,7 @@ const TASK_STATE_RULES: ReadonlyArray<{
 ];
 
 function extractTaskStateFromSystemMessage(content: string, memory: WorkingMemory) {
-  if (!/WorkSpaces task state:|Open Claw task state:/i.test(content)) return;
+  if (!/WorkSpaces task state:|Workspace Tool task state:/i.test(content)) return;
 
   const paragraphs = content.split(/\n{2,}/).map(part => part.trim()).filter(Boolean);
   for (const paragraph of paragraphs) {

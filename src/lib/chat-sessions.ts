@@ -1,7 +1,7 @@
 import { prisma } from './prisma';
 import { normalizeResponsePresentation, type ResponsePresentation } from './response-format';
 import { normalizeMessageSources, type MessageSource } from './message-sources';
-import { extractOpenClawToolRequest } from './openclaw-tools';
+import { extractWorkspaceToolRequest } from './workspace-tool-tools';
 import { estimateMessageTokens } from './message-trim';
 import { getUserSettings } from './settings';
 import {
@@ -15,7 +15,7 @@ import {
 } from './session-intelligence';
 
 export type StoredChatRole = 'user' | 'assistant' | 'system';
-export type ChatSessionSurface = 'chat' | 'openclaw';
+export type ChatSessionSurface = 'chat' | 'workspace-tool';
 
 export interface StoredChatMessage {
   id?: string;
@@ -108,7 +108,7 @@ function normalizeRole(role: unknown): StoredChatRole | null {
 }
 
 function normalizeSurface(surface: unknown): ChatSessionSurface {
-  return surface === 'openclaw' ? 'openclaw' : 'chat';
+  return surface === 'workspace-tool' ? 'workspace-tool' : 'chat';
 }
 
 function normalizeAttachmentName(value: unknown): string {
@@ -122,7 +122,7 @@ function normalizeToolRequest(value: unknown): StoredChatMessage['toolRequest'] 
 }
 
 function normalizeAssistantToolBridge(content: string) {
-  if (!content.includes('<openclaw_tool')) {
+  if (!content.includes('<workspace_tool')) {
     return {
       content,
       hidden: false,
@@ -130,7 +130,7 @@ function normalizeAssistantToolBridge(content: string) {
     };
   }
 
-  const extracted = extractOpenClawToolRequest(content);
+  const extracted = extractWorkspaceToolRequest(content);
   return {
     content: extracted.cleanedContent,
     hidden: true,
@@ -382,7 +382,7 @@ async function buildDerivedSessionState(
   sessionUpdatedAt?: Date | null,
 ) {
   const settings = await getUserSettings(userId);
-  const analytics = settings.openClawSessionAnalyticsEnabled
+  const analytics = settings.workspaceToolSessionAnalyticsEnabled
     ? computeSessionAnalytics(messages, {
         fallbackCreatedAt: sessionCreatedAt ?? null,
         fallbackUpdatedAt: sessionUpdatedAt ?? null,
@@ -390,11 +390,11 @@ async function buildDerivedSessionState(
     : null;
   const tokenEstimate = estimateMessageTokens(messages);
   const nonSystemCount = messages.filter(message => message.role !== 'system').length;
-  const hasOlderTurnsOutsideRawWindow = nonSystemCount > settings.openClawSessionPreserveTurns * 2;
-  const contextSummary = settings.openClawSessionSummariesEnabled
-    && (tokenEstimate >= settings.openClawSessionSummaryTargetTokens || hasOlderTurnsOutsideRawWindow)
+  const hasOlderTurnsOutsideRawWindow = nonSystemCount > settings.workspaceToolSessionPreserveTurns * 2;
+  const contextSummary = settings.workspaceToolSessionSummariesEnabled
+    && (tokenEstimate >= settings.workspaceToolSessionSummaryTargetTokens || hasOlderTurnsOutsideRawWindow)
       ? buildSessionContextSummary(messages, {
-          preserveTurns: settings.openClawSessionPreserveTurns,
+          preserveTurns: settings.workspaceToolSessionPreserveTurns,
         })
       : '';
 
@@ -840,12 +840,12 @@ export async function finalizeChatSession(
   const nextAutoContinueMode = normalizeSessionAutoContinueMode(
     input.autoContinueMode
     ?? existing?.autoContinueMode
-    ?? userSettings?.openClawSessionAutoContinueDefault,
+    ?? userSettings?.workspaceToolSessionAutoContinueDefault,
   );
   const nextAutoContinueMaxSteps = normalizeSessionAutoContinueMaxSteps(
     input.autoContinueMaxSteps
     ?? existing?.autoContinueMaxSteps
-    ?? userSettings?.openClawSessionAutoContinueMaxSteps,
+    ?? userSettings?.workspaceToolSessionAutoContinueMaxSteps,
     3,
   );
   const nextBranchLabel = typeof input.branchLabel === 'string'

@@ -21,7 +21,7 @@ PeakUI detects each model's capacity (parameter size + native context window) an
 - **Capacity detection**: `getModelCapacityProfile` in `src/lib/model-context.ts` queries Ollama `/api/show` (cached 5 min per model, handles both the old `details.parameter_size` + `model_info` shape and the new `general.parameter_count` + `general.context_length` shape) and falls back to name-based heuristics on any failure. Non-Ollama providers get the cloud profile immediately without a fetch.
 - **Graduated prompt tiers**: `minimal` (≤4B) / `compact` (≤9B) / `standard` (≤30B) / `full` (>30B, cloud). `minimal` drops the verbose core-protocol rules, recovery behavior, single-shot mode, and all document examples so the manifest fits a 2048-token window next to the conversation; `full` includes every document example.
 - **Adaptive context window**: when `/api/show` reports a native window, the default `num_ctx` is raised when the model comfortably allows it (≤9B → 8192 when native ≥ 8192; ≤4B → 4096 when native ≥ 4096) and both the default and the hard cap are clamped to the native window. The existing OOM backoff loop still steps down automatically if a raise is too aggressive for the GPU.
-- **Manual override**: Settings → Generation → **Prompt Detail Level** (`openClawPromptTier`) defaults to `auto` (detected from capacity) and can be pinned to `minimal` / `compact` / `standard` / `full`.
+- **Manual override**: Settings → Generation → **Prompt Detail Level** (`workspaceToolPromptTier`) defaults to `auto` (detected from capacity) and can be pinned to `minimal` / `compact` / `standard` / `full`.
 - **Always-on compact tool manifest**: Regardless of tier, every prompt includes a `TOOL MANIFEST` block listing each active tool's exact `name` plus a one-line JSON signature (e.g. `browser {"action":"open","url":"..."}`, `pdf_document {"title":"..."}`). This keeps small local models from hallucinating tool names/fields when their verbose tutorials are trimmed to fit the context window.
 - **Always-on tool-selection routing**: Every prompt (all tiers) also includes a `TOOL SELECTION` block that pins the intent→tool mapping so the model picks the right tool instead of improvising with shell. Current/external information (stock prices, market data, quotes, news, "analyze TICKER", lookups, statistics) routes to the `web` tool — with an explicit rule never to scrape a page with shell+curl/wget, since finance and news sites are JavaScript-rendered and return nothing useful. Local-machine facts route to `filesystem`/`shell`; step-by-step navigation, JS-heavy pages, forms, and login route to `browser`/`unified_browser`; running code or transforming data routes to the `code` sandbox. The `internet` intent keywords were also expanded (stock, ticker, price, quote, market, analyze, earnings, financial, weather, statistics) so queries like "analyze pltr" trigger the full web-research instructions instead of a one-line note.
 - **Both prompt callers honor the tier**: interactive WorkSpaces chats and unattended automation runs both fetch the profile and pass the tier, so background runs no longer send a 17KB full prompt to an 8B model.
@@ -148,7 +148,7 @@ A right-rail GUI over the active workspace's on-disk state. The panel shares the
 - **Heartbeat check-ins**: Configurable stale-thread review creates proactive server-side nudges when WorkSpaces threads have gone quiet for too long.
 - **Cron schedules**: Users can store recurring prompts with cron expressions + timezone and receive scheduled nudges when they fire.
 - **Background monitors**: URL and file monitors run outside active chat sessions and trigger nudges on change, content match, or disappearance.
-- **Wake events**: Authenticated `POST /api/openclaw/automation/wake-event` lets external triggers raise a WorkSpaces automation nudge immediately.
+- **Wake events**: Authenticated `POST /api/workspace-tool/automation/wake-event` lets external triggers raise a WorkSpaces automation nudge immediately.
 - **Unattended model execution**: Heartbeats, schedules, monitors, and wake events can now switch from `nudge` delivery to durable background model execution. Queued runs are processed by the same Node-side automation worker and post their result back into a WorkSpaces thread.
 - **Execution guardrails**: Personal settings now control whether unattended execution is enabled, which Ollama model it uses, the hourly execution budget, and whether workspace/memory context is attached automatically.
 - **Execution history**: The automation modal now shows recent unattended runs, including queued/running/succeeded/failed state plus result preview or error output.
@@ -163,11 +163,11 @@ A right-rail GUI over the active workspace's on-disk state. The panel shares the
 - **Shell target selection**: Run commands in the default app container or through the optional host executor when host-installed CLIs are needed
 - **Shell approval modes**: Configure `auto-approve`, `ask-first`, or `deny`
 - **Approval-aware shell policy**: Simple inspection commands can auto-run, while repo/network/install/service commands like `git clone`, `curl`, `wget`, `npm install`, and `docker compose up` require explicit approval
-- **Host shell executor**: Optional daemon runs outside Docker on `127.0.0.1`, requires `OPENCLAW_HOST_EXECUTOR_TOKEN`, and enforces approved cwd roots, env allowlists, timeout caps, output caps, and DB audit records
+- **Host shell executor**: Optional daemon runs outside Docker on `127.0.0.1`, requires `WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN`, and enforces approved cwd roots, env allowlists, timeout caps, output caps, and DB audit records
 - **Host fallback behavior**: If Host is selected but the executor is not configured or reachable, WorkSpaces falls back to the container shell and labels the actual target in the approval/output UI
 - **Filesystem read**: List, read, and stat files inside approved host paths
 - **Filesystem read/write tools**: Local file tools are implemented as `list`, `read`, `stat`, `write`, `append`, and `mkdir` actions against approved roots, with approval gates for write/append/mkdir and read-only defaults.
-- **Code execution sandbox**: Run short Python or Node scripts in a managed workspace-scoped sandbox with timeouts, output limits, and generated-file reporting. This now has its own `openclaw.code` account permission instead of piggybacking only on general WorkSpaces access.
+- **Code execution sandbox**: Run short Python or Node scripts in a managed workspace-scoped sandbox with timeouts, output limits, and generated-file reporting. This now has its own `workspace-tool.code` account permission instead of piggybacking only on general WorkSpaces access.
 - **PDF document generation**: The `pdf_document` tool creates polished downloadable server-side PDF Canvas artifacts for reports, summaries, letters, checklists, invoices, form-style output, or sample document requests. A title alone (optionally with a description) is enough to generate a valid PDF — the full structure (sections, fields, tables, callouts) is a strong recommendation, not a requirement. When the model does provide the full structure, the renderer styles it per-template (report / memo / letter / invoice / checklist / form each get their own accent palette) with accent-colored headers, zebra-striped tables, tone-labeled callouts, and tinted field grids, so structured documents render as polished professional PDFs. WorkSpaces should use this tool instead of shell/filesystem/code sandbox when the user asks for a PDF file. See [PDF Document Workflow](pdf-document-workflow.md).
 - **Excel workbook generation**: The `workbook_document` tool creates real downloadable XLSX Canvas artifacts for spreadsheets, budgets, invoices, timesheets, ledgers, trackers, inventories, schedules, and multi-sheet analysis. A title alone (optionally with a description) is enough to generate a valid XLSX — the full structure (sheets, typed columns, totals) is a strong recommendation, not a requirement, and a Notes sheet is synthesized when no sheet has rows. WorkSpaces should use this tool instead of markdown tables or code sandbox when the user asks for an Excel file. See [Excel Workbook Workflow](workbook-document-workflow.md).
 - **Word document generation**: The `word_document` tool creates real downloadable DOCX Canvas artifacts for proposals, contracts, resumes, letters, memos, reports, policies, checklists, meeting notes/minutes, and form-style business documents. A title alone (optionally with a description) is enough to generate a valid DOCX — the full structure (content, sections, fields, tables, callouts) is a strong recommendation, not a requirement. WorkSpaces should use this tool instead of markdown or code sandbox when the user asks for a Word file. See [Word Document Workflow](word-document-workflow.md).
@@ -201,14 +201,14 @@ A right-rail GUI over the active workspace's on-disk state. The panel shares the
   - **Truthfulness guardrails**: The WorkSpaces prompt now instructs the model to treat browser evidence fields as authoritative and to report browser failure explicitly instead of converting prior knowledge into claimed live observations
   - **Source labeling**: Clear Web sources shown as blue chips, Dark Web sources as purple chips
   - **Security**: Binary download blocking (.exe, .sh, .bin, etc.), .onion URLs only in stealth mode, host DNS fallback blocked for stealth Chromium sessions, and stealth fails closed if Tor proxy verification fails
-- **Tool-call format enforcement**: The WorkSpaces system prompt now instructs the model to emit exactly one complete `<openclaw_tool>` XML wrapper and nothing else when a tool is required. The parser also recovers bare search, browser, and document-generation intents from prose, but correct wrapper emission remains the preferred path.
+- **Tool-call format enforcement**: The WorkSpaces system prompt now instructs the model to emit exactly one complete `<workspace_tool>` XML wrapper and nothing else when a tool is required. The parser also recovers bare search, browser, and document-generation intents from prose, but correct wrapper emission remains the preferred path.
 - **User-configurable tool-step cap**: Settings exposes a "Tool-Step Cap Per Turn" slider (default 100, max 250) that controls how many real tool calls WorkSpaces can run in a single assistant turn before pausing for a "continue". Recovery nudges and duplicate warnings do not count toward the cap.
 - **Filesystem path safety**: The filesystem tool now rejects bare relative paths and surfaces a clear error telling the model to use an absolute host path under an approved writable root (e.g. `~/.peakui/workspace/projects/...`). The system prompt reinforces this rule so project scaffolding always lands in the managed workspace.
-- **Tool-first responses and single-shot execution**: The system prompt now instructs the model to lead with the `<openclaw_tool>` wrapper when a tool is intended, and to avoid prose-before-wrapper. For clear, well-scoped tasks it prefers a single code-sandbox script over chained tool calls, and it must not pivot to fake alternative stacks that cannot produce the requested artifact.
+- **Tool-first responses and single-shot execution**: The system prompt now instructs the model to lead with the `<workspace_tool>` wrapper when a tool is intended, and to avoid prose-before-wrapper. For clear, well-scoped tasks it prefers a single code-sandbox script over chained tool calls, and it must not pivot to fake alternative stacks that cannot produce the requested artifact.
 - **Workspace-scoped deliverables**: The system prompt now binds all created files, projects, and archives to the currently selected workspace. ZIPs and project folders are created under the user's visible workspace directory so they appear in the file tree and can be downloaded.
 - **Silent narration recovery**: If the model describes a tool action in prose without the wrapper, WorkSpaces silently synthesizes the intended tool request instead of injecting noisy "auto-recovered" messages into the chat.
 - **PDF numeric hardening**: PDF document generation now sanitizes incoming numeric values (NaN, Infinity, and out-of-range scientific notation) before rendering, preventing the canvas backend from throwing `unsupported number` errors.
-- **Managed workspace**: WorkSpaces tools share `/mnt/openclaw/workspace` in-container and `~/.peakui/workspace` as the host-style alias
+- **Managed workspace**: WorkSpaces tools share `/mnt/workspace-tool/workspace` in-container and `~/.peakui/workspace` as the host-style alias
 - **Selected-workspace sandbox default**: When the model omits `workspacePath`, code execution now defaults to the currently selected named workspace instead of an anonymous per-thread sandbox path.
 - **Optional git auto-backup**: Each named workspace can auto-initialize a git repo and commit detected file changes automatically.
 
@@ -316,7 +316,7 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 - **Use Ollama default temperature**: Local Ollama requests can omit the custom temperature so the selected model uses its own native default
 - **Context Window**: Requested max tokens for local Ollama (512-131072)
 - **Use Ollama default context**: Local Ollama requests can omit `num_ctx` so Ollama chooses the selected model's native default context window
-- **Prompt Detail Level** (`openClawPromptTier`): `auto` (default) picks the system-prompt tier from the model's detected parameter size and native context; manual `minimal` / `compact` / `standard` / `full` overrides detection. See [Model-Capacity Adaptation](#model-capacity-adaptation).
+- **Prompt Detail Level** (`workspaceToolPromptTier`): `auto` (default) picks the system-prompt tier from the model's detected parameter size and native context; manual `minimal` / `compact` / `standard` / `full` overrides detection. See [Model-Capacity Adaptation](#model-capacity-adaptation).
 - **Background system instructions**: The stock image-markdown and workspace-behavior guardrails run server-side instead of exposing a misleading shared System Prompt textbox in the primary UI
 - **Exclusive Ollama Switching**: Unload other models before starting selected one
 - **Logout**: Available from the Settings header
@@ -348,7 +348,7 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 - **Allowed filesystem paths**: Host paths WorkSpaces may inspect
 - **Filesystem write mode**: `deny`, `ask-first`, or `auto-approve`
 - **Writable filesystem paths**: Host roots WorkSpaces may create or modify files in
-- **Filesystem diagnostics**: `/api/openclaw/filesystem` returns structured denial codes and `actionRequired` hints for missing permissions, missing approved roots, paths outside mounts, and missing approval tokens
+- **Filesystem diagnostics**: `/api/workspace-tool/filesystem` returns structured denial codes and `actionRequired` hints for missing permissions, missing approved roots, paths outside mounts, and missing approval tokens
 - **Code execution mode**: `deny`, `ask-first`, or `auto-approve`
 - **Browser mode**: `deny`, `read-only`, or `ask-first`
 - **UWAF browser mode**: `deny`, `direct` (Clear Web), or `stealth` (Dark Web/Tor)
@@ -412,21 +412,21 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 - `/api/settings` - User preferences
 - `/api/ollama/*` - Ollama health and control
 - `/api/auth/*` - Authentication
-- `/api/openclaw/*` - WorkSpaces workspace
-- `/api/openclaw/shell/*` - Shell approval and execution
-- `/api/openclaw/shell/settings` - Shell target, approval mode, host executor limits, and host executor health status
-- `/api/openclaw/filesystem*` - Filesystem access and write approvals
-- `/api/openclaw/code*` - Managed code sandbox execution and approvals
-- `/api/openclaw/browser*` - Controlled public-web browsing and approval flow
-- `/api/openclaw/uwaf-browser` - UWAF dual-mode browser execution (direct/stealth)
-- `/api/openclaw/uwaf-browser/request` - UWAF browser approval tokens for submit/research_batch
-- `/api/openclaw/uwaf-browser/status` - UWAF connection status (Direct IP, Tor reachability, Tor exit info)
-- `/api/openclaw/workspaces/[id]/files` - Workspace Files panel: list / write / rename / move / delete
-- `/api/openclaw/workspaces/[id]/files/raw` - ETag-aware file reads
-- `/api/openclaw/workspaces/[id]/files/upload` - Multipart upload (50 MB / 100 files)
-- `/api/openclaw/workspaces/[id]/files/download` - Single-file download (RFC 5987 filename)
-- `/api/openclaw/workspaces/[id]/files/zip` - Bulk zip download (500 MB / 500 files)
-- `/api/openclaw/workspaces/[id]/events` - SSE stream of file-mutation events
+- `/api/workspace-tool/*` - WorkSpaces workspace
+- `/api/workspace-tool/shell/*` - Shell approval and execution
+- `/api/workspace-tool/shell/settings` - Shell target, approval mode, host executor limits, and host executor health status
+- `/api/workspace-tool/filesystem*` - Filesystem access and write approvals
+- `/api/workspace-tool/code*` - Managed code sandbox execution and approvals
+- `/api/workspace-tool/browser*` - Controlled public-web browsing and approval flow
+- `/api/workspace-tool/uwaf-browser` - UWAF dual-mode browser execution (direct/stealth)
+- `/api/workspace-tool/uwaf-browser/request` - UWAF browser approval tokens for submit/research_batch
+- `/api/workspace-tool/uwaf-browser/status` - UWAF connection status (Direct IP, Tor reachability, Tor exit info)
+- `/api/workspace-tool/workspaces/[id]/files` - Workspace Files panel: list / write / rename / move / delete
+- `/api/workspace-tool/workspaces/[id]/files/raw` - ETag-aware file reads
+- `/api/workspace-tool/workspaces/[id]/files/upload` - Multipart upload (50 MB / 100 files)
+- `/api/workspace-tool/workspaces/[id]/files/download` - Single-file download (RFC 5987 filename)
+- `/api/workspace-tool/workspaces/[id]/files/zip` - Bulk zip download (500 MB / 500 files)
+- `/api/workspace-tool/workspaces/[id]/events` - SSE stream of file-mutation events
 
 ### Database Models
 
@@ -441,4 +441,4 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 
 ## Internal Naming Note
 
-The user-facing label is **WorkSpaces**. Internal identifiers still use the `openclaw` prefix for API routes, database schema fields, CSS classes, and tool tags (for example, `<openclaw_tool>`). This is a legacy internal codename; external documentation and UI labels use WorkSpaces.
+The user-facing label is **WorkSpaces**. Internal identifiers still use the `workspace-tool` prefix for API routes, database schema fields, CSS classes, and tool tags (for example, `<workspace_tool>`). This is a legacy internal codename; external documentation and UI labels use WorkSpaces.

@@ -37,11 +37,11 @@ services:
     environment:
       - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET is required}
-      - OPENCLAW_HOST_HOME_DIR=${OPENCLAW_HOST_HOME_DIR:-/home}
-      - OPENCLAW_HOST_TMP_DIR=${OPENCLAW_HOST_TMP_DIR:-/tmp}
-      - OPENCLAW_HOST_WORKSPACE_DIR=${OPENCLAW_HOST_WORKSPACE_DIR:-/home/raza/.peakui/workspace}
-      - OPENCLAW_HOST_EXECUTOR_URL=${OPENCLAW_HOST_EXECUTOR_URL:-http://127.0.0.1:4318}
-      - OPENCLAW_HOST_EXECUTOR_TOKEN=${OPENCLAW_HOST_EXECUTOR_TOKEN:-}
+      - WORKSPACE_TOOL_HOST_HOME_DIR=${WORKSPACE_TOOL_HOST_HOME_DIR:-/home}
+      - WORKSPACE_TOOL_HOST_TMP_DIR=${WORKSPACE_TOOL_HOST_TMP_DIR:-/tmp}
+      - WORKSPACE_TOOL_HOST_WORKSPACE_DIR=${WORKSPACE_TOOL_HOST_WORKSPACE_DIR:-/home/raza/.peakui/workspace}
+      - WORKSPACE_TOOL_HOST_EXECUTOR_URL=${WORKSPACE_TOOL_HOST_EXECUTOR_URL:-http://127.0.0.1:4318}
+      - WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN=${WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN:-}
       - TOR_PROXY_URL=${TOR_PROXY_URL:-socks5://localhost:9050}
       - PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
       - SCREENCAST_PORT=3001
@@ -56,10 +56,10 @@ services:
     restart: always
     network_mode: host
     volumes:
-      - ${OPENCLAW_HOST_HOME_DIR:-/home}:/mnt/openclaw/home:ro
-      - ${OPENCLAW_HOST_TMP_DIR:-/tmp}:/mnt/openclaw/tmp:ro
-      - ${OPENCLAW_HOST_WORKSPACE_DIR:-/home/raza/.peakui/workspace}:/mnt/openclaw/workspace:rw
-      - ${OPENCLAW_HOST_PROJECTS_DIR:-/home/raza/Desktop}:/mnt/openclaw/projects:rw
+      - ${WORKSPACE_TOOL_HOST_HOME_DIR:-/home}:/mnt/workspace-tool/home:ro
+      - ${WORKSPACE_TOOL_HOST_TMP_DIR:-/tmp}:/mnt/workspace-tool/tmp:ro
+      - ${WORKSPACE_TOOL_HOST_WORKSPACE_DIR:-/home/raza/.peakui/workspace}:/mnt/workspace-tool/workspace:rw
+      - ${WORKSPACE_TOOL_HOST_PROJECTS_DIR:-/home/raza/Desktop}:/mnt/workspace-tool/projects:rw
       - app_runtime:/var/lib/peakui
       - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:rw
 

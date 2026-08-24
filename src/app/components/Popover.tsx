@@ -164,7 +164,7 @@ export interface PopoverProps {
  * `position: fixed` so it escapes every ancestor stacking context.
  *
  * Replaces the hand-rolled `position: absolute` dropdowns that were
- * getting covered by sibling elements (notably `.openclaw-main-panel {
+ * getting covered by sibling elements (notably `.workspace-tool-main-panel {
  * isolation: isolate }` and `.main-content { overflow: hidden }`).
  *
  * The primitive owns:

@@ -51,7 +51,7 @@ describe('workspace-files-client', () => {
 
     expect(calls).toHaveLength(1)
     const url = calls[0].url
-    expect(url).toContain('/api/openclaw/workspaces/w-1/files')
+    expect(url).toContain('/api/workspace-tool/workspaces/w-1/files')
     expect(url).toContain('path=skills')
     expect(url).toContain('depth=3')
     expect(calls[0].init?.credentials).toBe('same-origin')
@@ -198,7 +198,7 @@ describe('workspace-files-client', () => {
     controller.abort()
     await new Promise(r => setTimeout(r, 20))
 
-    expect(calls[0].url).toContain('/api/openclaw/workspaces/w-1/events')
+    expect(calls[0].url).toContain('/api/workspace-tool/workspaces/w-1/events')
     expect(events).toContain('tree.invalidated')
   })
 

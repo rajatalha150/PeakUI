@@ -34,7 +34,7 @@ Each document-generation tool runs its parsed payload through a normalization st
 
 ## Tool Dispatch
 
-All registered tool names are enumerated in `OPENCLAW_TOOL_NAMES` in `src/lib/openclaw-tools.ts`. The parser regex, tag stripper, and client-side name normalizer are derived from that list, so adding a new tool is a one-line array change plus a parser branch.
+All registered tool names are enumerated in `WORKSPACE_TOOL_NAMES` in `src/lib/workspace-tool-tools.ts`. The parser regex, tag stripper, and client-side name normalizer are derived from that list, so adding a new tool is a one-line array change plus a parser branch.
 
 ## Adapter Types
 

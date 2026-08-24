@@ -50,8 +50,8 @@ blurred backdrop and an Edit / Preview toggle for text-eligible files.
 
 ## API Reference
 
-All routes are namespaced under `/api/openclaw/workspaces/[id]` and inherit
-the `openclaw.use` + `openclaw.filesystem` permission gate. Paths are
+All routes are namespaced under `/api/workspace-tool/workspaces/[id]` and inherit
+the `workspace-tool.use` + `workspace-tool.filesystem` permission gate. Paths are
 **always workspace-relative** (forward slashes, no leading slash, no `..`).
 
 ### `GET /files?path=…&depth=…`
@@ -156,11 +156,11 @@ stays the same.
 ## Sandbox and Security
 
 - **Per-user, per-workspace path.** Writes are confined to
-  `/mnt/openclaw/workspace/users/<userId>/workspaces/<slug>/` inside the
+  `/mnt/workspace-tool/workspace/users/<userId>/workspaces/<slug>/` inside the
   container. The server resolves and rejects any path that escapes it
   (absolute paths, `..` segments, symlinks outside the workspace).
-- **Permission gate.** Every route requires `openclaw.use` and
-  `openclaw.filesystem`. The host executor's `OPENCLAW_*` allowlists do **not**
+- **Permission gate.** Every route requires `workspace-tool.use` and
+  `workspace-tool.filesystem`. The host executor's `WORKSPACE_TOOL_*` allowlists do **not**
   apply here — this panel is its own self-contained sandbox.
 - **Limits.** 50 MB per upload, 100 files per request, 500 files per zip,
   500 MB per zip, depth-limited listings, and ETag-aware writes.

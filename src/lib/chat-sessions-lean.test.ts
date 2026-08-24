@@ -23,7 +23,7 @@ const baseRow = {
   userId: 'user-1',
   title: 'Session',
   pinned: false,
-  surface: 'openclaw',
+  surface: 'workspace-tool',
   createdAt: new Date('2026-01-01T00:00:00.000Z'),
   updatedAt: new Date('2026-01-01T00:00:00.000Z'),
   folderId: null,
@@ -55,7 +55,7 @@ describe('listChatSessions lean projection', () => {
   it('projects out the heavy messages column from the list query', async () => {
     findMany.mockResolvedValue([{ ...baseRow, id: 's1' }])
 
-    await listChatSessions('user-1', 'openclaw')
+    await listChatSessions('user-1', 'workspace-tool')
 
     expect(findMany).toHaveBeenCalledTimes(1)
     const select = findMany.mock.calls[0][0].select
@@ -72,7 +72,7 @@ describe('listChatSessions lean projection', () => {
   it('returns lean rows with empty messages placeholders (no transcript parsing)', async () => {
     findMany.mockResolvedValue([{ ...baseRow, id: 's1', title: 'Alpha' }])
 
-    const result = await listChatSessions('user-1', 'openclaw')
+    const result = await listChatSessions('user-1', 'workspace-tool')
 
     expect(result).toHaveLength(1)
     expect(result[0].id).toBe('s1')
@@ -134,7 +134,7 @@ describe('upsertChatSession write path', () => {
     })
 
     const result = await upsertChatSession('user-1', {
-      surface: 'openclaw',
+      surface: 'workspace-tool',
       messages: inputMessages,
     })
 

@@ -2,7 +2,7 @@
 //
 // All methods throw on non-2xx responses with a structured WorkspaceFilesError
 // the UI can surface. They NEVER swallow permission errors — those need to be
-// visible to the user so they can grant the openclaw.filesystem permission.
+// visible to the user so they can grant the workspace-tool.filesystem permission.
 
 import type {
   WorkspaceDeleteResponse,
@@ -63,7 +63,7 @@ export async function listWorkspaceTree(workspaceId: string, options: ListTreeOp
   const params = new URLSearchParams()
   if (options.path) params.set('path', options.path)
   if (typeof options.depth === 'number') params.set('depth', String(options.depth))
-  const url = `/api/openclaw/workspaces/${encodeURIComponent(workspaceId)}/files${params.toString() ? `?${params}` : ''}`
+  const url = `/api/workspace-tool/workspaces/${encodeURIComponent(workspaceId)}/files${params.toString() ? `?${params}` : ''}`
   return readJson<WorkspaceTreeResponse>(await fetch(url, { credentials: 'same-origin' }))
 }
 
@@ -71,7 +71,7 @@ export async function readWorkspaceFile(workspaceId: string, path: string, ifMat
   const params = new URLSearchParams({ path })
   const headers: Record<string, string> = {}
   if (ifMatch) headers['If-Match'] = ifMatch
-  const url = `/api/openclaw/workspaces/${encodeURIComponent(workspaceId)}/files/raw?${params}`
+  const url = `/api/workspace-tool/workspaces/${encodeURIComponent(workspaceId)}/files/raw?${params}`
   const response = await fetch(url, { credentials: 'same-origin', headers })
   if (response.status === 412) {
     let body: { currentEtag?: string } = {}
@@ -86,7 +86,7 @@ export async function writeWorkspaceFile(
   request: WorkspaceFileMutationRequest,
   ifMatch?: string
 ): Promise<WorkspaceFileMutationResponse> {
-  const url = `/api/openclaw/workspaces/${encodeURIComponent(workspaceId)}/files`
+  const url = `/api/workspace-tool/workspaces/${encodeURIComponent(workspaceId)}/files`
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   if (ifMatch) headers['If-Match'] = ifMatch
   return readJson(await fetch(url, {
@@ -101,7 +101,7 @@ export async function renameWorkspacePath(
   workspaceId: string,
   request: WorkspaceRenameRequest
 ): Promise<{ from: string; to: string }> {
-  const url = `/api/openclaw/workspaces/${encodeURIComponent(workspaceId)}/files`
+  const url = `/api/workspace-tool/workspaces/${encodeURIComponent(workspaceId)}/files`
   return readJson(await fetch(url, {
     method: 'PATCH',
     credentials: 'same-origin',
@@ -117,7 +117,7 @@ export async function deleteWorkspacePath(
 ): Promise<WorkspaceDeleteResponse> {
   const params = new URLSearchParams({ path })
   if (recursive) params.set('recursive', 'true')
-  const url = `/api/openclaw/workspaces/${encodeURIComponent(workspaceId)}/files?${params}`
+  const url = `/api/workspace-tool/workspaces/${encodeURIComponent(workspaceId)}/files?${params}`
   return readJson(await fetch(url, { method: 'DELETE', credentials: 'same-origin' }))
 }
 
@@ -133,7 +133,7 @@ export async function uploadWorkspaceFiles(workspaceId: string, files: UploadFil
   for (const { file } of files) {
     form.append('files', file)
   }
-  const url = `/api/openclaw/workspaces/${encodeURIComponent(workspaceId)}/files/upload`
+  const url = `/api/workspace-tool/workspaces/${encodeURIComponent(workspaceId)}/files/upload`
   return readJson(await fetch(url, { method: 'POST', credentials: 'same-origin', body: form }))
 }
 
@@ -143,7 +143,7 @@ export async function uploadWorkspaceFiles(workspaceId: string, files: UploadFil
  * downloadWorkspaceZipBlob() below.
  */
 export async function downloadWorkspaceZip(workspaceId: string, paths: string[]): Promise<Response> {
-  const url = `/api/openclaw/workspaces/${encodeURIComponent(workspaceId)}/files/zip`
+  const url = `/api/workspace-tool/workspaces/${encodeURIComponent(workspaceId)}/files/zip`
   const response = await fetch(url, {
     method: 'POST',
     credentials: 'same-origin',
@@ -161,7 +161,7 @@ export async function downloadWorkspaceZipBlob(workspaceId: string, paths: strin
 
 export async function downloadWorkspaceFile(workspaceId: string, path: string): Promise<Response> {
   const params = new URLSearchParams({ path })
-  const url = `/api/openclaw/workspaces/${encodeURIComponent(workspaceId)}/files/download?${params}`
+  const url = `/api/workspace-tool/workspaces/${encodeURIComponent(workspaceId)}/files/download?${params}`
   const response = await fetch(url, { credentials: 'same-origin' })
   if (!response.ok) throw await parseError(response)
   return response
@@ -183,7 +183,7 @@ export function subscribeWorkspaceEvents(
   onError?: (error: Event) => void
 ): AbortController {
   const controller = new AbortController()
-  const url = `/api/openclaw/workspaces/${encodeURIComponent(workspaceId)}/events`
+  const url = `/api/workspace-tool/workspaces/${encodeURIComponent(workspaceId)}/events`
 
   // Backoff bounds. The first reconnect waits 500ms; each subsequent failure
   // doubles the wait up to 5s. A successful read (one that parsed at least

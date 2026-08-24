@@ -4,8 +4,8 @@ import { deleteChatSession, deleteChatSessions, listChatSessions, updateChatSess
 
 export const runtime = 'nodejs';
 
-function normalizeSurface(value: string | null): 'chat' | 'openclaw' {
-  return value === 'openclaw' ? 'openclaw' : 'chat';
+function normalizeSurface(value: string | null): 'chat' | 'workspace-tool' {
+  return value === 'workspace-tool' ? 'workspace-tool' : 'chat';
 }
 
 export async function GET(req: Request) {
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
       title: typeof body.title === 'string' ? body.title : undefined,
       messages: body.messages,
       pinned: typeof body.pinned === 'boolean' ? body.pinned : undefined,
-      surface: body.surface === 'openclaw' ? 'openclaw' : 'chat',
+      surface: body.surface === 'workspace-tool' ? 'workspace-tool' : 'chat',
       autoContinueMode: body.autoContinueMode,
       autoContinueMaxSteps: body.autoContinueMaxSteps,
       branchLabel: body.branchLabel,
@@ -77,7 +77,7 @@ export async function PATCH(req: Request) {
       title: typeof body.title === 'string' ? body.title : undefined,
       pinned: typeof body.pinned === 'boolean' ? body.pinned : undefined,
       messages: body.messages,
-      surface: body.surface === 'openclaw' ? 'openclaw' : 'chat',
+      surface: body.surface === 'workspace-tool' ? 'workspace-tool' : 'chat',
       folderId: body.folderId !== undefined ? (body.folderId === null ? null : body.folderId) : undefined,
       autoContinueMode: body.autoContinueMode,
       autoContinueMaxSteps: body.autoContinueMaxSteps,
@@ -110,7 +110,7 @@ export async function DELETE(req: Request) {
     const ids = Array.isArray(body.ids)
       ? body.ids.filter((value: unknown): value is string => typeof value === 'string' && value.trim().length > 0)
       : [];
-    const surface = body.surface === 'openclaw' ? 'openclaw' : body.surface === 'chat' ? 'chat' : undefined;
+    const surface = body.surface === 'workspace-tool' ? 'workspace-tool' : body.surface === 'chat' ? 'chat' : undefined;
 
     if (ids.length > 0 || surface) {
       const result = await deleteChatSessions(userId, { ids, surface });

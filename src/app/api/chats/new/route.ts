@@ -14,7 +14,7 @@ export async function POST(req: Request) {
     const title = typeof body.title === 'string' ? body.title : undefined;
     const messages = body.messages;
     const pinned = typeof body.pinned === 'boolean' ? body.pinned : undefined;
-    const surface = body.surface === 'openclaw' ? 'openclaw' : 'chat';
+    const surface = body.surface === 'workspace-tool' ? 'workspace-tool' : 'chat';
 
     const result = await upsertChatSession(userId, {
       id: sessionId,

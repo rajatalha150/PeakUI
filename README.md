@@ -115,15 +115,15 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 
 | Path | Purpose |
 |---|---|
-| `/mnt/openclaw/workspace` | Managed workspace path inside the app container |
+| `/mnt/workspace-tool/workspace` | Managed workspace path inside the app container |
 | `~/.peakui/workspace` | Host-style alias for the managed workspace |
-| `src/app/components/OpenClawWorkspace.tsx` | Main WorkSpaces UI |
+| `src/app/components/WorkspaceToolWorkspace.tsx` | Main WorkSpaces UI |
 | `src/app/components/WorkspaceFilesPanel.tsx` | Workspace Files panel (read / edit / upload / multi-select / rename / move) |
 | `src/app/components/workspace-files/` | Workspace Files panel sub-components (tree, preview, editor, upload, context menu, move dialog) |
 | `src/lib/chat-completion.ts` | Shared streaming completion pipeline |
 | `src/lib/chat-sessions.ts` | Session persistence, branching, summaries, analytics |
 | `src/lib/session-intelligence.ts` | Context management, analytics, continuation detection |
-| `src/lib/openclaw-automation*.ts` | Automation worker and unattended execution |
+| `src/lib/workspace-tool-automation*.ts` | Automation worker and unattended execution |
 | `src/lib/uwaf-*` | Unified browser, stealth/direct browsing, sanitization |
 | `src/lib/workspace-files-pubsub.ts` | In-process pub/sub for file-mutation events |
 | `src/lib/workspace-files-events-encoder.ts` | SSE wire-format encoder / parser for `/events` |
@@ -145,13 +145,13 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | `/api/settings` | Per-user app and WorkSpaces settings |
 | `/api/rag/*` | Knowledge Base upload, search, health, diagnostics |
 | `/api/canvas/artifacts*` | Canvas artifact list, create, edit, delete, revisions, server-side preview, and downloads |
-| `/api/openclaw/*` | WorkSpaces workspace, tools, browser, document generation (PDF, Word, Excel, PowerPoint, CSV, Email, Markdown, ZIP, ICS, Mermaid), fetch-summarize, and automation |
-| `/api/openclaw/workspaces/[id]/files` | Workspace Files panel — list (`GET`), write (`POST`), rename/move (`PATCH`), delete (`DELETE`) |
-| `/api/openclaw/workspaces/[id]/files/raw` | Read one workspace file (ETag-aware via `If-Match`) |
-| `/api/openclaw/workspaces/[id]/files/upload` | Multipart upload (50 MB / 100 files per request) |
-| `/api/openclaw/workspaces/[id]/files/download` | Single-file download with RFC 5987 filename |
-| `/api/openclaw/workspaces/[id]/files/zip` | Bulk zip download (500 MB / 500 files) |
-| `/api/openclaw/workspaces/[id]/events` | SSE stream of file-mutation events (Workspace Files panel live updates) |
+| `/api/workspace-tool/*` | WorkSpaces workspace, tools, browser, document generation (PDF, Word, Excel, PowerPoint, CSV, Email, Markdown, ZIP, ICS, Mermaid), fetch-summarize, and automation |
+| `/api/workspace-tool/workspaces/[id]/files` | Workspace Files panel — list (`GET`), write (`POST`), rename/move (`PATCH`), delete (`DELETE`) |
+| `/api/workspace-tool/workspaces/[id]/files/raw` | Read one workspace file (ETag-aware via `If-Match`) |
+| `/api/workspace-tool/workspaces/[id]/files/upload` | Multipart upload (50 MB / 100 files per request) |
+| `/api/workspace-tool/workspaces/[id]/files/download` | Single-file download with RFC 5987 filename |
+| `/api/workspace-tool/workspaces/[id]/files/zip` | Bulk zip download (500 MB / 500 files) |
+| `/api/workspace-tool/workspaces/[id]/events` | SSE stream of file-mutation events (Workspace Files panel live updates) |
 
 ---
 
@@ -163,8 +163,8 @@ See [`.env.example`](.env.example) for a full template.
 |---|---:|---|
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
 | `JWT_SECRET` | Yes | Strong secret for signing JWTs (min 32 chars) |
-| `OPENCLAW_HOST_EXECUTOR_TOKEN` | Optional | Enables host-side shell executor integration |
-| `OPENCLAW_HOST_WORKSPACE_DIR` | Optional | Host path mounted as the managed workspace |
+| `WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN` | Optional | Enables host-side shell executor integration |
+| `WORKSPACE_TOOL_HOST_WORKSPACE_DIR` | Optional | Host path mounted as the managed workspace |
 | `TOR_PROXY_URL` | Optional | SOCKS proxy for UWAF stealth mode, defaulted by Compose |
 | `BRAVE_API_KEY` | Optional | Brave search backend |
 | `SEARXNG_URL` | Optional | Self-hosted SearXNG backend |

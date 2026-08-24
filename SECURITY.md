@@ -58,7 +58,7 @@ PeakUI is intended for legitimate local automation, research, and productivity. 
 | Variable | Purpose |
 |---|---|
 | `JWT_SECRET` | Signing secret for session tokens |
-| `OPENCLAW_HOST_EXECUTOR_TOKEN` | Shared secret for optional host command executor |
+| `WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN` | Shared secret for optional host command executor |
 | `TOR_PROXY_URL` | SOCKS proxy for UWAF stealth browsing |
 
 ---

@@ -8,7 +8,7 @@ WorkSpaces is the primary app shell. Generation settings are saved per user in `
 
 ### Provider Selection
 
-- WorkSpaces provider settings are stored as `UserSettings.openClawProvider`, `UserSettings.openClawModel`, and `UserSettings.openClawBaseUrl`.
+- WorkSpaces provider settings are stored as `UserSettings.workspaceToolProvider`, `UserSettings.workspaceToolModel`, and `UserSettings.workspaceToolBaseUrl`.
 - The legacy `UserSettings.chatPlatform`, `UserSettings.chatModel`, and `UserSettings.chatModelProvider` fields remain in the database for schema compatibility but are no longer exposed in the WorkSpaces UI.
 - WorkSpaces supports local Ollama and OpenAI-compatible providers.
 - The saved model is provider-aware, so a duplicate model id on both platforms will still reopen against the correct source.
@@ -47,7 +47,7 @@ WorkSpaces is the primary app shell. Generation settings are saved per user in `
 ### Model-Capacity Adaptation
 
 - PeakUI detects each model's capacity (parameter size + native context window) via Ollama `/api/show` (cached 5 min per model, with name-based fallback) and adapts both the system prompt and the `num_ctx` window to it.
-- **Prompt Detail Level** (`UserSettings.openClawPromptTier`): `auto` (default) picks the tier from the detected capacity; manual `minimal` / `compact` / `standard` / `full` overrides detection. Stored in `UserSettings.openClawPromptTier` and normalized on read/write through `/api/settings`.
+- **Prompt Detail Level** (`UserSettings.workspaceToolPromptTier`): `auto` (default) picks the tier from the detected capacity; manual `minimal` / `compact` / `standard` / `full` overrides detection. Stored in `UserSettings.workspaceToolPromptTier` and normalized on read/write through `/api/settings`.
 - Tier mapping: `minimal` (≤4B), `compact` (≤9B), `standard` (≤30B), `full` (>30B or cloud). `minimal` drops the verbose core-protocol rules, recovery behavior, single-shot mode, and all document examples so the manifest fits a 2048-token window; `full` includes every document example.
 - When `/api/show` reports a native context window, the default `num_ctx` is raised when the model comfortably allows it (≤9B → 8192 when native ≥ 8192; ≤4B → 4096 when native ≥ 4096) and both the default and the hard cap are clamped to the native window. The existing OOM backoff loop still steps down automatically if a raise is too aggressive for the GPU.
 - Both interactive WorkSpaces chats and unattended automation runs honor the tier, so background runs no longer send a 17KB full prompt to an 8B model.
@@ -192,21 +192,21 @@ Production behavior:
 - On mobile, the same top bar stays in place and the rail collapses into a drawer while preserving the active WorkSpaces session.
 - If Knowledge Base or Settings is opened from the WorkSpaces rail, that panel renders inside the WorkSpaces shell so the selected task thread and WorkSpaces rail stay visible.
 - When WorkSpaces calls shell or filesystem tools mid-turn, the tool result is fed back into the model as a hidden `user` message so the same task can continue naturally. This avoids the older behavior where some multi-step reviews stopped after the first tool call because the resumed conversation ended on a hidden `system` message instead of a real follow-up turn.
-- Raw internal `<openclaw_tool>` bridge messages are stripped and hidden before session persistence/reload, which prevents malformed tool turns from rendering as visible assistant content or crashing the workspace on reopen.
+- Raw internal `<workspace_tool>` bridge messages are stripped and hidden before session persistence/reload, which prevents malformed tool turns from rendering as visible assistant content or crashing the workspace on reopen.
 
 ### WorkSpaces Tool Permissions
 
 - Shell execution defaults to `auto-approve` mode — safe commands execute immediately without a confirmation prompt. Network-capable commands (`curl`, `wget`, `npm install`, `git clone`, `docker compose up`) still require explicit approval. Dangerous commands (`sudo`, `rm -rf /`, `ssh`) are blocked outright.
 - When Auto-continue is enabled, tool approval dialogs show a 4-second countdown and auto-approve unless the user clicks Reject. This lets the agent run multi-step tasks hands-free while still giving visibility into each command.
 - Shell execution is stored in `UserSettings.shellExecutionMode`, `UserSettings.shellExecutionTarget`, `UserSettings.shellAllowedCommands`, and the host-executor guardrail settings.
-- Filesystem read access defaults to `read-only` and is stored in `UserSettings.openClawFileAccessMode` plus `UserSettings.openClawAllowedPaths`.
-- Filesystem write access defaults to `ask-first` and is stored in `UserSettings.openClawFileWriteMode` plus `UserSettings.openClawWritablePaths`.
-- Code sandbox access defaults to `ask-first` and is stored in `UserSettings.openClawCodeExecutionMode`.
-- Browser control access is stored in `UserSettings.openClawBrowserMode`.
-- WorkSpaces' default writable workspace root is `~/.peakui/workspace`, which is mounted inside the app container at `/mnt/openclaw/workspace`.
+- Filesystem read access defaults to `read-only` and is stored in `UserSettings.workspaceToolFileAccessMode` plus `UserSettings.workspaceToolAllowedPaths`.
+- Filesystem write access defaults to `ask-first` and is stored in `UserSettings.workspaceToolFileWriteMode` plus `UserSettings.workspaceToolWritablePaths`.
+- Code sandbox access defaults to `ask-first` and is stored in `UserSettings.workspaceToolCodeExecutionMode`.
+- Browser control access is stored in `UserSettings.workspaceToolBrowserMode`.
+- WorkSpaces' default writable workspace root is `~/.peakui/workspace`, which is mounted inside the app container at `/mnt/workspace-tool/workspace`.
 - Shell commands run inside the app container by default with a 120-second timeout (host executor timeout is configurable up to 5 minutes).
 - Code sandbox execution has a 60-second timeout and 256MB memory limit.
-- If `UserSettings.shellExecutionTarget` is set to `host`, shell requests are forwarded to the optional host executor daemon at `OPENCLAW_HOST_EXECUTOR_URL` with `OPENCLAW_HOST_EXECUTOR_TOKEN`.
+- If `UserSettings.shellExecutionTarget` is set to `host`, shell requests are forwarded to the optional host executor daemon at `WORKSPACE_TOOL_HOST_EXECUTOR_URL` with `WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN`.
 - Host execution is constrained by allowed working roots, environment-variable names, timeout, output caps, and approval mode.
 - Host executor cwd checks now resolve approved roots and requested working directories through real paths before execution, so symlinked cwd paths cannot bypass the configured root boundary.
 - If Host target is selected but the host executor is not configured or reachable, WorkSpaces falls back to the container executor and shows the fallback reason in the approval or blocked-command UI.
@@ -268,7 +268,7 @@ ollama pull all-minilm
 - If a weather/news/current-events prompt still feels thin, the search engine may have returned JS-heavy pages or low-signal snippets. The app now keeps search snippets even when some page fetches succeed, which makes short current-info prompts more reliable than the older all-or-nothing fetch path.
 - If you want current-tab or browser-control behavior, that is not part of Phase 1. The shipped Internet mode is intentionally limited to read-only public web context.
 - If an WorkSpaces shell task fails because a tool is missing, verify it inside the container rather than assuming host availability. The runtime image now includes `git`, `curl`, `wget`, `bash`, `tar`, and `unzip`, but commands still execute in the container context.
-- If a WorkSpaces shell task expects `~/.peakui/workspace`, that path should resolve inside the container as an alias to `/mnt/openclaw/workspace`.
+- If a WorkSpaces shell task expects `~/.peakui/workspace`, that path should resolve inside the container as an alias to `/mnt/workspace-tool/workspace`.
 - If switching local models still fails under GPU pressure, enable **Exclusive Ollama Switching** so Ollama unloads other loaded models before starting the new one.
 - If a model says pull required, run `ollama pull <model-name>`.
 - If testing times out, Ollama may still be loading the model. Check `ollama ps`, then try again.

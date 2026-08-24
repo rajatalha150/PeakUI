@@ -11,7 +11,7 @@ export type PanelTint = 'canvas' | 'workspaceFiles' | 'networkHub' | 'liveBrowse
 /**
  * Stable identity for each side-rail panel. Identical to `PanelTint` so a
  * single union drives both the button color and the expand/collapse state
- * registry in `OpenClawWorkspace`.
+ * registry in `WorkspaceToolWorkspace`.
  */
 export type PanelId = PanelTint
 
@@ -30,7 +30,7 @@ export const MAX_EXPANDED_PANELS = 2
  * the whole rail so the cap and ordering stay consistent across all four
  * panels. Stored value is a JSON array of `PanelId` strings.
  */
-export const SIDE_RAIL_EXPANDED_STORAGE_KEY = 'openclaw.sideRail.expandedPanels'
+export const SIDE_RAIL_EXPANDED_STORAGE_KEY = 'workspace-tool.sideRail.expandedPanels'
 
 /** Type guard for a value parsed from localStorage. */
 export function isPanelId(value: unknown): value is PanelId {

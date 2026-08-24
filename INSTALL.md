@@ -68,10 +68,10 @@ Windows Docker Desktop does not support `network_mode: host`, so use the Windows
 4. Copy `.env.example` to `.env` and use the **Windows** values in the commented examples:
    - `DATABASE_URL=postgresql://peakui:CHANGE_ME@db:5432/peakui`
    - `OLLAMA_HOST=http://host.docker.internal:11434`
-   - `OPENCLAW_HOST_HOME_DIR=C:\Users\%USERNAME%`
-   - `OPENCLAW_HOST_TMP_DIR=C:\Users\%USERNAME%\AppData\Local\Temp`
-   - `OPENCLAW_HOST_WORKSPACE_DIR=C:\Users\%USERNAME%\peakui-workspace`
-   - `OPENCLAW_HOST_EXECUTOR_URL=http://host.docker.internal:4318`
+   - `WORKSPACE_TOOL_HOST_HOME_DIR=C:\Users\%USERNAME%`
+   - `WORKSPACE_TOOL_HOST_TMP_DIR=C:\Users\%USERNAME%\AppData\Local\Temp`
+   - `WORKSPACE_TOOL_HOST_WORKSPACE_DIR=C:\Users\%USERNAME%\peakui-workspace`
+   - `WORKSPACE_TOOL_HOST_EXECUTOR_URL=http://host.docker.internal:4318`
    - `TOR_PROXY_URL=socks5://tor-proxy:9150` (auto-detected if omitted)
 5. Run the setup helper or start manually:
 
@@ -94,11 +94,11 @@ See [WINDOWS-SETUP.md](WINDOWS-SETUP.md) for full details.
 By default shell commands run inside the app container. To execute approved commands on the host:
 
 ```bash
-export OPENCLAW_HOST_EXECUTOR_TOKEN="$(head -c 32 /dev/urandom | base64)"
-npm run openclaw:host-executor
+export WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN="$(head -c 32 /dev/urandom | base64)"
+npm run workspace-tool:host-executor
 ```
 
-Set the same `OPENCLAW_HOST_EXECUTOR_TOKEN` in your `.env` and choose **Host** in WorkSpaces Settings.
+Set the same `WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN` in your `.env` and choose **Host** in WorkSpaces Settings.
 
 ## Updating
 

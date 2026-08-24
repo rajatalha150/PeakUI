@@ -9,7 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "test:rag": "vitest run src/lib/rag-regression.test.ts",
-    "openclaw:host-executor": "node scripts/openclaw-host-executor.mjs"
+    "workspace-tool:host-executor": "node scripts/workspace-tool-host-executor.mjs"
   },
   "dependencies": {
     "@mermaid-js/mermaid-cli": "^11.15.0",

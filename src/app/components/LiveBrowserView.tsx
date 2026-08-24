@@ -17,7 +17,7 @@ interface LiveBrowserViewProps {
   enabled?: boolean
   autoResumeMs?: number
   /**
-   * Controlled expand state. Owned by the parent (OpenClawWorkspace) so the
+   * Controlled expand state. Owned by the parent (WorkspaceToolWorkspace) so the
    * "max 2 expanded" accordion rule can be enforced centrally.
    */
   isExpanded: boolean

@@ -1,7 +1,7 @@
 // In-process pub/sub for workspace-file mutations.
 //
-// The /api/openclaw/workspaces/[id]/files mutation routes call publish()
-// after every successful disk write. The /api/openclaw/workspaces/[id]/events
+// The /api/workspace-tool/workspaces/[id]/files mutation routes call publish()
+// after every successful disk write. The /api/workspace-tool/workspaces/[id]/events
 // SSE endpoint subscribes() and forwards events to connected clients.
 //
 // This is intentionally single-process. If PeakUI ever runs multiple Node

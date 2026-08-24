@@ -13,20 +13,20 @@ import {
   normalizeOllamaKeepAlive,
   normalizeOllamaUseModelDefaultContext,
   normalizeOllamaUseModelDefaultTemperature,
-  normalizeOpenClawBaseUrl,
-  normalizeOpenClawAllowedPaths,
-  normalizeOpenClawFileAccessMode,
-  normalizeOpenClawFileWriteMode,
-  normalizeOpenClawProvider,
-  normalizeOpenClawPromptTier,
-  normalizeOpenClawCodeExecutionMode,
-  normalizeOpenClawBrowserMode,
-  normalizeOpenClawAutomationExecutionMaxRunsPerHour,
-  normalizeOpenClawAutomationExecutionModel,
-  normalizeOpenClawFavoriteModels,
-  normalizeOpenClawUwafBrowserMode,
-  normalizeOpenClawUwafDefaultMode,
-  normalizeOpenClawHostAccessMode,
+  normalizeWorkspaceToolBaseUrl,
+  normalizeWorkspaceToolAllowedPaths,
+  normalizeWorkspaceToolFileAccessMode,
+  normalizeWorkspaceToolFileWriteMode,
+  normalizeWorkspaceToolProvider,
+  normalizeWorkspaceToolPromptTier,
+  normalizeWorkspaceToolCodeExecutionMode,
+  normalizeWorkspaceToolBrowserMode,
+  normalizeWorkspaceToolAutomationExecutionMaxRunsPerHour,
+  normalizeWorkspaceToolAutomationExecutionModel,
+  normalizeWorkspaceToolFavoriteModels,
+  normalizeWorkspaceToolUwafBrowserMode,
+  normalizeWorkspaceToolUwafDefaultMode,
+  normalizeWorkspaceToolHostAccessMode,
   normalizeRagMode,
   normalizeRagModel,
   normalizeShellExecutionMode,
@@ -46,7 +46,7 @@ import {
   normalizeSessionPreserveTurns,
   normalizeSessionSummaryTargetTokens,
 } from '@/lib/session-intelligence';
-import { buildEffectiveOpenClawToolAccess } from '@/lib/openclaw-tool-access';
+import { buildEffectiveWorkspaceToolAccess } from '@/lib/workspace-tool-tool-access';
 import { normalizeTheme } from '@/lib/theme-options';
 import { reindexDocumentsIfModelChanged } from '@/lib/rag-queue';
 
@@ -58,10 +58,10 @@ interface SettingsBody {
   modelKeepAlive?: unknown;
   ollamaKeepAlive?: unknown;
   exclusiveOllamaModels?: unknown;
-  openClawProvider?: unknown;
-  openClawModel?: unknown;
-  openClawPromptTier?: unknown;
-  openClawBaseUrl?: unknown;
+  workspaceToolProvider?: unknown;
+  workspaceToolModel?: unknown;
+  workspaceToolPromptTier?: unknown;
+  workspaceToolBaseUrl?: unknown;
   shellExecutionTarget?: unknown;
   shellExecutionMode?: unknown;
   shellAllowedCommands?: unknown;
@@ -78,45 +78,45 @@ interface SettingsBody {
   contextLength?: unknown;
   ollamaUseModelDefaultContext?: unknown;
   theme?: unknown;
-  openClawPersonaTemplate?: unknown;
-  openClawPersonaName?: unknown;
-  openClawPersonaTone?: unknown;
-  openClawPersonaExpertise?: unknown;
-  openClawPersonaBoundaries?: unknown;
-  openClawPersonaOperatingInstructions?: unknown;
-  openClawUserProfileName?: unknown;
-  openClawUserProfileRole?: unknown;
-  openClawUserProfilePreferences?: unknown;
-  openClawUserProfileContext?: unknown;
-  openClawFileAccessMode?: unknown;
-  openClawAllowedPaths?: unknown;
-  openClawFileWriteMode?: unknown;
-  openClawWritablePaths?: unknown;
-  openClawHostAccessMode?: unknown;
-  openClawCodeExecutionMode?: unknown;
-  openClawBrowserMode?: unknown;
-  openClawUwafBrowserMode?: unknown;
-  openClawUwafScreenshots?: unknown;
-  openClawUwafDefaultMode?: unknown;
-  openClawUwafLiveBrowser?: unknown;
-  openClawAutomationExecutionEnabled?: unknown;
-  openClawAutomationExecutionModel?: unknown;
-  openClawAutomationExecutionMaxRunsPerHour?: unknown;
-  openClawAutomationExecutionAttachWorkspace?: unknown;
-  openClawAutomationExecutionAttachMemory?: unknown;
-  openClawSessionAutoContinueDefault?: unknown;
-  openClawSessionAutoContinueMaxSteps?: unknown;
-  openClawMaxToolRoundsPerTurn?: unknown;
-  openClawSessionSummariesEnabled?: unknown;
-  openClawSessionSummaryTargetTokens?: unknown;
-  openClawSessionPreserveTurns?: unknown;
-  openClawSessionAnalyticsEnabled?: unknown;
-  openClawSessionBranchingEnabled?: unknown;
+  workspaceToolPersonaTemplate?: unknown;
+  workspaceToolPersonaName?: unknown;
+  workspaceToolPersonaTone?: unknown;
+  workspaceToolPersonaExpertise?: unknown;
+  workspaceToolPersonaBoundaries?: unknown;
+  workspaceToolPersonaOperatingInstructions?: unknown;
+  workspaceToolUserProfileName?: unknown;
+  workspaceToolUserProfileRole?: unknown;
+  workspaceToolUserProfilePreferences?: unknown;
+  workspaceToolUserProfileContext?: unknown;
+  workspaceToolFileAccessMode?: unknown;
+  workspaceToolAllowedPaths?: unknown;
+  workspaceToolFileWriteMode?: unknown;
+  workspaceToolWritablePaths?: unknown;
+  workspaceToolHostAccessMode?: unknown;
+  workspaceToolCodeExecutionMode?: unknown;
+  workspaceToolBrowserMode?: unknown;
+  workspaceToolUwafBrowserMode?: unknown;
+  workspaceToolUwafScreenshots?: unknown;
+  workspaceToolUwafDefaultMode?: unknown;
+  workspaceToolUwafLiveBrowser?: unknown;
+  workspaceToolAutomationExecutionEnabled?: unknown;
+  workspaceToolAutomationExecutionModel?: unknown;
+  workspaceToolAutomationExecutionMaxRunsPerHour?: unknown;
+  workspaceToolAutomationExecutionAttachWorkspace?: unknown;
+  workspaceToolAutomationExecutionAttachMemory?: unknown;
+  workspaceToolSessionAutoContinueDefault?: unknown;
+  workspaceToolSessionAutoContinueMaxSteps?: unknown;
+  workspaceToolMaxToolRoundsPerTurn?: unknown;
+  workspaceToolSessionSummariesEnabled?: unknown;
+  workspaceToolSessionSummaryTargetTokens?: unknown;
+  workspaceToolSessionPreserveTurns?: unknown;
+  workspaceToolSessionAnalyticsEnabled?: unknown;
+  workspaceToolSessionBranchingEnabled?: unknown;
   ragEnabled?: unknown;
   ragTopK?: unknown;
   ollamaUseCloudApi?: unknown;
   ollamaApiKey?: unknown;
-  openClawFavoriteModels?: unknown;
+  workspaceToolFavoriteModels?: unknown;
 }
 
 // GET: Return user settings (create defaults if none exist)
@@ -138,7 +138,7 @@ export async function GET() {
       ...normalized,
       ollamaApiKey: '',
       permissions: auth.permissions,
-      effectiveToolAccess: buildEffectiveOpenClawToolAccess(normalized, auth.permissions),
+      effectiveToolAccess: buildEffectiveWorkspaceToolAccess(normalized, auth.permissions),
     });
   } catch (error) {
     console.error('Settings GET error:', error);
@@ -170,10 +170,10 @@ export async function POST(req: Request) {
       data.ollamaKeepAlive = keepAlive === '0' ? DEFAULT_SETTINGS.ollamaKeepAlive : keepAlive;
     }
     if (body.exclusiveOllamaModels !== undefined) data.exclusiveOllamaModels = normalizeBoolean(body.exclusiveOllamaModels);
-    if (body.openClawProvider !== undefined) data.openClawProvider = normalizeOpenClawProvider(body.openClawProvider);
-    if (body.openClawModel !== undefined) data.openClawModel = String(body.openClawModel);
-    if (body.openClawPromptTier !== undefined) data.openClawPromptTier = normalizeOpenClawPromptTier(body.openClawPromptTier);
-    if (body.openClawBaseUrl !== undefined) data.openClawBaseUrl = normalizeOpenClawBaseUrl(body.openClawBaseUrl);
+    if (body.workspaceToolProvider !== undefined) data.workspaceToolProvider = normalizeWorkspaceToolProvider(body.workspaceToolProvider);
+    if (body.workspaceToolModel !== undefined) data.workspaceToolModel = String(body.workspaceToolModel);
+    if (body.workspaceToolPromptTier !== undefined) data.workspaceToolPromptTier = normalizeWorkspaceToolPromptTier(body.workspaceToolPromptTier);
+    if (body.workspaceToolBaseUrl !== undefined) data.workspaceToolBaseUrl = normalizeWorkspaceToolBaseUrl(body.workspaceToolBaseUrl);
     if (body.shellExecutionTarget !== undefined) data.shellExecutionTarget = normalizeShellExecutionTarget(body.shellExecutionTarget);
     if (body.ragModel !== undefined) data.ragModel = normalizeRagModel(body.ragModel);
     if (body.ragMode !== undefined) data.ragMode = normalizeRagMode(body.ragMode);
@@ -196,85 +196,85 @@ export async function POST(req: Request) {
       );
     }
     if (body.theme !== undefined) data.theme = normalizeTheme(body.theme);
-    if (body.openClawPersonaTemplate !== undefined) data.openClawPersonaTemplate = normalizeString(body.openClawPersonaTemplate);
-    if (body.openClawPersonaName !== undefined) data.openClawPersonaName = normalizeString(body.openClawPersonaName);
-    if (body.openClawPersonaTone !== undefined) data.openClawPersonaTone = normalizeString(body.openClawPersonaTone);
-    if (body.openClawPersonaExpertise !== undefined) data.openClawPersonaExpertise = normalizeString(body.openClawPersonaExpertise);
-    if (body.openClawPersonaBoundaries !== undefined) data.openClawPersonaBoundaries = normalizeString(body.openClawPersonaBoundaries);
-    if (body.openClawPersonaOperatingInstructions !== undefined) data.openClawPersonaOperatingInstructions = normalizeString(body.openClawPersonaOperatingInstructions);
-    if (body.openClawUserProfileName !== undefined) data.openClawUserProfileName = normalizeString(body.openClawUserProfileName);
-    if (body.openClawUserProfileRole !== undefined) data.openClawUserProfileRole = normalizeString(body.openClawUserProfileRole);
-    if (body.openClawUserProfilePreferences !== undefined) data.openClawUserProfilePreferences = normalizeString(body.openClawUserProfilePreferences);
-    if (body.openClawUserProfileContext !== undefined) data.openClawUserProfileContext = normalizeString(body.openClawUserProfileContext);
+    if (body.workspaceToolPersonaTemplate !== undefined) data.workspaceToolPersonaTemplate = normalizeString(body.workspaceToolPersonaTemplate);
+    if (body.workspaceToolPersonaName !== undefined) data.workspaceToolPersonaName = normalizeString(body.workspaceToolPersonaName);
+    if (body.workspaceToolPersonaTone !== undefined) data.workspaceToolPersonaTone = normalizeString(body.workspaceToolPersonaTone);
+    if (body.workspaceToolPersonaExpertise !== undefined) data.workspaceToolPersonaExpertise = normalizeString(body.workspaceToolPersonaExpertise);
+    if (body.workspaceToolPersonaBoundaries !== undefined) data.workspaceToolPersonaBoundaries = normalizeString(body.workspaceToolPersonaBoundaries);
+    if (body.workspaceToolPersonaOperatingInstructions !== undefined) data.workspaceToolPersonaOperatingInstructions = normalizeString(body.workspaceToolPersonaOperatingInstructions);
+    if (body.workspaceToolUserProfileName !== undefined) data.workspaceToolUserProfileName = normalizeString(body.workspaceToolUserProfileName);
+    if (body.workspaceToolUserProfileRole !== undefined) data.workspaceToolUserProfileRole = normalizeString(body.workspaceToolUserProfileRole);
+    if (body.workspaceToolUserProfilePreferences !== undefined) data.workspaceToolUserProfilePreferences = normalizeString(body.workspaceToolUserProfilePreferences);
+    if (body.workspaceToolUserProfileContext !== undefined) data.workspaceToolUserProfileContext = normalizeString(body.workspaceToolUserProfileContext);
     if (body.shellExecutionMode !== undefined) data.shellExecutionMode = normalizeShellExecutionMode(body.shellExecutionMode);
     if (body.shellAllowedCommands !== undefined) data.shellAllowedCommands = normalizeString(body.shellAllowedCommands);
     if (body.shellHostAllowedRoots !== undefined) data.shellHostAllowedRoots = normalizeShellHostAllowedRoots(body.shellHostAllowedRoots);
     if (body.shellHostAllowedEnvVars !== undefined) data.shellHostAllowedEnvVars = normalizeShellHostAllowedEnvVars(body.shellHostAllowedEnvVars);
     if (body.shellHostMaxTimeoutMs !== undefined) data.shellHostMaxTimeoutMs = normalizeShellHostMaxTimeoutMs(body.shellHostMaxTimeoutMs);
     if (body.shellHostMaxOutputBytes !== undefined) data.shellHostMaxOutputBytes = normalizeShellHostMaxOutputBytes(body.shellHostMaxOutputBytes);
-    if (body.openClawFileAccessMode !== undefined) data.openClawFileAccessMode = normalizeOpenClawFileAccessMode(body.openClawFileAccessMode);
-    if (body.openClawAllowedPaths !== undefined) data.openClawAllowedPaths = normalizeOpenClawAllowedPaths(body.openClawAllowedPaths);
-    if (body.openClawFileWriteMode !== undefined) data.openClawFileWriteMode = normalizeOpenClawFileWriteMode(body.openClawFileWriteMode);
-    if (body.openClawWritablePaths !== undefined) data.openClawWritablePaths = normalizeOpenClawAllowedPaths(body.openClawWritablePaths);
-    if (body.openClawHostAccessMode !== undefined) data.openClawHostAccessMode = normalizeOpenClawHostAccessMode(body.openClawHostAccessMode);
-    if (body.openClawCodeExecutionMode !== undefined) data.openClawCodeExecutionMode = normalizeOpenClawCodeExecutionMode(body.openClawCodeExecutionMode);
-    if (body.openClawBrowserMode !== undefined) data.openClawBrowserMode = normalizeOpenClawBrowserMode(body.openClawBrowserMode);
-    if (body.openClawUwafBrowserMode !== undefined) data.openClawUwafBrowserMode = normalizeOpenClawUwafBrowserMode(body.openClawUwafBrowserMode);
-    if (Object.prototype.hasOwnProperty.call(body, 'openClawUwafScreenshots')) data.openClawUwafScreenshots = false;
-    if (body.openClawUwafDefaultMode !== undefined) data.openClawUwafDefaultMode = normalizeOpenClawUwafDefaultMode(body.openClawUwafDefaultMode);
-    if (Object.prototype.hasOwnProperty.call(body, 'openClawUwafLiveBrowser')) data.openClawUwafLiveBrowser = normalizeBoolean(body.openClawUwafLiveBrowser);
-    if (Object.prototype.hasOwnProperty.call(body, 'openClawAutomationExecutionEnabled')) {
-      data.openClawAutomationExecutionEnabled = normalizeBoolean(body.openClawAutomationExecutionEnabled);
+    if (body.workspaceToolFileAccessMode !== undefined) data.workspaceToolFileAccessMode = normalizeWorkspaceToolFileAccessMode(body.workspaceToolFileAccessMode);
+    if (body.workspaceToolAllowedPaths !== undefined) data.workspaceToolAllowedPaths = normalizeWorkspaceToolAllowedPaths(body.workspaceToolAllowedPaths);
+    if (body.workspaceToolFileWriteMode !== undefined) data.workspaceToolFileWriteMode = normalizeWorkspaceToolFileWriteMode(body.workspaceToolFileWriteMode);
+    if (body.workspaceToolWritablePaths !== undefined) data.workspaceToolWritablePaths = normalizeWorkspaceToolAllowedPaths(body.workspaceToolWritablePaths);
+    if (body.workspaceToolHostAccessMode !== undefined) data.workspaceToolHostAccessMode = normalizeWorkspaceToolHostAccessMode(body.workspaceToolHostAccessMode);
+    if (body.workspaceToolCodeExecutionMode !== undefined) data.workspaceToolCodeExecutionMode = normalizeWorkspaceToolCodeExecutionMode(body.workspaceToolCodeExecutionMode);
+    if (body.workspaceToolBrowserMode !== undefined) data.workspaceToolBrowserMode = normalizeWorkspaceToolBrowserMode(body.workspaceToolBrowserMode);
+    if (body.workspaceToolUwafBrowserMode !== undefined) data.workspaceToolUwafBrowserMode = normalizeWorkspaceToolUwafBrowserMode(body.workspaceToolUwafBrowserMode);
+    if (Object.prototype.hasOwnProperty.call(body, 'workspaceToolUwafScreenshots')) data.workspaceToolUwafScreenshots = false;
+    if (body.workspaceToolUwafDefaultMode !== undefined) data.workspaceToolUwafDefaultMode = normalizeWorkspaceToolUwafDefaultMode(body.workspaceToolUwafDefaultMode);
+    if (Object.prototype.hasOwnProperty.call(body, 'workspaceToolUwafLiveBrowser')) data.workspaceToolUwafLiveBrowser = normalizeBoolean(body.workspaceToolUwafLiveBrowser);
+    if (Object.prototype.hasOwnProperty.call(body, 'workspaceToolAutomationExecutionEnabled')) {
+      data.workspaceToolAutomationExecutionEnabled = normalizeBoolean(body.workspaceToolAutomationExecutionEnabled);
     }
-    if (body.openClawAutomationExecutionModel !== undefined) {
-      data.openClawAutomationExecutionModel = normalizeOpenClawAutomationExecutionModel(body.openClawAutomationExecutionModel);
+    if (body.workspaceToolAutomationExecutionModel !== undefined) {
+      data.workspaceToolAutomationExecutionModel = normalizeWorkspaceToolAutomationExecutionModel(body.workspaceToolAutomationExecutionModel);
     }
-    if (Object.prototype.hasOwnProperty.call(body, 'openClawAutomationExecutionMaxRunsPerHour')) {
-      data.openClawAutomationExecutionMaxRunsPerHour = normalizeOpenClawAutomationExecutionMaxRunsPerHour(
-        body.openClawAutomationExecutionMaxRunsPerHour
+    if (Object.prototype.hasOwnProperty.call(body, 'workspaceToolAutomationExecutionMaxRunsPerHour')) {
+      data.workspaceToolAutomationExecutionMaxRunsPerHour = normalizeWorkspaceToolAutomationExecutionMaxRunsPerHour(
+        body.workspaceToolAutomationExecutionMaxRunsPerHour
       );
     }
-    if (Object.prototype.hasOwnProperty.call(body, 'openClawAutomationExecutionAttachWorkspace')) {
-      data.openClawAutomationExecutionAttachWorkspace = normalizeBoolean(body.openClawAutomationExecutionAttachWorkspace);
+    if (Object.prototype.hasOwnProperty.call(body, 'workspaceToolAutomationExecutionAttachWorkspace')) {
+      data.workspaceToolAutomationExecutionAttachWorkspace = normalizeBoolean(body.workspaceToolAutomationExecutionAttachWorkspace);
     }
-    if (Object.prototype.hasOwnProperty.call(body, 'openClawAutomationExecutionAttachMemory')) {
-      data.openClawAutomationExecutionAttachMemory = normalizeBoolean(body.openClawAutomationExecutionAttachMemory);
+    if (Object.prototype.hasOwnProperty.call(body, 'workspaceToolAutomationExecutionAttachMemory')) {
+      data.workspaceToolAutomationExecutionAttachMemory = normalizeBoolean(body.workspaceToolAutomationExecutionAttachMemory);
     }
-    if (Object.prototype.hasOwnProperty.call(body, 'openClawSessionAutoContinueDefault')) {
-      data.openClawSessionAutoContinueDefault = normalizeSessionAutoContinueMode(body.openClawSessionAutoContinueDefault);
+    if (Object.prototype.hasOwnProperty.call(body, 'workspaceToolSessionAutoContinueDefault')) {
+      data.workspaceToolSessionAutoContinueDefault = normalizeSessionAutoContinueMode(body.workspaceToolSessionAutoContinueDefault);
     }
-    if (Object.prototype.hasOwnProperty.call(body, 'openClawSessionAutoContinueMaxSteps')) {
-      data.openClawSessionAutoContinueMaxSteps = normalizeSessionAutoContinueMaxSteps(
-        body.openClawSessionAutoContinueMaxSteps,
-        DEFAULT_SETTINGS.openClawSessionAutoContinueMaxSteps,
+    if (Object.prototype.hasOwnProperty.call(body, 'workspaceToolSessionAutoContinueMaxSteps')) {
+      data.workspaceToolSessionAutoContinueMaxSteps = normalizeSessionAutoContinueMaxSteps(
+        body.workspaceToolSessionAutoContinueMaxSteps,
+        DEFAULT_SETTINGS.workspaceToolSessionAutoContinueMaxSteps,
       );
     }
-    if (Object.prototype.hasOwnProperty.call(body, 'openClawMaxToolRoundsPerTurn')) {
-      data.openClawMaxToolRoundsPerTurn = normalizeMaxToolRoundsPerTurn(
-        body.openClawMaxToolRoundsPerTurn,
-        DEFAULT_SETTINGS.openClawMaxToolRoundsPerTurn,
+    if (Object.prototype.hasOwnProperty.call(body, 'workspaceToolMaxToolRoundsPerTurn')) {
+      data.workspaceToolMaxToolRoundsPerTurn = normalizeMaxToolRoundsPerTurn(
+        body.workspaceToolMaxToolRoundsPerTurn,
+        DEFAULT_SETTINGS.workspaceToolMaxToolRoundsPerTurn,
       );
     }
-    if (Object.prototype.hasOwnProperty.call(body, 'openClawSessionSummariesEnabled')) {
-      data.openClawSessionSummariesEnabled = normalizeBoolean(body.openClawSessionSummariesEnabled);
+    if (Object.prototype.hasOwnProperty.call(body, 'workspaceToolSessionSummariesEnabled')) {
+      data.workspaceToolSessionSummariesEnabled = normalizeBoolean(body.workspaceToolSessionSummariesEnabled);
     }
-    if (Object.prototype.hasOwnProperty.call(body, 'openClawSessionSummaryTargetTokens')) {
-      data.openClawSessionSummaryTargetTokens = normalizeSessionSummaryTargetTokens(
-        body.openClawSessionSummaryTargetTokens,
-        DEFAULT_SETTINGS.openClawSessionSummaryTargetTokens,
+    if (Object.prototype.hasOwnProperty.call(body, 'workspaceToolSessionSummaryTargetTokens')) {
+      data.workspaceToolSessionSummaryTargetTokens = normalizeSessionSummaryTargetTokens(
+        body.workspaceToolSessionSummaryTargetTokens,
+        DEFAULT_SETTINGS.workspaceToolSessionSummaryTargetTokens,
       );
     }
-    if (Object.prototype.hasOwnProperty.call(body, 'openClawSessionPreserveTurns')) {
-      data.openClawSessionPreserveTurns = normalizeSessionPreserveTurns(
-        body.openClawSessionPreserveTurns,
-        DEFAULT_SETTINGS.openClawSessionPreserveTurns,
+    if (Object.prototype.hasOwnProperty.call(body, 'workspaceToolSessionPreserveTurns')) {
+      data.workspaceToolSessionPreserveTurns = normalizeSessionPreserveTurns(
+        body.workspaceToolSessionPreserveTurns,
+        DEFAULT_SETTINGS.workspaceToolSessionPreserveTurns,
       );
     }
-    if (Object.prototype.hasOwnProperty.call(body, 'openClawSessionAnalyticsEnabled')) {
-      data.openClawSessionAnalyticsEnabled = normalizeBoolean(body.openClawSessionAnalyticsEnabled);
+    if (Object.prototype.hasOwnProperty.call(body, 'workspaceToolSessionAnalyticsEnabled')) {
+      data.workspaceToolSessionAnalyticsEnabled = normalizeBoolean(body.workspaceToolSessionAnalyticsEnabled);
     }
-    if (Object.prototype.hasOwnProperty.call(body, 'openClawSessionBranchingEnabled')) {
-      data.openClawSessionBranchingEnabled = normalizeBoolean(body.openClawSessionBranchingEnabled);
+    if (Object.prototype.hasOwnProperty.call(body, 'workspaceToolSessionBranchingEnabled')) {
+      data.workspaceToolSessionBranchingEnabled = normalizeBoolean(body.workspaceToolSessionBranchingEnabled);
     }
     if (Object.prototype.hasOwnProperty.call(body, 'ragEnabled')) data.ragEnabled = normalizeBoolean(body.ragEnabled);
     if (Object.prototype.hasOwnProperty.call(body, 'ollamaUseCloudApi')) data.ollamaUseCloudApi = normalizeBoolean(body.ollamaUseCloudApi);
@@ -290,10 +290,10 @@ export async function POST(req: Request) {
         data.ragTopK = 8;
       }
     }
-    if (body.openClawFavoriteModels !== undefined) {
+    if (body.workspaceToolFavoriteModels !== undefined) {
       // Stored as a JSON-encoded string in the column; normalized (deduped,
       // capped, control-char-stripped) on the way in and out.
-      data.openClawFavoriteModels = JSON.stringify(normalizeOpenClawFavoriteModels(body.openClawFavoriteModels));
+      data.workspaceToolFavoriteModels = JSON.stringify(normalizeWorkspaceToolFavoriteModels(body.workspaceToolFavoriteModels));
     }
 
     const settings = await prisma.userSettings.upsert({
@@ -318,7 +318,7 @@ export async function POST(req: Request) {
       ...normalized,
       ollamaApiKey: '', // scrubbed
       permissions: auth.permissions,
-      effectiveToolAccess: buildEffectiveOpenClawToolAccess(normalized, auth.permissions),
+      effectiveToolAccess: buildEffectiveWorkspaceToolAccess(normalized, auth.permissions),
       reindexTriggered: reindexResult.triggered,
       reindexSkipped: reindexResult.skipped,
     });

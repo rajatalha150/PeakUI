@@ -7,7 +7,7 @@ import {
   getUserSettings,
   normalizeHuggingFaceBaseUrl,
 } from '@/lib/settings';
-import { buildEffectiveOpenClawToolAccess } from './openclaw-tool-access';
+import { buildEffectiveWorkspaceToolAccess } from './workspace-tool-tool-access';
 import { getErrorMessage, buildKnowledgeBaseContext } from '@/lib/rag';
 import type { RagSearchResult } from '@/lib/rag';
 import { loadTreeSummary } from '@/lib/kb-folders-server';
@@ -17,21 +17,21 @@ import {
   normalizeResponsePresentation,
   type ResponsePresentation,
 } from '@/lib/response-format';
-import { buildOpenClawSystemPrompt, buildChatInternetToolPrompt } from '@/lib/openclaw-prompt';
-import type { OpenClawPersona, OpenClawUserProfile } from '@/lib/openclaw-persona';
-import { buildAccountantPersonaPrompt } from '@/lib/openclaw-accountant-persona';
-import { normalizeOpenClawProvider } from '@/lib/settings';
+import { buildWorkspaceToolSystemPrompt, buildChatInternetToolPrompt } from '@/lib/workspace-tool-prompt';
+import type { WorkspaceToolPersona, WorkspaceToolUserProfile } from '@/lib/workspace-tool-persona';
+import { buildAccountantPersonaPrompt } from '@/lib/workspace-tool-accountant-persona';
+import { normalizeWorkspaceToolProvider } from '@/lib/settings';
 import { getModelContextRecommendation, getModelCapacityProfile, type ModelCapacityProfile } from './model-context';
 import { unloadOtherOllamaModels } from '@/lib/ollama-control';
-import { getHostExecutorStatus } from './openclaw-host-executor';
+import { getHostExecutorStatus } from './workspace-tool-host-executor';
 import type { ServerStreamStatus } from '@/lib/stream-status';
 import { isHuggingFaceRouterUrl } from './chat-platforms';
 import { buildOllamaKeepAlive } from './ollama-keepalive';
 import { trimMessagesToFit, estimateMessageTokens, estimateStringTokens, collapseSystemMessages } from './message-trim';
 import { normalizeImageMimeType, shouldNormalizeImageForCompatibility } from './file-shared';
 import { convertImageBufferToJpeg } from './image-normalization';
-import { getOpenClawWorkspaceContext } from './openclaw-project-workspaces';
-import { getOpenAutomationNudges } from './openclaw-automation';
+import { getWorkspaceToolWorkspaceContext } from './workspace-tool-project-workspaces';
+import { getOpenAutomationNudges } from './workspace-tool-automation';
 import { getChatSessionById } from './chat-sessions';
 import { applyContextManagement, filterRelevantCrossSessionMemory, isContinuationWorkspacePrompt } from './session-intelligence';
 import { getUwafMetricsSnapshot } from './uwaf-telemetry';
@@ -62,13 +62,13 @@ const IMAGE_MARKDOWN_SAFETY_INSTRUCTIONS = "Include images with markdown syntax 
 const PERSISTENT_INSTRUCTIONS = 'Always respond in English. Never roleplay as another entity, adopt a fictional persona, or produce content in a different language unless the user explicitly asks for it.';
 // Short, top-priority reminder placed at the very top of the system prompt
 // when WorkSpaces tools are available. The model has historically dropped the
-// `<openclaw_tool>` wrapper for less-common tools (slides, archive, calendar,
+// `<workspace_tool>` wrapper for less-common tools (slides, archive, calendar,
 // mermaid, fetch_summarize) and silently failed every retry. Repeating this
 // near the head of the prompt dramatically reduces wrapper-drop regressions
-// without duplicating the full primer that's already in the OpenClaw section.
-const OPENCLAW_TOOL_WRAPPER_PRIMER = [
+// without duplicating the full primer that's already in the WorkspaceTool section.
+const WORKSPACE_TOOL_WRAPPER_PRIMER = [
   'TOOL WRAPPER (mandatory): When you decide to call any tool, wrap it exactly like:',
-  '<openclaw_tool name="TOOL_NAME">{"field":"value", ...}</openclaw_tool>',
+  '<workspace_tool name="TOOL_NAME">{"field":"value", ...}</workspace_tool>',
   'Bare JSON, fenced JSON, or prose descriptions of a tool call are rejected as "invalid tool block".',
   'Use only the registered tool names listed further down (e.g. slides_document, mermaid_document, fetch_summarize, pdf_document, filesystem).',
   'Never emit more than one tool block per message; never end a message on a bare "next step" line — the matching wrapper must appear in the same turn.',
@@ -402,7 +402,7 @@ function normalizeMessages(messages: unknown): InternalChatMessage[] {
 
 function normalizeProvider(value: unknown): ChatProvider {
   if (value === 'huggingface') return 'huggingface';
-  return normalizeOpenClawProvider(value) === 'openai-compatible' ? 'openai-compatible' : 'ollama';
+  return normalizeWorkspaceToolProvider(value) === 'openai-compatible' ? 'openai-compatible' : 'ollama';
 }
 
 function normalizeProviderBaseUrl(value: unknown, provider: ChatProvider, fallback: string): string {
@@ -879,9 +879,9 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const assistantMessageId = typeof body.id === 'string' && body.id.trim() ? body.id.trim() : crypto.randomUUID();
     const workspaceId = typeof body.workspace_id === 'string' && body.workspace_id.trim() ? body.workspace_id.trim() : '';
     const taskId = crypto.randomUUID();
-    const surface = body.surface === 'openclaw' ? 'openclaw' : 'chat';
-    const provider = surface === 'openclaw'
-      ? normalizeProvider(body.provider ?? settings.openClawProvider)
+    const surface = body.surface === 'workspace-tool' ? 'workspace-tool' : 'chat';
+    const provider = surface === 'workspace-tool'
+      ? normalizeProvider(body.provider ?? settings.workspaceToolProvider)
       : normalizeProvider(body.provider ?? settings.chatModelProvider);
     const apiKey = typeof body.api_key === 'string' && body.api_key.trim()
       ? body.api_key.trim()
@@ -897,8 +897,8 @@ export async function createChatCompletionResponse(req: NextRequest) {
           provider,
           provider === 'huggingface'
             ? settings.huggingFaceBaseUrl
-            : surface === 'openclaw'
-            ? settings.openClawBaseUrl || settings.ollamaHost
+            : surface === 'workspace-tool'
+            ? settings.workspaceToolBaseUrl || settings.ollamaHost
             : settings.ollamaHost,
         );
     const hintedPresentation = normalizeResponsePresentation(body.response_presentation);
@@ -908,24 +908,24 @@ export async function createChatCompletionResponse(req: NextRequest) {
 
     const nonSystemMessages = messages.filter(message => message.role !== 'system');
     const presentationPrompt = buildResponsePresentationPrompt(responsePresentation);
-    const openClawPersona: OpenClawPersona | undefined = surface === 'openclaw' ? {
-      name: settings.openClawPersonaName,
-      tone: settings.openClawPersonaTone,
-      expertise: settings.openClawPersonaExpertise,
-      boundaries: settings.openClawPersonaBoundaries,
-      operatingInstructions: settings.openClawPersonaOperatingInstructions,
+    const workspaceToolPersona: WorkspaceToolPersona | undefined = surface === 'workspace-tool' ? {
+      name: settings.workspaceToolPersonaName,
+      tone: settings.workspaceToolPersonaTone,
+      expertise: settings.workspaceToolPersonaExpertise,
+      boundaries: settings.workspaceToolPersonaBoundaries,
+      operatingInstructions: settings.workspaceToolPersonaOperatingInstructions,
     } : undefined;
 
-    const openClawUserProfile: OpenClawUserProfile | undefined = surface === 'openclaw' ? {
-      name: settings.openClawUserProfileName,
-      role: settings.openClawUserProfileRole,
-      preferences: settings.openClawUserProfilePreferences,
-      context: settings.openClawUserProfileContext,
+    const workspaceToolUserProfile: WorkspaceToolUserProfile | undefined = surface === 'workspace-tool' ? {
+      name: settings.workspaceToolUserProfileName,
+      role: settings.workspaceToolUserProfileRole,
+      preferences: settings.workspaceToolUserProfilePreferences,
+      context: settings.workspaceToolUserProfileContext,
     } : undefined;
 
     const workspacePrepStartedAt = performance.now();
-    const effectiveToolAccess = buildEffectiveOpenClawToolAccess(settings, auth.permissions);
-    const hostExecutorStatus = surface === 'openclaw'
+    const effectiveToolAccess = buildEffectiveWorkspaceToolAccess(settings, auth.permissions);
+    const hostExecutorStatus = surface === 'workspace-tool'
       && effectiveToolAccess.shellEnabled
       && settings.shellExecutionTarget === 'host'
         ? await getHostExecutorStatus()
@@ -935,10 +935,10 @@ export async function createChatCompletionResponse(req: NextRequest) {
       && hostExecutorStatus.reachable
         ? 'host'
         : 'container';
-    const workspaceContext = surface === 'openclaw'
-      ? await getOpenClawWorkspaceContext(userId, workspaceId || undefined)
+    const workspaceContext = surface === 'workspace-tool'
+      ? await getWorkspaceToolWorkspaceContext(userId, workspaceId || undefined)
       : null;
-    const automationNudges = surface === 'openclaw'
+    const automationNudges = surface === 'workspace-tool'
       ? await getOpenAutomationNudges(userId)
       : [];
     const existingSession = chatId
@@ -951,26 +951,26 @@ export async function createChatCompletionResponse(req: NextRequest) {
     // Detect the model's capacity (parameter size + native context) so the
     // prompt tier and num_ctx match it. Cached 5 min per model; falls back to
     // name heuristics on any failure, so this never blocks the turn.
-    const capacityProfile = surface === 'openclaw' && provider === 'ollama'
+    const capacityProfile = surface === 'workspace-tool' && provider === 'ollama'
       ? await getModelCapacityProfile(requestedModel, provider, baseUrl)
       : null;
     const promptBuildStartedAt = performance.now();
-    let openClawPrompt = surface === 'openclaw'
-      ? buildOpenClawSystemPrompt({
+    let workspaceToolPrompt = surface === 'workspace-tool'
+      ? buildWorkspaceToolSystemPrompt({
           provider: provider === 'openai-compatible' ? 'openai-compatible' : 'ollama',
           model: requestedModel,
-          persona: openClawPersona,
-          userProfile: openClawUserProfile,
+          persona: workspaceToolPersona,
+          userProfile: workspaceToolUserProfile,
           internetToolEnabled,
           shellEnabled: effectiveToolAccess.shellEnabled,
           shellTarget: effectiveShellTarget,
           filesystemEnabled: effectiveToolAccess.filesystemEnabled,
-          allowedFilesystemPaths: settings.openClawAllowedPaths
-            ? settings.openClawAllowedPaths.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean)
+          allowedFilesystemPaths: settings.workspaceToolAllowedPaths
+            ? settings.workspaceToolAllowedPaths.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean)
             : [],
           filesystemWriteEnabled: effectiveToolAccess.filesystemWriteEnabled,
-          writableFilesystemPaths: settings.openClawWritablePaths
-            ? settings.openClawWritablePaths.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean)
+          writableFilesystemPaths: settings.workspaceToolWritablePaths
+            ? settings.workspaceToolWritablePaths.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean)
             : [],
           codeExecutionEnabled: effectiveToolAccess.codeExecutionEnabled,
           workspaceHostRoot: effectiveToolAccess.workspaceHostRoot,
@@ -991,16 +991,16 @@ export async function createChatCompletionResponse(req: NextRequest) {
               }
             : undefined,
           latestUserQuery: latestUserContent,
-          promptTier: settings.openClawPromptTier === 'auto'
+          promptTier: settings.workspaceToolPromptTier === 'auto'
             ? (capacityProfile?.promptTier ?? 'full')
-            : settings.openClawPromptTier,
+            : settings.workspaceToolPromptTier,
         })
       : '';
     // Accountant mode: append a CPA/accountant/financial-advisor persona to the
     // WorkSpaces system prompt. Composes with Unrestricted/Uncensored/Knowledge
-    // Base because openClawPrompt is included in every system-prompt branch.
-    if (openClawPrompt && accountant) {
-      openClawPrompt = `${openClawPrompt}\n\n${buildAccountantPersonaPrompt()}`;
+    // Base because workspaceToolPrompt is included in every system-prompt branch.
+    if (workspaceToolPrompt && accountant) {
+      workspaceToolPrompt = `${workspaceToolPrompt}\n\n${buildAccountantPersonaPrompt()}`;
     }
     const chatInternetPrompt = surface === 'chat' && internetToolEnabled
       ? buildChatInternetToolPrompt()
@@ -1008,7 +1008,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
     // Current date/time so the model stays grounded in the present
     const now = new Date()
     const dateTimeInstruction = `Current date and time: ${now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} ${now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })}. Always consider this when answering questions about dates, schedules, time-sensitive topics, or current events. Your training data has a cutoff and may be outdated — when in doubt, acknowledge uncertainty about recent developments rather than guessing.`
-    const continuationInstruction = surface === 'openclaw' && isContinuationWorkspacePrompt(latestUserContent)
+    const continuationInstruction = surface === 'workspace-tool' && isContinuationWorkspacePrompt(latestUserContent)
       ? 'The latest user message is a continuation request. Resolve it against the immediately preceding visible assistant response and recent raw transcript. Do not fall back to older working memory, task-state defaults, or greetings unless the recent transcript has no actionable prior step.'
       : ''
     const memoryRelevanceText = [
@@ -1016,8 +1016,8 @@ export async function createChatCompletionResponse(req: NextRequest) {
       workspaceContext?.workspace.name || '',
       workspaceContext?.workspace.relativePath || '',
       workspaceContext?.workspace.description || '',
-      settings.openClawUserProfilePreferences,
-      settings.openClawUserProfileContext,
+      settings.workspaceToolUserProfilePreferences,
+      settings.workspaceToolUserProfileContext,
     ].filter(Boolean).join('\n')
     const userSystemMessages = messages
       .filter(message => message.role === 'system')
@@ -1032,32 +1032,35 @@ export async function createChatCompletionResponse(req: NextRequest) {
 
     // PERSISTENT_INSTRUCTIONS always included — even in unrestricted/uncensored modes
     // the model must always respond in English and stay grounded
-    // openClawPrompt and tool instructions are always included so tools remain available
+    // workspaceToolPrompt and tool instructions are always included so tools remain available
 
     // When tools are available, add a tool-aware clause to uncensored instructions
     // so the model knows it should use tools rather than guessing
-    const hasTools = Boolean(openClawPrompt || chatInternetPrompt);
+    const hasTools = Boolean(workspaceToolPrompt || chatInternetPrompt);
     const uncensoredToolClause = hasTools
       ? 'When tools (web research, shell, browser, filesystem, etc.) are available, use them proactively to get accurate, current information instead of guessing. Invoke the appropriate tool, wait for results, then answer directly with what you found.'
       : 'Start with the answer immediately. No "Sure,", "Of course,", "Here\'s what I found,", "I can help with that," or any filler.';
     const UNCENSORED_INSTRUCTIONS = [...UNCENSORED_BASE_INSTRUCTIONS, uncensoredToolClause].join(' ');
 
-    // OpenClaw surface gets a short, top-priority tool-wrapper reminder so the
-    // model does not silently drop the `<openclaw_tool>` wrapper for less
-    // common tools. Only injected when there are real tools to call.
-    const toolWrapperPrimer = hasTools ? OPENCLAW_TOOL_WRAPPER_PRIMER : '';
+    // The chat surface (no workspaceToolPrompt) gets a short, top-priority
+    // tool-wrapper reminder so the model does not silently drop the
+    // `<workspace_tool>` wrapper. The workspace-tool surface already carries the full
+    // TOOL CALL PROTOCOL + TOOL CALL FORMAT blocks inside workspaceToolPrompt, so
+    // injecting the primer there too is pure duplication — skip it to keep the
+    // system prompt compact for small local models.
+    const toolWrapperPrimer = hasTools && !workspaceToolPrompt ? WORKSPACE_TOOL_WRAPPER_PRIMER : '';
 
     const systemPromptParts = uncensored
-      ? [toolWrapperPrimer, UNCENSORED_INSTRUCTIONS, PERSISTENT_INSTRUCTIONS, IMAGE_MARKDOWN_SAFETY_INSTRUCTIONS, openClawPrompt, chatInternetPrompt, dateTimeInstruction]
+      ? [toolWrapperPrimer, UNCENSORED_INSTRUCTIONS, PERSISTENT_INSTRUCTIONS, IMAGE_MARKDOWN_SAFETY_INSTRUCTIONS, workspaceToolPrompt, chatInternetPrompt, dateTimeInstruction]
       : unrestricted
-      ? [toolWrapperPrimer, PERSISTENT_INSTRUCTIONS, IMAGE_MARKDOWN_SAFETY_INSTRUCTIONS, openClawPrompt, chatInternetPrompt, dateTimeInstruction]
+      ? [toolWrapperPrimer, PERSISTENT_INSTRUCTIONS, IMAGE_MARKDOWN_SAFETY_INSTRUCTIONS, workspaceToolPrompt, chatInternetPrompt, dateTimeInstruction]
       : [
           toolWrapperPrimer,
           PERSISTENT_INSTRUCTIONS,
           IMAGE_MARKDOWN_SAFETY_INSTRUCTIONS,
           ...(surface === 'chat' ? [IMAGE_INSTRUCTIONS] : []),
           settings.systemPrompt.trim(),
-          openClawPrompt,
+          workspaceToolPrompt,
           chatInternetPrompt,
           presentationPrompt,
           dateTimeInstruction,
@@ -1074,7 +1077,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
       untrimmedMessages = [...nonSystemMessages];
     }
 
-    if (surface === 'openclaw' && automationNudges.length > 0) {
+    if (surface === 'workspace-tool' && automationNudges.length > 0) {
       const nudgeSummary = automationNudges
         .slice(0, 5)
         .map((nudge, index) => {
@@ -1122,14 +1125,14 @@ export async function createChatCompletionResponse(req: NextRequest) {
     // Trim conversation history to fit within context window
     const contextManagementStartedAt = performance.now();
     const systemOverhead = estimateStringTokens(systemPrompt);
-    const contextManaged = surface === 'openclaw'
+    const contextManaged = surface === 'workspace-tool'
       ? applyContextManagement(untrimmedMessages, {
           contextLength: settings.contextLength,
           systemOverhead,
           existingSummary: existingSession?.contextSummary || existingSession?.summary || '',
-          summaryEnabled: settings.openClawSessionSummariesEnabled,
-          summaryTargetTokens: settings.openClawSessionSummaryTargetTokens,
-          preserveTurns: settings.openClawSessionPreserveTurns,
+          summaryEnabled: settings.workspaceToolSessionSummariesEnabled,
+          summaryTargetTokens: settings.workspaceToolSessionSummaryTargetTokens,
+          preserveTurns: settings.workspaceToolSessionPreserveTurns,
         })
       : {
           ...trimMessagesToFit(untrimmedMessages, settings.contextLength, systemOverhead),
@@ -1167,8 +1170,8 @@ export async function createChatCompletionResponse(req: NextRequest) {
       system_prompt_chars: systemPrompt.length,
       outbound_messages: outboundMessages.length,
       outbound_token_estimate: outboundTokenEstimate,
-      context_health: surface === 'openclaw' ? contextManaged.contextHealth : null,
-      summary_used: surface === 'openclaw' ? contextManaged.summaryUsed : false,
+      context_health: surface === 'workspace-tool' ? contextManaged.contextHealth : null,
+      summary_used: surface === 'workspace-tool' ? contextManaged.summaryUsed : false,
       ...extra,
     });
 
@@ -1217,7 +1220,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
             session_id: sessionId || undefined,
             id: assistantMessageId,
             status,
-            ...(surface === 'openclaw' ? { context_health: contextManaged.contextHealth } : {}),
+            ...(surface === 'workspace-tool' ? { context_health: contextManaged.contextHealth } : {}),
           });
         };
 

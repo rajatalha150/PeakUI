@@ -23,7 +23,7 @@ export async function POST(req: Request) {
         ? body.message_id.trim()
         : undefined;
     const title = typeof body.title === 'string' ? body.title : undefined;
-    const surface = body.surface === 'openclaw' ? 'openclaw' : 'chat';
+    const surface = body.surface === 'workspace-tool' ? 'workspace-tool' : 'chat';
 
     if (!chatId) {
       return NextResponse.json({ error: 'Chat ID is required' }, { status: 400 });

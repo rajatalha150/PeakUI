@@ -41,7 +41,7 @@ Provide an open, local-first alternative to cloud-hosted chat and agent platform
 
 ## Internal Naming Note
 
-The public UI label is **WorkSpaces**. The internal implementation still uses `openclaw` identifiers in API routes (`/api/openclaw/*`), database fields, CSS classes, and tool tags such as `<openclaw_tool>`. This is a legacy internal codename; external documentation and UI labels use WorkSpaces.
+The public UI label is **WorkSpaces**. The internal implementation still uses `workspace-tool` identifiers in API routes (`/api/workspace-tool/*`), database fields, CSS classes, and tool tags such as `<workspace_tool>`. This is a legacy internal codename; external documentation and UI labels use WorkSpaces.
 
 ## Repository Health
 

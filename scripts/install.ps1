@@ -90,10 +90,10 @@ POSTGRES_DB=peakui
 DATABASE_URL=postgresql://peakui:$pgPass@db:5432/peakui
 JWT_SECRET=$jwt
 OLLAMA_HOST=http://host.docker.internal:11434
-OPENCLAW_HOST_HOME_DIR=C:\Users\$env:USERNAME
-OPENCLAW_HOST_TMP_DIR=C:\Users\$env:USERNAME\AppData\Local\Temp
-OPENCLAW_HOST_WORKSPACE_DIR=$workspace
-OPENCLAW_HOST_PROJECTS_DIR=$projects
+WORKSPACE_TOOL_HOST_HOME_DIR=C:\Users\$env:USERNAME
+WORKSPACE_TOOL_HOST_TMP_DIR=C:\Users\$env:USERNAME\AppData\Local\Temp
+WORKSPACE_TOOL_HOST_WORKSPACE_DIR=$workspace
+WORKSPACE_TOOL_HOST_PROJECTS_DIR=$projects
 TOR_PROXY_URL=socks5://tor-proxy:9150
 "@
     Set-Content -Path $EnvFile -Value $envContent -Encoding UTF8

@@ -1,5 +1,5 @@
 import type { ResponsePresentation } from '@/lib/response-format';
-import { stripAllToolTags } from '@/lib/openclaw-tools';
+import { stripAllToolTags } from '@/lib/workspace-tool-tools';
 
 function stripToolTags(content: string): string {
   return stripAllToolTags(content);

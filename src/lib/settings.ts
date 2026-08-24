@@ -1,7 +1,7 @@
 import { prisma } from './prisma'
 import { DEFAULT_EMBEDDING_MODEL, normalizeOllamaModelName } from './embedding-models'
 import { normalizeTheme, type ThemeId } from './theme-options'
-import { getOpenClawWorkspaceHostRoot } from './openclaw-workspace'
+import { getWorkspaceToolWorkspaceHostRoot } from './workspace-tool-workspace'
 import {
   DEFAULT_HUGGING_FACE_BASE_URL,
   normalizeChatModelProvider,
@@ -27,44 +27,44 @@ export {
 }
 
 export type RagMode = 'semantic' | 'keyword'
-export type OpenClawProvider = 'ollama' | 'openai-compatible'
+export type WorkspaceToolProvider = 'ollama' | 'openai-compatible'
 export type ShellExecutionTarget = 'container' | 'host'
 export type ShellExecutionMode = 'auto-approve' | 'ask-first' | 'deny'
-export type OpenClawFileAccessMode = 'deny' | 'read-only'
-export type OpenClawFileWriteMode = 'deny' | 'ask-first' | 'auto-approve'
-export type OpenClawHostAccessMode = 'deny' | 'ask-first' | 'auto-approve'
-export type OpenClawCodeExecutionMode = 'deny' | 'ask-first' | 'auto-approve'
-export type OpenClawBrowserMode = 'deny' | 'read-only' | 'ask-first'
+export type WorkspaceToolFileAccessMode = 'deny' | 'read-only'
+export type WorkspaceToolFileWriteMode = 'deny' | 'ask-first' | 'auto-approve'
+export type WorkspaceToolHostAccessMode = 'deny' | 'ask-first' | 'auto-approve'
+export type WorkspaceToolCodeExecutionMode = 'deny' | 'ask-first' | 'auto-approve'
+export type WorkspaceToolBrowserMode = 'deny' | 'read-only' | 'ask-first'
 
-export function normalizeOpenClawHostAccessMode(value: unknown): OpenClawHostAccessMode {
-  const valid: OpenClawHostAccessMode[] = ['auto-approve', 'ask-first', 'deny']
-  return valid.includes(value as OpenClawHostAccessMode) ? (value as OpenClawHostAccessMode) : 'deny'
+export function normalizeWorkspaceToolHostAccessMode(value: unknown): WorkspaceToolHostAccessMode {
+  const valid: WorkspaceToolHostAccessMode[] = ['auto-approve', 'ask-first', 'deny']
+  return valid.includes(value as WorkspaceToolHostAccessMode) ? (value as WorkspaceToolHostAccessMode) : 'deny'
 }
 
-export function normalizeOpenClawWorkspaceHostRoot(value: unknown): string {
+export function normalizeWorkspaceToolWorkspaceHostRoot(value: unknown): string {
   if (typeof value === 'string' && value.trim().length > 0) {
     return value.trim().split('\\').join('/')
   }
   return ''
 }
 
-export function getEffectiveOpenClawWorkspaceHostRoot(
-  settings: Pick<AppSettings, 'openClawWorkspaceHostRoot'>
+export function getEffectiveWorkspaceToolWorkspaceHostRoot(
+  settings: Pick<AppSettings, 'workspaceToolWorkspaceHostRoot'>
 ): string {
-  const override = normalizeOpenClawWorkspaceHostRoot(settings.openClawWorkspaceHostRoot)
+  const override = normalizeWorkspaceToolWorkspaceHostRoot(settings.workspaceToolWorkspaceHostRoot)
   if (override) return override
-  return getOpenClawWorkspaceHostRoot()
+  return getWorkspaceToolWorkspaceHostRoot()
 }
 
-export type OpenClawUwafBrowserMode = 'deny' | 'direct' | 'stealth'
-export type OpenClawUwafDefaultMode = 'direct' | 'stealth'
-export type OpenClawAutomationExecutionProvider = 'ollama'
+export type WorkspaceToolUwafBrowserMode = 'deny' | 'direct' | 'stealth'
+export type WorkspaceToolUwafDefaultMode = 'direct' | 'stealth'
+export type WorkspaceToolAutomationExecutionProvider = 'ollama'
 /**
- * Prompt detail tier for the OpenClaw system prompt. 'auto' detects the tier
+ * Prompt detail tier for the WorkspaceTool system prompt. 'auto' detects the tier
  * from the model's parameter size and native context; a manual value overrides
  * detection.
  */
-export type OpenClawPromptTier = 'auto' | 'minimal' | 'compact' | 'standard' | 'full'
+export type WorkspaceToolPromptTier = 'auto' | 'minimal' | 'compact' | 'standard' | 'full'
 
 export const MIN_CONTEXT_LENGTH = 512
 export const MAX_CONTEXT_LENGTH = 131072
@@ -79,10 +79,10 @@ export interface AppSettings {
   modelKeepAlive: boolean
   ollamaKeepAlive: string
   exclusiveOllamaModels: boolean
-  openClawProvider: OpenClawProvider
-  openClawModel: string
-  openClawPromptTier: OpenClawPromptTier
-  openClawBaseUrl: string
+  workspaceToolProvider: WorkspaceToolProvider
+  workspaceToolModel: string
+  workspaceToolPromptTier: WorkspaceToolPromptTier
+  workspaceToolBaseUrl: string
   ragModel: string
   ragMode: RagMode
   ollamaHost: string
@@ -92,16 +92,16 @@ export interface AppSettings {
   contextLength: number
   ollamaUseModelDefaultContext: boolean
   theme: ThemeId
-  openClawPersonaTemplate: string
-  openClawPersonaName: string
-  openClawPersonaTone: string
-  openClawPersonaExpertise: string
-  openClawPersonaBoundaries: string
-  openClawPersonaOperatingInstructions: string
-  openClawUserProfileName: string
-  openClawUserProfileRole: string
-  openClawUserProfilePreferences: string
-  openClawUserProfileContext: string
+  workspaceToolPersonaTemplate: string
+  workspaceToolPersonaName: string
+  workspaceToolPersonaTone: string
+  workspaceToolPersonaExpertise: string
+  workspaceToolPersonaBoundaries: string
+  workspaceToolPersonaOperatingInstructions: string
+  workspaceToolUserProfileName: string
+  workspaceToolUserProfileRole: string
+  workspaceToolUserProfilePreferences: string
+  workspaceToolUserProfileContext: string
   shellExecutionTarget: ShellExecutionTarget
   shellExecutionMode: ShellExecutionMode
   shellAllowedCommands: string
@@ -109,31 +109,31 @@ export interface AppSettings {
   shellHostAllowedEnvVars: string
   shellHostMaxTimeoutMs: number
   shellHostMaxOutputBytes: number
-  openClawFileAccessMode: OpenClawFileAccessMode
-  openClawAllowedPaths: string
-  openClawFileWriteMode: OpenClawFileWriteMode
-  openClawWritablePaths: string
-  openClawHostAccessMode: OpenClawHostAccessMode
-  openClawWorkspaceHostRoot: string
-  openClawCodeExecutionMode: OpenClawCodeExecutionMode
-  openClawBrowserMode: OpenClawBrowserMode
-  openClawUwafBrowserMode: OpenClawUwafBrowserMode
-  openClawUwafScreenshots: boolean
-  openClawUwafDefaultMode: OpenClawUwafDefaultMode
-  openClawUwafLiveBrowser: boolean
-  openClawAutomationExecutionEnabled: boolean
-  openClawAutomationExecutionModel: string
-  openClawAutomationExecutionMaxRunsPerHour: number
-  openClawAutomationExecutionAttachWorkspace: boolean
-  openClawAutomationExecutionAttachMemory: boolean
-  openClawSessionAutoContinueDefault: SessionAutoContinueMode
-  openClawSessionAutoContinueMaxSteps: number
-  openClawMaxToolRoundsPerTurn: number
-  openClawSessionSummariesEnabled: boolean
-  openClawSessionSummaryTargetTokens: number
-  openClawSessionPreserveTurns: number
-  openClawSessionAnalyticsEnabled: boolean
-  openClawSessionBranchingEnabled: boolean
+  workspaceToolFileAccessMode: WorkspaceToolFileAccessMode
+  workspaceToolAllowedPaths: string
+  workspaceToolFileWriteMode: WorkspaceToolFileWriteMode
+  workspaceToolWritablePaths: string
+  workspaceToolHostAccessMode: WorkspaceToolHostAccessMode
+  workspaceToolWorkspaceHostRoot: string
+  workspaceToolCodeExecutionMode: WorkspaceToolCodeExecutionMode
+  workspaceToolBrowserMode: WorkspaceToolBrowserMode
+  workspaceToolUwafBrowserMode: WorkspaceToolUwafBrowserMode
+  workspaceToolUwafScreenshots: boolean
+  workspaceToolUwafDefaultMode: WorkspaceToolUwafDefaultMode
+  workspaceToolUwafLiveBrowser: boolean
+  workspaceToolAutomationExecutionEnabled: boolean
+  workspaceToolAutomationExecutionModel: string
+  workspaceToolAutomationExecutionMaxRunsPerHour: number
+  workspaceToolAutomationExecutionAttachWorkspace: boolean
+  workspaceToolAutomationExecutionAttachMemory: boolean
+  workspaceToolSessionAutoContinueDefault: SessionAutoContinueMode
+  workspaceToolSessionAutoContinueMaxSteps: number
+  workspaceToolMaxToolRoundsPerTurn: number
+  workspaceToolSessionSummariesEnabled: boolean
+  workspaceToolSessionSummaryTargetTokens: number
+  workspaceToolSessionPreserveTurns: number
+  workspaceToolSessionAnalyticsEnabled: boolean
+  workspaceToolSessionBranchingEnabled: boolean
   ragEnabled: boolean
   ragTopK: number
   ollamaUseCloudApi: boolean
@@ -144,7 +144,7 @@ export interface AppSettings {
    * in AppSettings) as a JSON-encoded string array of `provider:modelName`
    * keys; the client parses it into its `favoriteModels: string[]` state.
    */
-  openClawFavoriteModels: string
+  workspaceToolFavoriteModels: string
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -155,10 +155,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   modelKeepAlive: false,
   ollamaKeepAlive: '0',
   exclusiveOllamaModels: false,
-  openClawProvider: 'ollama',
-  openClawModel: '',
-  openClawPromptTier: 'auto',
-  openClawBaseUrl: '',
+  workspaceToolProvider: 'ollama',
+  workspaceToolModel: '',
+  workspaceToolPromptTier: 'auto',
+  workspaceToolBaseUrl: '',
   ragModel: DEFAULT_EMBEDDING_MODEL,
   ragMode: 'semantic',
   ollamaHost: process.env.OLLAMA_HOST ?? 'http://127.0.0.1:11434',
@@ -168,53 +168,53 @@ export const DEFAULT_SETTINGS: AppSettings = {
   contextLength: 8192,
   ollamaUseModelDefaultContext: true,
   theme: 'aurora',
-  openClawPersonaTemplate: 'custom',
-  openClawPersonaName: '',
-  openClawPersonaTone: '',
-  openClawPersonaExpertise: '',
-  openClawPersonaBoundaries: '',
-  openClawPersonaOperatingInstructions: '',
-  openClawUserProfileName: '',
-  openClawUserProfileRole: '',
-  openClawUserProfilePreferences: '',
-  openClawUserProfileContext: '',
+  workspaceToolPersonaTemplate: 'custom',
+  workspaceToolPersonaName: '',
+  workspaceToolPersonaTone: '',
+  workspaceToolPersonaExpertise: '',
+  workspaceToolPersonaBoundaries: '',
+  workspaceToolPersonaOperatingInstructions: '',
+  workspaceToolUserProfileName: '',
+  workspaceToolUserProfileRole: '',
+  workspaceToolUserProfilePreferences: '',
+  workspaceToolUserProfileContext: '',
   shellExecutionTarget: 'container',
   shellExecutionMode: 'ask-first',
   shellAllowedCommands: '',
-  shellHostAllowedRoots: getOpenClawWorkspaceHostRoot(),
+  shellHostAllowedRoots: getWorkspaceToolWorkspaceHostRoot(),
   shellHostAllowedEnvVars: 'PATH\nHOME\nUSER\nSHELL\nLANG\nTERM',
   shellHostMaxTimeoutMs: 60000,
   shellHostMaxOutputBytes: 262144,
-  openClawFileAccessMode: 'read-only',
-  openClawAllowedPaths: '',
-  openClawFileWriteMode: 'ask-first',
-  openClawWritablePaths: getOpenClawWorkspaceHostRoot(),
-  openClawHostAccessMode: 'deny',
-  openClawWorkspaceHostRoot: '',
-  openClawCodeExecutionMode: 'ask-first',
-  openClawBrowserMode: 'deny',
-  openClawUwafBrowserMode: 'deny',
-  openClawUwafScreenshots: false,
-  openClawUwafDefaultMode: 'direct',
-  openClawUwafLiveBrowser: true,
-  openClawAutomationExecutionEnabled: false,
-  openClawAutomationExecutionModel: '',
-  openClawAutomationExecutionMaxRunsPerHour: 6,
-  openClawAutomationExecutionAttachWorkspace: true,
-  openClawAutomationExecutionAttachMemory: true,
-  openClawSessionAutoContinueDefault: 'manual',
-  openClawSessionAutoContinueMaxSteps: 3,
-  openClawMaxToolRoundsPerTurn: 100,
-  openClawSessionSummariesEnabled: true,
-  openClawSessionSummaryTargetTokens: 6000,
-  openClawSessionPreserveTurns: 6,
-  openClawSessionAnalyticsEnabled: true,
-  openClawSessionBranchingEnabled: true,
+  workspaceToolFileAccessMode: 'read-only',
+  workspaceToolAllowedPaths: '',
+  workspaceToolFileWriteMode: 'ask-first',
+  workspaceToolWritablePaths: getWorkspaceToolWorkspaceHostRoot(),
+  workspaceToolHostAccessMode: 'deny',
+  workspaceToolWorkspaceHostRoot: '',
+  workspaceToolCodeExecutionMode: 'ask-first',
+  workspaceToolBrowserMode: 'deny',
+  workspaceToolUwafBrowserMode: 'deny',
+  workspaceToolUwafScreenshots: false,
+  workspaceToolUwafDefaultMode: 'direct',
+  workspaceToolUwafLiveBrowser: true,
+  workspaceToolAutomationExecutionEnabled: false,
+  workspaceToolAutomationExecutionModel: '',
+  workspaceToolAutomationExecutionMaxRunsPerHour: 6,
+  workspaceToolAutomationExecutionAttachWorkspace: true,
+  workspaceToolAutomationExecutionAttachMemory: true,
+  workspaceToolSessionAutoContinueDefault: 'manual',
+  workspaceToolSessionAutoContinueMaxSteps: 3,
+  workspaceToolMaxToolRoundsPerTurn: 100,
+  workspaceToolSessionSummariesEnabled: true,
+  workspaceToolSessionSummaryTargetTokens: 6000,
+  workspaceToolSessionPreserveTurns: 6,
+  workspaceToolSessionAnalyticsEnabled: true,
+  workspaceToolSessionBranchingEnabled: true,
   ragEnabled: false,
   ragTopK: 8,
   ollamaUseCloudApi: false,
   ollamaApiKey: '',
-  openClawFavoriteModels: '[]',
+  workspaceToolFavoriteModels: '[]',
 }
 
 export function normalizeRagMode(value: unknown): RagMode {
@@ -228,13 +228,13 @@ export function normalizeRagTopK(value: unknown): number {
   return Math.min(200, Math.max(1, Math.round(parsed)))
 }
 
-export function normalizeOpenClawProvider(value: unknown): OpenClawProvider {
+export function normalizeWorkspaceToolProvider(value: unknown): WorkspaceToolProvider {
   return value === 'openai-compatible' ? 'openai-compatible' : 'ollama'
 }
 
-export function normalizeOpenClawPromptTier(value: unknown): OpenClawPromptTier {
-  const valid: OpenClawPromptTier[] = ['auto', 'minimal', 'compact', 'standard', 'full']
-  return valid.includes(value as OpenClawPromptTier) ? (value as OpenClawPromptTier) : 'auto'
+export function normalizeWorkspaceToolPromptTier(value: unknown): WorkspaceToolPromptTier {
+  const valid: WorkspaceToolPromptTier[] = ['auto', 'minimal', 'compact', 'standard', 'full']
+  return valid.includes(value as WorkspaceToolPromptTier) ? (value as WorkspaceToolPromptTier) : 'auto'
 }
 
 export function normalizeBoolean(value: unknown, fallback = false): boolean {
@@ -250,9 +250,9 @@ export function normalizeBoolean(value: unknown, fallback = false): boolean {
   return fallback
 }
 
-export function normalizeOpenClawBaseUrl(value: unknown): string {
+export function normalizeWorkspaceToolBaseUrl(value: unknown): string {
   const raw = typeof value === 'string' ? value.trim() : ''
-  if (!raw) return DEFAULT_SETTINGS.openClawBaseUrl
+  if (!raw) return DEFAULT_SETTINGS.workspaceToolBaseUrl
 
   try {
     const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`)
@@ -337,7 +337,7 @@ export function normalizeShellExecutionTarget(value: unknown): ShellExecutionTar
 }
 
 export function normalizeShellHostAllowedRoots(value: unknown): string {
-  const normalized = normalizeOpenClawAllowedPaths(value)
+  const normalized = normalizeWorkspaceToolAllowedPaths(value)
   return normalized || DEFAULT_SETTINGS.shellHostAllowedRoots
 }
 
@@ -364,36 +364,36 @@ export function normalizeShellHostMaxOutputBytes(value: unknown): number {
   return Math.round(clampNumber(value, 16384, 1048576, DEFAULT_SETTINGS.shellHostMaxOutputBytes))
 }
 
-export function normalizeOpenClawFileAccessMode(value: unknown): OpenClawFileAccessMode {
+export function normalizeWorkspaceToolFileAccessMode(value: unknown): WorkspaceToolFileAccessMode {
   return value === 'read-only' ? 'read-only' : 'deny'
 }
 
-export function normalizeOpenClawFileWriteMode(value: unknown): OpenClawFileWriteMode {
-  const valid: OpenClawFileWriteMode[] = ['auto-approve', 'ask-first', 'deny']
-  return valid.includes(value as OpenClawFileWriteMode) ? (value as OpenClawFileWriteMode) : 'deny'
+export function normalizeWorkspaceToolFileWriteMode(value: unknown): WorkspaceToolFileWriteMode {
+  const valid: WorkspaceToolFileWriteMode[] = ['auto-approve', 'ask-first', 'deny']
+  return valid.includes(value as WorkspaceToolFileWriteMode) ? (value as WorkspaceToolFileWriteMode) : 'deny'
 }
 
-export function normalizeOpenClawCodeExecutionMode(value: unknown): OpenClawCodeExecutionMode {
-  const valid: OpenClawCodeExecutionMode[] = ['auto-approve', 'ask-first', 'deny']
-  return valid.includes(value as OpenClawCodeExecutionMode) ? (value as OpenClawCodeExecutionMode) : 'deny'
+export function normalizeWorkspaceToolCodeExecutionMode(value: unknown): WorkspaceToolCodeExecutionMode {
+  const valid: WorkspaceToolCodeExecutionMode[] = ['auto-approve', 'ask-first', 'deny']
+  return valid.includes(value as WorkspaceToolCodeExecutionMode) ? (value as WorkspaceToolCodeExecutionMode) : 'deny'
 }
 
-export function normalizeOpenClawBrowserMode(value: unknown): OpenClawBrowserMode {
-  const valid: OpenClawBrowserMode[] = ['ask-first', 'deny', 'read-only']
-  return valid.includes(value as OpenClawBrowserMode) ? (value as OpenClawBrowserMode) : 'deny'
+export function normalizeWorkspaceToolBrowserMode(value: unknown): WorkspaceToolBrowserMode {
+  const valid: WorkspaceToolBrowserMode[] = ['ask-first', 'deny', 'read-only']
+  return valid.includes(value as WorkspaceToolBrowserMode) ? (value as WorkspaceToolBrowserMode) : 'deny'
 }
 
-export function normalizeOpenClawUwafBrowserMode(value: unknown): OpenClawUwafBrowserMode {
-  const valid: OpenClawUwafBrowserMode[] = ['deny', 'direct', 'stealth']
-  return valid.includes(value as OpenClawUwafBrowserMode) ? (value as OpenClawUwafBrowserMode) : 'deny'
+export function normalizeWorkspaceToolUwafBrowserMode(value: unknown): WorkspaceToolUwafBrowserMode {
+  const valid: WorkspaceToolUwafBrowserMode[] = ['deny', 'direct', 'stealth']
+  return valid.includes(value as WorkspaceToolUwafBrowserMode) ? (value as WorkspaceToolUwafBrowserMode) : 'deny'
 }
 
-export function normalizeOpenClawUwafDefaultMode(value: unknown): OpenClawUwafDefaultMode {
+export function normalizeWorkspaceToolUwafDefaultMode(value: unknown): WorkspaceToolUwafDefaultMode {
   return value === 'stealth' ? 'stealth' : 'direct'
 }
 
-export function normalizeOpenClawAllowedPaths(value: unknown): string {
-  if (typeof value !== 'string') return DEFAULT_SETTINGS.openClawAllowedPaths
+export function normalizeWorkspaceToolAllowedPaths(value: unknown): string {
+  if (typeof value !== 'string') return DEFAULT_SETTINGS.workspaceToolAllowedPaths
 
   const normalized = value
     .split(/\r?\n|,/)
@@ -404,7 +404,7 @@ export function normalizeOpenClawAllowedPaths(value: unknown): string {
   return normalized.join('\n')
 }
 
-export function normalizeOpenClawAutomationExecutionModel(value: unknown): string {
+export function normalizeWorkspaceToolAutomationExecutionModel(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
@@ -423,7 +423,7 @@ const MAX_FAVORITE_KEY_LEN = 200
  * de-duplicated; the total count is capped. Unknown / non-string entries
  * are dropped. Returns a fresh array (never the input by reference).
  */
-export function normalizeOpenClawFavoriteModels(value: unknown): string[] {
+export function normalizeWorkspaceToolFavoriteModels(value: unknown): string[] {
   let list: unknown
   if (typeof value === 'string') {
     const trimmed = value.trim()
@@ -453,8 +453,8 @@ export function normalizeOpenClawFavoriteModels(value: unknown): string[] {
   return out
 }
 
-export function normalizeOpenClawAutomationExecutionMaxRunsPerHour(value: unknown): number {
-  return Math.round(clampNumber(value, 1, 60, DEFAULT_SETTINGS.openClawAutomationExecutionMaxRunsPerHour))
+export function normalizeWorkspaceToolAutomationExecutionMaxRunsPerHour(value: unknown): number {
+  return Math.round(clampNumber(value, 1, 60, DEFAULT_SETTINGS.workspaceToolAutomationExecutionMaxRunsPerHour))
 }
 
 export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings, unknown>> | null | undefined): AppSettings {
@@ -469,10 +469,10 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     modelKeepAlive: normalizeModelKeepAlive(settings?.modelKeepAlive, settings?.ollamaKeepAlive),
     ollamaKeepAlive: normalizeOllamaKeepAlive(settings?.ollamaKeepAlive),
     exclusiveOllamaModels: normalizeBoolean(settings?.exclusiveOllamaModels, DEFAULT_SETTINGS.exclusiveOllamaModels),
-    openClawProvider: normalizeOpenClawProvider(settings?.openClawProvider),
-    openClawModel: typeof settings?.openClawModel === 'string' ? settings.openClawModel.trim() : DEFAULT_SETTINGS.openClawModel,
-    openClawPromptTier: normalizeOpenClawPromptTier(settings?.openClawPromptTier),
-    openClawBaseUrl: normalizeOpenClawBaseUrl(settings?.openClawBaseUrl),
+    workspaceToolProvider: normalizeWorkspaceToolProvider(settings?.workspaceToolProvider),
+    workspaceToolModel: typeof settings?.workspaceToolModel === 'string' ? settings.workspaceToolModel.trim() : DEFAULT_SETTINGS.workspaceToolModel,
+    workspaceToolPromptTier: normalizeWorkspaceToolPromptTier(settings?.workspaceToolPromptTier),
+    workspaceToolBaseUrl: normalizeWorkspaceToolBaseUrl(settings?.workspaceToolBaseUrl),
     ragModel: normalizeRagModel(settings?.ragModel),
     ragMode: normalizeRagMode(settings?.ragMode),
     ollamaHost: normalizeOllamaHost(settings?.ollamaHost),
@@ -489,16 +489,16 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
       normalizeContextLength(settings?.contextLength),
     ),
     theme: normalizeTheme(settings?.theme),
-    openClawPersonaTemplate: normalizeString(settings?.openClawPersonaTemplate, DEFAULT_SETTINGS.openClawPersonaTemplate),
-    openClawPersonaName: normalizeString(settings?.openClawPersonaName, DEFAULT_SETTINGS.openClawPersonaName),
-    openClawPersonaTone: normalizeString(settings?.openClawPersonaTone, DEFAULT_SETTINGS.openClawPersonaTone),
-    openClawPersonaExpertise: normalizeString(settings?.openClawPersonaExpertise, DEFAULT_SETTINGS.openClawPersonaExpertise),
-    openClawPersonaBoundaries: normalizeString(settings?.openClawPersonaBoundaries, DEFAULT_SETTINGS.openClawPersonaBoundaries),
-    openClawPersonaOperatingInstructions: normalizeString(settings?.openClawPersonaOperatingInstructions, DEFAULT_SETTINGS.openClawPersonaOperatingInstructions),
-    openClawUserProfileName: normalizeString(settings?.openClawUserProfileName, DEFAULT_SETTINGS.openClawUserProfileName),
-    openClawUserProfileRole: normalizeString(settings?.openClawUserProfileRole, DEFAULT_SETTINGS.openClawUserProfileRole),
-    openClawUserProfilePreferences: normalizeString(settings?.openClawUserProfilePreferences, DEFAULT_SETTINGS.openClawUserProfilePreferences),
-    openClawUserProfileContext: normalizeString(settings?.openClawUserProfileContext, DEFAULT_SETTINGS.openClawUserProfileContext),
+    workspaceToolPersonaTemplate: normalizeString(settings?.workspaceToolPersonaTemplate, DEFAULT_SETTINGS.workspaceToolPersonaTemplate),
+    workspaceToolPersonaName: normalizeString(settings?.workspaceToolPersonaName, DEFAULT_SETTINGS.workspaceToolPersonaName),
+    workspaceToolPersonaTone: normalizeString(settings?.workspaceToolPersonaTone, DEFAULT_SETTINGS.workspaceToolPersonaTone),
+    workspaceToolPersonaExpertise: normalizeString(settings?.workspaceToolPersonaExpertise, DEFAULT_SETTINGS.workspaceToolPersonaExpertise),
+    workspaceToolPersonaBoundaries: normalizeString(settings?.workspaceToolPersonaBoundaries, DEFAULT_SETTINGS.workspaceToolPersonaBoundaries),
+    workspaceToolPersonaOperatingInstructions: normalizeString(settings?.workspaceToolPersonaOperatingInstructions, DEFAULT_SETTINGS.workspaceToolPersonaOperatingInstructions),
+    workspaceToolUserProfileName: normalizeString(settings?.workspaceToolUserProfileName, DEFAULT_SETTINGS.workspaceToolUserProfileName),
+    workspaceToolUserProfileRole: normalizeString(settings?.workspaceToolUserProfileRole, DEFAULT_SETTINGS.workspaceToolUserProfileRole),
+    workspaceToolUserProfilePreferences: normalizeString(settings?.workspaceToolUserProfilePreferences, DEFAULT_SETTINGS.workspaceToolUserProfilePreferences),
+    workspaceToolUserProfileContext: normalizeString(settings?.workspaceToolUserProfileContext, DEFAULT_SETTINGS.workspaceToolUserProfileContext),
     shellExecutionTarget: normalizeShellExecutionTarget(settings?.shellExecutionTarget),
     shellExecutionMode: normalizeShellExecutionMode(settings?.shellExecutionMode),
     shellAllowedCommands: normalizeString(settings?.shellAllowedCommands, DEFAULT_SETTINGS.shellAllowedCommands),
@@ -506,88 +506,88 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     shellHostAllowedEnvVars: normalizeShellHostAllowedEnvVars(settings?.shellHostAllowedEnvVars),
     shellHostMaxTimeoutMs: normalizeShellHostMaxTimeoutMs(settings?.shellHostMaxTimeoutMs),
     shellHostMaxOutputBytes: normalizeShellHostMaxOutputBytes(settings?.shellHostMaxOutputBytes),
-    openClawFileAccessMode: normalizeOpenClawFileAccessMode(
-      settings?.openClawFileAccessMode ?? DEFAULT_SETTINGS.openClawFileAccessMode
+    workspaceToolFileAccessMode: normalizeWorkspaceToolFileAccessMode(
+      settings?.workspaceToolFileAccessMode ?? DEFAULT_SETTINGS.workspaceToolFileAccessMode
     ),
-    openClawAllowedPaths: normalizeOpenClawAllowedPaths(settings?.openClawAllowedPaths),
-    openClawFileWriteMode: normalizeOpenClawFileWriteMode(
-      settings?.openClawFileWriteMode ?? DEFAULT_SETTINGS.openClawFileWriteMode
+    workspaceToolAllowedPaths: normalizeWorkspaceToolAllowedPaths(settings?.workspaceToolAllowedPaths),
+    workspaceToolFileWriteMode: normalizeWorkspaceToolFileWriteMode(
+      settings?.workspaceToolFileWriteMode ?? DEFAULT_SETTINGS.workspaceToolFileWriteMode
     ),
-    openClawWritablePaths: normalizeOpenClawAllowedPaths(
-      settings?.openClawWritablePaths !== undefined
-        ? settings.openClawWritablePaths
-        : DEFAULT_SETTINGS.openClawWritablePaths
+    workspaceToolWritablePaths: normalizeWorkspaceToolAllowedPaths(
+      settings?.workspaceToolWritablePaths !== undefined
+        ? settings.workspaceToolWritablePaths
+        : DEFAULT_SETTINGS.workspaceToolWritablePaths
     ),
-    openClawHostAccessMode: normalizeOpenClawHostAccessMode(
-      settings?.openClawHostAccessMode ?? DEFAULT_SETTINGS.openClawHostAccessMode
+    workspaceToolHostAccessMode: normalizeWorkspaceToolHostAccessMode(
+      settings?.workspaceToolHostAccessMode ?? DEFAULT_SETTINGS.workspaceToolHostAccessMode
     ),
-    openClawWorkspaceHostRoot: normalizeOpenClawWorkspaceHostRoot(
-      settings?.openClawWorkspaceHostRoot ?? DEFAULT_SETTINGS.openClawWorkspaceHostRoot
+    workspaceToolWorkspaceHostRoot: normalizeWorkspaceToolWorkspaceHostRoot(
+      settings?.workspaceToolWorkspaceHostRoot ?? DEFAULT_SETTINGS.workspaceToolWorkspaceHostRoot
     ),
-    openClawCodeExecutionMode: normalizeOpenClawCodeExecutionMode(
-      settings?.openClawCodeExecutionMode ?? DEFAULT_SETTINGS.openClawCodeExecutionMode
+    workspaceToolCodeExecutionMode: normalizeWorkspaceToolCodeExecutionMode(
+      settings?.workspaceToolCodeExecutionMode ?? DEFAULT_SETTINGS.workspaceToolCodeExecutionMode
     ),
-    openClawBrowserMode: normalizeOpenClawBrowserMode(
-      settings?.openClawBrowserMode ?? DEFAULT_SETTINGS.openClawBrowserMode
+    workspaceToolBrowserMode: normalizeWorkspaceToolBrowserMode(
+      settings?.workspaceToolBrowserMode ?? DEFAULT_SETTINGS.workspaceToolBrowserMode
     ),
-    openClawUwafBrowserMode: normalizeOpenClawUwafBrowserMode(
-      settings?.openClawUwafBrowserMode ?? DEFAULT_SETTINGS.openClawUwafBrowserMode
+    workspaceToolUwafBrowserMode: normalizeWorkspaceToolUwafBrowserMode(
+      settings?.workspaceToolUwafBrowserMode ?? DEFAULT_SETTINGS.workspaceToolUwafBrowserMode
     ),
-    openClawUwafScreenshots: false,
-    openClawUwafDefaultMode: normalizeOpenClawUwafDefaultMode(settings?.openClawUwafDefaultMode),
-    openClawUwafLiveBrowser: normalizeBoolean(settings?.openClawUwafLiveBrowser, DEFAULT_SETTINGS.openClawUwafLiveBrowser),
-    openClawAutomationExecutionEnabled: normalizeBoolean(
-      settings?.openClawAutomationExecutionEnabled,
-      DEFAULT_SETTINGS.openClawAutomationExecutionEnabled,
+    workspaceToolUwafScreenshots: false,
+    workspaceToolUwafDefaultMode: normalizeWorkspaceToolUwafDefaultMode(settings?.workspaceToolUwafDefaultMode),
+    workspaceToolUwafLiveBrowser: normalizeBoolean(settings?.workspaceToolUwafLiveBrowser, DEFAULT_SETTINGS.workspaceToolUwafLiveBrowser),
+    workspaceToolAutomationExecutionEnabled: normalizeBoolean(
+      settings?.workspaceToolAutomationExecutionEnabled,
+      DEFAULT_SETTINGS.workspaceToolAutomationExecutionEnabled,
     ),
-    openClawAutomationExecutionModel: normalizeOpenClawAutomationExecutionModel(
-      settings?.openClawAutomationExecutionModel,
+    workspaceToolAutomationExecutionModel: normalizeWorkspaceToolAutomationExecutionModel(
+      settings?.workspaceToolAutomationExecutionModel,
     ),
-    openClawAutomationExecutionMaxRunsPerHour: normalizeOpenClawAutomationExecutionMaxRunsPerHour(
-      settings?.openClawAutomationExecutionMaxRunsPerHour,
+    workspaceToolAutomationExecutionMaxRunsPerHour: normalizeWorkspaceToolAutomationExecutionMaxRunsPerHour(
+      settings?.workspaceToolAutomationExecutionMaxRunsPerHour,
     ),
-    openClawAutomationExecutionAttachWorkspace: normalizeBoolean(
-      settings?.openClawAutomationExecutionAttachWorkspace,
-      DEFAULT_SETTINGS.openClawAutomationExecutionAttachWorkspace,
+    workspaceToolAutomationExecutionAttachWorkspace: normalizeBoolean(
+      settings?.workspaceToolAutomationExecutionAttachWorkspace,
+      DEFAULT_SETTINGS.workspaceToolAutomationExecutionAttachWorkspace,
     ),
-    openClawAutomationExecutionAttachMemory: normalizeBoolean(
-      settings?.openClawAutomationExecutionAttachMemory,
-      DEFAULT_SETTINGS.openClawAutomationExecutionAttachMemory,
+    workspaceToolAutomationExecutionAttachMemory: normalizeBoolean(
+      settings?.workspaceToolAutomationExecutionAttachMemory,
+      DEFAULT_SETTINGS.workspaceToolAutomationExecutionAttachMemory,
     ),
-    openClawSessionAutoContinueDefault: normalizeSessionAutoContinueMode(
-      settings?.openClawSessionAutoContinueDefault,
+    workspaceToolSessionAutoContinueDefault: normalizeSessionAutoContinueMode(
+      settings?.workspaceToolSessionAutoContinueDefault,
     ),
-    openClawSessionAutoContinueMaxSteps: normalizeSessionAutoContinueMaxSteps(
-      settings?.openClawSessionAutoContinueMaxSteps,
-      DEFAULT_SETTINGS.openClawSessionAutoContinueMaxSteps,
+    workspaceToolSessionAutoContinueMaxSteps: normalizeSessionAutoContinueMaxSteps(
+      settings?.workspaceToolSessionAutoContinueMaxSteps,
+      DEFAULT_SETTINGS.workspaceToolSessionAutoContinueMaxSteps,
     ),
-    openClawMaxToolRoundsPerTurn: normalizeMaxToolRoundsPerTurn(
-      settings?.openClawMaxToolRoundsPerTurn,
-      DEFAULT_SETTINGS.openClawMaxToolRoundsPerTurn,
+    workspaceToolMaxToolRoundsPerTurn: normalizeMaxToolRoundsPerTurn(
+      settings?.workspaceToolMaxToolRoundsPerTurn,
+      DEFAULT_SETTINGS.workspaceToolMaxToolRoundsPerTurn,
     ),
-    openClawSessionSummariesEnabled: normalizeBoolean(
-      settings?.openClawSessionSummariesEnabled,
-      DEFAULT_SETTINGS.openClawSessionSummariesEnabled,
+    workspaceToolSessionSummariesEnabled: normalizeBoolean(
+      settings?.workspaceToolSessionSummariesEnabled,
+      DEFAULT_SETTINGS.workspaceToolSessionSummariesEnabled,
     ),
-    openClawSessionSummaryTargetTokens: normalizeSessionSummaryTargetTokens(
-      settings?.openClawSessionSummaryTargetTokens,
-      DEFAULT_SETTINGS.openClawSessionSummaryTargetTokens,
+    workspaceToolSessionSummaryTargetTokens: normalizeSessionSummaryTargetTokens(
+      settings?.workspaceToolSessionSummaryTargetTokens,
+      DEFAULT_SETTINGS.workspaceToolSessionSummaryTargetTokens,
     ),
-    openClawSessionPreserveTurns: normalizeSessionPreserveTurns(
-      settings?.openClawSessionPreserveTurns,
-      DEFAULT_SETTINGS.openClawSessionPreserveTurns,
+    workspaceToolSessionPreserveTurns: normalizeSessionPreserveTurns(
+      settings?.workspaceToolSessionPreserveTurns,
+      DEFAULT_SETTINGS.workspaceToolSessionPreserveTurns,
     ),
-    openClawSessionAnalyticsEnabled: normalizeBoolean(
-      settings?.openClawSessionAnalyticsEnabled,
-      DEFAULT_SETTINGS.openClawSessionAnalyticsEnabled,
+    workspaceToolSessionAnalyticsEnabled: normalizeBoolean(
+      settings?.workspaceToolSessionAnalyticsEnabled,
+      DEFAULT_SETTINGS.workspaceToolSessionAnalyticsEnabled,
     ),
-    openClawSessionBranchingEnabled: normalizeBoolean(
-      settings?.openClawSessionBranchingEnabled,
-      DEFAULT_SETTINGS.openClawSessionBranchingEnabled,
+    workspaceToolSessionBranchingEnabled: normalizeBoolean(
+      settings?.workspaceToolSessionBranchingEnabled,
+      DEFAULT_SETTINGS.workspaceToolSessionBranchingEnabled,
     ),
     ragEnabled: normalizeBoolean(settings?.ragEnabled, DEFAULT_SETTINGS.ragEnabled),
     ragTopK: normalizeRagTopK(settings?.ragTopK),
-    openClawFavoriteModels: JSON.stringify(normalizeOpenClawFavoriteModels(settings?.openClawFavoriteModels)),
+    workspaceToolFavoriteModels: JSON.stringify(normalizeWorkspaceToolFavoriteModels(settings?.workspaceToolFavoriteModels)),
   }
 }
 

@@ -52,7 +52,7 @@ override these via `.env`:
 
 ```env
 OLLAMA_HOST=http://your.ollama.host:11434
-OPENCLAW_HOST_EXECUTOR_URL=http://your.host:4318
+WORKSPACE_TOOL_HOST_EXECUTOR_URL=http://your.host:4318
 ```
 
 ## Environment Variables
@@ -69,11 +69,11 @@ Common optional:
 | Variable | Default | Purpose |
 |---|---|---|
 | `OLLAMA_HOST` | `http://host.docker.internal:11434` (Win/macOS) or `http://127.0.0.1:11434` (Linux host) | Ollama server URL |
-| `OPENCLAW_HOST_EXECUTOR_URL` | `http://127.0.0.1:4318` (Linux) or `http://host.docker.internal:4318` (Win/macOS) | Host shell executor endpoint |
-| `OPENCLAW_HOST_EXECUTOR_TOKEN` | _(unset)_ | Shared secret for the host executor. **Required** when running the host executor |
+| `WORKSPACE_TOOL_HOST_EXECUTOR_URL` | `http://127.0.0.1:4318` (Linux) or `http://host.docker.internal:4318` (Win/macOS) | Host shell executor endpoint |
+| `WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN` | _(unset)_ | Shared secret for the host executor. **Required** when running the host executor |
 | `TOR_PROXY_URL` | Auto-detected | SOCKS5 proxy for UWAF stealth mode. Override only if you have a non-Docker Tor instance |
 | `BRAVE_API_KEY` / `SEARXNG_URL` / `GOOGLE_SEARCH_API_KEY` + `GOOGLE_SEARCH_CX` | _(unset)_ | Internet-mode search backends (any one is enough) |
-| `PEAKUI_DATA_DIR` | `/mnt/openclaw/workspace` | Override the managed workspace mount |
+| `PEAKUI_DATA_DIR` | `/mnt/workspace-tool/workspace` | Override the managed workspace mount |
 | `PEAKUI_ALLOW_INTERNAL_HOSTS` | `false` | Permits `.internal` hostnames in browser/search guards. Do not enable in production |
 
 ## Persistent Volumes
@@ -174,8 +174,8 @@ process. Production must-do:
   never commit it.
 - **HTTPS** — terminate TLS at a reverse proxy; the app does not ship TLS.
 - **Account permissions** — every interactive capability is gated by an
-  account permission (`openclaw.shell`, `openclaw.filesystem`,
-  `openclaw.code`, `openclaw.uwaf`). Default to deny; grant per-user.
+  account permission (`workspace-tool.shell`, `workspace-tool.filesystem`,
+  `workspace-tool.code`, `workspace-tool.uwaf`). Default to deny; grant per-user.
 - **UWAF stealth** — leave it disabled unless you actually need it.
 - **Host shell executor** — run it on the same machine, behind a token,
   with a tight root allowlist and timeout cap. The executor runs shell

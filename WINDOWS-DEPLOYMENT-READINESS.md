@@ -8,8 +8,8 @@ Generated from current main (`267f42d`).
 - `WINDOWS-SETUP.md` and `setup-windows.ps1` provide PowerShell setup.
 - `restart-ollama-for-docker.bat` script to rebind Ollama to `0.0.0.0`.
 - `.env.example` has Windows examples.
-- `src/lib/openclaw-workspace.ts` already detects and preserves Windows drive-letter paths.
-- `scripts/openclaw-host-executor.mjs` has Windows shell/cmd support and path normalization.
+- `src/lib/workspace-tool-workspace.ts` already detects and preserves Windows drive-letter paths.
+- `scripts/workspace-tool-host-executor.mjs` has Windows shell/cmd support and path normalization.
 
 ## What still needs fixing for Windows
 
@@ -23,36 +23,36 @@ Generated from current main (`267f42d`).
 - If host shell executor is used, there is no `npipe` mount for the Docker engine.
 - Fix: add an optional `host-executor` service or document that Docker-in-container is not available on Windows Docker Desktop without WSL2 sidecar.
 
-### 3. Windows compose uses wrong `OPENCLAW_HOST_HOME_DIR` fallback
+### 3. Windows compose uses wrong `WORKSPACE_TOOL_HOST_HOME_DIR` fallback
 - In `.env.example` the default is `/home` which is invalid on Windows.
 - The setup script generates `C:\Users\%USERNAME%`, which is good.
-- Fix: ensure `docker-compose.windows.yml` marks `OPENCLAW_HOST_HOME_DIR`, `TMP_DIR`, and `WORKSPACE_DIR` as required and fails loudly if not set.
+- Fix: ensure `docker-compose.windows.yml` marks `WORKSPACE_TOOL_HOST_HOME_DIR`, `TMP_DIR`, and `WORKSPACE_DIR` as required and fails loudly if not set.
 
 ### 4. Workspace root per-user override may conflict with bind mounts
-- We added `openClawWorkspaceHostRoot` per user. On Linux the container resolves it via `OPENCLAW_HOST_WORKSPACE_DIR`.
+- We added `workspaceToolWorkspaceHostRoot` per user. On Linux the container resolves it via `WORKSPACE_TOOL_HOST_WORKSPACE_DIR`.
 - On Windows, if a user sets their default root to `C:\Users\John\Desktop\projectA`, the container must have that exact path bind-mounted or the app cannot reach it.
-- `docker-compose.windows.yml` only mounts `OPENCLAW_HOST_WORKSPACE_DIR` to `/mnt/openclaw/workspace`.
-- Fix: either (a) require all per-user roots to live under the single mounted workspace dir, or (b) detect out-of-mount roots and warn/fall back, or (c) add a `OPENCLAW_HOST_PROJECTS_DIR` mount (already in Linux compose) and route per-user roots there.
+- `docker-compose.windows.yml` only mounts `WORKSPACE_TOOL_HOST_WORKSPACE_DIR` to `/mnt/workspace-tool/workspace`.
+- Fix: either (a) require all per-user roots to live under the single mounted workspace dir, or (b) detect out-of-mount roots and warn/fall back, or (c) add a `WORKSPACE_TOOL_HOST_PROJECTS_DIR` mount (already in Linux compose) and route per-user roots there.
 
 ### 5. Path translation for host-mode code execution on Windows is incomplete
-- We patched `openclaw-code-execution.ts` to accept `C:\...` paths, but `resolveHostPathToContainer` mirrors them under `/mnt/openclaw/workspace/host/C/...`.
+- We patched `workspace-tool-code-execution.ts` to accept `C:\...` paths, but `resolveHostPathToContainer` mirrors them under `/mnt/workspace-tool/workspace/host/C/...`.
 - That mirror only works if the Windows path is inside the mounted workspace. Paths on `D:\` or outside the bind mount will not exist in the container.
-- Fix: on Windows, run code tools through the host executor (`OPENCLAW_HOST_EXECUTOR_URL`) rather than inside the container, or document that only paths under the mounted workspace are reachable.
+- Fix: on Windows, run code tools through the host executor (`WORKSPACE_TOOL_HOST_EXECUTOR_URL`) rather than inside the container, or document that only paths under the mounted workspace are reachable.
 
-### 6. Filesystem tool hardcodes `/home`, `/tmp`, and `/mnt/openclaw` mounted roots
-- `openclaw-filesystem.ts` builds roots from `OPENCLAW_HOST_HOME_DIR`, `OPENCLAW_HOST_TMP_DIR`, `OPENCLAW_HOST_WORKSPACE_DIR`.
+### 6. Filesystem tool hardcodes `/home`, `/tmp`, and `/mnt/workspace-tool` mounted roots
+- `workspace-tool-filesystem.ts` builds roots from `WORKSPACE_TOOL_HOST_HOME_DIR`, `WORKSPACE_TOOL_HOST_TMP_DIR`, `WORKSPACE_TOOL_HOST_WORKSPACE_DIR`.
 - On Windows these are set from `.env`, so that part is okay.
-- But there is no `OPENCLAW_HOST_PROJECTS_DIR` root in the Windows compose, so Desktop/project paths outside the workspace dir are not reachable.
-- Fix: add `OPENCLAW_HOST_PROJECTS_DIR` bind mount to Windows compose.
+- But there is no `WORKSPACE_TOOL_HOST_PROJECTS_DIR` root in the Windows compose, so Desktop/project paths outside the workspace dir are not reachable.
+- Fix: add `WORKSPACE_TOOL_HOST_PROJECTS_DIR` bind mount to Windows compose.
 
-### 7. `openclaw-narration-recovery.ts` and `OpenClawWorkspace.tsx` still hardcode `/home` / `/tmp`
-- We patched both to also accept Windows paths and `/mnt/openclaw`.
+### 7. `workspace-tool-narration-recovery.ts` and `WorkspaceToolWorkspace.tsx` still hardcode `/home` / `/tmp`
+- We patched both to also accept Windows paths and `/mnt/workspace-tool`.
 - Better fix: remove all hardcoded prefixes and check against `getMountedRoots().map(r => r.hostPath)`.
 
 ### 8. Shell executor on Windows uses `cmd.exe` but container-side shell assumes POSIX
 - `src/lib/shell-execution.ts` resolves `cwd` into a container path and runs `bash` inside the app container.
-- On Windows, container shell is still Linux, so host-targeted commands must go through `scripts/openclaw-host-executor.mjs` running on the Windows host.
-- Fix: ensure `OPENCLAW_HOST_EXECUTOR_URL` is set to `http://host.docker.internal:4318` on Windows, and that the user starts the executor with the correct token.
+- On Windows, container shell is still Linux, so host-targeted commands must go through `scripts/workspace-tool-host-executor.mjs` running on the Windows host.
+- Fix: ensure `WORKSPACE_TOOL_HOST_EXECUTOR_URL` is set to `http://host.docker.internal:4318` on Windows, and that the user starts the executor with the correct token.
 
 ### 9. PostgreSQL and Redis / pgvector on Windows
 - `pgvector/pgvector:pg15` image works on Docker Desktop WSL2.
@@ -74,12 +74,12 @@ Generated from current main (`267f42d`).
 
 ## Immediate action items
 
-1. Update `docker-compose.windows.yml` to mount `${OPENCLAW_HOST_PROJECTS_DIR}` too.
-2. Update `WINDOWS-SETUP.md` to explain per-user `openClawWorkspaceHostRoot` must be under the mounted workspace dir or projects dir.
+1. Update `docker-compose.windows.yml` to mount `${WORKSPACE_TOOL_HOST_PROJECTS_DIR}` too.
+2. Update `WINDOWS-SETUP.md` to explain per-user `workspaceToolWorkspaceHostRoot` must be under the mounted workspace dir or projects dir.
 3. Remove hardcoded `/home`/`/tmp` prefixes from narration recovery by checking mounted roots.
-4. Add Windows-specific `.env` generation in `setup-windows.ps1` for `OPENCLAW_HOST_PROJECTS_DIR`.
+4. Add Windows-specific `.env` generation in `setup-windows.ps1` for `WORKSPACE_TOOL_HOST_PROJECTS_DIR`.
 5. Test that host-mode code execution works with `C:\Users\...\project` paths when the directory is inside the mounted workspace/projects dir.
-6. Document that `openclaw.host` + `auto-approve` on Windows requires the host executor for true host shell access.
+6. Document that `workspace-tool.host` + `auto-approve` on Windows requires the host executor for true host shell access.
 
 ## Current status
 

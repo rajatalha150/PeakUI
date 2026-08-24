@@ -3,56 +3,56 @@
 import React, { useState, useEffect } from 'react';
 import KnowledgeBase from './components/KnowledgeBase';
 import SettingsPanel from './components/SettingsPanel';
-import OpenClawWorkspace from './components/OpenClawWorkspace';
+import WorkspaceToolWorkspace from './components/WorkspaceToolWorkspace';
 
-const OPENCLAW_VIEW_STORAGE = 'peakui-openclaw-view';
+const WORKSPACE_TOOL_VIEW_STORAGE = 'peakui-workspace-tool-view';
 
-type OpenClawView = 'workspace' | 'knowledge-base' | 'settings';
+type WorkspaceToolView = 'workspace' | 'knowledge-base' | 'settings';
 
-function normalizeOpenClawView(): OpenClawView {
+function normalizeWorkspaceToolView(): WorkspaceToolView {
   return 'workspace';
 }
 
 export default function Home() {
-  const getStoredOpenClawView = (): OpenClawView => {
+  const getStoredWorkspaceToolView = (): WorkspaceToolView => {
     if (typeof window === 'undefined') return 'workspace';
     try {
-      window.sessionStorage.removeItem(OPENCLAW_VIEW_STORAGE);
-      return normalizeOpenClawView();
+      window.sessionStorage.removeItem(WORKSPACE_TOOL_VIEW_STORAGE);
+      return normalizeWorkspaceToolView();
     } catch {
       return 'workspace';
     }
   };
 
-  const [openClawView, setOpenClawView] = useState<OpenClawView>(getStoredOpenClawView);
-  const [openClawSettingsRevision, setOpenClawSettingsRevision] = useState(0);
+  const [workspaceToolView, setWorkspaceToolView] = useState<WorkspaceToolView>(getStoredWorkspaceToolView);
+  const [workspaceToolSettingsRevision, setWorkspaceToolSettingsRevision] = useState(0);
   const [userSettings, setUserSettings] = useState<unknown>(null);
 
   useEffect(() => {
     try {
-      window.sessionStorage.setItem(OPENCLAW_VIEW_STORAGE, openClawView);
+      window.sessionStorage.setItem(WORKSPACE_TOOL_VIEW_STORAGE, workspaceToolView);
     } catch {
       // Ignore browser storage failures.
     }
-  }, [openClawView]);
+  }, [workspaceToolView]);
 
   const closeMobileChrome = () => {
     // Legacy mobile chrome state removed; kept as integration hook.
   };
 
-  const openOpenClawWorkspace = () => {
+  const openWorkspaceToolWorkspace = () => {
     closeMobileChrome();
-    setOpenClawView('workspace');
+    setWorkspaceToolView('workspace');
   };
 
-  const openOpenClawKnowledgeBase = () => {
+  const openWorkspaceToolKnowledgeBase = () => {
     closeMobileChrome();
-    setOpenClawView('knowledge-base');
+    setWorkspaceToolView('knowledge-base');
   };
 
   const openSettings = () => {
     closeMobileChrome();
-    setOpenClawView('settings');
+    setWorkspaceToolView('settings');
   };
 
   const handleLogout = async () => {
@@ -63,21 +63,21 @@ export default function Home() {
   return (
     <div className="app-container">
       <main className="main-content">
-        <OpenClawWorkspace
-          view={openClawView}
-          settingsRevision={openClawSettingsRevision}
+        <WorkspaceToolWorkspace
+          view={workspaceToolView}
+          settingsRevision={workspaceToolSettingsRevision}
           knowledgeBaseContent={<KnowledgeBase />}
           settingsContent={(
             <SettingsPanel
               onLogout={handleLogout}
               onSettingsChange={(s) => {
                 setUserSettings(s);
-                setOpenClawSettingsRevision(value => value + 1);
+                setWorkspaceToolSettingsRevision(value => value + 1);
               }}
             />
           )}
-          onNavigateToKnowledgeBase={openOpenClawKnowledgeBase}
-          onNavigateToWorkspace={openOpenClawWorkspace}
+          onNavigateToKnowledgeBase={openWorkspaceToolKnowledgeBase}
+          onNavigateToWorkspace={openWorkspaceToolWorkspace}
           onNavigateToSettings={openSettings}
         />
       </main>

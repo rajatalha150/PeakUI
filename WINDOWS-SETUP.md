@@ -41,9 +41,9 @@ The script creates a `.env` file automatically on first run. If you already have
 The generated `.env` uses the correct Windows Docker values:
 - `DATABASE_URL=postgresql://peakui:<password>@db:5432/peakui`
 - `OLLAMA_HOST=http://host.docker.internal:11434`
-- `OPENCLAW_HOST_HOME_DIR=C:\Users\%USERNAME%`
-- `OPENCLAW_HOST_TMP_DIR=C:\Users\%USERNAME%\AppData\Local\Temp`
-- `OPENCLAW_HOST_WORKSPACE_DIR=C:\Users\%USERNAME%\peakui-workspace`
+- `WORKSPACE_TOOL_HOST_HOME_DIR=C:\Users\%USERNAME%`
+- `WORKSPACE_TOOL_HOST_TMP_DIR=C:\Users\%USERNAME%\AppData\Local\Temp`
+- `WORKSPACE_TOOL_HOST_WORKSPACE_DIR=C:\Users\%USERNAME%\peakui-workspace`
 
 ### Option B: Manual Steps
 
@@ -74,7 +74,7 @@ cd C:\Path\To\PeakUI
 
 # Copy environment template and fill it in.
 # Make sure to uncomment the Windows examples for DATABASE_URL, OLLAMA_HOST,
-# OPENCLAW_HOST_*, and TOR_PROXY_URL.
+# WORKSPACE_TOOL_HOST_*, and TOR_PROXY_URL.
 copy .env.example .env
 notepad .env
 ```
@@ -141,15 +141,15 @@ If you want semantic RAG, also pull an embedding model such as `nomic-embed-text
 
 To run true host shell commands or `docker` commands from PeakUI on Windows, you need the optional **host executor** running on the Windows host:
 
-1. Set `OPENCLAW_HOST_EXECUTOR_TOKEN` to a strong secret in `.env`.
+1. Set `WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN` to a strong secret in `.env`.
 2. From PowerShell on the host, run:
    ```powershell
-   $env:OPENCLAW_HOST_EXECUTOR_TOKEN="your-secret-token"
-   $env:OPENCLAW_HOST_EXECUTOR_BIND="0.0.0.0"
-   node scripts/openclaw-host-executor.mjs
+   $env:WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN="your-secret-token"
+   $env:WORKSPACE_TOOL_HOST_EXECUTOR_BIND="0.0.0.0"
+   node scripts/workspace-tool-host-executor.mjs
    ```
-3. Ensure `OPENCLAW_HOST_EXECUTOR_URL=http://host.docker.internal:4318` in `.env`.
-4. Grant the `openclaw.host` permission and set **Unrestricted Host Access** to **Auto-approve** in settings.
+3. Ensure `WORKSPACE_TOOL_HOST_EXECUTOR_URL=http://host.docker.internal:4318` in `.env`.
+4. Grant the `workspace-tool.host` permission and set **Unrestricted Host Access** to **Auto-approve** in settings.
 
 Without the host executor, shell/code tools run inside the Linux container and cannot execute native Windows commands or access the Windows Docker engine directly.
 
@@ -159,20 +159,20 @@ Without the host executor, shell/code tools run inside the Linux container and c
 
 ## Workspace Directory Mapping
 
-Per-user workspace roots are supported. You can set **Settings → WorkSpaces → Default workspace root for this account** for each user. For this to work on Windows, that directory must be inside one of the bind mounts listed below (typically `OPENCLAW_HOST_WORKSPACE_DIR` or `OPENCLAW_HOST_PROJECTS_DIR`). Paths outside the mounted directories (for example `D:\`) will not be reachable from the container.
+Per-user workspace roots are supported. You can set **Settings → WorkSpaces → Default workspace root for this account** for each user. For this to work on Windows, that directory must be inside one of the bind mounts listed below (typically `WORKSPACE_TOOL_HOST_WORKSPACE_DIR` or `WORKSPACE_TOOL_HOST_PROJECTS_DIR`). Paths outside the mounted directories (for example `D:\`) will not be reachable from the container.
 
 PeakUI keeps two views of the same workspace directory:
 
 | Location | Path on Windows host | Path inside Docker container |
 |----------|----------------------|------------------------------|
-| Managed workspace | `C:\Users\%USERNAME%\peakui-workspace` (set by `OPENCLAW_HOST_WORKSPACE_DIR`) | `/mnt/openclaw/workspace` |
-| Host home tree | `C:\Users\%USERNAME%` (set by `OPENCLAW_HOST_HOME_DIR`) | `/mnt/openclaw/home` (read-only) |
-| Host temp | `C:\Users\%USERNAME%\AppData\Local\Temp` (set by `OPENCLAW_HOST_TMP_DIR`) | `/mnt/openclaw/tmp` (read-only) |
-| Projects / Desktop | `C:\Users\%USERNAME%\Desktop` (set by `OPENCLAW_HOST_PROJECTS_DIR`) | `/mnt/openclaw/projects` (read-write) |
+| Managed workspace | `C:\Users\%USERNAME%\peakui-workspace` (set by `WORKSPACE_TOOL_HOST_WORKSPACE_DIR`) | `/mnt/workspace-tool/workspace` |
+| Host home tree | `C:\Users\%USERNAME%` (set by `WORKSPACE_TOOL_HOST_HOME_DIR`) | `/mnt/workspace-tool/home` (read-only) |
+| Host temp | `C:\Users\%USERNAME%\AppData\Local\Temp` (set by `WORKSPACE_TOOL_HOST_TMP_DIR`) | `/mnt/workspace-tool/tmp` (read-only) |
+| Projects / Desktop | `C:\Users\%USERNAME%\Desktop` (set by `WORKSPACE_TOOL_HOST_PROJECTS_DIR`) | `/mnt/workspace-tool/projects` (read-write) |
 
-The app stores files inside the container at `/mnt/openclaw/workspace`, but it presents the Windows host path (`C:\Users\...`) to you and the AI. Filesystem and shell tools translate between the two automatically. Make sure the paths in your `.env` match the bind mounts in `docker-compose.windows.yml`.
+The app stores files inside the container at `/mnt/workspace-tool/workspace`, but it presents the Windows host path (`C:\Users\...`) to you and the AI. Filesystem and shell tools translate between the two automatically. Make sure the paths in your `.env` match the bind mounts in `docker-compose.windows.yml`.
 
-If you set a per-user default workspace root, choose a path under `OPENCLAW_HOST_WORKSPACE_DIR` (for managed WorkSpaces) or under `OPENCLAW_HOST_PROJECTS_DIR` (for project-level host access). The AI will use that root as the project directory.
+If you set a per-user default workspace root, choose a path under `WORKSPACE_TOOL_HOST_WORKSPACE_DIR` (for managed WorkSpaces) or under `WORKSPACE_TOOL_HOST_PROJECTS_DIR` (for project-level host access). The AI will use that root as the project directory.
 
 ## Post-Restart Workflow
 

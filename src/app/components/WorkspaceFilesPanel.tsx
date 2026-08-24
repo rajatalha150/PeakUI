@@ -36,7 +36,7 @@ export interface WorkspaceFilesPanelProps {
   workspaceName: string
   /**
    * Controlled expand state. When true the panel body renders; when false
-   * only the header is shown. The parent (OpenClawWorkspace) owns this
+   * only the header is shown. The parent (WorkspaceToolWorkspace) owns this
    * state and enforces the "max 2 expanded" accordion rule.
    */
   isExpanded: boolean

@@ -229,7 +229,7 @@ async function authenticateConnection(ws: WebSocket, req: IncomingMessage): Prom
   }
 
   const auth = await getAuthContextFromToken(token)
-  if (!auth || !auth.permissions.includes('openclaw.use') || !auth.permissions.includes('openclaw.uwaf')) {
+  if (!auth || !auth.permissions.includes('workspace-tool.use') || !auth.permissions.includes('workspace-tool.uwaf')) {
     sendJson(ws, { type: 'error', message: 'Invalid or expired token' })
     ws.close(4003, 'Unauthorized')
     return null

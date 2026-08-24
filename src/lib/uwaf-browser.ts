@@ -8,8 +8,8 @@ import {
   type ExtractedTable,
   type SanitizeOptions,
 } from './uwaf-sanitizer'
-import type { OpenClawUwafBrowserMode } from './settings'
-import { assertPublicHttpUrl } from './openclaw-browser'
+import type { WorkspaceToolUwafBrowserMode } from './settings'
+import { assertPublicHttpUrl } from './workspace-tool-browser'
 import { recordUwafPageOpenTime } from './uwaf-telemetry'
 import { searchPublicWeb } from './web-context'
 import {
@@ -297,9 +297,9 @@ export interface UwafBatchResult {
 }
 
 export interface UwafBrowserSettings {
-  openClawUwafBrowserMode: OpenClawUwafBrowserMode
-  openClawUwafScreenshots: boolean
-  openClawUwafDefaultMode: BrowserMode
+  workspaceToolUwafBrowserMode: WorkspaceToolUwafBrowserMode
+  workspaceToolUwafScreenshots: boolean
+  workspaceToolUwafDefaultMode: BrowserMode
 }
 
 const MAX_SESSION_SCREENSHOTS = 20
@@ -1230,7 +1230,7 @@ async function writeDarkWebNoteIfApplicable(input: {
 }): Promise<void> {
   if (input.mode !== 'stealth') return
   if (!input.query.trim()) return
-  const { recordDarkWebSearchNote } = await import('./openclaw-workspace')
+  const { recordDarkWebSearchNote } = await import('./workspace-tool-workspace')
   const observations = input.attempts.map(entry => ({
     provider: entry.provider,
     observation: entry.observation,
@@ -1670,8 +1670,8 @@ export async function runUwafBrowserAction(
   request: UwafBrowserRequest,
   settings: UwafBrowserSettings,
 ): Promise<UwafBrowserResult> {
-  const { openClawUwafBrowserMode } = settings
-  if (openClawUwafBrowserMode === 'deny') {
+  const { workspaceToolUwafBrowserMode } = settings
+  if (workspaceToolUwafBrowserMode === 'deny') {
     throw new Error('UWAF browser is disabled. Enable it in Settings to use web browsing.')
   }
 
@@ -1679,7 +1679,7 @@ export async function runUwafBrowserAction(
     throw new Error('Session ID is required for UWAF browser actions.')
   }
 
-  const mode: BrowserMode = request.browserMode || settings.openClawUwafDefaultMode || 'direct'
+  const mode: BrowserMode = request.browserMode || settings.workspaceToolUwafDefaultMode || 'direct'
   const stealthProfile = resolveStealthProfileForRequest(request, getDefaultStealthProfile())
 
   const session = getOrCreateSession(userId, request.sessionId, mode, stealthProfile)

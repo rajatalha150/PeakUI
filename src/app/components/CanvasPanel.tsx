@@ -47,9 +47,9 @@ import {
 import { downloadBlob } from './ChatMessageContent'
 
 const RENDERER_ENDPOINT_BY_KIND: Record<string, string> = {
-  pdf: '/api/openclaw/pdf-document',
-  word: '/api/openclaw/word-document',
-  workbook: '/api/openclaw/workbook-document',
+  pdf: '/api/workspace-tool/pdf-document',
+  word: '/api/workspace-tool/word-document',
+  workbook: '/api/workspace-tool/workbook-document',
 }
 
 function rendererEndpointForArtifact(artifact: CanvasArtifactRecord): string | null {

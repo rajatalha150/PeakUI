@@ -3,41 +3,41 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_SETTINGS,
   normalizeAppSettings,
-  normalizeOpenClawFavoriteModels,
+  normalizeWorkspaceToolFavoriteModels,
 } from './settings'
 
-describe('normalizeOpenClawFavoriteModels', () => {
+describe('normalizeWorkspaceToolFavoriteModels', () => {
   it('parses a JSON-encoded string array', () => {
-    expect(normalizeOpenClawFavoriteModels('["ollama:llama3.2:3b","openai-compatible:gpt-4o"]'))
+    expect(normalizeWorkspaceToolFavoriteModels('["ollama:llama3.2:3b","openai-compatible:gpt-4o"]'))
       .toEqual(['ollama:llama3.2:3b', 'openai-compatible:gpt-4o'])
   })
 
   it('accepts a raw array', () => {
-    expect(normalizeOpenClawFavoriteModels(['ollama:qwen2.5:7b']))
+    expect(normalizeWorkspaceToolFavoriteModels(['ollama:qwen2.5:7b']))
       .toEqual(['ollama:qwen2.5:7b'])
   })
 
   it('returns [] for an empty / blank / malformed string', () => {
-    expect(normalizeOpenClawFavoriteModels('')).toEqual([])
-    expect(normalizeOpenClawFavoriteModels('   ')).toEqual([])
-    expect(normalizeOpenClawFavoriteModels('not json')).toEqual([])
-    expect(normalizeOpenClawFavoriteModels('[]')).toEqual([])
+    expect(normalizeWorkspaceToolFavoriteModels('')).toEqual([])
+    expect(normalizeWorkspaceToolFavoriteModels('   ')).toEqual([])
+    expect(normalizeWorkspaceToolFavoriteModels('not json')).toEqual([])
+    expect(normalizeWorkspaceToolFavoriteModels('[]')).toEqual([])
   })
 
   it('returns [] for non-array / non-string input', () => {
-    expect(normalizeOpenClawFavoriteModels(null)).toEqual([])
-    expect(normalizeOpenClawFavoriteModels({})).toEqual([])
-    expect(normalizeOpenClawFavoriteModels(42)).toEqual([])
-    expect(normalizeOpenClawFavoriteModels(undefined)).toEqual([])
+    expect(normalizeWorkspaceToolFavoriteModels(null)).toEqual([])
+    expect(normalizeWorkspaceToolFavoriteModels({})).toEqual([])
+    expect(normalizeWorkspaceToolFavoriteModels(42)).toEqual([])
+    expect(normalizeWorkspaceToolFavoriteModels(undefined)).toEqual([])
   })
 
   it('drops non-string entries and trims / de-duplicates', () => {
-    expect(normalizeOpenClawFavoriteModels(['ollama:a', ' ollama:a ', 'ollama:b', 7, null, '']))
+    expect(normalizeWorkspaceToolFavoriteModels(['ollama:a', ' ollama:a ', 'ollama:b', 7, null, '']))
       .toEqual(['ollama:a', 'ollama:b'])
   })
 
   it('strips control characters from keys', () => {
-    const out = normalizeOpenClawFavoriteModels(['ollama:a\nb', 'ollama:c\td'])
+    const out = normalizeWorkspaceToolFavoriteModels(['ollama:a\nb', 'ollama:c\td'])
     // Newlines/tabs are control chars and are removed — the key collapses,
     // so 'ollama:ab' and 'ollama:cd' (no internal whitespace gaps).
     expect(out).toEqual(['ollama:ab', 'ollama:cd'])
@@ -45,44 +45,44 @@ describe('normalizeOpenClawFavoriteModels', () => {
 
   it('caps the total number of favorites', () => {
     const many = Array.from({ length: 500 }, (_, i) => `ollama:model${i}`)
-    const out = normalizeOpenClawFavoriteModels(many)
+    const out = normalizeWorkspaceToolFavoriteModels(many)
     expect(out.length).toBe(256)
   })
 
   it('caps the length of a single key', () => {
     const long = 'x'.repeat(500)
-    const out = normalizeOpenClawFavoriteModels([long])
+    const out = normalizeWorkspaceToolFavoriteModels([long])
     expect(out[0].length).toBe(200)
   })
 
   it('never returns the input array by reference', () => {
     const input = ['ollama:a']
-    const out = normalizeOpenClawFavoriteModels(input)
+    const out = normalizeWorkspaceToolFavoriteModels(input)
     expect(out).not.toBe(input)
     expect(out).toEqual(input)
   })
 })
 
-describe('normalizeAppSettings — openClawFavoriteModels round-trip', () => {
+describe('normalizeAppSettings — workspaceToolFavoriteModels round-trip', () => {
   it('stores favorites as a JSON string (DB column shape), not an array', () => {
-    const out = normalizeAppSettings({ openClawFavoriteModels: '["ollama:llama3.2:3b"]' })
-    expect(typeof out.openClawFavoriteModels).toBe('string')
-    expect(out.openClawFavoriteModels).toBe('["ollama:llama3.2:3b"]')
+    const out = normalizeAppSettings({ workspaceToolFavoriteModels: '["ollama:llama3.2:3b"]' })
+    expect(typeof out.workspaceToolFavoriteModels).toBe('string')
+    expect(out.workspaceToolFavoriteModels).toBe('["ollama:llama3.2:3b"]')
   })
 
   it('defaults to the empty JSON array string when absent', () => {
     const out = normalizeAppSettings({})
-    expect(out.openClawFavoriteModels).toBe('[]')
-    expect(DEFAULT_SETTINGS.openClawFavoriteModels).toBe('[]')
+    expect(out.workspaceToolFavoriteModels).toBe('[]')
+    expect(DEFAULT_SETTINGS.workspaceToolFavoriteModels).toBe('[]')
   })
 
   it('normalizes a malformed stored value back to "[]"', () => {
-    expect(normalizeAppSettings({ openClawFavoriteModels: 'garbage' }).openClawFavoriteModels).toBe('[]')
-    expect(normalizeAppSettings({ openClawFavoriteModels: null }).openClawFavoriteModels).toBe('[]')
+    expect(normalizeAppSettings({ workspaceToolFavoriteModels: 'garbage' }).workspaceToolFavoriteModels).toBe('[]')
+    expect(normalizeAppSettings({ workspaceToolFavoriteModels: null }).workspaceToolFavoriteModels).toBe('[]')
   })
 
   it('de-duplicates on the way through', () => {
-    const out = normalizeAppSettings({ openClawFavoriteModels: '["ollama:a","ollama:a","ollama:b"]' })
-    expect(JSON.parse(out.openClawFavoriteModels)).toEqual(['ollama:a', 'ollama:b'])
+    const out = normalizeAppSettings({ workspaceToolFavoriteModels: '["ollama:a","ollama:a","ollama:b"]' })
+    expect(JSON.parse(out.workspaceToolFavoriteModels)).toEqual(['ollama:a', 'ollama:b'])
   })
 })

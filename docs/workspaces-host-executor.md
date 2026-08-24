@@ -23,30 +23,30 @@ If `Host` is selected but the executor is not configured or reachable, WorkSpace
 Set a token that both the app container and the host daemon can read:
 
 ```bash
-export OPENCLAW_HOST_EXECUTOR_TOKEN='replace-this-with-a-long-random-token'
+export WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN='replace-this-with-a-long-random-token'
 ```
 
 Optional overrides:
 
 ```bash
-export OPENCLAW_HOST_EXECUTOR_BIND='127.0.0.1'
-export OPENCLAW_HOST_EXECUTOR_PORT='4318'
-export OPENCLAW_HOST_EXECUTOR_URL='http://127.0.0.1:4318'
-export OPENCLAW_HOST_EXECUTOR_SHELL='/bin/bash'
+export WORKSPACE_TOOL_HOST_EXECUTOR_BIND='127.0.0.1'
+export WORKSPACE_TOOL_HOST_EXECUTOR_PORT='4318'
+export WORKSPACE_TOOL_HOST_EXECUTOR_URL='http://127.0.0.1:4318'
+export WORKSPACE_TOOL_HOST_EXECUTOR_SHELL='/bin/bash'
 ```
 
 Start the daemon on the host:
 
 ```bash
-npm run openclaw:host-executor
+npm run workspace-tool:host-executor
 ```
 
-Then restart the PeakUI app container so it picks up `OPENCLAW_HOST_EXECUTOR_URL` and `OPENCLAW_HOST_EXECUTOR_TOKEN`.
+Then restart the PeakUI app container so it picks up `WORKSPACE_TOOL_HOST_EXECUTOR_URL` and `WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN`.
 
 With Docker Compose, put the same token in the shell environment used to start Compose:
 
 ```bash
-export OPENCLAW_HOST_EXECUTOR_TOKEN='replace-this-with-a-long-random-token'
+export WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN='replace-this-with-a-long-random-token'
 docker compose up -d --build
 ```
 
@@ -68,7 +68,7 @@ Settings also includes Host Access presets:
 - `Home Read + Workspace Write`: filesystem reads are allowed for mounted home/temp roots; writes remain workspace-only.
 - `Mounted Host Audit`: reads all mounted host roots and lets host shell commands start from those mounted roots; writes remain workspace-only.
 
-The status card calls `/api/openclaw/filesystem` and reports:
+The status card calls `/api/workspace-tool/filesystem` and reports:
 
 - whether the current account has filesystem permission
 - mounted host roots and writable roots
@@ -91,14 +91,14 @@ The same daemon works on Windows, but a few details differ:
 1. Start the daemon with PowerShell or Command Prompt (not inside WSL or Docker):
 
    ```powershell
-   $env:OPENCLAW_HOST_EXECUTOR_TOKEN='replace-this-with-a-long-random-token'
-   $env:OPENCLAW_HOST_WORKSPACE_DIR='C:\Users\John\peakui-workspace'
-   npm run openclaw:host-executor
+   $env:WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN='replace-this-with-a-long-random-token'
+   $env:WORKSPACE_TOOL_HOST_WORKSPACE_DIR='C:\Users\John\peakui-workspace'
+   npm run workspace-tool:host-executor
    ```
 
-2. The executor auto-detects Windows and uses `cmd.exe` (or PowerShell if `OPENCLAW_HOST_EXECUTOR_SHELL` points to it). It translates container paths such as `/mnt/openclaw/workspace/...` back to the matching Windows host path so commands run in the right directory.
+2. The executor auto-detects Windows and uses `cmd.exe` (or PowerShell if `WORKSPACE_TOOL_HOST_EXECUTOR_SHELL` points to it). It translates container paths such as `/mnt/workspace-tool/workspace/...` back to the matching Windows host path so commands run in the right directory.
 
-3. On Docker Desktop for Windows, the app container reaches the host daemon through `http://host.docker.internal:4318`. Make sure `OPENCLAW_HOST_EXECUTOR_URL` in the container environment matches the host bind address. If you bind to `127.0.0.1` inside the host (the default), Docker Desktop's `host.docker.internal` will reach it.
+3. On Docker Desktop for Windows, the app container reaches the host daemon through `http://host.docker.internal:4318`. Make sure `WORKSPACE_TOOL_HOST_EXECUTOR_URL` in the container environment matches the host bind address. If you bind to `127.0.0.1` inside the host (the default), Docker Desktop's `host.docker.internal` will reach it.
 
 4. Windows signals behave differently than on Linux. The daemon attempts graceful termination and falls back to `SIGKILL`; this is usually mapped to `TerminateProcess` by Node.js, but it may be less reliable than on Linux. Keep timeout and output caps conservative.
 

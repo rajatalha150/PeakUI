@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getOpenClawWorkspaceContainerRoot } from './openclaw-workspace'
+import { getWorkspaceToolWorkspaceContainerRoot } from './workspace-tool-workspace'
 import { getShellCommandDecision, resolveContainerShellCwd } from './shell-execution'
 
 describe('getShellCommandDecision', () => {
@@ -38,14 +38,14 @@ describe('getShellCommandDecision', () => {
   })
 
   it('defaults container shell commands to the managed workspace', () => {
-    expect(resolveContainerShellCwd()).toBe(getOpenClawWorkspaceContainerRoot())
+    expect(resolveContainerShellCwd()).toBe(getWorkspaceToolWorkspaceContainerRoot())
   })
 
   it('maps host-style managed workspace paths into the container workspace mount', () => {
-    expect(resolveContainerShellCwd('~/.peakui/workspace/notes')).toBe(`${getOpenClawWorkspaceContainerRoot()}/notes`)
+    expect(resolveContainerShellCwd('~/.peakui/workspace/notes')).toBe(`${getWorkspaceToolWorkspaceContainerRoot()}/notes`)
   })
 
   it('does not let container shell default to the PeakUI app runtime directory', () => {
-    expect(resolveContainerShellCwd('/app')).toBe(getOpenClawWorkspaceContainerRoot())
+    expect(resolveContainerShellCwd('/app')).toBe(getWorkspaceToolWorkspaceContainerRoot())
   })
 })
