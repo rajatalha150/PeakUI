@@ -2261,7 +2261,7 @@ function buildRecoveryWrapperExample(toolName: WorkspaceToolRequest['name'] | un
     case 'filesystem':
       return '<workspace_tool name="shell">{"command":"ls -la <path>","description":"<what you want to know>"}</workspace_tool>'
     case 'tax_return':
-      return '<workspace_tool name="tax_return">{"action":"generate","folder":"<kb folder>","taxYear":"<YYYY>"}</workspace_tool>'
+      return '<workspace_tool name="tax_return">{"action":"generate_review_pdf","folder":"<kb folder>","taxYear":"<YYYY>"}</workspace_tool>'
     case 'fetch_summarize':
       return '<workspace_tool name="fetch_summarize">{"url":"<https URL>","description":"<what to summarize>"}</workspace_tool>'
     default:

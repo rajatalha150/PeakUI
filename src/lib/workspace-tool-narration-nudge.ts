@@ -167,7 +167,7 @@ const WRAPPER_EXAMPLES: Readonly<Record<WorkspaceToolName, string>> = {
   unified_browser:
     '<workspace_tool name="unified_browser">{"action":"open","url":"<https URL>","description":"<what to inspect>"}</workspace_tool>',
   tax_return:
-    '<workspace_tool name="tax_return">{"action":"generate","folder":"<kb folder>","taxYear":"<YYYY>"}</workspace_tool>',
+    '<workspace_tool name="tax_return">{"action":"generate_review_pdf","folder":"<kb folder>","taxYear":"<YYYY>"}</workspace_tool>',
   fetch_summarize:
     '<workspace_tool name="fetch_summarize">{"url":"<https URL>","description":"<what to summarize>"}</workspace_tool>',
   pdf_document:

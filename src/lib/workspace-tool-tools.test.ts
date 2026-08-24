@@ -459,6 +459,34 @@ describe('template placeholder guard', () => {
     expect(extracted.request).toBeUndefined()
   })
 
+  it('rejects a copied <kb folder> placeholder for tax_return folder', () => {
+    const input = '<workspace_tool name="tax_return">{"action":"generate_review_pdf","folder":"<kb folder>","taxYear":"2025"}</workspace_tool>'
+    const extracted = extractWorkspaceToolRequest(input)
+    // The folder placeholder is dropped, but the call still has a valid action
+    // and taxYear, so it dispatches without the bogus folder value.
+    expect(extracted.request?.name).toBe('tax_return')
+    if (extracted.request?.name !== 'tax_return') throw new Error('expected tax_return')
+    expect(extracted.request.request.folder).toBeUndefined()
+    expect(extracted.request.request.taxYear).toBe('2025')
+  })
+
+  it('rejects a copied <YYYY> placeholder for tax_return taxYear', () => {
+    const input = '<workspace_tool name="tax_return">{"action":"generate_review_pdf","taxYear":"<YYYY>"}</workspace_tool>'
+    const extracted = extractWorkspaceToolRequest(input)
+    expect(extracted.request?.name).toBe('tax_return')
+    if (extracted.request?.name !== 'tax_return') throw new Error('expected tax_return')
+    expect(extracted.request.request.taxYear).toBeUndefined()
+  })
+
+  it('rejects a copied <value> placeholder inside tax_return fields', () => {
+    const input = '<workspace_tool name="tax_return">{"action":"fill_pdf_form","formId":"f1040","fields":{"f1_first_name":"<value>"}}</workspace_tool>'
+    const extracted = extractWorkspaceToolRequest(input)
+    expect(extracted.request?.name).toBe('tax_return')
+    if (extracted.request?.name !== 'tax_return') throw new Error('expected tax_return')
+    // The placeholder field value is dropped, leaving an empty fields map.
+    expect(extracted.request.request.fields).toBeUndefined()
+  })
+
   it('keeps a real value that merely contains angle brackets mid-string (not a placeholder)', () => {
     const input = '<workspace_tool name="code">{"runtime":"node","code":"const el = <App />;","description":"render"}</workspace_tool>'
     const extracted = extractWorkspaceToolRequest(input)

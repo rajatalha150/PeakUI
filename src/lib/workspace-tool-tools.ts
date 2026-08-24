@@ -1306,23 +1306,28 @@ export function extractWorkspaceToolRequest(content: string): {
           : undefined,
       }
 
-      if (typeof parsed.folder === 'string' && parsed.folder.trim()) {
-        request.folder = parsed.folder.trim()
+      if (typeof parsed.folder === 'string') {
+        const folder = cleanFieldValue(parsed.folder)
+        if (folder) request.folder = folder
       }
-      if (typeof parsed.taxYear === 'string' && parsed.taxYear.trim()) {
-        request.taxYear = parsed.taxYear.trim()
+      if (typeof parsed.taxYear === 'string') {
+        const taxYear = cleanFieldValue(parsed.taxYear)
+        if (taxYear) request.taxYear = taxYear
       }
-      if (typeof parsed.templateDocumentId === 'string' && parsed.templateDocumentId.trim()) {
-        request.templateDocumentId = parsed.templateDocumentId.trim()
+      if (typeof parsed.templateDocumentId === 'string') {
+        const templateDocumentId = cleanFieldValue(parsed.templateDocumentId)
+        if (templateDocumentId) request.templateDocumentId = templateDocumentId
       }
-      if (typeof parsed.formId === 'string' && parsed.formId.trim()) {
-        request.formId = parsed.formId.trim()
+      if (typeof parsed.formId === 'string') {
+        const formId = cleanFieldValue(parsed.formId)
+        if (formId) request.formId = formId
       }
       if (parsed.fields && typeof parsed.fields === 'object' && !Array.isArray(parsed.fields)) {
         const fields: Record<string, string> = {}
         for (const [key, value] of Object.entries(parsed.fields)) {
           if (typeof key === 'string' && key.trim() && (typeof value === 'string' || typeof value === 'number')) {
-            fields[key.trim()] = String(value)
+            const cleanValue = typeof value === 'string' ? cleanFieldValue(value) : String(value)
+            if (cleanValue) fields[key.trim()] = cleanValue
           }
         }
         if (Object.keys(fields).length > 0) request.fields = fields
