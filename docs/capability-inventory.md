@@ -36,6 +36,8 @@ Each document-generation tool runs its parsed payload through a normalization st
 
 All registered tool names are enumerated in `WORKSPACE_TOOL_NAMES` in `src/lib/workspace-tool-tools.ts`. The parser regex, tag stripper, and client-side name normalizer are derived from that list, so adding a new tool is a one-line array change plus a parser branch.
 
+The parser accepts the custom `<workspace_tool>` wrapper **and** the native tool-call syntax of Qwen, Gemma, Llama, Mistral, GLM, and Anthropic-style models, normalizing them all to the same request shape. See [Tool-Call Formats](tool-call-formats.md) for the full reference.
+
 ## Adapter Types
 
 - `native`: Built into PeakUI and executed through app-owned API routes.

@@ -19,12 +19,27 @@ PeakUI opens directly into WorkSpaces. Workspace, Knowledge Base, Settings, task
 PeakUI detects each model's capacity (parameter size + native context window) and adapts the system prompt and context window to it, so small local models stop getting cut off mid-sentence and large/cloud models keep the full tool manifest.
 
 - **Capacity detection**: `getModelCapacityProfile` in `src/lib/model-context.ts` queries Ollama `/api/show` (cached 5 min per model, handles both the old `details.parameter_size` + `model_info` shape and the new `general.parameter_count` + `general.context_length` shape) and falls back to name-based heuristics on any failure. Non-Ollama providers get the cloud profile immediately without a fetch.
-- **Graduated prompt tiers**: `minimal` (≤4B) / `compact` (≤9B) / `standard` (≤30B) / `full` (>30B, cloud). `minimal` drops the verbose core-protocol rules, recovery behavior, single-shot mode, and all document examples so the manifest fits a 2048-token window next to the conversation; `full` includes every document example.
+- **Graduated prompt tiers**: `minimal` (≤4B) / `compact` (≤9B) / `standard` (≤30B) / `full` (>30B, cloud). `minimal` drops the verbose core-protocol rules, recovery behavior, single-shot mode, and all document examples so the manifest fits a 2048-token window next to the conversation. Document-generation examples are query-gated in every tier: the relevant tutorial is only emitted when the latest user query signals document intent, so an idle `full` prompt stays compact.
 - **Adaptive context window**: when `/api/show` reports a native window, the default `num_ctx` is raised when the model comfortably allows it (≤9B → 8192 when native ≥ 8192; ≤4B → 4096 when native ≥ 4096) and both the default and the hard cap are clamped to the native window. The existing OOM backoff loop still steps down automatically if a raise is too aggressive for the GPU.
 - **Manual override**: Settings → Generation → **Prompt Detail Level** (`workspaceToolPromptTier`) defaults to `auto` (detected from capacity) and can be pinned to `minimal` / `compact` / `standard` / `full`.
 - **Always-on compact tool manifest**: Regardless of tier, every prompt includes a `TOOL MANIFEST` block listing each active tool's exact `name` plus a one-line JSON signature (e.g. `browser {"action":"open","url":"..."}`, `pdf_document {"title":"..."}`). This keeps small local models from hallucinating tool names/fields when their verbose tutorials are trimmed to fit the context window.
 - **Always-on tool-selection routing**: Every prompt (all tiers) also includes a `TOOL SELECTION` block that pins the intent→tool mapping so the model picks the right tool instead of improvising with shell. Current/external information (stock prices, market data, quotes, news, "analyze TICKER", lookups, statistics) routes to the `web` tool — with an explicit rule never to scrape a page with shell+curl/wget, since finance and news sites are JavaScript-rendered and return nothing useful. Local-machine facts route to `filesystem`/`shell`; step-by-step navigation, JS-heavy pages, forms, and login route to `browser`/`unified_browser`; running code or transforming data routes to the `code` sandbox. The `internet` intent keywords were also expanded (stock, ticker, price, quote, market, analyze, earnings, financial, weather, statistics) so queries like "analyze pltr" trigger the full web-research instructions instead of a one-line note.
 - **Both prompt callers honor the tier**: interactive WorkSpaces chats and unattended automation runs both fetch the profile and pass the tier, so background runs no longer send a 17KB full prompt to an 8B model.
+- **Device-fit classification**: `classifyModelFit` in `src/lib/model-context.ts` classifies a model as `fits` / `tight` / `oversized` / `unknown` against the free GPU VRAM (with ~1 GB headroom for the KV cache). The model picker annotates each model with its size and a `may not fit GPU` / `tight on GPU` flag, so users stop selecting models that are too large for their hardware — the root cause of "models take forever to load" on small GPUs.
+
+### Multi-Format Tool-Call Parsing
+
+PeakUI's tool-call parser accepts the custom `<workspace_tool>` wrapper **and** the native tool-call syntax of the most common local model families, normalizing them all to the same request shape so per-tool validation runs identically:
+
+- Qwen / Hermes `<tool_call>{"name","arguments"}`
+- Anthropic `<invoke name><parameter>`
+- Llama-3 `<|python_tag|>NAME.call(k=v)`
+- Mistral `[TOOL_CALLS] [...]` / `name{json}` / `name[ARGS]{json}`
+- Gemma 4 `<|tool_call>call:NAME{json}`
+- GLM 4.5-4.7 `<tool_call>NAME<arg_key>/<arg_value>`
+- Qwen3.5 XML `<function=name><parameter=k>v</parameter>`
+
+Missing closing tags are tolerated (models truncate mid-stream), unknown tool names are rejected, and every format is stripped from the visible transcript. See [Tool-Call Formats](tool-call-formats.md) for the full reference.
 
 ### Organization
 

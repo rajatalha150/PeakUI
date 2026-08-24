@@ -40,6 +40,7 @@ Open [http://localhost:3000](http://localhost:3000).
 | `npm run start` | Start production server |
 | `npm test` | Run Vitest suite |
 | `npm run lint` | Run ESLint |
+| `npm run bundle:check` | Check the JavaScript bundle budget (fails if the entry bundle bloats) |
 | `npm run workspace-tool:host-executor` | Start optional host shell executor |
 
 ## Testing
@@ -89,7 +90,8 @@ editing the Dockerfile `CMD`. See the comment above the `CMD` for details.
 - `src/lib/chat-completion.ts` is the shared streaming completion pipeline.
 - `src/lib/chat-sessions.ts` handles session persistence, branching, and analytics.
 - `src/lib/session-intelligence.ts` manages context compression and continuation.
-- `src/lib/model-context.ts` detects model capacity (parameter size + native context window via Ollama `/api/show`) and maps it to a prompt tier (`minimal` / `compact` / `standard` / `full`) and a `num_ctx` recommendation. `workspace-tool-prompt.ts` consumes the tier; `chat-completion.ts` and `workspace-tool-automation-execution.ts` fetch the profile before building the prompt.
+- `src/lib/model-context.ts` detects model capacity (parameter size + native context window via Ollama `/api/show`) and maps it to a prompt tier (`minimal` / `compact` / `standard` / `full`) and a `num_ctx` recommendation. It also exports `classifyModelFit`, which flags models that won't fit the GPU's free VRAM (used by the model picker). `workspace-tool-prompt.ts` consumes the tier; `chat-completion.ts` and `workspace-tool-automation-execution.ts` fetch the profile before building the prompt.
+- `src/lib/workspace-tool-tools.ts` is the tool-call parser. It accepts the custom `<workspace_tool>` wrapper plus the native syntax of Qwen, Gemma, Llama, Mistral, GLM, and Anthropic-style models, normalizing them all to the same request shape (see `docs/tool-call-formats.md`). `stripAllToolTags` removes every format from the visible transcript.
 - `src/instrumentation.ts` starts the server-side automation worker.
 
 ## Internal Naming

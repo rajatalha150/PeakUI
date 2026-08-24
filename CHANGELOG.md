@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Multi-format tool-call parser
+
+Local GGUF models often emit their own native tool-call syntax instead of the custom `<workspace_tool>` wrapper, and the old parser rejected all of them — the single biggest source of tool-call failures on local models. `src/lib/workspace-tool-tools.ts` now recognizes and normalizes the common model-native formats to the same request shape, so per-tool validation runs unchanged:
+
+- Qwen / Hermes `<tool_call>{"name","arguments"}` (tolerates a missing close tag)
+- Anthropic `<invoke name><parameter>` (standalone or nested in `<function_calls>`)
+- Llama-3 `<|python_tag|>NAME.call(k=v)`
+- Mistral `[TOOL_CALLS] [...]` / `name{json}` / `name[ARGS]{json}`
+- Gemma 4 `<|tool_call>call:NAME{json}`
+- GLM 4.5-4.7 `<tool_call>NAME<arg_key>/<arg_value>`
+- Qwen3.5 XML `<function=name><parameter=k>v</parameter>`
+
+`stripAllToolTags` also strips every format (including closing tokens) so raw markup never leaks into the visible transcript. 20 new tests in `src/lib/workspace-tool-foreign-formats.test.ts` cover parsing, truncation tolerance, unknown-name rejection, and per-tool validation. See `docs/tool-call-formats.md`.
+
+### Added — Bundle budget gate, streaming stall budget, model device-fit check
+
+Three practices adopted from Unsloth to keep PeakUI premium and smooth:
+
+- **Bundle budget gate** (`scripts/check-bundle-budget.mjs` + `npm run bundle:check`, wired into CI): measures the JS the browser downloads/parses before first paint and fails the build if it exceeds a hard budget, catching accidental static imports of heavy client libs into the entry bundle.
+- **Streaming-render stall budget** (`src/app/components/AssistantContent.stall.test.ts`): locks in a budget for the pure markdown parser so a superlinear regression (the "transition starvation" that freezes the chat bubble during streaming) fails CI.
+- **Model device-fit check** (`classifyModelFit` in `src/lib/model-context.ts`): flags models that won't fit the GPU's free VRAM, and annotates the model picker with size + `may not fit GPU` / `tight on GPU`.
+
 ### Changed — Renamed the "OpenClaw" surface to the generic "workspace-tool"
 
 The internal agent/tool surface was branded "OpenClaw" (wire tag `<openclaw_tool>`, API routes `/api/openclaw/*`, `OpenClaw*` types, `openClaw*` settings columns, `OPENCLAW_*` env vars, and ~40 `openclaw-*.ts` filenames). It is now the generic **`workspace-tool`** name throughout:

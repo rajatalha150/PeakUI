@@ -33,7 +33,7 @@ Most AI chat interfaces send your prompts, documents, and browsing history to so
 | **Remote providers** | OpenAI-compatible endpoints, including Hugging Face router, TGI, vLLM, and SGLang-style servers |
 | **Knowledge Base** | PostgreSQL-backed document index with semantic, keyword, hybrid RRF, source chips, and full-access mode |
 | **Canvas** | Compact artifact rows, modal previews (PDF, image, markdown, code, table, chart, ZIP, ICS), source-editable binary artifacts, downloads, bundles, revisions, lineage, search, restore, exports, and a server-side preview endpoint for Excel/Word/email/slides/Mermaid inline rendering |
-| **Tools** | Shell, filesystem, code sandbox, public browser, UWAF Direct/Stealth browser, PDF/Word/Excel/PowerPoint/CSV/Email/Markdown/ZIP/ICS/Mermaid artifact generation, and URL fetch-summarize with approval gates |
+| **Tools** | Shell, filesystem, code sandbox, public browser, UWAF Direct/Stealth browser, PDF/Word/Excel/PowerPoint/CSV/Email/Markdown/ZIP/ICS/Mermaid artifact generation, and URL fetch-summarize with approval gates. Tool calls are parsed from a **multi-format parser** that accepts the custom `<workspace_tool>` wrapper *and* the native syntax of Qwen, Gemma, Llama, Mistral, GLM, and Anthropic-style models — so local GGUF models that don't reliably emit the custom wrapper still work. |
 | **Automation** | Heartbeats, cron tasks, monitors, wake events, nudges, and guarded unattended local Ollama runs |
 | **Session intelligence** | Rolling summaries, context health, auto-continue modes, branches, branch compare, and analytics |
 
@@ -107,6 +107,7 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | [docs/workspaces-host-executor.md](docs/workspaces-host-executor.md) | Optional host shell executor setup |
 | [docs/capability-inventory.md](docs/capability-inventory.md) | Native tool capability inventory |
 | [docs/tool-workflows.md](docs/tool-workflows.md) | Tool contracts for PDF, Word, Excel, CSV, email, Markdown, slides, ZIP, ICS, Mermaid, fetch/summarize, and tax PDF |
+| [docs/tool-call-formats.md](docs/tool-call-formats.md) | Multi-format tool-call parser reference — every model-native syntax PeakUI accepts |
 | [docs/development-section-plan.md](docs/development-section-plan.md) | Development section plan (draft) |
 
 ---
@@ -128,6 +129,9 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | `src/lib/workspace-files-pubsub.ts` | In-process pub/sub for file-mutation events |
 | `src/lib/workspace-files-events-encoder.ts` | SSE wire-format encoder / parser for `/events` |
 | `src/lib/workspace-files-client.ts` | Browser-side Workspace Files API client |
+| `src/lib/workspace-tool-tools.ts` | Tool-call parser (multi-format), tag stripper, and per-tool payload validation |
+| `src/lib/workspace-tool-prompt.ts` | WorkSpaces system-prompt builder (tier-aware, query-gated) |
+| `src/lib/model-context.ts` | Model-capacity detection, prompt tiers, and device-fit classification |
 | `src/lib/rag.ts` | Knowledge Base retrieval and indexing logic |
 | `prisma/schema.prisma` | PostgreSQL data model |
 
@@ -184,6 +188,9 @@ docker compose logs -f app
 
 # Run tests
 npm test
+
+# Check the JavaScript bundle budget (fails if the entry bundle bloats)
+npm run bundle:check
 
 # Generate Prisma client
 npx prisma generate
