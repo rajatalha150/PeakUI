@@ -6,7 +6,7 @@ import { normalizeAssistantResponseContent } from '@/lib/response-normalizer';
 import type { MessageSource } from '@/lib/message-sources';
 import { copyToClipboard } from '@/lib/clipboard';
 
-type StructuredBlock =
+export type StructuredBlock =
   | { type: 'heading'; level: number; text: string }
   | { type: 'paragraph'; text: string }
   | { type: 'list'; ordered: boolean; items: string[] }
@@ -301,7 +301,7 @@ function prettyPrintData(content: string, presentation?: ResponsePresentation): 
   }
 }
 
-function parseStructuredBlocks(content: string): StructuredBlock[] {
+export function parseStructuredBlocks(content: string): StructuredBlock[] {
   const lines = content.replace(/\r\n/g, '\n').split('\n');
   const blocks: StructuredBlock[] = [];
 

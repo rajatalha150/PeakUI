@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  classifyModelFit,
   clearModelCapacityCache,
   getModelCapacityProfile,
   getModelContextRecommendation,
@@ -74,6 +75,37 @@ describe('model-context', () => {
       expect(shouldUseCompactToolManifest('llama3.1:70b')).toBe(false)
       expect(shouldUseCompactToolManifest('gemma4:31b-cloud')).toBe(false)
       expect(shouldUseCompactToolManifest('gpt-4o', 'openai-compatible')).toBe(false)
+    })
+  })
+
+  describe('classifyModelFit', () => {
+    const GB = 1024 ** 3
+
+    it('returns unknown for missing or invalid sizes', () => {
+      expect(classifyModelFit(undefined, 8 * GB)).toBe('unknown')
+      expect(classifyModelFit(null, 8 * GB)).toBe('unknown')
+      expect(classifyModelFit(0, 8 * GB)).toBe('unknown')
+      expect(classifyModelFit(-1, 8 * GB)).toBe('unknown')
+    })
+
+    it('flags very large models as oversized even without a VRAM signal', () => {
+      expect(classifyModelFit(25 * GB, undefined)).toBe('oversized')
+      expect(classifyModelFit(5 * GB, undefined)).toBe('unknown')
+    })
+
+    it('fits a model that leaves headroom for the KV cache', () => {
+      // 8 GB free, 1 GB headroom -> 7 GB usable; a 5 GB model fits.
+      expect(classifyModelFit(5 * GB, 8 * GB)).toBe('fits')
+    })
+
+    it('marks a model tight when it is within 25% over the usable budget', () => {
+      // 8 GB free -> 7 GB usable; 8 GB model is ~14% over -> tight.
+      expect(classifyModelFit(8 * GB, 8 * GB)).toBe('tight')
+    })
+
+    it('marks a model oversized when it clearly exceeds the usable budget', () => {
+      // 8 GB free -> 7 GB usable; a 12 GB model is way over -> oversized.
+      expect(classifyModelFit(12 * GB, 8 * GB)).toBe('oversized')
     })
   })
 

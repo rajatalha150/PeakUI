@@ -288,3 +288,39 @@ export function shouldUseCompactToolManifest(
   // trimming verbose tool examples keeps the first turn responsive.
   return recommendation.defaultContext <= 4096;
 }
+
+/**
+ * Whether a model's on-disk size fits comfortably in a given amount of free
+ * GPU memory. Ollama keeps a model resident in VRAM only while it fits; when
+ * the model is larger than the free VRAM it offloads layers to CPU/RAM, which
+ * makes every load (and every reload after keep-alive expires) slow.
+ *
+ * This is the device-fit check that steers the model picker away from models
+ * that will run poorly on the user's hardware — the root cause of "models take
+ * forever to load" on small GPUs.
+ *
+ * @param modelSizeBytes - the model's on-disk size (Ollama `/api/tags` `size`).
+ * @param freeVramBytes - free GPU memory, or null when unknown (e.g. no GPU).
+ * @returns 'fits' | 'tight' | 'oversized' | 'unknown'
+ */
+export type ModelFit = 'fits' | 'tight' | 'oversized' | 'unknown';
+
+export function classifyModelFit(
+  modelSizeBytes: number | null | undefined,
+  freeVramBytes: number | null | undefined,
+): ModelFit {
+  if (typeof modelSizeBytes !== 'number' || !Number.isFinite(modelSizeBytes) || modelSizeBytes <= 0) {
+    return 'unknown';
+  }
+  if (typeof freeVramBytes !== 'number' || !Number.isFinite(freeVramBytes) || freeVramBytes <= 0) {
+    // No GPU / no free-VRAM signal: we can't judge fit, but a very large model
+    // is still worth flagging as oversized for a typical consumer card.
+    return modelSizeBytes > 12 * 1024 ** 3 ? 'oversized' : 'unknown';
+  }
+  // Leave ~1 GB headroom for the KV cache and compute buffers.
+  const usable = freeVramBytes - 1024 ** 3;
+  if (modelSizeBytes <= usable) return 'fits';
+  // Within 25% over the usable budget is "tight" (partial offload, still usable).
+  if (modelSizeBytes <= usable * 1.25) return 'tight';
+  return 'oversized';
+}

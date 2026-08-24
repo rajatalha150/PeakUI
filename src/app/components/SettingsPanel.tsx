@@ -6,6 +6,7 @@ import {
   CheckCircle, AlertCircle, Loader2, Save, Palette, Users, Shield, Trash2, LogOut, X, Download, Upload, Archive
 } from 'lucide-react';
 import { ollamaModelKey, RECOMMENDED_EMBEDDING_MODELS } from '@/lib/embedding-models';
+import { classifyModelFit } from '@/lib/model-context';
 import { applyTheme, THEME_OPTIONS } from '@/lib/theme-options';
 import HelpHint from './HelpHint';
 interface UserSettings {
@@ -66,6 +67,20 @@ interface UserSettings {
 
 interface Model {
   name: string;
+  size?: number;
+  details?: { parameter_size?: string };
+}
+
+function formatModelSize(bytes?: number): string {
+  if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes <= 0) return '';
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+}
+
+function modelFitLabel(model: Model): string {
+  const fit = classifyModelFit(model.size, undefined);
+  if (fit === 'oversized') return ' · may not fit GPU';
+  if (fit === 'tight') return ' · tight on GPU';
+  return '';
 }
 
 interface SessionUser {
@@ -1552,7 +1567,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             >
               <option value="">— Pick a local model —</option>
               {models.map(m => (
-                <option key={m.name} value={m.name}>{m.name}</option>
+                <option key={m.name} value={m.name}>{m.name}{formatModelSize(m.size) ? ` (${formatModelSize(m.size)})` : ''}{modelFitLabel(m)}</option>
               ))}
             </select>
           ) : (
@@ -1623,7 +1638,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                 >
                   <option value="">Use WorkSpaces model</option>
                   {models.map(m => (
-                    <option key={m.name} value={m.name}>{m.name}</option>
+                    <option key={m.name} value={m.name}>{m.name}{formatModelSize(m.size) ? ` (${formatModelSize(m.size)})` : ''}{modelFitLabel(m)}</option>
                   ))}
                 </select>
               ) : (

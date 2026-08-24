@@ -42,3 +42,6 @@ jobs:
           DATABASE_URL: postgresql://peakui:ci-password@localhost:5432/peakui
           JWT_SECRET: ci-jwt-secret-must-be-at-least-thirty-two-characters-long
           NEXT_TELEMETRY_DISABLED: 1
+
+      - name: Check bundle budget
+        run: npm run bundle:check
