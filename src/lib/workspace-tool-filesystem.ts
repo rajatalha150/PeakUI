@@ -298,7 +298,7 @@ export function diagnoseWorkspaceToolFilesystemRequest(
       allowed: false,
       code: 'invalid_path',
       message: `Bare relative paths are not accepted by the filesystem tool: ${requestedPath}`,
-      actionRequired: `Use an absolute host path under an approved writable root, for example ${workspaceRoot}/${requestedPath.replace(/^\/+/, '')} or /home/raza/.peakui/workspace/${requestedPath.replace(/^\/+/, '')}.`,
+      actionRequired: `Use an absolute host path under an approved writable root, for example ${workspaceRoot}/${requestedPath.replace(/^\/+/, '')} or ${getWorkspaceToolWorkspaceHostRoot()}/${requestedPath.replace(/^\/+/, '')}.`,
       requestedPath,
     }
   }

@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
           ...(ollamaApiKey.trim() ? { Authorization: 'Bearer ' + ollamaApiKey.trim() } : {}),
         },
         body: JSON.stringify({
-          model: model || 'gemma2:2b',
+          model: model || 'gemma4:latest',
           prompt: summaryPrompt,
           stream: false,
           options: {

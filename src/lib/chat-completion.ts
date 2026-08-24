@@ -998,8 +998,14 @@ export async function createChatCompletionResponse(req: NextRequest) {
     // Accountant mode: append a CPA/accountant/financial-advisor persona to the
     // WorkSpaces system prompt. Composes with Unrestricted/Uncensored/Knowledge
     // Base because workspaceToolPrompt is included in every system-prompt branch.
+    // The persona is tier-aware: small local models get a compact variant so the
+    // full block does not overflow their context window next to the workspace
+    // prompt and the conversation.
     if (workspaceToolPrompt && accountant) {
-      workspaceToolPrompt = `${workspaceToolPrompt}\n\n${buildAccountantPersonaPrompt()}`;
+      const accountantTier = settings.workspaceToolPromptTier === 'auto'
+        ? (capacityProfile?.promptTier ?? 'full')
+        : settings.workspaceToolPromptTier;
+      workspaceToolPrompt = `${workspaceToolPrompt}\n\n${buildAccountantPersonaPrompt(accountantTier)}`;
     }
     const chatInternetPrompt = surface === 'chat' && internetToolEnabled
       ? buildChatInternetToolPrompt()
