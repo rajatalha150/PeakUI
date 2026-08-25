@@ -62,6 +62,16 @@ WorkSpaces is the primary app shell. Generation settings are saved per user in `
 - External OpenAI-compatible providers are unaffected.
 - Hugging Face and other remote providers are unaffected.
 
+### In-Flight Model Tracking (GPU arbiter)
+
+PeakUI has two GPU consumers — the chat model and the embedding model — that share one GPU. `src/lib/ollama-inflight.ts` tracks which models are actively streaming a response or computing an embedding, so the exclusive-model unload never evicts a model mid-flight (which would fail the in-flight request):
+
+- `beginModelUse(model, kind)` returns a release function; the chat pipeline wraps the whole stream and the RAG embedding path wraps each embedding call.
+- `unloadOtherOllamaModels` skips any model that is currently in use, unloading only the genuinely idle ones.
+- The registry is refcounted, so concurrent requests on the same model keep it resident until the last one ends.
+
+This is the PeakUI analogue of Unsloth's keep-warm middleware: a cheap, invisible bookkeeping layer that makes model eviction safe on a single-GPU box.
+
 ### File Attachments
 
 - **Upload limit**: 100 MB per file (configured via `MAX_UPLOAD_BYTES` in `src/lib/file-shared.ts`)

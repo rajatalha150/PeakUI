@@ -23,6 +23,7 @@ import { buildAccountantPersonaPrompt } from '@/lib/workspace-tool-accountant-pe
 import { normalizeWorkspaceToolProvider } from '@/lib/settings';
 import { getModelContextRecommendation, getModelCapacityProfile, type ModelCapacityProfile } from './model-context';
 import { unloadOtherOllamaModels } from '@/lib/ollama-control';
+import { beginModelUse } from './ollama-inflight';
 import { getHostExecutorStatus } from './workspace-tool-host-executor';
 import type { ServerStreamStatus } from '@/lib/stream-status';
 import { isHuggingFaceRouterUrl } from './chat-platforms';
@@ -1527,6 +1528,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
         }, CHAT_HEARTBEAT_INTERVAL_MS);
 
         void (async () => {
+          let releaseModelUse: (() => void) | null = null;
           try {
             if (provider === 'openai-compatible' || provider === 'huggingface') {
               if (provider === 'huggingface' && isHuggingFaceRouterUrl(baseUrl) && !apiKey.trim()) {
@@ -1636,6 +1638,11 @@ export async function createChatCompletionResponse(req: NextRequest) {
               finish();
               return;
             }
+
+            // Track this model as in-use for the duration of the stream so the
+            // exclusive-model unload (and any future GPU arbiter) never evicts
+            // it mid-response. Only the local Ollama path reaches here.
+            releaseModelUse = beginModelUse(requestedModel, 'chat');
 
             if (settings.exclusiveOllamaModels && !settings.ollamaUseCloudApi) {
               emitStatus('stopping-other-models');
@@ -1760,6 +1767,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
 
             fail(message, getUpstreamStatus(error));
           } finally {
+            if (releaseModelUse) releaseModelUse();
             req.signal.removeEventListener('abort', abortUpstream);
           }
         })();

@@ -1,4 +1,5 @@
 import { normalizeOllamaModelName } from './embedding-models'
+import { beginModelUse } from './ollama-inflight'
 import type { MessageSource } from './message-sources'
 import type { RagMode } from './settings'
 import { getFileExtension, type FileKind } from './file-shared'
@@ -129,6 +130,10 @@ export async function getEmbeddings(
   const normalizedModel = normalizeOllamaModelName(model, model)
   const values = Array.isArray(input) ? input : [input]
 
+  // Track the embedding model as in-use so the exclusive-model unload never
+  // evicts it mid-embedding (which would fail the in-flight request).
+  const releaseModelUse = beginModelUse(normalizedModel, 'embedding')
+
   try {
     const data = await postEmbed(ollamaHost, {
       model: normalizedModel,
@@ -166,6 +171,8 @@ export async function getEmbeddings(
     }
 
     throw error
+  } finally {
+    releaseModelUse()
   }
 }
 

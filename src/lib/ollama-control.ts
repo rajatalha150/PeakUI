@@ -135,12 +135,21 @@ export async function unloadOtherOllamaModels(baseUrl: string, selectedModel: st
 
   if (modelsToUnload.length === 0) return []
 
+  // Never evict a model that is actively streaming a response or computing an
+  // embedding — the in-flight request would fail mid-flight. Skip those and
+  // unload only the genuinely idle ones. (The in-flight registry is populated
+  // by the chat pipeline and the RAG embedding path.)
+  const { isModelInUse } = await import('./ollama-inflight')
+  const safeToUnload = modelsToUnload.filter(model => !isModelInUse(model))
+
+  if (safeToUnload.length === 0) return []
+
   const results = await Promise.allSettled(
-    modelsToUnload.map(model => stopOllamaModel(baseUrl, model, parentSignal, apiKey))
+    safeToUnload.map(model => stopOllamaModel(baseUrl, model, parentSignal, apiKey))
   )
 
   const failures = results
-    .map((result, index) => ({ result, model: modelsToUnload[index] }))
+    .map((result, index) => ({ result, model: safeToUnload[index] }))
     .filter((item): item is { result: PromiseRejectedResult; model: string } => item.result.status === 'rejected')
 
   if (failures.length > 0) {
@@ -150,5 +159,5 @@ export async function unloadOtherOllamaModels(baseUrl: string, selectedModel: st
     throw new Error(`Could not unload running Ollama models before switching: ${summary}`)
   }
 
-  return modelsToUnload
+  return safeToUnload
 }

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — In-flight model tracking (GPU arbiter)
+
+PeakUI has two GPU consumers — the chat model and the embedding model — that share one GPU. New `src/lib/ollama-inflight.ts` tracks which models are actively streaming a response or computing an embedding, so the exclusive-model unload never evicts a model mid-flight (which would fail the in-flight request):
+
+- `beginModelUse(model, kind)` returns a release function; the chat pipeline wraps the whole stream and the RAG embedding path wraps each embedding call.
+- `unloadOtherOllamaModels` skips any model that is currently in use, unloading only the genuinely idle ones.
+- The registry is refcounted, so concurrent requests on the same model keep it resident until the last one ends.
+
+This is the PeakUI analogue of Unsloth's keep-warm middleware: a cheap, invisible bookkeeping layer that makes model eviction safe on a single-GPU box. 5 new tests in `src/lib/ollama-inflight.test.ts`.
+
 ### Added — Multi-format tool-call parser
 
 Local GGUF models often emit their own native tool-call syntax instead of the custom `<workspace_tool>` wrapper, and the old parser rejected all of them — the single biggest source of tool-call failures on local models. `src/lib/workspace-tool-tools.ts` now recognizes and normalizes the common model-native formats to the same request shape, so per-tool validation runs unchanged:
