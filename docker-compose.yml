@@ -60,6 +60,7 @@ services:
       - ${WORKSPACE_TOOL_HOST_TMP_DIR:-/tmp}:/mnt/workspace-tool/tmp:ro
       - ${WORKSPACE_TOOL_HOST_WORKSPACE_DIR:-/home/raza/.peakui/workspace}:/mnt/workspace-tool/workspace:rw
       - ${WORKSPACE_TOOL_HOST_PROJECTS_DIR:-/home/raza/Desktop}:/mnt/workspace-tool/projects:rw
+      - ${COMFYUI_MODELS_DIR:-/home/raza/ComfyUI/models}:/mnt/comfyui/models:rw
       - app_runtime:/var/lib/peakui
       - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:rw
 
