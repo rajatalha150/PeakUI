@@ -6,6 +6,12 @@ export async function register() {
     const automationWorker = await import('./lib/workspace-tool-automation-worker')
     automationWorker.startWorkspaceToolAutomationWorker()
 
+    // Resume any image-model downloads interrupted by a previous shutdown.
+    const downloadManager = await import('./lib/image-download-manager')
+    downloadManager.resumeInterruptedDownloads().catch(err => {
+      console.warn('[image-gen] resume interrupted downloads failed:', err instanceof Error ? err.message : String(err))
+    })
+
     // Find the Next.js HTTP server by searching active handles for a TCP server
     // listening on the Next.js port. We check for handle._server (TCP handle → server)
     // and also for handles that are http.Server instances directly.

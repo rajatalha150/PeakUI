@@ -1,0 +1,77 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getCurrentAuth } from '@/lib/request-auth'
+import { getUserSettings } from '@/lib/settings'
+import { submitComfyUiTxt2Img, getComfyUiHistory, comfyUiViewUrl } from '@/lib/comfyui-client'
+
+export const runtime = 'nodejs'
+export const maxDuration = 300
+
+export async function POST(req: NextRequest) {
+  const auth = await getCurrentAuth()
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const body = await req.json().catch(() => ({})) as {
+    prompt?: unknown
+    negativePrompt?: unknown
+    width?: unknown
+    height?: unknown
+    steps?: unknown
+    seed?: unknown
+  }
+
+  const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
+  if (!prompt) return NextResponse.json({ error: 'prompt is required' }, { status: 400 })
+
+  try {
+    const settings = await getUserSettings(auth.user.id)
+    if (settings.imageGenProvider === 'none') {
+      return NextResponse.json({ error: 'Image generation is not configured' }, { status: 400 })
+    }
+    if (!settings.imageGenModel) {
+      return NextResponse.json({ error: 'No image model selected' }, { status: 400 })
+    }
+
+    const baseUrl = settings.imageGenBaseUrl
+    const submitted = await submitComfyUiTxt2Img(baseUrl, {
+      model: settings.imageGenModel,
+      prompt,
+      negativePrompt: typeof body.negativePrompt === 'string' ? body.negativePrompt : undefined,
+      width: typeof body.width === 'number' ? body.width : undefined,
+      height: typeof body.height === 'number' ? body.height : undefined,
+      steps: typeof body.steps === 'number' ? body.steps : undefined,
+      seed: typeof body.seed === 'number' ? body.seed : undefined,
+    })
+
+    if (!submitted.online) {
+      return NextResponse.json({ error: submitted.error || 'ComfyUI unreachable' }, { status: 502 })
+    }
+    if (!submitted.promptId) {
+      return NextResponse.json({ error: submitted.error || 'Generation failed to start' }, { status: 502 })
+    }
+
+    // Poll for completion (bounded).
+    const deadline = Date.now() + 240_000
+    let history = await getComfyUiHistory(baseUrl, submitted.promptId)
+    while (!history.done && Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 2000))
+      history = await getComfyUiHistory(baseUrl, submitted.promptId)
+    }
+
+    if (!history.done) {
+      return NextResponse.json({ error: 'Generation timed out', promptId: submitted.promptId }, { status: 504 })
+    }
+
+    const images = (history.images ?? []).map(image => ({
+      filename: image.filename,
+      url: comfyUiViewUrl(baseUrl, image),
+    }))
+
+    return NextResponse.json({ promptId: submitted.promptId, images })
+  } catch (error) {
+    console.error('[image-gen/generate] error:', error)
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Image generation failed' },
+      { status: 500 },
+    )
+  }
+}
