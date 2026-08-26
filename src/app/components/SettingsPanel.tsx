@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  Settings, Server, Bot, Database, MessageSquare,
+  Settings, Server, Bot, Database, MessageSquare, Image as ImageIcon, Search, Pause, Play,
   CheckCircle, AlertCircle, Loader2, Save, Palette, Users, Shield, Trash2, LogOut, X, Download, Upload, Archive
 } from 'lucide-react';
 import { ollamaModelKey, RECOMMENDED_EMBEDDING_MODELS } from '@/lib/embedding-models';
@@ -57,6 +57,10 @@ interface UserSettings {
   ollamaHost: string;
   ollamaUseCloudApi: boolean;
   ollamaApiKey: string;
+  imageGenProvider: string;
+  imageGenBaseUrl: string;
+  imageGenModel: string;
+  hfToken: string;
   systemPrompt: string;
   temperature: number;
   ollamaUseModelDefaultTemperature: boolean;
@@ -206,6 +210,10 @@ const INITIAL_SETTINGS: UserSettings = {
   ollamaHost: 'http://127.0.0.1:11434',
   ollamaUseCloudApi: false,
   ollamaApiKey: '',
+  imageGenProvider: 'none',
+  imageGenBaseUrl: 'http://127.0.0.1:8188',
+  imageGenModel: '',
+  hfToken: '',
   systemPrompt: '',
   temperature: 0.7,
   ollamaUseModelDefaultTemperature: false,
@@ -310,6 +318,13 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [ollamaStatus, setOllamaStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [imageGenStatus, setImageGenStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [imageGenModels, setImageGenModels] = useState<Array<{ name: string; folder: string }>>([]);
+  const [hfSearchQuery, setHfSearchQuery] = useState('');
+  const [hfSearchResults, setHfSearchResults] = useState<Array<{ id: string; downloads?: number; likes?: number; pipelineTag?: string }>>([]);
+  const [hfSearching, setHfSearching] = useState(false);
+  const [hfSearchError, setHfSearchError] = useState('');
+  const [imageDownloads, setImageDownloads] = useState<Array<{ id: string; modelId: string; filename: string; status: string; progress: number; totalBytes: number; downloadedBytes: number; error: string | null }>>([]);
   const [testingEmbed, setTestingEmbed] = useState(false);
   const [embedStatus, setEmbedStatus] = useState<'idle' | 'ok' | 'error'>('idle');
   const [embedError, setEmbedError] = useState('');
@@ -382,6 +397,102 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
     }
   }, []);
 
+  const fetchImageGenModels = useCallback(async () => {
+    setImageGenStatus('checking');
+    try {
+      const res = await fetch('/api/image-gen/models');
+      const data = await res.json();
+      if (data.online) {
+        setImageGenModels(data.models || []);
+        setImageGenStatus('online');
+      } else {
+        setImageGenModels([]);
+        setImageGenStatus('offline');
+      }
+    } catch {
+      setImageGenModels([]);
+      setImageGenStatus('offline');
+    }
+  }, []);
+
+  const fetchImageDownloads = useCallback(async () => {
+    try {
+      const res = await fetch('/api/image-gen/downloads');
+      const data = await res.json();
+      if (data.downloads) setImageDownloads(data.downloads);
+    } catch {
+      // ignore polling errors
+    }
+  }, []);
+
+  const searchHf = useCallback(async () => {
+    setHfSearching(true);
+    setHfSearchError('');
+    try {
+      const res = await fetch(`/api/image-gen/search?q=${encodeURIComponent(hfSearchQuery)}`);
+      const data = await res.json();
+      if (data.error) {
+        setHfSearchError(data.error);
+        setHfSearchResults([]);
+      } else {
+        setHfSearchResults(data.results || []);
+      }
+    } catch (error) {
+      setHfSearchError(error instanceof Error ? error.message : 'Search failed');
+      setHfSearchResults([]);
+    } finally {
+      setHfSearching(false);
+    }
+  }, [hfSearchQuery]);
+
+  const queueHfDownload = useCallback(async (modelId: string, filename: string, targetFolder: string) => {
+    try {
+      const res = await fetch('/api/image-gen/downloads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'queue', modelId, filename, targetFolder }),
+      });
+      const data = await res.json();
+      if (data.download) {
+        // Start the download immediately after queueing.
+        await fetch('/api/image-gen/downloads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'start', id: data.download.id }),
+        });
+        void fetchImageDownloads();
+      }
+    } catch (error) {
+      console.error('Queue download failed:', error);
+    }
+  }, [fetchImageDownloads]);
+
+  const pauseHfDownload = useCallback(async (id: string) => {
+    try {
+      await fetch('/api/image-gen/downloads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'pause', id }),
+      });
+      void fetchImageDownloads();
+    } catch (error) {
+      console.error('Pause download failed:', error);
+    }
+  }, [fetchImageDownloads]);
+
+  const deleteHfDownload = useCallback(async (id: string) => {
+    try {
+      await fetch('/api/image-gen/downloads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', id }),
+      });
+      void fetchImageDownloads();
+    } catch (error) {
+      console.error('Delete download failed:', error);
+    }
+  }, [fetchImageDownloads]);
+
 
   const fetchSession = useCallback(async () => {
     try {
@@ -450,6 +561,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
       await Promise.all([
         fetchModels(nextSettings.ollamaHost, nextSettings.ollamaUseCloudApi),
         authUser?.permissions.includes('workspace-tool.filesystem') ? fetchHostAccessStatus() : Promise.resolve(),
+        fetchImageGenModels(),
+        fetchImageDownloads(),
       ]);
       if (authUser?.permissions.includes('users.manage')) {
         await fetchManagedUsers();
@@ -457,7 +570,15 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
     };
 
     void loadInitialSettings();
-  }, [fetchSettings, fetchModels, fetchManagedUsers, fetchSession, fetchHostAccessStatus]);
+  }, [fetchSettings, fetchModels, fetchManagedUsers, fetchSession, fetchHostAccessStatus, fetchImageGenModels, fetchImageDownloads]);
+
+  // Poll download progress while any download is active.
+  useEffect(() => {
+    const hasActive = imageDownloads.some(d => d.status === 'downloading' || d.status === 'queued');
+    if (!hasActive) return;
+    const interval = setInterval(() => { void fetchImageDownloads(); }, 2000);
+    return () => clearInterval(interval);
+  }, [imageDownloads, fetchImageDownloads]);
 
   useEffect(() => {
     return () => {
@@ -1301,6 +1422,143 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               autoComplete="off"
             />
           </Field>
+        )}
+      </Section>
+
+      {/* Image Generation */}
+      <Section icon={<ImageIcon size={18} />} title="Image Generation">
+        <Field label="Engine" help="The image-generation engine that runs alongside Ollama. ComfyUI is a self-hosted diffusion engine; models are downloaded from Hugging Face into its models directory.">
+          <select
+            className="input-field"
+            value={settings.imageGenProvider}
+            onChange={e => { update('imageGenProvider', e.target.value); if (e.target.value === 'comfyui') void fetchImageGenModels(); }}
+            style={{ width: '100%' }}
+          >
+            <option value="none">None (disabled)</option>
+            <option value="comfyui">ComfyUI</option>
+          </select>
+        </Field>
+
+        {settings.imageGenProvider === 'comfyui' && (
+          <>
+            <Field label="ComfyUI URL" help="The address of your ComfyUI instance. Defaults to the local host port 8188.">
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  className="input-field"
+                  style={{ flex: 1 }}
+                  value={settings.imageGenBaseUrl}
+                  onChange={e => update('imageGenBaseUrl', e.target.value)}
+                  placeholder="http://127.0.0.1:8188"
+                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-color)', fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
+                  {imageGenStatus === 'checking' && <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} />}
+                  {imageGenStatus === 'online' && <CheckCircle size={13} color="var(--success)" />}
+                  {imageGenStatus === 'offline' && <AlertCircle size={13} color="var(--danger)" />}
+                  <span style={{ color: imageGenStatus === 'online' ? 'var(--success)' : imageGenStatus === 'offline' ? 'var(--danger)' : 'var(--text-secondary)' }}>
+                    {imageGenStatus === 'online' ? `Online · ${imageGenModels.length} models` : imageGenStatus === 'offline' ? 'Offline' : 'Checking...'}
+                  </span>
+                </div>
+              </div>
+            </Field>
+
+            <Field label="Image Model" help="The checkpoint used for generation. Models downloaded from Hugging Face appear here once the download completes.">
+              <select
+                className="input-field"
+                value={settings.imageGenModel}
+                onChange={e => update('imageGenModel', e.target.value)}
+                style={{ width: '100%' }}
+              >
+                <option value="">— Pick an image model —</option>
+                {imageGenModels.map(m => (
+                  <option key={`${m.folder}/${m.name}`} value={m.name}>{m.name} ({m.folder})</option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Hugging Face Token" help="Optional. Required for gated models. Stored server-side and never returned to the browser.">
+              <input
+                type="password"
+                className="input-field"
+                style={{ width: '100%' }}
+                value={settings.hfToken}
+                onChange={e => update('hfToken', e.target.value)}
+                placeholder="hf_xxxxxxxx"
+                autoComplete="off"
+              />
+            </Field>
+
+            <Field label="Search Hugging Face" help="Search for text-to-image models on Hugging Face, then download them into ComfyUI.">
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  className="input-field"
+                  style={{ flex: 1 }}
+                  value={hfSearchQuery}
+                  onChange={e => setHfSearchQuery(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') void searchHf(); }}
+                  placeholder="e.g. sdxl, flux, dreamshaper"
+                />
+                <button className="btn btn-secondary" style={{ padding: '10px 16px', whiteSpace: 'nowrap' }} onClick={() => void searchHf()} disabled={hfSearching}>
+                  {hfSearching ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Search size={14} />}
+                  <span style={{ marginLeft: '6px' }}>Search</span>
+                </button>
+              </div>
+              {hfSearchError && <div style={{ marginTop: '6px', fontSize: '0.78rem', color: '#fca5a5' }}>{hfSearchError}</div>}
+            </Field>
+
+            {hfSearchResults.length > 0 && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '260px', overflowY: 'auto', padding: '8px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)' }}>
+                {hfSearchResults.map(result => (
+                  <div key={result.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '6px 8px', borderRadius: '8px', background: 'rgba(255,255,255,0.02)' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: '0.8rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{result.id}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{result.downloads != null ? `${result.downloads.toLocaleString()} downloads` : ''}</div>
+                    </div>
+                    <button
+                      className="btn btn-secondary"
+                      style={{ padding: '6px 10px', fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+                      onClick={() => void queueHfDownload(result.id, result.id.split('/').pop() + '.safetensors', 'checkpoints')}
+                      title="Download this model"
+                    >
+                      <Download size={13} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {imageDownloads.length > 0 && (
+              <Field label="Downloads" help="Download progress. Downloads resume automatically if interrupted.">
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {imageDownloads.map(d => (
+                    <div key={d.id} style={{ padding: '8px 10px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: '0.78rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.filename}</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                            {d.status === 'done' ? 'Complete' : d.status === 'error' ? (d.error || 'Failed') : d.status === 'paused' ? 'Paused' : `${(d.progress * 100).toFixed(0)}%`}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          {d.status === 'downloading' && (
+                            <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => void pauseHfDownload(d.id)} title="Pause"><Pause size={13} /></button>
+                          )}
+                          {d.status === 'paused' && (
+                            <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => { void fetch('/api/image-gen/downloads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'start', id: d.id }) }).then(() => fetchImageDownloads()); }} title="Resume"><Play size={13} /></button>
+                          )}
+                          <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => void deleteHfDownload(d.id)} title="Delete"><Trash2 size={13} /></button>
+                        </div>
+                      </div>
+                      {d.status === 'downloading' && (
+                        <div style={{ marginTop: '6px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${(d.progress * 100).toFixed(0)}%`, background: 'var(--accent-primary)', transition: 'width 0.3s' }} />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </Field>
+            )}
+          </>
         )}
       </Section>
 
