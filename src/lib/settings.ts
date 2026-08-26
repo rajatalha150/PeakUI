@@ -28,6 +28,7 @@ export {
 
 export type RagMode = 'semantic' | 'keyword'
 export type WorkspaceToolProvider = 'ollama' | 'openai-compatible'
+export type ImageGenProvider = 'none' | 'comfyui'
 export type ShellExecutionTarget = 'container' | 'host'
 export type ShellExecutionMode = 'auto-approve' | 'ask-first' | 'deny'
 export type WorkspaceToolFileAccessMode = 'deny' | 'read-only'
@@ -138,6 +139,10 @@ export interface AppSettings {
   ragTopK: number
   ollamaUseCloudApi: boolean
   ollamaApiKey: string
+  imageGenProvider: ImageGenProvider
+  imageGenBaseUrl: string
+  imageGenModel: string
+  hfToken: string
   /**
    * Starred / favorite models, persisted server-side so they follow the user
    * across browsers/devices (not just localStorage). Stored in the DB (and
@@ -214,6 +219,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ragTopK: 8,
   ollamaUseCloudApi: false,
   ollamaApiKey: '',
+  imageGenProvider: 'none',
+  imageGenBaseUrl: 'http://127.0.0.1:8188',
+  imageGenModel: '',
+  hfToken: '',
   workspaceToolFavoriteModels: '[]',
 }
 
@@ -230,6 +239,21 @@ export function normalizeRagTopK(value: unknown): number {
 
 export function normalizeWorkspaceToolProvider(value: unknown): WorkspaceToolProvider {
   return value === 'openai-compatible' ? 'openai-compatible' : 'ollama'
+}
+
+export function normalizeImageGenProvider(value: unknown): ImageGenProvider {
+  return value === 'comfyui' ? 'comfyui' : 'none'
+}
+
+export function normalizeImageGenBaseUrl(value: unknown): string {
+  const raw = typeof value === 'string' ? value.trim() : ''
+  if (!raw) return DEFAULT_SETTINGS.imageGenBaseUrl
+  try {
+    const url = new URL(/^https?:\/\//i.test(raw) ? raw : `http://${raw}`)
+    return url.origin
+  } catch {
+    return DEFAULT_SETTINGS.imageGenBaseUrl
+  }
 }
 
 export function normalizeWorkspaceToolPromptTier(value: unknown): WorkspaceToolPromptTier {
@@ -478,6 +502,10 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     ollamaHost: normalizeOllamaHost(settings?.ollamaHost),
     ollamaUseCloudApi: normalizeBoolean(settings?.ollamaUseCloudApi, DEFAULT_SETTINGS.ollamaUseCloudApi),
     ollamaApiKey: typeof settings?.ollamaApiKey === 'string' ? settings.ollamaApiKey.trim() : DEFAULT_SETTINGS.ollamaApiKey,
+    imageGenProvider: normalizeImageGenProvider(settings?.imageGenProvider),
+    imageGenBaseUrl: normalizeImageGenBaseUrl(settings?.imageGenBaseUrl),
+    imageGenModel: typeof settings?.imageGenModel === 'string' ? settings.imageGenModel.trim() : DEFAULT_SETTINGS.imageGenModel,
+    hfToken: typeof settings?.hfToken === 'string' ? settings.hfToken.trim() : DEFAULT_SETTINGS.hfToken,
     systemPrompt,
     temperature: normalizeTemperature(settings?.temperature),
     ollamaUseModelDefaultTemperature: normalizeOllamaUseModelDefaultTemperature(

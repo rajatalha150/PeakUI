@@ -13,6 +13,8 @@ import {
   normalizeOllamaKeepAlive,
   normalizeOllamaUseModelDefaultContext,
   normalizeOllamaUseModelDefaultTemperature,
+  normalizeImageGenProvider,
+  normalizeImageGenBaseUrl,
   normalizeWorkspaceToolBaseUrl,
   normalizeWorkspaceToolAllowedPaths,
   normalizeWorkspaceToolFileAccessMode,
@@ -116,6 +118,10 @@ interface SettingsBody {
   ragTopK?: unknown;
   ollamaUseCloudApi?: unknown;
   ollamaApiKey?: unknown;
+  imageGenProvider?: unknown;
+  imageGenBaseUrl?: unknown;
+  imageGenModel?: unknown;
+  hfToken?: unknown;
   workspaceToolFavoriteModels?: unknown;
 }
 
@@ -137,6 +143,7 @@ export async function GET() {
     return NextResponse.json({
       ...normalized,
       ollamaApiKey: '',
+      hfToken: '',
       permissions: auth.permissions,
       effectiveToolAccess: buildEffectiveWorkspaceToolAccess(normalized, auth.permissions),
     });
@@ -279,6 +286,10 @@ export async function POST(req: Request) {
     if (Object.prototype.hasOwnProperty.call(body, 'ragEnabled')) data.ragEnabled = normalizeBoolean(body.ragEnabled);
     if (Object.prototype.hasOwnProperty.call(body, 'ollamaUseCloudApi')) data.ollamaUseCloudApi = normalizeBoolean(body.ollamaUseCloudApi);
     if (body.ollamaApiKey !== undefined) data.ollamaApiKey = String(body.ollamaApiKey);
+    if (body.imageGenProvider !== undefined) data.imageGenProvider = normalizeImageGenProvider(body.imageGenProvider);
+    if (body.imageGenBaseUrl !== undefined) data.imageGenBaseUrl = normalizeImageGenBaseUrl(body.imageGenBaseUrl);
+    if (body.imageGenModel !== undefined) data.imageGenModel = String(body.imageGenModel);
+    if (body.hfToken !== undefined) data.hfToken = String(body.hfToken);
     if (Object.prototype.hasOwnProperty.call(body, 'ragTopK')) {
       const parsed = Number(body.ragTopK);
       // -1 means full access mode
@@ -317,6 +328,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ...normalized,
       ollamaApiKey: '', // scrubbed
+      hfToken: '', // scrubbed
       permissions: auth.permissions,
       effectiveToolAccess: buildEffectiveWorkspaceToolAccess(normalized, auth.permissions),
       reindexTriggered: reindexResult.triggered,

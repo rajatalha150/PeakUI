@@ -30,33 +30,34 @@ model User {
   shellAudits             ShellCommandAudit[]
   tags                    Tag[]
   settings                UserSettings?
+  imageModelDownloads     ImageModelDownload[]
 
   @@index([role, isActive])
 }
 
 model UserSettings {
-  id                                         String   @id @default(uuid())
-  userId                                     String   @unique
-  chatPlatform                               String   @default("ollama")
-  chatModel                                  String   @default("")
-  chatModelProvider                          String   @default("ollama")
-  huggingFaceBaseUrl                         String   @default("https://router.huggingface.co/v1")
-  modelKeepAlive                             Boolean  @default(false)
-  ollamaKeepAlive                            String   @default("")
-  exclusiveOllamaModels                      Boolean  @default(false)
+  id                                              String   @id @default(uuid())
+  userId                                          String   @unique
+  chatPlatform                                    String   @default("ollama")
+  chatModel                                       String   @default("")
+  chatModelProvider                               String   @default("ollama")
+  huggingFaceBaseUrl                              String   @default("https://router.huggingface.co/v1")
+  modelKeepAlive                                  Boolean  @default(false)
+  ollamaKeepAlive                                 String   @default("")
+  exclusiveOllamaModels                           Boolean  @default(false)
   workspaceToolProvider                           String   @default("ollama")
   workspaceToolModel                              String   @default("")
   workspaceToolPromptTier                         String   @default("auto")
   workspaceToolBaseUrl                            String   @default("")
-  ragModel                                   String   @default("nomic-embed-text")
-  ragMode                                    String   @default("semantic")
-  ollamaHost                                 String   @default("http://127.0.0.1:11434")
-  systemPrompt                               String   @default("")
-  temperature                                Float    @default(0.7)
-  ollamaUseModelDefaultTemperature           Boolean  @default(false)
-  contextLength                              Int      @default(4096)
-  ollamaUseModelDefaultContext               Boolean  @default(false)
-  theme                                      String   @default("aurora")
+  ragModel                                        String   @default("nomic-embed-text")
+  ragMode                                         String   @default("semantic")
+  ollamaHost                                      String   @default("http://127.0.0.1:11434")
+  systemPrompt                                    String   @default("")
+  temperature                                     Float    @default(0.7)
+  ollamaUseModelDefaultTemperature                Boolean  @default(false)
+  contextLength                                   Int      @default(4096)
+  ollamaUseModelDefaultContext                    Boolean  @default(false)
+  theme                                           String   @default("aurora")
   workspaceToolPersonaTemplate                    String   @default("custom")
   workspaceToolPersonaName                        String   @default("")
   workspaceToolPersonaTone                        String   @default("")
@@ -67,13 +68,13 @@ model UserSettings {
   workspaceToolUserProfileRole                    String   @default("")
   workspaceToolUserProfilePreferences             String   @default("")
   workspaceToolUserProfileContext                 String   @default("")
-  shellExecutionTarget                       String   @default("container")
-  shellExecutionMode                         String   @default("ask-first")
-  shellAllowedCommands                       String   @default("")
-  shellHostAllowedRoots                      String   @default("~/.peakui/workspace")
-  shellHostAllowedEnvVars                    String   @default("PATH\nHOME\nUSER\nSHELL\nLANG\nTERM")
-  shellHostMaxTimeoutMs                      Int      @default(60000)
-  shellHostMaxOutputBytes                    Int      @default(262144)
+  shellExecutionTarget                            String   @default("container")
+  shellExecutionMode                              String   @default("ask-first")
+  shellAllowedCommands                            String   @default("")
+  shellHostAllowedRoots                           String   @default("~/.peakui/workspace")
+  shellHostAllowedEnvVars                         String   @default("PATH\nHOME\nUSER\nSHELL\nLANG\nTERM")
+  shellHostMaxTimeoutMs                           Int      @default(60000)
+  shellHostMaxOutputBytes                         Int      @default(262144)
   workspaceToolFileAccessMode                     String   @default("deny")
   workspaceToolAllowedPaths                       String   @default("")
   workspaceToolFileWriteMode                      String   @default("deny")
@@ -98,14 +99,18 @@ model UserSettings {
   workspaceToolSessionPreserveTurns               Int      @default(6)
   workspaceToolSessionAnalyticsEnabled            Boolean  @default(true)
   workspaceToolSessionBranchingEnabled            Boolean  @default(true)
-  ragEnabled                                 Boolean  @default(false)
-  ragTopK                                    Int      @default(8)
-  updatedAt                                  DateTime @updatedAt
+  ragEnabled                                      Boolean  @default(false)
+  ragTopK                                         Int      @default(8)
+  updatedAt                                       DateTime @updatedAt
   workspaceToolMaxToolRoundsPerTurn               Int      @default(100)
-  ollamaApiKey                               String   @default("")
-  ollamaUseCloudApi                          Boolean  @default(false)
+  ollamaApiKey                                    String   @default("")
+  ollamaUseCloudApi                               Boolean  @default(false)
   workspaceToolFavoriteModels                     String   @default("[]")
-  user                                       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  imageGenProvider                                String   @default("none")
+  imageGenBaseUrl                                 String   @default("http://127.0.0.1:8188")
+  imageGenModel                                   String   @default("")
+  hfToken                                         String   @default("")
+  user                                            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model ChatSession {
@@ -447,6 +452,25 @@ model AutomationExecutionRun {
   @@index([userId, status, createdAt])
   @@index([sourceKind, sourceId, createdAt])
   @@index([sessionId])
+}
+
+model ImageModelDownload {
+  id              String   @id @default(uuid())
+  userId          String
+  modelId         String
+  filename        String
+  targetFolder    String
+  url             String
+  totalBytes      BigInt   @default(0)
+  downloadedBytes BigInt   @default(0)
+  status          String   @default("queued")
+  error           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, modelId, filename])
+  @@index([userId, status])
 }
 
 enum Role {
