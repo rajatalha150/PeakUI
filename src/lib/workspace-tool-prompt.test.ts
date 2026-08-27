@@ -91,6 +91,13 @@ describe('buildWorkspaceToolSystemPrompt', () => {
     expect(prompt).toContain('do not pivot to an unrelated topic')
   })
 
+  it('forbids hallucinating an image-generation tool', () => {
+    const prompt = buildWorkspaceToolSystemPrompt(baseContext)
+    expect(prompt).toContain('NO IMAGE GENERATION')
+    expect(prompt).toContain('There is no image-generation, drawing, or text-to-image tool')
+    expect(prompt).toContain('Never fabricate a model/checkpoint error')
+  })
+
   it('includes the RECOVERY BEHAVIOR block describing auto-recovery', () => {
     const prompt = buildWorkspaceToolSystemPrompt(baseContext)
     expect(prompt).toContain('RECOVERY BEHAVIOR:')
