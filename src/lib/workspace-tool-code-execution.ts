@@ -194,7 +194,7 @@ export function buildWorkspaceToolCodeApprovalPayload(request: WorkspaceToolCode
   }
 }
 
-function buildPythonGuardScript(): string {
+export function buildPythonGuardScript(): string {
   return `
 import os
 import resource
@@ -334,10 +334,10 @@ if __name__ == '__main__':
     try:
         runpy.run_path(script, run_name='__main__')
     except SecurityError as e:
-        print(f'SecurityError: {{e}}', file=sys.stderr)
+        print(f'SecurityError: {e}', file=sys.stderr)
         sys.exit(1)
     except Exception as e:
-        print(f'Error: {{e}}', file=sys.stderr)
+        print(f'Error: {e}', file=sys.stderr)
         sys.exit(1)
 `
 }
