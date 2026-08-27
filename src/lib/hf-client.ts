@@ -78,7 +78,10 @@ export async function searchHfModels(
 }
 
 export async function getHfModelDetail(modelId: string, token?: string): Promise<HfModelDetail> {
-  const response = await fetch(`${HF_API_BASE}/models/${encodeURIComponent(modelId)}`, {
+  // The model id is a path segment (owner/name), not a query param — the `/`
+  // must stay literal. encodeURIComponent would turn it into %2F, which HF
+  // rejects with 400.
+  const response = await fetch(`${HF_API_BASE}/models/${modelId}`, {
     headers: authHeaders(token),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   })
