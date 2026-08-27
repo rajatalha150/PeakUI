@@ -247,6 +247,7 @@ interface IncomingChatBody {
   unrestricted?: unknown;
   uncensored?: unknown;
   accountant?: unknown;
+  image_generation?: unknown;
   rag_enabled?: unknown;
   rag_query?: unknown;
   rag_topk?: unknown;
@@ -860,6 +861,9 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const unrestricted = body.unrestricted === true;
     const uncensored = body.uncensored === true;
     const accountant = body.accountant === true;
+    const imageGenerationEnabled = body.image_generation === true
+      && settings.imageGenProvider !== 'none'
+      && Boolean(settings.imageGenModel);
 
     // RAG / Knowledge Base settings — use per-request flag if provided, else fall back to user settings
     const ragEnabled = Object.prototype.hasOwnProperty.call(body, 'rag_enabled')
@@ -973,6 +977,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
             ? settings.workspaceToolWritablePaths.split(/\r?\n/).map(entry => entry.trim()).filter(Boolean)
             : [],
           codeExecutionEnabled: effectiveToolAccess.codeExecutionEnabled,
+          imageGenerationEnabled,
           workspaceHostRoot: effectiveToolAccess.workspaceHostRoot,
           browserMode: internetToolEnabled ? effectiveToolAccess.browserMode : 'deny',
           uwafBrowserMode: effectiveUwafBrowserMode,

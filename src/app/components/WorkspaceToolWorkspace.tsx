@@ -5,7 +5,7 @@ import { isWindowsHostPath } from '@/lib/workspace-tool-path-check';
 import { randomUUID } from '@/lib/uuid';
 import { copyToClipboard } from '@/lib/clipboard';
 import Image from 'next/image';
-import { Activity, AlertCircle, BookOpen, Bot, Calculator, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Database, Download, FileText, Folder, Globe, ListTodo, Loader2, Menu, MessageSquare, MoreHorizontal, Paperclip, Pin, Plus, Redo2, RefreshCw, Send, Server, Shield, Square, Star, Tag, Trash2, Wand2, Wifi, WifiOff, X } from 'lucide-react';
+import { Activity, AlertCircle, BookOpen, Bot, Calculator, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Database, Download, FileText, Folder, Globe, Image as ImageIcon, ListTodo, Loader2, Menu, MessageSquare, MoreHorizontal, Paperclip, Pin, Plus, Redo2, RefreshCw, Send, Server, Shield, Square, Star, Tag, Trash2, Wand2, Wifi, WifiOff, X } from 'lucide-react';
 import { ChatMessageContent, AssistantDownloads, ThinkingBlock } from './ChatMessageContent';
 import HelpHint from './HelpHint';
 import SourceChips from './SourceChips';
@@ -76,6 +76,7 @@ import {
   type WorkspaceToolCsvDocumentToolRequest,
   type WorkspaceToolEmailDocumentToolRequest,
   type WorkspaceToolFetchSummarizeToolRequest,
+  type WorkspaceToolImageGenerationToolRequest,
   type WorkspaceToolFilesystemToolRequest,
   type WorkspaceToolMarkdownDocumentToolRequest,
   type WorkspaceToolPdfDocumentToolRequest,
@@ -333,7 +334,7 @@ interface WorkspaceToolMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   hidden?: boolean;
-  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document' | 'csv_document' | 'email_document' | 'markdown_document' | 'slides_document' | 'archive_document' | 'calendar_document' | 'mermaid_document' | 'fetch_summarize';
+  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document' | 'csv_document' | 'email_document' | 'markdown_document' | 'slides_document' | 'archive_document' | 'calendar_document' | 'mermaid_document' | 'fetch_summarize' | 'image_generation';
   thinking?: string;
   presentation?: ResponsePresentation;
   sources?: MessageSource[];
@@ -1210,6 +1211,13 @@ interface FetchSummarizeToolResultEntry {
   error?: string;
 }
 
+interface ImageGenerationToolResultEntry {
+  success: boolean;
+  prompt: string;
+  images?: Array<{ filename: string; url: string }>;
+  error?: string;
+}
+
 interface CodeToolResultEntry {
   runtime: 'python' | 'node';
   workingDirectory: string;
@@ -1284,6 +1292,7 @@ const WORKSPACE_TOOL_RAG_STORAGE = 'peakui-workspace-tool-rag-enabled';
 const WORKSPACE_TOOL_UNRESTRICTED_STORAGE = 'peakui-workspace-tool-unrestricted';
 const WORKSPACE_TOOL_UNCENSORED_STORAGE = 'peakui-workspace-tool-uncensored';
 const WORKSPACE_TOOL_ACCOUNTANT_STORAGE = 'peakui-workspace-tool-accountant';
+const WORKSPACE_TOOL_IMAGE_GEN_STORAGE = 'peakui-workspace-tool-image-gen';
 const WORKSPACE_TOOL_AGENT_STORAGE = 'peakui-workspace-tool-agent-preferences';
 const WORKSPACE_TOOL_RAIL_STORAGE = 'peakui-workspace-tool-rail-collapsed';
 const WORKSPACE_TOOL_TASK_STATE_STORAGE = 'peakui-workspace-tool-task-states';
@@ -2223,6 +2232,7 @@ function describeToolDisplayName(name: WorkspaceToolRequest['name']): string {
     case 'filesystem': return 'filesystem tool'
     case 'tax_return': return 'tax return generator'
     case 'fetch_summarize': return 'URL summarizer'
+    case 'image_generation': return 'image generator'
     default: return name
   }
 }
@@ -2264,6 +2274,8 @@ function buildRecoveryWrapperExample(toolName: WorkspaceToolRequest['name'] | un
       return '<workspace_tool name="tax_return">{"action":"generate_review_pdf","folder":"<kb folder>","taxYear":"<YYYY>"}</workspace_tool>'
     case 'fetch_summarize':
       return '<workspace_tool name="fetch_summarize">{"url":"<https URL>","description":"<what to summarize>"}</workspace_tool>'
+    case 'image_generation':
+      return '<workspace_tool name="image_generation">{"prompt":"<image description>","negativePrompt":"<what to avoid>","width":1024,"height":1024}</workspace_tool>'
     default:
       return '<workspace_tool name="<registered tool name>">{"<field>":"<value>"}</workspace_tool>'
   }
@@ -2918,6 +2930,30 @@ function formatFetchSummarizeToolResult(entry: FetchSummarizeToolResultEntry): s
   return lines.join('\n');
 }
 
+function formatImageGenerationToolResult(entry: ImageGenerationToolResultEntry): string {
+  const lines = [
+    'Image generation tool result:',
+    `Prompt: ${entry.prompt}`,
+    `Status: ${entry.success ? 'completed' : 'failed'}`,
+  ];
+
+  if (!entry.success) {
+    if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    lines.push('', 'Use this result to continue the task. Do not claim an image was generated if this result failed.');
+    return lines.join('\n');
+  }
+
+  if (entry.images && entry.images.length > 0) {
+    lines.push('', 'Generated images:');
+    entry.images.forEach(image => lines.push(`- ${image.url}`));
+    lines.push('', 'Present the image(s) to the user using markdown image syntax: ![description](url).');
+  } else {
+    lines.push('', 'No images were returned. Report this to the user.');
+  }
+
+  return lines.join('\n');
+}
+
 export interface WorkspaceToolWorkspaceProps {
   onNavigateToKnowledgeBase?: () => void;
   onNavigateToWorkspace?: () => void;
@@ -3162,6 +3198,9 @@ export default function WorkspaceToolWorkspace({
   });
   const [accountantEnabled, setAccountantEnabled] = useState(() => {
     try { return window.sessionStorage.getItem(WORKSPACE_TOOL_ACCOUNTANT_STORAGE) === 'true'; } catch { return false; }
+  });
+  const [imageGenerationEnabled, setImageGenerationEnabled] = useState(() => {
+    try { return window.sessionStorage.getItem(WORKSPACE_TOOL_IMAGE_GEN_STORAGE) === 'true'; } catch { return false; }
   });
   const [uwafCurrentUrl, setUwafCurrentUrl] = useState<string>('');
   const [uwafCurrentTitle, setUwafCurrentTitle] = useState<string>('');
@@ -5016,6 +5055,18 @@ export default function WorkspaceToolWorkspace({
       const nextValue = !prev;
       try {
         window.sessionStorage.setItem(WORKSPACE_TOOL_ACCOUNTANT_STORAGE, String(nextValue));
+      } catch {
+        // Ignore browser storage failures.
+      }
+      return nextValue;
+    });
+  };
+
+  const toggleImageGeneration = () => {
+    setImageGenerationEnabled(prev => {
+      const nextValue = !prev;
+      try {
+        window.sessionStorage.setItem(WORKSPACE_TOOL_IMAGE_GEN_STORAGE, String(nextValue));
       } catch {
         // Ignore browser storage failures.
       }
@@ -7035,6 +7086,41 @@ export default function WorkspaceToolWorkspace({
     }
   };
 
+  const executeImageGenerationAction = async (
+    request: WorkspaceToolImageGenerationToolRequest,
+  ): Promise<ImageGenerationToolResultEntry> => {
+    try {
+      const res = await fetch('/api/image-gen/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(request),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return {
+          prompt: request.prompt,
+          success: false,
+          error: typeof data.error === 'string' ? data.error : 'Image generation failed',
+        };
+      }
+      const images = Array.isArray(data.images)
+        ? data.images.filter((img: unknown): img is { filename: string; url: string } =>
+            typeof img === 'object' && img !== null && typeof (img as { url?: unknown }).url === 'string')
+        : [];
+      return {
+        prompt: request.prompt,
+        success: true,
+        images,
+      };
+    } catch (error) {
+      return {
+        prompt: request.prompt,
+        success: false,
+        error: error instanceof Error ? error.message : 'Image generation failed',
+      };
+    }
+  };
+
   const handleToolApprove = async () => {
     if (!pendingApproval || !pendingApprovalResolverRef.current) return;
     const approval = pendingApproval;
@@ -8116,6 +8202,7 @@ export default function WorkspaceToolWorkspace({
         unrestricted: unrestrictedEnabled,
         uncensored: uncensoredEnabled,
         accountant: accountantEnabled,
+        image_generation: imageGenerationEnabled,
         messages: options.conversationMessages.map(message => {
           const displayImages = (message.images ?? []).map(img => ({
             data: img.data,
@@ -8725,7 +8812,9 @@ export default function WorkspaceToolWorkspace({
                                                 ? describeCalendarDocumentRequest(request.request)
                                                 : request.name === 'mermaid_document'
                                                   ? describeMermaidDocumentRequest(request.request)
-                                                  : describeFilesystemRequest(request.request.action, request.request.path)
+                                                  : request.name === 'image_generation'
+                                                    ? `Generate image: ${request.request.prompt}`
+                                                    : describeFilesystemRequest(request.request.action, request.request.path)
               : rawToolTagPresent
                 ? stripAllToolTags(assistantMessage.content)
                 : assistantMessage.content
@@ -9898,6 +9987,48 @@ export default function WorkspaceToolWorkspace({
           continue;
         }
 
+        if (request.name === 'image_generation') {
+          if (!imageGenerationEnabled) {
+            break;
+          }
+          lastToolRequestSignature = effectiveToolSignature;
+          duplicateToolRequestCount = 0;
+          try {
+            setStreamPhase('tool-code');
+            const imageResult = await executeImageGenerationAction(request.request);
+            setStreamPhase(null);
+            if (imageResult.success) {
+              lastSuccessfulToolRequest = {
+                name: 'image_generation',
+                request: request.request,
+                description: request.request.description,
+              };
+            }
+            const toolResultMessage: WorkspaceToolMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatImageGenerationToolResult(imageResult),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Image generation tool failed:', toolError);
+            const errorMessage: WorkspaceToolMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Image generation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. The image engine may be offline or the model may not be loaded.`,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
+          continue;
+        }
+
         lastToolRequestSignature = effectiveToolSignature;
         duplicateToolRequestCount = 0;
         try {
@@ -10905,6 +11036,19 @@ export default function WorkspaceToolWorkspace({
                     Accountant
                   </span>
                   <span>{accountantEnabled ? 'On' : 'Off'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  className={`workspace-tool-mode-action${imageGenerationEnabled ? ' is-active' : ''}`}
+                  onClick={() => toggleImageGeneration()}
+                  title="Generate images using the configured image engine (ComfyUI)"
+                >
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <ImageIcon size={15} color={imageGenerationEnabled ? '#8b5cf6' : 'var(--text-secondary)'} />
+                    Image Gen
+                  </span>
+                  <span>{imageGenerationEnabled ? 'On' : 'Off'}</span>
                 </button>
               </div>
             </Popover>

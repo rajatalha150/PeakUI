@@ -135,6 +135,16 @@ export interface WorkspaceToolFetchSummarizeToolRequest {
   description?: string
 }
 
+export interface WorkspaceToolImageGenerationToolRequest {
+  prompt: string
+  negativePrompt?: string
+  width?: number
+  height?: number
+  steps?: number
+  seed?: number
+  description?: string
+}
+
 export type WorkspaceToolRequest =
   | {
       name: 'web'
@@ -207,6 +217,10 @@ export type WorkspaceToolRequest =
   | {
       name: 'fetch_summarize'
       request: WorkspaceToolFetchSummarizeToolRequest
+    }
+  | {
+      name: 'image_generation'
+      request: WorkspaceToolImageGenerationToolRequest
     }
 
 export const WORKSPACE_TOOL_WEB_TOOL_EXAMPLE = `<workspace_tool name="web">
@@ -309,6 +323,7 @@ export const WORKSPACE_TOOL_NAMES = [
   'calendar_document',
   'mermaid_document',
   'fetch_summarize',
+  'image_generation',
 ] as const
 
 export type WorkspaceToolName = typeof WORKSPACE_TOOL_NAMES[number]
@@ -1784,6 +1799,43 @@ export function extractWorkspaceToolRequest(content: string): {
           name: 'fetch_summarize',
           request: {
             url,
+            description: typeof parsed.description === 'string' && parsed.description.trim()
+              ? parsed.description.trim()
+              : undefined,
+          },
+        },
+      }
+    }
+
+    if (toolName === 'image_generation') {
+      const parsed = parseToolJson<Partial<WorkspaceToolImageGenerationToolRequest>>(block.rawJson)
+      if (!parsed) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+
+      const prompt = cleanFieldValue(parsed.prompt)
+      if (!prompt) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+
+      const clampInt = (value: unknown, min: number, max: number): number | undefined => {
+        if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+        return Math.min(max, Math.max(min, Math.round(value)))
+      }
+
+      return {
+        cleanedContent,
+        request: {
+          name: 'image_generation',
+          request: {
+            prompt,
+            negativePrompt: typeof parsed.negativePrompt === 'string' && parsed.negativePrompt.trim()
+              ? parsed.negativePrompt.trim()
+              : undefined,
+            width: clampInt(parsed.width, 256, 2048),
+            height: clampInt(parsed.height, 256, 2048),
+            steps: clampInt(parsed.steps, 1, 100),
+            seed: clampInt(parsed.seed, 0, 2 ** 32 - 1),
             description: typeof parsed.description === 'string' && parsed.description.trim()
               ? parsed.description.trim()
               : undefined,

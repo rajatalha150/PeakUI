@@ -59,6 +59,7 @@ export interface WorkspaceToolPromptContext {
   filesystemWriteEnabled?: boolean;
   writableFilesystemPaths?: string[];
   codeExecutionEnabled?: boolean;
+  imageGenerationEnabled?: boolean;
   workspaceHostRoot?: string;
   browserMode?: 'deny' | 'read-only' | 'ask-first';
   uwafBrowserMode?: 'deny' | 'direct' | 'stealth';
@@ -214,6 +215,7 @@ export function buildWorkspaceToolSystemPrompt(context: WorkspaceToolPromptConte
   const filesystemAvailable = Boolean(context.filesystemEnabled && allowedFilesystemPaths.length);
   const filesystemWriteAvailable = Boolean(context.filesystemWriteEnabled && writableFilesystemPaths.length);
   const codeExecutionAvailable = Boolean(context.codeExecutionEnabled);
+  const imageGenerationAvailable = Boolean(context.imageGenerationEnabled);
   const browserMode = context.browserMode || 'deny';
   const browserAvailable = browserMode !== 'deny';
   const uwafBrowserMode = context.uwafBrowserMode || 'deny';
@@ -227,6 +229,7 @@ export function buildWorkspaceToolSystemPrompt(context: WorkspaceToolPromptConte
     filesystemAvailable ? 'filesystem' : null,
     filesystemWriteAvailable ? 'filesystem writes' : null,
     codeExecutionAvailable ? 'code sandbox' : null,
+    imageGenerationAvailable ? 'image generation' : null,
     browserAvailable && context.internetToolEnabled ? 'browser' : null,
     uwafBrowserAvailable && context.internetToolEnabled ? 'unified browser' : null,
   ].filter(Boolean) as string[];
@@ -292,6 +295,7 @@ export function buildWorkspaceToolSystemPrompt(context: WorkspaceToolPromptConte
           ...(filesystemAvailable ? ['filesystem {"action":"list|read|stat","path":"..."}'] : []),
           ...(filesystemWriteAvailable ? ['filesystem {"action":"write|append|mkdir","path":"...","content":"...","createDirectories":true}'] : []),
           ...(codeExecutionAvailable ? ['code {"runtime":"python|node","code":"...","filename":"...","workspacePath":"..."}'] : []),
+          ...(imageGenerationAvailable ? ['image_generation {"prompt":"...","negativePrompt":"...","width":1024,"height":1024,"steps":20}'] : []),
           ...(browserAvailable && context.internetToolEnabled ? ['browser {"action":"open","url":"...","description":"..."}'] : []),
           ...(uwafBrowserAvailable && context.internetToolEnabled ? ['unified_browser {"action":"search|open","query":"..."|"url":"...","browserMode":"direct|stealth"}'] : []),
           ...listCapabilitySignatures({ workspaceAvailable: Boolean(workspace) }),
