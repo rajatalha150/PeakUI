@@ -445,14 +445,36 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
     }
   }, [hfSearchQuery]);
 
-  const queueHfDownload = useCallback(async (modelId: string, filename: string, targetFolder: string) => {
+  const queueHfDownload = useCallback(async (modelId: string) => {
     try {
+      // Fetch the model's real file list and pick the single-file checkpoint.
+      // HF repos don't follow a naming convention, so we can't guess the
+      // filename from the repo id.
+      const detailRes = await fetch(`/api/image-gen/search?id=${encodeURIComponent(modelId)}`);
+      const detailData = await detailRes.json();
+      const siblings = Array.isArray(detailData.detail?.siblings) ? detailData.detail.siblings : [];
+      const checkpoints = siblings
+        .filter((s: { rfilename?: string }) => typeof s.rfilename === 'string' && !s.rfilename.includes('/'))
+        .filter((s: { rfilename?: string }) => /\.(safetensors|ckpt)$/i.test(s.rfilename || ''));
+      if (checkpoints.length === 0) {
+        setHfSearchError('This model has no single-file checkpoint (it may be a diffusers-only repo).');
+        return;
+      }
+      const nonFp16 = checkpoints.filter((s: { rfilename?: string }) => !/fp16/i.test(s.rfilename || ''));
+      const pool = nonFp16.length > 0 ? nonFp16 : checkpoints;
+      const sorted = [...pool].sort((a, b) => ((a as { size?: number }).size ?? 0) - ((b as { size?: number }).size ?? 0));
+      const filename = (sorted[0] as { rfilename: string }).rfilename;
+
       const res = await fetch('/api/image-gen/downloads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'queue', modelId, filename, targetFolder }),
+        body: JSON.stringify({ action: 'queue', modelId, filename, targetFolder: 'checkpoints' }),
       });
       const data = await res.json();
+      if (data.error) {
+        setHfSearchError(data.error);
+        return;
+      }
       if (data.download) {
         // Start the download immediately after queueing.
         await fetch('/api/image-gen/downloads', {
@@ -464,6 +486,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
       }
     } catch (error) {
       console.error('Queue download failed:', error);
+      setHfSearchError(error instanceof Error ? error.message : 'Download failed');
     }
   }, [fetchImageDownloads]);
 
@@ -1516,7 +1539,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                     <button
                       className="btn btn-secondary"
                       style={{ padding: '6px 10px', fontSize: '0.75rem', whiteSpace: 'nowrap' }}
-                      onClick={() => void queueHfDownload(result.id, result.id.split('/').pop() + '.safetensors', 'checkpoints')}
+                      onClick={() => void queueHfDownload(result.id)}
                       title="Download this model"
                     >
                       <Download size={13} />

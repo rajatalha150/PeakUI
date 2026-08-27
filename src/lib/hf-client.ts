@@ -129,3 +129,32 @@ export function comfyFolderForHfFile(rfilename: string): string {
 export function hfResolveUrl(modelId: string, rfilename: string): string {
   return `https://huggingface.co/${modelId}/resolve/main/${rfilename}`
 }
+
+/**
+ * Pick the single-file checkpoint to download from a model's file list.
+ *
+ * HF repos don't follow a naming convention, so we can't guess the filename
+ * from the repo id (e.g. `stabilityai/sd-turbo` ships `sd_turbo.safetensors`,
+ * not `sd-turbo.safetensors`). This selects the best root-level checkpoint:
+ *
+ *   - Prefer a root-level `.safetensors` / `.ckpt` (single-file checkpoint).
+ *   - Prefer the non-fp16 variant (smaller, and ComfyUI loads fp32/fp16 fine).
+ *   - Fall back to the smallest root-level checkpoint when only fp16 exists.
+ *
+ * Returns the `rfilename`, or null when the repo has no single-file checkpoint
+ * (e.g. a diffusers-only repo, which needs a different download path).
+ */
+export function pickCheckpointFile(siblings: HfModelFile[]): string | null {
+  const checkpoints = siblings
+    .filter(s => !s.rfilename.includes('/'))
+    .filter(s => /\.(safetensors|ckpt)$/i.test(s.rfilename))
+
+  if (checkpoints.length === 0) return null
+
+  const nonFp16 = checkpoints.filter(s => !/fp16/i.test(s.rfilename))
+  const pool = nonFp16.length > 0 ? nonFp16 : checkpoints
+
+  // Prefer the smallest (fp32 single-file checkpoints are usually the "main" one).
+  const sorted = [...pool].sort((a, b) => (a.size ?? 0) - (b.size ?? 0))
+  return sorted[0]?.rfilename ?? null
+}
