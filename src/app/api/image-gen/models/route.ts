@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
       result.models.map(model => ({ name: model.name, folder: result.folder })),
     )
 
-    return NextResponse.json({ stats, folders: folders.folders, models })
+    return NextResponse.json({ online: stats.online, stats, folders: folders.folders, models })
   } catch (error) {
     console.error('[image-gen/models] error:', error)
     return NextResponse.json(

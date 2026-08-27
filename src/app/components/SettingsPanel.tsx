@@ -603,6 +603,18 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
     return () => clearInterval(interval);
   }, [imageDownloads, fetchImageDownloads]);
 
+  // When a download finishes, refresh the image-model list so the newly
+  // downloaded checkpoint appears in the dropdown.
+  const completedDownloadIds = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const d of imageDownloads) {
+      if (d.status === 'done' && !completedDownloadIds.current.has(d.id)) {
+        completedDownloadIds.current.add(d.id);
+        void fetchImageGenModels();
+      }
+    }
+  }, [imageDownloads, fetchImageGenModels]);
+
   useEffect(() => {
     return () => {
       stopProgressPoll(backupPollRef);
