@@ -273,7 +273,6 @@ export function buildWorkspaceToolSystemPrompt(context: WorkspaceToolPromptConte
         : 'No explicit WorkSpaces workspace was selected for this turn.',
     'Keep the response presentation-ready. Use headings or lists only when they improve readability.',
     'Report only what tools actually return — do not fabricate results.',
-    'NO IMAGE GENERATION: There is no image-generation, drawing, or text-to-image tool in this workspace. If the user asks for a picture, image, drawing, or photo, do NOT invent an "image generation" tool or emit a fake tool result. Say plainly that image generation is not available, then offer a real alternative: use the `code` sandbox to draw a simple programmatic image (e.g. SVG/Pillow), or use the `web` tool to find an existing image. Never fabricate a model/checkpoint error to explain a tool that does not exist.',
     toolLabels.length > 0
       ? `Active real tools for this turn: ${toolLabels.join(', ')}.`
       : 'No external tools are available for this turn beyond the context already attached.',
