@@ -124,6 +124,21 @@ export function extractInlineImages(content: string): ImageDisplayFile[] {
   const images: ImageDisplayFile[] = []
   let match: RegExpExecArray | null
 
+  // Absolute Canvas artifact download URLs (generated images persisted
+  // server-side). Matched before the generic external-URL handler so the
+  // mime type is inferred correctly from the artifact id rather than the
+  // extension-less "download" path segment.
+  const mdAbsoluteCanvasRegex = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+\/api\/canvas\/artifacts\/[A-Za-z0-9_-]+\/download)\)/g
+  while ((match = mdAbsoluteCanvasRegex.exec(content)) !== null && images.length < 20) {
+    const alt = match[1] || 'Generated image'
+    const url = match[2]
+    images.push({
+      name: alt.includes('.') ? alt : `${alt}.png`,
+      mimeType: 'image/png',
+      url,
+    })
+  }
+
   const mdExternalRegex = /!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g
   while ((match = mdExternalRegex.exec(content)) !== null && images.length < 20) {
     const alt = match[1] || 'Generated image'

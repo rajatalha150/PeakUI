@@ -4,6 +4,7 @@ import { getCurrentAuth } from '@/lib/request-auth'
 import { getUserSettings } from '@/lib/settings'
 import { submitComfyUiTxt2Img, getComfyUiHistory, comfyUiViewUrl } from '@/lib/comfyui-client'
 import { createImageCanvasArtifact } from '@/lib/image-gen-artifacts'
+import { resolvePublicOrigin } from '@/lib/request-origin'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -36,6 +37,7 @@ export async function POST(req: NextRequest) {
     }
 
     const baseUrl = settings.imageGenBaseUrl
+    const origin = resolvePublicOrigin(req)
     const submitted = await submitComfyUiTxt2Img(baseUrl, {
       model: settings.imageGenModel,
       prompt,
@@ -103,8 +105,8 @@ export async function POST(req: NextRequest) {
 
       images.push({
         filename: image.filename,
-        url: `/api/canvas/artifacts/${artifact.id}/download`,
-        downloadUrl: `/api/canvas/artifacts/${artifact.id}/download`,
+        url: `${origin}/api/canvas/artifacts/${artifact.id}/download`,
+        downloadUrl: `${origin}/api/canvas/artifacts/${artifact.id}/download`,
       })
     }
 
