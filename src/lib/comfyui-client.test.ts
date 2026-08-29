@@ -51,6 +51,16 @@ describe('comfyui-client', () => {
     expect(result.models[0].name).toBe('sd_xl_turbo_1.0.safetensors')
   })
 
+  it('normalizes a plain string-array model list (ComfyUI returns filenames, not objects)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ['sd_turbo.safetensors'],
+    }))
+    const result = await listComfyUiModels('http://127.0.0.1:8188', 'checkpoints')
+    expect(result.online).toBe(true)
+    expect(result.models).toEqual([{ name: 'sd_turbo.safetensors', pathIndex: 0 }])
+  })
+
   it('submits a txt2img workflow and returns the prompt id', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

@@ -37,6 +37,24 @@ export interface ComfyUiModelsResult {
   error?: string
 }
 
+/**
+ * Normalize ComfyUI's `/models/{folder}` response. The endpoint returns a
+ * plain array of filenames (e.g. `["sd_turbo.safetensors"]`), not objects —
+ * so we map each string to `{ name, pathIndex }`.
+ */
+function normalizeModelList(raw: unknown): ComfyUiModel[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((entry, index) => {
+      if (typeof entry === 'string') return { name: entry, pathIndex: index }
+      if (entry && typeof entry === 'object' && typeof (entry as { name?: unknown }).name === 'string') {
+        return { name: (entry as { name: string }).name, pathIndex: index }
+      }
+      return null
+    })
+    .filter((entry): entry is ComfyUiModel => entry !== null)
+}
+
 export interface ComfyUiFoldersResult {
   online: boolean
   folders: string[]
@@ -86,8 +104,8 @@ export async function listComfyUiFolders(baseUrl: string): Promise<ComfyUiFolder
 export async function listComfyUiModels(baseUrl: string, folder: string): Promise<ComfyUiModelsResult> {
   const host = baseUrl.replace(/\/$/, '')
   try {
-    const models = await fetchJson<ComfyUiModel[]>(`${host}/models/${encodeURIComponent(folder)}`)
-    return { online: true, folder, models: Array.isArray(models) ? models : [] }
+    const raw = await fetchJson<unknown>(`${host}/models/${encodeURIComponent(folder)}`)
+    return { online: true, folder, models: normalizeModelList(raw) }
   } catch (error) {
     return { online: false, folder, models: [], error: error instanceof Error ? error.message : 'ComfyUI unreachable' }
   }

@@ -10599,6 +10599,18 @@ export default function WorkspaceToolWorkspace({
               <span>Accountant</span>
               <span>{accountantEnabled ? 'On' : 'Off'}</span>
             </button>
+            <button
+              type="button"
+              className={`mobile-topbar-menu-item${imageGenerationEnabled ? ' is-active' : ''}`}
+              style={imageGenerationEnabled ? { color: '#8b5cf6', borderColor: '#8b5cf6', background: 'rgba(139, 92, 246, 0.12)' } : undefined}
+              onClick={() => {
+                toggleImageGeneration();
+                setMobileHeaderMenuOpen(false);
+              }}
+            >
+              <span>Image Gen</span>
+              <span>{imageGenerationEnabled ? 'On' : 'Off'}</span>
+            </button>
             {selectedModelIsOllama && (
               <button
                 type="button"
