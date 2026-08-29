@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
 import { getCurrentAuth } from '@/lib/request-auth'
 import { getUserSettings } from '@/lib/settings'
 import { submitComfyUiTxt2Img, getComfyUiHistory, comfyUiViewUrl } from '@/lib/comfyui-client'
+import { createImageCanvasArtifact } from '@/lib/image-gen-artifacts'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -17,6 +19,8 @@ export async function POST(req: NextRequest) {
     height?: unknown
     steps?: unknown
     seed?: unknown
+    sessionId?: unknown
+    messageId?: unknown
   }
 
   const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : ''
@@ -61,10 +65,52 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Generation timed out', promptId: submitted.promptId }, { status: 504 })
     }
 
-    const images = (history.images ?? []).map(image => ({
-      filename: image.filename,
-      url: comfyUiViewUrl(baseUrl, image),
-    }))
+    // Fetch each image's bytes from ComfyUI and persist as a Canvas artifact so
+    // the image renders inline in chat and is downloadable through PeakUI (the
+    // raw ComfyUI /view URL is a loopback address the browser can't reach).
+    const sessionId = typeof body.sessionId === 'string' && body.sessionId.trim() ? body.sessionId.trim() : ''
+    const messageId = typeof body.messageId === 'string' && body.messageId.trim() ? body.messageId.trim() : null
+
+    const images: Array<{ filename: string; url: string; downloadUrl: string }> = []
+    for (const image of history.images ?? []) {
+      const viewUrl = comfyUiViewUrl(baseUrl, image)
+      let bytes: Buffer
+      try {
+        const res = await fetch(viewUrl, { signal: AbortSignal.timeout(30_000) })
+        if (!res.ok) throw new Error(`ComfyUI /view returned ${res.status}`)
+        bytes = Buffer.from(await res.arrayBuffer())
+      } catch (error) {
+        console.error('[image-gen/generate] failed to fetch image bytes:', error)
+        continue
+      }
+
+      const mimeType = image.filename.toLowerCase().endsWith('.png') ? 'image/png'
+        : image.filename.toLowerCase().endsWith('.jpg') || image.filename.toLowerCase().endsWith('.jpeg') ? 'image/jpeg'
+        : image.filename.toLowerCase().endsWith('.webp') ? 'image/webp'
+        : 'image/png'
+
+      const artifact = await prisma.$transaction(tx => createImageCanvasArtifact({
+        tx,
+        userId: auth.user.id,
+        sessionId,
+        messageId,
+        name: image.filename,
+        imageBytes: bytes,
+        mimeType,
+        bundleName: 'Generated Image',
+        bundleRole: 'generated-image',
+      }))
+
+      images.push({
+        filename: image.filename,
+        url: `/api/canvas/artifacts/${artifact.id}/download`,
+        downloadUrl: `/api/canvas/artifacts/${artifact.id}/download`,
+      })
+    }
+
+    if (images.length === 0) {
+      return NextResponse.json({ error: 'Generation produced no downloadable images' }, { status: 502 })
+    }
 
     return NextResponse.json({ promptId: submitted.promptId, images })
   } catch (error) {

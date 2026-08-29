@@ -2944,9 +2944,8 @@ function formatImageGenerationToolResult(entry: ImageGenerationToolResultEntry):
   }
 
   if (entry.images && entry.images.length > 0) {
-    lines.push('', 'Generated images:');
-    entry.images.forEach(image => lines.push(`- ${image.url}`));
-    lines.push('', 'Present the image(s) to the user using markdown image syntax: ![description](url).');
+    lines.push('', 'Generated images (present each to the user as a markdown image):');
+    entry.images.forEach(image => lines.push(`![${entry.prompt}](${image.url})`));
   } else {
     lines.push('', 'No images were returned. Report this to the user.');
   }
@@ -7088,12 +7087,13 @@ export default function WorkspaceToolWorkspace({
 
   const executeImageGenerationAction = async (
     request: WorkspaceToolImageGenerationToolRequest,
+    options: { sessionId: string; messageId: string },
   ): Promise<ImageGenerationToolResultEntry> => {
     try {
       const res = await fetch('/api/image-gen/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request),
+        body: JSON.stringify({ ...request, sessionId: options.sessionId, messageId: options.messageId }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -9995,7 +9995,7 @@ export default function WorkspaceToolWorkspace({
           duplicateToolRequestCount = 0;
           try {
             setStreamPhase('tool-code');
-            const imageResult = await executeImageGenerationAction(request.request);
+            const imageResult = await executeImageGenerationAction(request.request, { sessionId: chatId, messageId: nextAssistantId });
             setStreamPhase(null);
             if (imageResult.success) {
               lastSuccessfulToolRequest = {

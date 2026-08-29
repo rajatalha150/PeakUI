@@ -152,6 +152,23 @@ export function extractInlineImages(content: string): ImageDisplayFile[] {
     })
   }
 
+  // Relative Canvas artifact download URLs (e.g. generated images persisted
+  // server-side). The browser resolves these against its own origin, so they
+  // work regardless of how the user reaches PeakUI.
+  const mdRelativeCanvasRegex = /!\[([^\]]*)\]\((\/api\/canvas\/artifacts\/[A-Za-z0-9_-]+\/download)\)/g
+  while ((match = mdRelativeCanvasRegex.exec(content)) !== null && images.length < 20) {
+    const alt = match[1] || 'Generated image'
+    const url = match[2]
+    const filename = url.split('/').pop() || 'image'
+    const ext = filename.includes('.') ? filename.split('.').pop()?.toLowerCase() : 'png'
+    const mimeType = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg'
+    images.push({
+      name: alt.includes('.') ? alt : `${alt}.${ext}`,
+      mimeType,
+      url,
+    })
+  }
+
   const base64ImgRegex = /(?:^|\n)\s*<img[^>]+src=["']data:([^"']+)["'][^>]*>/gi
   while ((match = base64ImgRegex.exec(content)) !== null && images.length < 20) {
     const parts = match[1].split(';base64,')
