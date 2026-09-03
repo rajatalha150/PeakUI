@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pickCheckpointFile, comfyFolderForHfFile, hfResolveUrl, classifyHfModelKind } from './hf-client'
+import { pickCheckpointFile, comfyFolderForHfFile, hfResolveUrl, classifyHfModelKind, diffusersFolderName, pickDiffusersFiles } from './hf-client'
 
 describe('pickCheckpointFile', () => {
   it('picks the root-level safetensors checkpoint (not a guessed name)', () => {
@@ -86,5 +86,34 @@ describe('classifyHfModelKind', () => {
       { rfilename: 'README.md' },
       { rfilename: 'config.json' },
     ])).toBe('unknown')
+  })
+})
+
+describe('diffusersFolderName', () => {
+  it('uses the repo short name', () => {
+    expect(diffusersFolderName('stabilityai/stable-diffusion-xl-base-1.0')).toBe('stable-diffusion-xl-base-1.0')
+  })
+})
+
+describe('pickDiffusersFiles', () => {
+  it('keeps model files and drops docs/images', () => {
+    const files = pickDiffusersFiles([
+      { rfilename: 'model_index.json' },
+      { rfilename: 'unet/diffusion_pytorch_model.safetensors' },
+      { rfilename: 'vae/diffusion_pytorch_model.safetensors' },
+      { rfilename: 'text_encoder/model.safetensors' },
+      { rfilename: 'README.md' },
+      { rfilename: 'LICENSE.md' },
+      { rfilename: '01.png' },
+      { rfilename: '.gitattributes' },
+    ])
+    expect(files).toContain('model_index.json')
+    expect(files).toContain('unet/diffusion_pytorch_model.safetensors')
+    expect(files).toContain('vae/diffusion_pytorch_model.safetensors')
+    expect(files).toContain('text_encoder/model.safetensors')
+    expect(files).not.toContain('README.md')
+    expect(files).not.toContain('LICENSE.md')
+    expect(files).not.toContain('01.png')
+    expect(files).not.toContain('.gitattributes')
   })
 })

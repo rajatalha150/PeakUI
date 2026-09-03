@@ -112,6 +112,41 @@ export async function listComfyUiModels(baseUrl: string, folder: string): Promis
 }
 
 /**
+ * List diffusers-format models. ComfyUI's `/models/diffusers` endpoint returns
+ * an empty list (the `diffusers` folder type holds subfolders, not files), so
+ * we read the `DiffusersLoader` node's `model_path` options instead — those
+ * are the folder names that contain a `model_index.json`.
+ */
+export async function listComfyUiDiffusersModels(baseUrl: string): Promise<ComfyUiModelsResult> {
+  const host = baseUrl.replace(/\/$/, '')
+  try {
+    const data = await fetchJson<{ DiffusersLoader?: { input?: { required?: { model_path?: unknown } } } }>(
+      `${host}/object_info/DiffusersLoader`,
+    )
+    const options = data.DiffusersLoader?.input?.required?.model_path
+    const list = Array.isArray(options) ? (Array.isArray(options[0]) ? options[0] : options) : []
+    return {
+      online: true,
+      folder: 'diffusers',
+      models: list.filter((name): name is string => typeof name === 'string').map((name, index) => ({ name, pathIndex: index })),
+    }
+  } catch (error) {
+    return { online: false, folder: 'diffusers', models: [], error: error instanceof Error ? error.message : 'ComfyUI unreachable' }
+  }
+}
+
+/**
+ * Determine whether a model name refers to a diffusers-format model (a folder
+ * under `models/diffusers/`) or a single-file checkpoint. Returns 'diffusers'
+ * when the name is in the DiffusersLoader list, else 'checkpoint'.
+ */
+export async function detectComfyUiModelKind(baseUrl: string, model: string): Promise<'checkpoint' | 'diffusers'> {
+  const diffusers = await listComfyUiDiffusersModels(baseUrl)
+  if (diffusers.models.some(m => m.name === model)) return 'diffusers'
+  return 'checkpoint'
+}
+
+/**
  * The model folders that hold image-generation checkpoints. These are the
  * folders PeakUI surfaces in the model picker; the rest (loras, vae, etc.)
  * are supporting assets, not selectable generation models.
@@ -165,6 +200,54 @@ export async function submitComfyUiTxt2Img(
     '9': { class_type: 'SaveImage', inputs: { filename_prefix: 'peakui', images: ['8', 0] } },
   }
 
+  return submitWorkflow(host, workflow)
+}
+
+/**
+ * Submit a text-to-image workflow for a diffusers-format model. Uses
+ * `DiffusersLoader` (which loads a full diffusers folder into MODEL + CLIP +
+ * VAE) instead of `CheckpointLoaderSimple`.
+ *
+ * `model` is the diffusers folder name (as listed by the DiffusersLoader node).
+ */
+export async function submitComfyUiTxt2ImgDiffusers(
+  baseUrl: string,
+  options: { model: string; prompt: string; negativePrompt?: string; width?: number; height?: number; steps?: number; seed?: number },
+): Promise<ComfyUiGenerationResult> {
+  const host = baseUrl.replace(/\/$/, '')
+  const width = options.width ?? 1024
+  const height = options.height ?? 1024
+  const steps = options.steps ?? 20
+  const seed = options.seed ?? Math.floor(Math.random() * 2 ** 32)
+
+  const workflow = {
+    '4': { class_type: 'DiffusersLoader', inputs: { model_path: options.model } },
+    '6': { class_type: 'CLIPTextEncode', inputs: { text: options.prompt, clip: ['4', 1] } },
+    '7': { class_type: 'CLIPTextEncode', inputs: { text: options.negativePrompt ?? '', clip: ['4', 1] } },
+    '5': { class_type: 'EmptyLatentImage', inputs: { width, height, batch_size: 1 } },
+    '3': {
+      class_type: 'KSampler',
+      inputs: {
+        seed,
+        steps,
+        cfg: 7,
+        sampler_name: 'euler',
+        scheduler: 'normal',
+        denoise: 1,
+        model: ['4', 0],
+        positive: ['6', 0],
+        negative: ['7', 0],
+        latent_image: ['5', 0],
+      },
+    },
+    '8': { class_type: 'VAEDecode', inputs: { samples: ['3', 0], vae: ['4', 2] } },
+    '9': { class_type: 'SaveImage', inputs: { filename_prefix: 'peakui', images: ['8', 0] } },
+  }
+
+  return submitWorkflow(host, workflow)
+}
+
+async function submitWorkflow(host: string, workflow: Record<string, unknown>): Promise<ComfyUiGenerationResult> {
   try {
     const response = await fetch(`${host}/prompt`, {
       method: 'POST',

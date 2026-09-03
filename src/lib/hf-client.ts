@@ -193,3 +193,26 @@ export function pickCheckpointFile(siblings: HfModelFile[]): string | null {
   const sorted = [...pool].sort((a, b) => (a.size ?? 0) - (b.size ?? 0))
   return sorted[0]?.rfilename ?? null
 }
+
+/**
+ * The folder name a diffusers repo should be downloaded into. ComfyUI's
+ * `DiffusersLoader` expects a subfolder of `models/diffusers/` containing a
+ * `model_index.json`, so we use the repo's short name (last path segment).
+ */
+export function diffusersFolderName(modelId: string): string {
+  return modelId.split('/').pop() || modelId
+}
+
+/**
+ * Files to download for a diffusers-format repo. Downloads every model file
+ * (unet/, vae/, text_encoder/, tokenizer/, scheduler/, model_index.json, and
+ * root config.json) while skipping non-model files (README, LICENSE, images,
+ * .gitattributes). The full folder structure is preserved so ComfyUI's
+ * DiffusersLoader can load it.
+ */
+export function pickDiffusersFiles(siblings: HfModelFile[]): string[] {
+  const SKIP = /(^|\/)(\.gitattributes|README\.md|LICENSE(\.md)?|.*\.(png|jpg|jpeg|gif|webp|svg))$/i
+  return siblings
+    .map(s => s.rfilename)
+    .filter(f => !SKIP.test(f))
+}

@@ -1,16 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { getCurrentAuth } from '@/lib/request-auth'
 import { getUserSettings } from '@/lib/settings'
 import {
   getComfyUiSystemStats,
   listComfyUiFolders,
   listComfyUiModels,
+  listComfyUiDiffusersModels,
   IMAGE_GEN_MODEL_FOLDERS,
 } from '@/lib/comfyui-client'
 
 export const runtime = 'nodejs'
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   const auth = await getCurrentAuth()
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -33,7 +34,12 @@ export async function GET(req: NextRequest) {
       result.models.map(model => ({ name: model.name, folder: result.folder })),
     )
 
-    return NextResponse.json({ online: stats.online, stats, folders: folders.folders, models })
+    // Diffusers-format models live in the `diffusers` folder (subfolders, not
+    // files), so they are listed separately via the DiffusersLoader node.
+    const diffusersResult = await listComfyUiDiffusersModels(baseUrl)
+    const diffusersModels = diffusersResult.models.map(model => ({ name: model.name, folder: 'diffusers' }))
+
+    return NextResponse.json({ online: stats.online, stats, folders: folders.folders, models: [...models, ...diffusersModels] })
   } catch (error) {
     console.error('[image-gen/models] error:', error)
     return NextResponse.json(

@@ -25,6 +25,7 @@ export interface ImageDownloadDto {
   modelId: string
   filename: string
   targetFolder: string
+  destName: string
   totalBytes: number
   downloadedBytes: number
   status: ImageDownloadStatus
@@ -39,6 +40,7 @@ function toDto(row: {
   modelId: string
   filename: string
   targetFolder: string
+  destName: string
   totalBytes: bigint
   downloadedBytes: bigint
   status: string
@@ -51,6 +53,7 @@ function toDto(row: {
     modelId: row.modelId,
     filename: row.filename,
     targetFolder: row.targetFolder,
+    destName: row.destName,
     totalBytes: total,
     downloadedBytes: downloaded,
     status: row.status as ImageDownloadStatus,
@@ -73,17 +76,19 @@ export async function listImageDownloads(userId: string): Promise<ImageDownloadD
  */
 export async function queueImageDownload(
   userId: string,
-  input: { modelId: string; filename: string; targetFolder: string },
+  input: { modelId: string; filename: string; targetFolder: string; destName?: string },
 ): Promise<ImageDownloadDto> {
   const url = hfResolveUrl(input.modelId, input.filename)
+  const destName = input.destName ?? ''
   const row = await prisma.imageModelDownload.upsert({
     where: { userId_modelId_filename: { userId, modelId: input.modelId, filename: input.filename } },
-    update: { url, targetFolder: input.targetFolder, status: 'queued', error: null },
+    update: { url, targetFolder: input.targetFolder, destName, status: 'queued', error: null },
     create: {
       userId,
       modelId: input.modelId,
       filename: input.filename,
       targetFolder: input.targetFolder,
+      destName,
       url,
       status: 'queued',
     },
@@ -105,13 +110,19 @@ export async function deleteImageDownload(userId: string, id: string): Promise<v
   const row = await prisma.imageModelDownload.findFirst({ where: { id, userId } })
   if (!row) return
   await prisma.imageModelDownload.delete({ where: { id } })
-  const partialPath = targetPath(row.targetFolder, row.filename)
+  const partialPath = targetPath(row.targetFolder, row.filename, row.destName)
   await fs.rm(partialPath, { force: true }).catch(() => {})
 }
 
-function targetPath(targetFolder: string, filename: string): string {
-  // filename may carry a subpath (e.g. "unet/model.safetensors"); strip any
-  // leading folder that duplicates the target folder.
+function targetPath(targetFolder: string, filename: string, destName: string): string {
+  // For diffusers downloads, `destName` is the model folder name and `filename`
+  // carries the full subpath (e.g. "unet/diffusion_pytorch_model.safetensors").
+  // Preserve that structure under the diffusers folder.
+  if (destName) {
+    return path.join(COMFYUI_MODELS_ROOT, targetFolder, destName, filename)
+  }
+  // Single-file checkpoint: strip any leading folder that duplicates the
+  // target folder.
   const base = filename.split('/').pop() || filename
   return path.join(COMFYUI_MODELS_ROOT, targetFolder, base)
 }
@@ -133,7 +144,7 @@ export async function startImageDownload(userId: string, id: string): Promise<Im
   try {
     await prisma.imageModelDownload.update({ where: { id }, data: { status: 'downloading', error: null } })
 
-    const dest = targetPath(row.targetFolder, row.filename)
+    const dest = targetPath(row.targetFolder, row.filename, row.destName)
     await mkdir(path.dirname(dest), { recursive: true })
 
     // Determine resume offset from the partial file on disk.

@@ -445,11 +445,31 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
     }
   }, [hfSearchQuery]);
 
-  const queueHfDownload = useCallback(async (modelId: string) => {
+  const queueHfDownload = useCallback(async (modelId: string, kind?: string) => {
     try {
-      // Fetch the model's real file list and pick the single-file checkpoint.
-      // HF repos don't follow a naming convention, so we can't guess the
-      // filename from the repo id.
+      if (kind === 'diffusers') {
+        // Diffusers-format repo: queue every model file into the diffusers folder.
+        const res = await fetch('/api/image-gen/downloads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'queue-diffusers', modelId }),
+        });
+        const data = await res.json();
+        if (data.error) {
+          setHfSearchError(data.error);
+          return;
+        }
+        // Start all queued files for this model.
+        await fetch('/api/image-gen/downloads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'start-model', modelId }),
+        });
+        void fetchImageDownloads();
+        return;
+      }
+
+      // Single-file checkpoint: fetch the real file list and pick the checkpoint.
       const detailRes = await fetch(`/api/image-gen/search?id=${encodeURIComponent(modelId)}`);
       const detailData = await detailRes.json();
       const siblings = Array.isArray(detailData.detail?.siblings) ? detailData.detail.siblings : [];
@@ -1543,7 +1563,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             {hfSearchResults.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '260px', overflowY: 'auto', padding: '8px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)' }}>
                 {hfSearchResults.map(result => {
-                  const downloadable = result.kind === 'checkpoint'
+                  const downloadable = result.kind === 'checkpoint' || result.kind === 'diffusers'
                   const kindLabel = result.kind === 'checkpoint' ? 'checkpoint'
                     : result.kind === 'diffusers' ? 'diffusers'
                     : result.kind === 'collection' ? 'collection'
@@ -1561,8 +1581,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                         <button
                           className="btn btn-secondary"
                           style={{ padding: '6px 10px', fontSize: '0.75rem', whiteSpace: 'nowrap' }}
-                          onClick={() => void queueHfDownload(result.id)}
-                          title="Download this model"
+                          onClick={() => void queueHfDownload(result.id, result.kind)}
+                          title={result.kind === 'diffusers' ? 'Download this diffusers model (multiple files)' : 'Download this model'}
                         >
                           <Download size={13} />
                         </button>
