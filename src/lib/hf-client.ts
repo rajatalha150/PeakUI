@@ -51,6 +51,15 @@ function authHeaders(token?: string): Record<string, string> {
  */
 export function classifyHfModelKind(siblings: HfModelFile[]): HfModelKind {
   const files = siblings.map(s => s.rfilename)
+
+  // Diffusers layout takes priority: a repo with unet/ + vae/ + text_encoder/
+  // (and a model_index.json) is a folder-based model, even if it also ships a
+  // root .safetensors (which is then just the UNet, not a full checkpoint).
+  const hasUnet = files.some(f => /^unet\//i.test(f))
+  const hasVae = files.some(f => /^vae\//i.test(f))
+  const hasTextEncoder = files.some(f => /^(text_encoder|text_encoder_2|clip)\//i.test(f))
+  if (hasUnet && hasVae && hasTextEncoder) return 'diffusers'
+
   // A real single-file checkpoint: root-level, not a shard, not a text encoder.
   const hasRootCheckpoint = files.some(f =>
     !f.includes('/')
@@ -59,11 +68,6 @@ export function classifyHfModelKind(siblings: HfModelFile[]): HfModelKind {
     && !isTextEncoderFile(f),
   )
   if (hasRootCheckpoint) return 'checkpoint'
-
-  const hasUnet = files.some(f => /^unet\//i.test(f))
-  const hasVae = files.some(f => /^vae\//i.test(f))
-  const hasTextEncoder = files.some(f => /^(text_encoder|text_encoder_2|clip)\//i.test(f))
-  if (hasUnet && hasVae && hasTextEncoder) return 'diffusers'
 
   const hasAnyModelFile = files.some(f => /\.(safetensors|ckpt|gguf|pt|pth|bin)$/i.test(f))
   return hasAnyModelFile ? 'collection' : 'unknown'

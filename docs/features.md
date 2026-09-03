@@ -390,6 +390,56 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 - Exclusive switching for GPU memory management
 - Automatic context capping to prevent OOM
 
+## Image Generation
+
+PeakUI can generate images through a self-hosted **ComfyUI** engine that runs
+alongside Ollama. The `image_generation` tool lets the model turn a text prompt
+into an image that renders inline in chat and is downloadable as a Canvas
+artifact.
+
+### Engine
+
+- **ComfyUI** is the image-generation engine (Ollama does not support image
+  generation). It runs on the host, reachable at `http://127.0.0.1:8188`, and
+  its `models/` directory is mounted into the app container at
+  `/mnt/comfyui/models`.
+- Settings → **Image Generation** configures the engine URL, the selected
+  model, and an optional Hugging Face token (for gated models).
+
+### Model discovery & download
+
+- **Search Hugging Face** for text-to-image models directly from Settings.
+- Results are classified by file layout and only genuinely-downloadable models
+  get a download button:
+  - `checkpoint` — a single-file `.safetensors`/`.ckpt` (e.g. `sd-turbo`,
+    `dreamshaper`).
+  - `diffusers` — a folder-based model (`unet/` + `vae/` + `text_encoder/`),
+    downloaded as multiple files into `models/diffusers/`.
+  - `collection` / `unknown` — not downloadable (e.g. "starter packs" of
+    LoRAs/ControlNets, or sharded models).
+- Downloads are **resumable** (HTTP Range) with persistent state that survives
+  restarts, live progress bars, and pause/resume/delete.
+
+### Generation
+
+- The `image_generation` tool (`{ prompt, negativePrompt, width, height,
+  steps, seed }`) is advertised to the model only when the engine is
+  configured and a model is selected.
+- The "Image Gen" mode toggle (next to Internet / RAG / Accountant) gates the
+  tool.
+- Generated images are fetched server-side, persisted as Canvas artifacts, and
+  returned as absolute URLs so they render inline and download correctly
+  regardless of how the user reaches PeakUI.
+
+### API Routes
+
+- `/api/image-gen/search` — Hugging Face model search + detail.
+- `/api/image-gen/downloads` — list / queue / start / pause / delete downloads.
+- `/api/image-gen/models` — ComfyUI health + model listing (checkpoints and
+  diffusers).
+- `/api/image-gen/generate` — submit a generation, poll for completion, and
+  persist the result as a Canvas artifact.
+
 ## Architecture
 
 ### Tech Stack
@@ -442,6 +492,10 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 - `/api/workspace-tool/workspaces/[id]/files/download` - Single-file download (RFC 5987 filename)
 - `/api/workspace-tool/workspaces/[id]/files/zip` - Bulk zip download (500 MB / 500 files)
 - `/api/workspace-tool/workspaces/[id]/events` - SSE stream of file-mutation events
+- `/api/image-gen/search` - Hugging Face model search + detail
+- `/api/image-gen/downloads` - Image model download queue (list / queue / start / pause / delete)
+- `/api/image-gen/models` - ComfyUI health + model listing (checkpoints and diffusers)
+- `/api/image-gen/generate` - Submit an image generation and persist the result as a Canvas artifact
 
 ### Database Models
 
@@ -453,6 +507,7 @@ When **Enable Knowledge Base** is toggled ON in Settings, the shared completion 
 - `UserSettings` - Per-user preferences
 - `RagDocument` - Knowledge base files
 - `RagChunk` - Document chunks for search
+- `ImageModelDownload` - Persistent, resumable image-model download queue
 
 ## Internal Naming Note
 

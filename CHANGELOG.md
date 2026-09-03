@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Image generation (ComfyUI engine)
+
+PeakUI can now generate images through a self-hosted **ComfyUI** engine that runs alongside Ollama (Ollama does not support image generation). The `image_generation` tool turns a text prompt into an image that renders inline in chat and is downloadable as a Canvas artifact.
+
+- **Engine**: ComfyUI runs on the host at `http://127.0.0.1:8188`; its `models/` directory is mounted into the app container at `/mnt/comfyui/models`.
+- **Settings → Image Generation**: engine URL, selected model, and an optional Hugging Face token (for gated models).
+- **Hugging Face search + download**: search text-to-image models, with results classified by file layout (`checkpoint` / `diffusers` / `collection` / `unknown`). Only genuinely-downloadable models get a download button. Downloads are resumable (HTTP Range) with persistent state, live progress, and pause/resume/delete.
+- **Diffusers support**: folder-based models (`unet/` + `vae/` + `text_encoder/`) download as multiple files into `models/diffusers/` and generate via ComfyUI's `DiffusersLoader`.
+- **Generation**: the `image_generation` tool is advertised only when the engine is configured and a model selected; the "Image Gen" mode toggle gates it. Generated images are fetched server-side, persisted as Canvas artifacts, and returned as absolute URLs (honoring `x-forwarded-host`/`proto`) so they render inline and download correctly.
+- **New routes**: `/api/image-gen/search`, `/api/image-gen/downloads`, `/api/image-gen/models`, `/api/image-gen/generate`.
+- **New schema**: `ImageModelDownload` table (persistent download queue) + `imageGenProvider`/`imageGenBaseUrl`/`imageGenModel`/`hfToken` settings.
+
 ### Added — In-flight model tracking (GPU arbiter)
 
 PeakUI has two GPU consumers — the chat model and the embedding model — that share one GPU. New `src/lib/ollama-inflight.ts` tracks which models are actively streaming a response or computing an embedding, so the exclusive-model unload never evicts a model mid-flight (which would fail the in-flight request):

@@ -108,6 +108,7 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | [docs/capability-inventory.md](docs/capability-inventory.md) | Native tool capability inventory |
 | [docs/tool-workflows.md](docs/tool-workflows.md) | Tool contracts for PDF, Word, Excel, CSV, email, Markdown, slides, ZIP, ICS, Mermaid, fetch/summarize, and tax PDF |
 | [docs/tool-call-formats.md](docs/tool-call-formats.md) | Multi-format tool-call parser reference — every model-native syntax PeakUI accepts |
+| [docs/image-generation.md](docs/image-generation.md) | Image generation — ComfyUI engine setup, model download, and generation flow |
 | [docs/development-section-plan.md](docs/development-section-plan.md) | Development section plan (draft) |
 
 ---

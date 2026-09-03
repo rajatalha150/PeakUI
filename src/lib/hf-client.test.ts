@@ -106,6 +106,19 @@ describe('classifyHfModelKind', () => {
       { rfilename: 'config.json' },
     ])).toBe('unknown')
   })
+
+  it('classifies a diffusers repo as diffusers even when it has a root .safetensors (UNet-only)', () => {
+    // stabilityai/sd-turbo ships sd_turbo.safetensors at root (UNet-only) plus
+    // the full diffusers layout. It must be classified as diffusers, not
+    // checkpoint, or ComfyUI fails with "clip input is invalid: None".
+    expect(classifyHfModelKind([
+      { rfilename: 'sd_turbo.safetensors' },
+      { rfilename: 'model_index.json' },
+      { rfilename: 'unet/diffusion_pytorch_model.safetensors' },
+      { rfilename: 'vae/diffusion_pytorch_model.safetensors' },
+      { rfilename: 'text_encoder/model.safetensors' },
+    ])).toBe('diffusers')
+  })
 })
 
 describe('diffusersFolderName', () => {
