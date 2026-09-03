@@ -36,6 +36,25 @@ describe('pickCheckpointFile', () => {
     const siblings = [{ rfilename: 'dreamshaper_7.ckpt', size: 2_000_000_000 }]
     expect(pickCheckpointFile(siblings)).toBe('dreamshaper_7.ckpt')
   })
+
+  it('skips sharded files (_1, _2) and text encoders', () => {
+    const siblings = [
+      { rfilename: 'qwen_3_4b_bf16_fp8_scaled.safetensors', size: 4_400_000_000 },
+      { rfilename: 'z_image_turbo_bf16_fp8_scaled_1.safetensors', size: 3_000_000_000 },
+      { rfilename: 'z_image_turbo_bf16_fp8_scaled_2.safetensors', size: 3_000_000_000 },
+    ]
+    expect(pickCheckpointFile(siblings)).toBeNull()
+  })
+
+  it('still picks a real checkpoint when shards/encoders are also present', () => {
+    const siblings = [
+      { rfilename: 'text_encoder/model.safetensors', size: 4_400_000_000 },
+      { rfilename: 'model_1.safetensors', size: 3_000_000_000 },
+      { rfilename: 'model_2.safetensors', size: 3_000_000_000 },
+      { rfilename: 'real_checkpoint.safetensors', size: 6_900_000_000 },
+    ]
+    expect(pickCheckpointFile(siblings)).toBe('real_checkpoint.safetensors')
+  })
 })
 
 describe('comfyFolderForHfFile', () => {

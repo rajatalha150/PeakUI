@@ -51,7 +51,13 @@ function authHeaders(token?: string): Record<string, string> {
  */
 export function classifyHfModelKind(siblings: HfModelFile[]): HfModelKind {
   const files = siblings.map(s => s.rfilename)
-  const hasRootCheckpoint = files.some(f => !f.includes('/') && /\.(safetensors|ckpt)$/i.test(f))
+  // A real single-file checkpoint: root-level, not a shard, not a text encoder.
+  const hasRootCheckpoint = files.some(f =>
+    !f.includes('/')
+    && /\.(safetensors|ckpt)$/i.test(f)
+    && !isShardFile(f, files)
+    && !isTextEncoderFile(f),
+  )
   if (hasRootCheckpoint) return 'checkpoint'
 
   const hasUnet = files.some(f => /^unet\//i.test(f))
@@ -166,23 +172,61 @@ export function hfResolveUrl(modelId: string, rfilename: string): string {
 }
 
 /**
+ * A sharded model file: ends in `_1`, `_2`, `-1`, `-2`, etc. before the
+ * extension (e.g. `z_image_turbo_bf16_fp8_scaled_1.safetensors`). These are
+ * parts of a multi-file model, not a single loadable checkpoint.
+ *
+ * To avoid false positives on versioned names like `dreamshaper_7.ckpt`, a
+ * numbered file is only treated as a shard when a *sibling* shares the same
+ * base name with a different number (e.g. `..._1` and `..._2`).
+ */
+function isShardFile(name: string, allNames: string[]): boolean {
+  const match = /^(.*)[_-](\d+)\.(safetensors|ckpt)$/i.exec(name)
+  if (!match) return false
+  const base = match[1]
+  const ext = match[3]
+  return allNames.some(other => {
+    if (other === name) return false
+    const otherMatch = new RegExp(`^${escapeRegExp(base)}[_-]\\d+\\.${ext}$`, 'i').exec(other)
+    return otherMatch !== null
+  })
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * A text-encoder file (CLIP/T5/Qwen/etc.), not a full image model. These are
+ * often shipped alongside sharded models and must not be mistaken for a
+ * checkpoint.
+ */
+function isTextEncoderFile(name: string): boolean {
+  return /(text_encoder|text-encoder|clip|t5|qwen|llm|language_model|text_enc)/i.test(name)
+}
+
+/**
  * Pick the single-file checkpoint to download from a model's file list.
  *
  * HF repos don't follow a naming convention, so we can't guess the filename
  * from the repo id (e.g. `stabilityai/sd-turbo` ships `sd_turbo.safetensors`,
  * not `sd-turbo.safetensors`). This selects the best root-level checkpoint:
  *
- *   - Prefer a root-level `.safetensors` / `.ckpt` (single-file checkpoint).
+ *   - Only root-level `.safetensors` / `.ckpt` files.
+ *   - Excludes shards (`_1`, `_2`, …) and text encoders (CLIP/T5/Qwen).
  *   - Prefer the non-fp16 variant (smaller, and ComfyUI loads fp32/fp16 fine).
- *   - Fall back to the smallest root-level checkpoint when only fp16 exists.
+ *   - Fall back to the smallest remaining checkpoint when only fp16 exists.
  *
  * Returns the `rfilename`, or null when the repo has no single-file checkpoint
- * (e.g. a diffusers-only repo, which needs a different download path).
+ * (e.g. a diffusers-only repo, or a sharded/collection repo).
  */
 export function pickCheckpointFile(siblings: HfModelFile[]): string | null {
+  const allNames = siblings.map(s => s.rfilename)
   const checkpoints = siblings
     .filter(s => !s.rfilename.includes('/'))
     .filter(s => /\.(safetensors|ckpt)$/i.test(s.rfilename))
+    .filter(s => !isShardFile(s.rfilename, allNames))
+    .filter(s => !isTextEncoderFile(s.rfilename))
 
   if (checkpoints.length === 0) return null
 
