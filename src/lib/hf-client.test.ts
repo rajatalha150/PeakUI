@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pickCheckpointFile, comfyFolderForHfFile, hfResolveUrl } from './hf-client'
+import { pickCheckpointFile, comfyFolderForHfFile, hfResolveUrl, classifyHfModelKind } from './hf-client'
 
 describe('pickCheckpointFile', () => {
   it('picks the root-level safetensors checkpoint (not a guessed name)', () => {
@@ -57,5 +57,34 @@ describe('hfResolveUrl', () => {
   it('builds the resolve URL', () => {
     expect(hfResolveUrl('stabilityai/sd-turbo', 'sd_turbo.safetensors'))
       .toBe('https://huggingface.co/stabilityai/sd-turbo/resolve/main/sd_turbo.safetensors')
+  })
+})
+
+describe('classifyHfModelKind', () => {
+  it('classifies a root-level checkpoint as checkpoint', () => {
+    expect(classifyHfModelKind([{ rfilename: 'sd_turbo.safetensors' }])).toBe('checkpoint')
+  })
+
+  it('classifies a diffusers layout (unet/vae/text_encoder) as diffusers', () => {
+    expect(classifyHfModelKind([
+      { rfilename: 'unet/diffusion_pytorch_model.safetensors' },
+      { rfilename: 'vae/diffusion_pytorch_model.safetensors' },
+      { rfilename: 'text_encoder/model.safetensors' },
+    ])).toBe('diffusers')
+  })
+
+  it('classifies a component collection (loose files, no root checkpoint) as collection', () => {
+    expect(classifyHfModelKind([
+      { rfilename: 'Flux1/LoRas/navi_flux_v1.safetensors' },
+      { rfilename: 'Flux1/clip/clip_l.safetensors' },
+      { rfilename: 'Adetailer/face_yolov8m.pt' },
+    ])).toBe('collection')
+  })
+
+  it('classifies a repo with no model files as unknown', () => {
+    expect(classifyHfModelKind([
+      { rfilename: 'README.md' },
+      { rfilename: 'config.json' },
+    ])).toBe('unknown')
   })
 })

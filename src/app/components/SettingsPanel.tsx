@@ -321,7 +321,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
   const [imageGenStatus, setImageGenStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [imageGenModels, setImageGenModels] = useState<Array<{ name: string; folder: string }>>([]);
   const [hfSearchQuery, setHfSearchQuery] = useState('');
-  const [hfSearchResults, setHfSearchResults] = useState<Array<{ id: string; downloads?: number; likes?: number; pipelineTag?: string }>>([]);
+  const [hfSearchResults, setHfSearchResults] = useState<Array<{ id: string; downloads?: number; likes?: number; pipelineTag?: string; kind?: string }>>([]);
   const [hfSearching, setHfSearching] = useState(false);
   const [hfSearchError, setHfSearchError] = useState('');
   const [imageDownloads, setImageDownloads] = useState<Array<{ id: string; modelId: string; filename: string; status: string; progress: number; totalBytes: number; downloadedBytes: number; error: string | null }>>([]);
@@ -1542,22 +1542,36 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
 
             {hfSearchResults.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '260px', overflowY: 'auto', padding: '8px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)' }}>
-                {hfSearchResults.map(result => (
-                  <div key={result.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '6px 8px', borderRadius: '8px', background: 'rgba(255,255,255,0.02)' }}>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: '0.8rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{result.id}</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>{result.downloads != null ? `${result.downloads.toLocaleString()} downloads` : ''}</div>
+                {hfSearchResults.map(result => {
+                  const downloadable = result.kind === 'checkpoint'
+                  const kindLabel = result.kind === 'checkpoint' ? 'checkpoint'
+                    : result.kind === 'diffusers' ? 'diffusers'
+                    : result.kind === 'collection' ? 'collection'
+                    : 'unknown'
+                  return (
+                    <div key={result.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '6px 8px', borderRadius: '8px', background: 'rgba(255,255,255,0.02)', opacity: downloadable ? 1 : 0.6 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: '0.8rem', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{result.id}</div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                          {result.downloads != null ? `${result.downloads.toLocaleString()} downloads` : ''}
+                          {result.kind ? ` · ${kindLabel}` : ''}
+                        </div>
+                      </div>
+                      {downloadable ? (
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '6px 10px', fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+                          onClick={() => void queueHfDownload(result.id)}
+                          title="Download this model"
+                        >
+                          <Download size={13} />
+                        </button>
+                      ) : (
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>not a single-file model</span>
+                      )}
                     </div>
-                    <button
-                      className="btn btn-secondary"
-                      style={{ padding: '6px 10px', fontSize: '0.75rem', whiteSpace: 'nowrap' }}
-                      onClick={() => void queueHfDownload(result.id)}
-                      title="Download this model"
-                    >
-                      <Download size={13} />
-                    </button>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
 

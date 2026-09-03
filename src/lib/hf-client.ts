@@ -19,7 +19,11 @@ export interface HfModelSummary {
   likes?: number
   libraryName?: string
   tags?: string[]
+  /** Classification of the repo's contents, used to filter/tag search results. */
+  kind?: HfModelKind
 }
+
+export type HfModelKind = 'checkpoint' | 'diffusers' | 'collection' | 'unknown'
 
 export interface HfModelFile {
   rfilename: string
@@ -35,7 +39,28 @@ const HF_API_BASE = 'https://huggingface.co/api'
 const REQUEST_TIMEOUT_MS = 15000
 
 function authHeaders(token?: string): Record<string, string> {
-  return token?.trim() ? { Authorization: `Bearer ${token.trim()}` } : {}
+  return token?.trim() ? { Authorization: 'Bearer ' + token.trim() } : {}
+}
+
+/**
+ * Classify a repo by its file layout:
+ *   - 'checkpoint': has a root-level .safetensors/.ckpt (single-file model).
+ *   - 'diffusers': has unet/ + vae/ + text_encoder/ subfolders (folder model).
+ *   - 'collection': many loose files/folders but no single loadable checkpoint.
+ *   - 'unknown': no recognizable model files at all.
+ */
+export function classifyHfModelKind(siblings: HfModelFile[]): HfModelKind {
+  const files = siblings.map(s => s.rfilename)
+  const hasRootCheckpoint = files.some(f => !f.includes('/') && /\.(safetensors|ckpt)$/i.test(f))
+  if (hasRootCheckpoint) return 'checkpoint'
+
+  const hasUnet = files.some(f => /^unet\//i.test(f))
+  const hasVae = files.some(f => /^vae\//i.test(f))
+  const hasTextEncoder = files.some(f => /^(text_encoder|text_encoder_2|clip)\//i.test(f))
+  if (hasUnet && hasVae && hasTextEncoder) return 'diffusers'
+
+  const hasAnyModelFile = files.some(f => /\.(safetensors|ckpt|gguf|pt|pth|bin)$/i.test(f))
+  return hasAnyModelFile ? 'collection' : 'unknown'
 }
 
 export async function searchHfModels(
@@ -48,7 +73,7 @@ export async function searchHfModels(
   params.set('sort', 'downloads')
   params.set('direction', '-1')
   params.set('limit', String(options.limit ?? 20))
-  params.set('full', 'false')
+  params.set('full', 'true')
 
   const response = await fetch(`${HF_API_BASE}/models?${params.toString()}`, {
     headers: authHeaders(options.token),
@@ -63,18 +88,25 @@ export async function searchHfModels(
     likes?: number
     library_name?: string
     tags?: string[]
+    siblings?: Array<{ rfilename?: string; size?: number }>
   }>
 
   return data
     .filter(entry => typeof entry.id === 'string')
-    .map(entry => ({
-      id: entry.id as string,
-      pipelineTag: entry.pipeline_tag,
-      downloads: entry.downloads,
-      likes: entry.likes,
-      libraryName: entry.library_name,
-      tags: entry.tags,
-    }))
+    .map(entry => {
+      const siblings = (entry.siblings ?? [])
+        .filter(s => typeof s.rfilename === 'string')
+        .map(s => ({ rfilename: s.rfilename as string, size: s.size }))
+      return {
+        id: entry.id as string,
+        pipelineTag: entry.pipeline_tag,
+        downloads: entry.downloads,
+        likes: entry.likes,
+        libraryName: entry.library_name,
+        tags: entry.tags,
+        kind: classifyHfModelKind(siblings),
+      }
+    })
 }
 
 export async function getHfModelDetail(modelId: string, token?: string): Promise<HfModelDetail> {
