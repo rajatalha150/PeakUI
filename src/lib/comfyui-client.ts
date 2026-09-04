@@ -341,17 +341,23 @@ export interface ComfyUiHistoryResult {
   online: boolean
   done: boolean
   images?: Array<{ filename: string; subfolder: string; type: string }>
+  /** Execution error detail (node type + exception message) when the workflow failed. */
   error?: string
 }
 
 /**
  * Poll a generation's history. When `done`, `images` lists the output files
- * (fetchable via /view?filename=...&subfolder=...&type=...).
+ * (fetchable via /view?filename=...&subfolder=...&type=...). If the workflow
+ * failed, `error` carries the node type + exception message so the failure is
+ * actionable instead of a generic "no images".
  */
 export async function getComfyUiHistory(baseUrl: string, promptId: string): Promise<ComfyUiHistoryResult> {
   const host = baseUrl.replace(/\/$/, '')
   try {
-    const data = await fetchJson<Record<string, { outputs?: Record<string, { images?: Array<{ filename: string; subfolder: string; type: string }> }> }>>(
+    const data = await fetchJson<Record<string, {
+      outputs?: Record<string, { images?: Array<{ filename: string; subfolder: string; type: string }> }>
+      status?: { status_str?: string; completed?: boolean; messages?: Array<[string, unknown]> }
+    }>>(
       `${host}/history/${encodeURIComponent(promptId)}`,
     )
     const entry = data[promptId]
@@ -360,7 +366,19 @@ export async function getComfyUiHistory(baseUrl: string, promptId: string): Prom
     for (const output of Object.values(entry.outputs ?? {})) {
       for (const image of output.images ?? []) images.push(image)
     }
-    return { online: true, done: true, images }
+
+    // Extract execution errors so failures are actionable.
+    let error: string | undefined
+    for (const message of entry.status?.messages ?? []) {
+      if (message[0] !== 'execution_error') continue
+      const detail = message[1] as { node_type?: string; exception_message?: string } | undefined
+      if (detail?.exception_message) {
+        const nodeType = detail.node_type ? `${detail.node_type}: ` : ''
+        error = `${nodeType}${detail.exception_message.trim()}`
+      }
+    }
+
+    return { online: true, done: true, images, error }
   } catch (error) {
     return { online: false, done: false, error: error instanceof Error ? error.message : 'ComfyUI unreachable' }
   }

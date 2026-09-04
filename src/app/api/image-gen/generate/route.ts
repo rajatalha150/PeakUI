@@ -128,7 +128,12 @@ export async function POST(req: NextRequest) {
     }
 
     if (images.length === 0) {
-      return NextResponse.json({ error: 'Generation produced no downloadable images' }, { status: 502 })
+      // Surface the real ComfyUI execution error (node type + exception
+      // message) so the model can tell the user what actually went wrong —
+      // e.g. "CheckpointLoaderSimple: Could not detect model type of X"
+      // instead of a generic "no images".
+      const reason = history.error || 'the workflow produced no output images'
+      return NextResponse.json({ error: `Generation failed: ${reason}` }, { status: 502 })
     }
 
     return NextResponse.json({ promptId: submitted.promptId, images })

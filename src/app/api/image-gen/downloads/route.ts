@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
 import { getCurrentAuth } from '@/lib/request-auth'
 import {
   listImageDownloads,
@@ -11,6 +12,20 @@ import { getHfModelDetail, pickDiffusersFiles, pickSplitFiles, diffusersFolderNa
 import { getUserSettings } from '@/lib/settings'
 
 export const runtime = 'nodejs'
+
+/**
+ * Infer the CLIPLoader text-encoder type from the model id / family hints.
+ * Defaults to 'qwen_image' for the modern ComfyUI-native families (Anima,
+ * Z-Image, Qwen-Image).
+ */
+function inferClipType(modelId: string): string {
+  const lower = modelId.toLowerCase()
+  if (/(qwen|anima|z-image)/i.test(lower)) return 'qwen_image'
+  if (/flux/i.test(lower)) return 'flux'
+  if (/sdxl/i.test(lower)) return 'sdxl'
+  if (/sd3/i.test(lower)) return 'sd3'
+  return 'qwen_image'
+}
 
 export async function GET() {
   const auth = await getCurrentAuth()
@@ -96,7 +111,28 @@ export async function POST(req: NextRequest) {
         })
         downloads.push(download)
       }
-      return NextResponse.json({ downloads })
+
+      // Auto-pair the split components: pick the UNet as the model and the
+      // text encoder + VAE as its companions, so generation works without
+      // manual configuration. The user can still change these in Settings.
+      const unet = files.find(f => f.targetFolder === 'diffusion_models')
+      const clip = files.find(f => f.targetFolder === 'text_encoders')
+      const vae = files.find(f => f.targetFolder === 'vae')
+      const unetName = unet ? unet.rfilename.split('/').pop()! : ''
+      const clipName = clip ? clip.rfilename.split('/').pop()! : ''
+      const vaeName = vae ? vae.rfilename.split('/').pop()! : ''
+      const clipType = inferClipType(modelId)
+      await prisma.userSettings.updateMany({
+        where: { userId: auth.user.id },
+        data: {
+          imageGenModel: unetName,
+          ...(clipName ? { imageGenClipName: clipName } : {}),
+          ...(vaeName ? { imageGenVaeName: vaeName } : {}),
+          ...(clipType ? { imageGenClipType: clipType } : {}),
+        },
+      })
+
+      return NextResponse.json({ downloads, model: unetName, clipName, vaeName, clipType })
     }
 
     if (action === 'start') {
