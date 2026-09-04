@@ -39,7 +39,21 @@ export async function GET() {
     const diffusersResult = await listComfyUiDiffusersModels(baseUrl)
     const diffusersModels = diffusersResult.models.map(model => ({ name: model.name, folder: 'diffusers' }))
 
-    return NextResponse.json({ online: stats.online, stats, folders: folders.folders, models: [...models, ...diffusersModels] })
+    // Text encoders and VAEs (for split-format models) are listed separately so
+    // the user can select them in Settings.
+    const [textEncoders, vaes] = await Promise.all([
+      listComfyUiModels(baseUrl, 'text_encoders'),
+      listComfyUiModels(baseUrl, 'vae'),
+    ])
+
+    return NextResponse.json({
+      online: stats.online,
+      stats,
+      folders: folders.folders,
+      models: [...models, ...diffusersModels],
+      textEncoders: textEncoders.models.map(m => m.name),
+      vaes: vaes.models.map(m => m.name),
+    })
   } catch (error) {
     console.error('[image-gen/models] error:', error)
     return NextResponse.json(

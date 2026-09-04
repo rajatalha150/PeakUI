@@ -7,7 +7,7 @@ import {
   pauseImageDownload,
   deleteImageDownload,
 } from '@/lib/image-download-manager'
-import { getHfModelDetail, pickDiffusersFiles, diffusersFolderName } from '@/lib/hf-client'
+import { getHfModelDetail, pickDiffusersFiles, pickSplitFiles, diffusersFolderName } from '@/lib/hf-client'
 import { getUserSettings } from '@/lib/settings'
 
 export const runtime = 'nodejs'
@@ -70,6 +70,29 @@ export async function POST(req: NextRequest) {
           filename,
           targetFolder: 'diffusers',
           destName,
+        })
+        downloads.push(download)
+      }
+      return NextResponse.json({ downloads })
+    }
+
+    if (action === 'queue-split') {
+      const modelId = typeof body.modelId === 'string' ? body.modelId.trim() : ''
+      if (!modelId) {
+        return NextResponse.json({ error: 'modelId is required' }, { status: 400 })
+      }
+      const settings = await getUserSettings(auth.user.id)
+      const detail = await getHfModelDetail(modelId, settings.hfToken || undefined)
+      const files = pickSplitFiles(detail.siblings)
+      if (files.length === 0) {
+        return NextResponse.json({ error: 'No split model files found in this repo' }, { status: 400 })
+      }
+      const downloads = []
+      for (const file of files) {
+        const download = await queueImageDownload(auth.user.id, {
+          modelId,
+          filename: file.rfilename,
+          targetFolder: file.targetFolder,
         })
         downloads.push(download)
       }

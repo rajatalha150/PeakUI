@@ -60,6 +60,9 @@ interface UserSettings {
   imageGenProvider: string;
   imageGenBaseUrl: string;
   imageGenModel: string;
+  imageGenClipType: string;
+  imageGenClipName: string;
+  imageGenVaeName: string;
   hfToken: string;
   systemPrompt: string;
   temperature: number;
@@ -213,6 +216,9 @@ const INITIAL_SETTINGS: UserSettings = {
   imageGenProvider: 'none',
   imageGenBaseUrl: 'http://127.0.0.1:8188',
   imageGenModel: '',
+  imageGenClipType: 'qwen_image',
+  imageGenClipName: '',
+  imageGenVaeName: '',
   hfToken: '',
   systemPrompt: '',
   temperature: 0.7,
@@ -320,6 +326,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
   const [ollamaStatus, setOllamaStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [imageGenStatus, setImageGenStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [imageGenModels, setImageGenModels] = useState<Array<{ name: string; folder: string }>>([]);
+  const [textEncoders, setTextEncoders] = useState<string[]>([]);
+  const [vaes, setVaes] = useState<string[]>([]);
   const [hfSearchQuery, setHfSearchQuery] = useState('');
   const [hfSearchResults, setHfSearchResults] = useState<Array<{ id: string; downloads?: number; likes?: number; pipelineTag?: string; kind?: string }>>([]);
   const [hfSearching, setHfSearching] = useState(false);
@@ -404,13 +412,19 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
       const data = await res.json();
       if (data.online) {
         setImageGenModels(data.models || []);
+        setTextEncoders(data.textEncoders || []);
+        setVaes(data.vaes || []);
         setImageGenStatus('online');
       } else {
         setImageGenModels([]);
+        setTextEncoders([]);
+        setVaes([]);
         setImageGenStatus('offline');
       }
     } catch {
       setImageGenModels([]);
+      setTextEncoders([]);
+      setVaes([]);
       setImageGenStatus('offline');
     }
   }, []);
@@ -460,6 +474,28 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           return;
         }
         // Start all queued files for this model.
+        await fetch('/api/image-gen/downloads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'start-model', modelId }),
+        });
+        void fetchImageDownloads();
+        return;
+      }
+
+      if (kind === 'split') {
+        // Split-format repo: queue the UNet + text encoder + VAE into their
+        // respective ComfyUI folders.
+        const res = await fetch('/api/image-gen/downloads', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'queue-split', modelId }),
+        });
+        const data = await res.json();
+        if (data.error) {
+          setHfSearchError(data.error);
+          return;
+        }
         await fetch('/api/image-gen/downloads', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1516,7 +1552,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
               </div>
             </Field>
 
-            <Field label="Image Model" help="The checkpoint used for generation. Models downloaded from Hugging Face appear here once the download completes.">
+            <Field label="Image Model" help="The model used for generation. Single-file checkpoints appear as (checkpoints); split-model UNets appear as (diffusion_models); diffusers folders appear as (diffusers). Models downloaded from Hugging Face appear here once the download completes.">
               <select
                 className="input-field"
                 value={settings.imageGenModel}
@@ -1529,6 +1565,51 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                 ))}
               </select>
             </Field>
+
+            {imageGenModels.some(m => m.name === settings.imageGenModel && m.folder === 'diffusion_models') && (
+              <>
+                <Field label="Text Encoder (split models)" help="Required for split models: the text-encoder file downloaded into text_encoders/.">
+                  <select
+                    className="input-field"
+                    value={settings.imageGenClipName}
+                    onChange={e => update('imageGenClipName', e.target.value)}
+                    style={{ width: '100%' }}
+                  >
+                    <option value="">— Pick a text encoder —</option>
+                    {textEncoders.map(name => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field label="CLIP Type (split models)" help="The text-encoder family. Must match the model (e.g. qwen_image for Anima/Z-Image/Qwen-Image).">
+                  <select
+                    className="input-field"
+                    value={settings.imageGenClipType}
+                    onChange={e => update('imageGenClipType', e.target.value)}
+                    style={{ width: '100%' }}
+                  >
+                    {['qwen_image', 'flux', 'sdxl', 'sd3', 'stable_diffusion', 'hidream', 'chroma', 'ltxv', 'wan', 'lumina2', 'cosmos', 'pixart', 'mochi', 'stable_audio', 'stable_cascade', 'ace', 'ovis', 'longcat_image', 'cogvideox', 'hunyuan_image', 'kandinsky5_image', 'newbie', 'joyimage', 'mage', 'minimax', 'pixeldit', 'ideogram4', 'boogu', 'krea2', 'lens'].map(type => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
+                </Field>
+
+                <Field label="VAE (split models)" help="Required for split models: the VAE file downloaded into vae/.">
+                  <select
+                    className="input-field"
+                    value={settings.imageGenVaeName}
+                    onChange={e => update('imageGenVaeName', e.target.value)}
+                    style={{ width: '100%' }}
+                  >
+                    <option value="">— Pick a VAE —</option>
+                    {vaes.map(name => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                </Field>
+              </>
+            )}
 
             <Field label="Hugging Face Token" help="Optional. Required for gated models. Stored server-side and never returned to the browser.">
               <input
@@ -1563,9 +1644,10 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             {hfSearchResults.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '260px', overflowY: 'auto', padding: '8px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)' }}>
                 {hfSearchResults.map(result => {
-                  const downloadable = result.kind === 'checkpoint' || result.kind === 'diffusers'
+                  const downloadable = result.kind === 'checkpoint' || result.kind === 'diffusers' || result.kind === 'split'
                   const kindLabel = result.kind === 'checkpoint' ? 'checkpoint'
                     : result.kind === 'diffusers' ? 'diffusers'
+                    : result.kind === 'split' ? 'split'
                     : result.kind === 'collection' ? 'collection'
                     : 'unknown'
                   return (
@@ -1582,7 +1664,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                           className="btn btn-secondary"
                           style={{ padding: '6px 10px', fontSize: '0.75rem', whiteSpace: 'nowrap' }}
                           onClick={() => void queueHfDownload(result.id, result.kind)}
-                          title={result.kind === 'diffusers' ? 'Download this diffusers model (multiple files)' : 'Download this model'}
+                          title={result.kind === 'diffusers' ? 'Download this diffusers model (multiple files)' : result.kind === 'split' ? 'Download this split model (UNet + text encoder + VAE)' : 'Download this model'}
                         >
                           <Download size={13} />
                         </button>

@@ -140,10 +140,21 @@ export async function listComfyUiDiffusersModels(baseUrl: string): Promise<Comfy
  * under `models/diffusers/`) or a single-file checkpoint. Returns 'diffusers'
  * when the name is in the DiffusersLoader list, else 'checkpoint'.
  */
-export async function detectComfyUiModelKind(baseUrl: string, model: string): Promise<'checkpoint' | 'diffusers'> {
+export async function detectComfyUiModelKind(baseUrl: string, model: string): Promise<'checkpoint' | 'diffusers' | 'split'> {
   const diffusers = await listComfyUiDiffusersModels(baseUrl)
   if (diffusers.models.some(m => m.name === model)) return 'diffusers'
+  const split = await listComfyUiSplitModels(baseUrl)
+  if (split.models.some(m => m.name === model)) return 'split'
   return 'checkpoint'
+}
+
+/**
+ * List split-format models (UNet files in `models/diffusion_models/`). These
+ * are the modern ComfyUI-native models (Anima, Z-Image, Qwen-Image) where the
+ * UNet, text encoder, and VAE are separate files.
+ */
+export async function listComfyUiSplitModels(baseUrl: string): Promise<ComfyUiModelsResult> {
+  return listComfyUiModels(baseUrl, 'diffusion_models')
 }
 
 /**
@@ -241,6 +252,66 @@ export async function submitComfyUiTxt2ImgDiffusers(
       },
     },
     '8': { class_type: 'VAEDecode', inputs: { samples: ['3', 0], vae: ['4', 2] } },
+    '9': { class_type: 'SaveImage', inputs: { filename_prefix: 'peakui', images: ['8', 0] } },
+  }
+
+  return submitWorkflow(host, workflow)
+}
+
+/**
+ * Submit a text-to-image workflow for a split-format model. Uses UNETLoader +
+ * CLIPLoader + VAELoader (the modern ComfyUI-native layout where the UNet,
+ * text encoder, and VAE are separate files).
+ *
+ * `model` is the UNet filename (in `models/diffusion_models/`), `clipName` is
+ * the text-encoder filename (in `models/text_encoders/`), `vaeName` is the VAE
+ * filename (in `models/vae/`), and `clipType` is the CLIPLoader type (e.g.
+ * `qwen_image`, `flux`, `sdxl`).
+ */
+export async function submitComfyUiTxt2ImgSplit(
+  baseUrl: string,
+  options: {
+    model: string
+    clipName: string
+    vaeName: string
+    clipType: string
+    prompt: string
+    negativePrompt?: string
+    width?: number
+    height?: number
+    steps?: number
+    seed?: number
+  },
+): Promise<ComfyUiGenerationResult> {
+  const host = baseUrl.replace(/\/$/, '')
+  const width = options.width ?? 1024
+  const height = options.height ?? 1024
+  const steps = options.steps ?? 20
+  const seed = options.seed ?? Math.floor(Math.random() * 2 ** 32)
+
+  const workflow = {
+    '4': { class_type: 'UNETLoader', inputs: { unet_name: options.model, weight_dtype: 'default' } },
+    '10': { class_type: 'CLIPLoader', inputs: { clip_name: options.clipName, type: options.clipType } },
+    '11': { class_type: 'VAELoader', inputs: { vae_name: options.vaeName } },
+    '6': { class_type: 'CLIPTextEncode', inputs: { text: options.prompt, clip: ['10', 0] } },
+    '7': { class_type: 'CLIPTextEncode', inputs: { text: options.negativePrompt ?? '', clip: ['10', 0] } },
+    '5': { class_type: 'EmptyLatentImage', inputs: { width, height, batch_size: 1 } },
+    '3': {
+      class_type: 'KSampler',
+      inputs: {
+        seed,
+        steps,
+        cfg: 7,
+        sampler_name: 'euler',
+        scheduler: 'normal',
+        denoise: 1,
+        model: ['4', 0],
+        positive: ['6', 0],
+        negative: ['7', 0],
+        latent_image: ['5', 0],
+      },
+    },
+    '8': { class_type: 'VAEDecode', inputs: { samples: ['3', 0], vae: ['11', 0] } },
     '9': { class_type: 'SaveImage', inputs: { filename_prefix: 'peakui', images: ['8', 0] } },
   }
 

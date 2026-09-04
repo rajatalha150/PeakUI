@@ -109,6 +109,9 @@ model UserSettings {
   imageGenProvider                                String   @default("none")
   imageGenBaseUrl                                 String   @default("http://127.0.0.1:8188")
   imageGenModel                                   String   @default("")
+  imageGenClipType                                String   @default("qwen_image")
+  imageGenClipName                                String   @default("")
+  imageGenVaeName                                 String   @default("")
   hfToken                                         String   @default("")
   user                                            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

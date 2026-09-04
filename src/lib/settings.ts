@@ -142,6 +142,9 @@ export interface AppSettings {
   imageGenProvider: ImageGenProvider
   imageGenBaseUrl: string
   imageGenModel: string
+  imageGenClipType: string
+  imageGenClipName: string
+  imageGenVaeName: string
   hfToken: string
   /**
    * Starred / favorite models, persisted server-side so they follow the user
@@ -222,6 +225,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   imageGenProvider: 'none',
   imageGenBaseUrl: 'http://127.0.0.1:8188',
   imageGenModel: '',
+  imageGenClipType: 'qwen_image',
+  imageGenClipName: '',
+  imageGenVaeName: '',
   hfToken: '',
   workspaceToolFavoriteModels: '[]',
 }
@@ -505,6 +511,9 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     imageGenProvider: normalizeImageGenProvider(settings?.imageGenProvider),
     imageGenBaseUrl: normalizeImageGenBaseUrl(settings?.imageGenBaseUrl),
     imageGenModel: typeof settings?.imageGenModel === 'string' ? settings.imageGenModel.trim() : DEFAULT_SETTINGS.imageGenModel,
+    imageGenClipType: typeof settings?.imageGenClipType === 'string' ? settings.imageGenClipType.trim() : DEFAULT_SETTINGS.imageGenClipType,
+    imageGenClipName: typeof settings?.imageGenClipName === 'string' ? settings.imageGenClipName.trim() : DEFAULT_SETTINGS.imageGenClipName,
+    imageGenVaeName: typeof settings?.imageGenVaeName === 'string' ? settings.imageGenVaeName.trim() : DEFAULT_SETTINGS.imageGenVaeName,
     hfToken: typeof settings?.hfToken === 'string' ? settings.hfToken.trim() : DEFAULT_SETTINGS.hfToken,
     systemPrompt,
     temperature: normalizeTemperature(settings?.temperature),

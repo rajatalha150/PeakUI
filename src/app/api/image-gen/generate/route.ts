@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentAuth } from '@/lib/request-auth'
 import { getUserSettings } from '@/lib/settings'
-import { submitComfyUiTxt2Img, submitComfyUiTxt2ImgDiffusers, detectComfyUiModelKind, getComfyUiHistory, comfyUiViewUrl } from '@/lib/comfyui-client'
+import { submitComfyUiTxt2Img, submitComfyUiTxt2ImgDiffusers, submitComfyUiTxt2ImgSplit, detectComfyUiModelKind, getComfyUiHistory, comfyUiViewUrl } from '@/lib/comfyui-client'
 import { createImageCanvasArtifact } from '@/lib/image-gen-artifacts'
 import { resolvePublicOrigin } from '@/lib/request-origin'
 
@@ -48,9 +48,22 @@ export async function POST(req: NextRequest) {
       steps: typeof body.steps === 'number' ? body.steps : undefined,
       seed: typeof body.seed === 'number' ? body.seed : undefined,
     }
-    const submitted = modelKind === 'diffusers'
-      ? await submitComfyUiTxt2ImgDiffusers(baseUrl, submitOptions)
-      : await submitComfyUiTxt2Img(baseUrl, submitOptions)
+    let submitted: Awaited<ReturnType<typeof submitComfyUiTxt2Img>>
+    if (modelKind === 'diffusers') {
+      submitted = await submitComfyUiTxt2ImgDiffusers(baseUrl, submitOptions)
+    } else if (modelKind === 'split') {
+      if (!settings.imageGenClipName || !settings.imageGenVaeName) {
+        return NextResponse.json({ error: 'Split model requires a text encoder and VAE. Configure them in Settings → Image Generation.' }, { status: 400 })
+      }
+      submitted = await submitComfyUiTxt2ImgSplit(baseUrl, {
+        ...submitOptions,
+        clipName: settings.imageGenClipName,
+        vaeName: settings.imageGenVaeName,
+        clipType: settings.imageGenClipType || 'qwen_image',
+      })
+    } else {
+      submitted = await submitComfyUiTxt2Img(baseUrl, submitOptions)
+    }
 
     if (!submitted.online) {
       return NextResponse.json({ error: submitted.error || 'ComfyUI unreachable' }, { status: 502 })

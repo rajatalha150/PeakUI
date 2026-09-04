@@ -121,6 +121,9 @@ interface SettingsBody {
   imageGenProvider?: unknown;
   imageGenBaseUrl?: unknown;
   imageGenModel?: unknown;
+  imageGenClipType?: unknown;
+  imageGenClipName?: unknown;
+  imageGenVaeName?: unknown;
   hfToken?: unknown;
   workspaceToolFavoriteModels?: unknown;
 }
@@ -289,6 +292,9 @@ export async function POST(req: Request) {
     if (body.imageGenProvider !== undefined) data.imageGenProvider = normalizeImageGenProvider(body.imageGenProvider);
     if (body.imageGenBaseUrl !== undefined) data.imageGenBaseUrl = normalizeImageGenBaseUrl(body.imageGenBaseUrl);
     if (body.imageGenModel !== undefined) data.imageGenModel = String(body.imageGenModel);
+    if (body.imageGenClipType !== undefined) data.imageGenClipType = String(body.imageGenClipType);
+    if (body.imageGenClipName !== undefined) data.imageGenClipName = String(body.imageGenClipName);
+    if (body.imageGenVaeName !== undefined) data.imageGenVaeName = String(body.imageGenVaeName);
     if (body.hfToken !== undefined) data.hfToken = String(body.hfToken);
     if (Object.prototype.hasOwnProperty.call(body, 'ragTopK')) {
       const parsed = Number(body.ragTopK);

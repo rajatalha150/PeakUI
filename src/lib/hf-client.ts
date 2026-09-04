@@ -23,7 +23,7 @@ export interface HfModelSummary {
   kind?: HfModelKind
 }
 
-export type HfModelKind = 'checkpoint' | 'diffusers' | 'collection' | 'unknown'
+export type HfModelKind = 'checkpoint' | 'diffusers' | 'split' | 'collection' | 'unknown'
 
 export interface HfModelFile {
   rfilename: string
@@ -46,6 +46,8 @@ function authHeaders(token?: string): Record<string, string> {
  * Classify a repo by its file layout:
  *   - 'checkpoint': has a root-level .safetensors/.ckpt (single-file model).
  *   - 'diffusers': has unet/ + vae/ + text_encoder/ subfolders (folder model).
+ *   - 'split': has diffusion_models/ + text_encoders/ + vae/ subfolders
+ *     (modern split-format model: UNet + text encoder + VAE as separate files).
  *   - 'collection': many loose files/folders but no single loadable checkpoint.
  *   - 'unknown': no recognizable model files at all.
  */
@@ -59,6 +61,14 @@ export function classifyHfModelKind(siblings: HfModelFile[]): HfModelKind {
   const hasVae = files.some(f => /^vae\//i.test(f))
   const hasTextEncoder = files.some(f => /^(text_encoder|text_encoder_2|clip)\//i.test(f))
   if (hasUnet && hasVae && hasTextEncoder) return 'diffusers'
+
+  // Split-format model: diffusion_models/ + text_encoders/ + vae/ folders
+  // (e.g. Anima, Z-Image, Qwen-Image). These are the modern ComfyUI-native
+  // layout where the UNet, text encoder, and VAE are separate files.
+  const hasDiffusionModels = files.some(f => /^diffusion_models\//i.test(f))
+  const hasTextEncoders = files.some(f => /^text_encoders\//i.test(f))
+  const hasVaeFolder = files.some(f => /^vae\//i.test(f))
+  if (hasDiffusionModels && hasTextEncoders && hasVaeFolder) return 'split'
 
   // A real single-file checkpoint: root-level, not a shard, not a text encoder.
   const hasRootCheckpoint = files.some(f =>
@@ -263,4 +273,34 @@ export function pickDiffusersFiles(siblings: HfModelFile[]): string[] {
   return siblings
     .map(s => s.rfilename)
     .filter(f => !SKIP.test(f))
+}
+
+/**
+ * The files to download for a split-format model, mapped to their ComfyUI
+ * target folders. A split model ships the UNet, text encoder, and VAE as
+ * separate files under `diffusion_models/`, `text_encoders/`, and `vae/`.
+ *
+ * Returns `{ rfilename, targetFolder }` pairs. The `diffusion_models/` and
+ * `text_encoders/` prefixes are stripped (ComfyUI's UNETLoader/CLIPLoader
+ * expect bare filenames); the `vae/` prefix is stripped too (VAELoader expects
+ * a bare filename).
+ */
+export interface SplitModelFile {
+  rfilename: string
+  targetFolder: 'diffusion_models' | 'text_encoders' | 'vae'
+}
+
+export function pickSplitFiles(siblings: HfModelFile[]): SplitModelFile[] {
+  const out: SplitModelFile[] = []
+  for (const s of siblings) {
+    const f = s.rfilename
+    if (/^diffusion_models\//i.test(f) && /\.(safetensors|ckpt|gguf)$/i.test(f)) {
+      out.push({ rfilename: f, targetFolder: 'diffusion_models' })
+    } else if (/^text_encoders\//i.test(f) && /\.(safetensors|ckpt|gguf)$/i.test(f)) {
+      out.push({ rfilename: f, targetFolder: 'text_encoders' })
+    } else if (/^vae\//i.test(f) && /\.(safetensors|ckpt|gguf)$/i.test(f)) {
+      out.push({ rfilename: f, targetFolder: 'vae' })
+    }
+  }
+  return out
 }
