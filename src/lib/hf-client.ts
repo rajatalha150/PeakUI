@@ -262,17 +262,77 @@ export function diffusersFolderName(modelId: string): string {
 }
 
 /**
- * Files to download for a diffusers-format repo. Downloads every model file
- * (unet/, vae/, text_encoder/, tokenizer/, scheduler/, model_index.json, and
- * root config.json) while skipping non-model files (README, LICENSE, images,
- * .gitattributes). The full folder structure is preserved so ComfyUI's
- * DiffusersLoader can load it.
+ * Files to download for a diffusers-format repo. ComfyUI's DiffusersLoader
+ * needs exactly: model_index.json, the unet/ weights (+ config), vae/ weights
+ * + config, text_encoder/ weights + config, and tokenizer/scheduler configs.
+ *
+ * This picker is deliberately strict so we don't download gigabytes of stuff
+ * ComfyUI never reads:
+ *   - Skips the `safety_checker/` (NSFW filter; DiffusersLoader ignores it).
+ *   - Skips `feature_extractor/`, `coreml/`, images, README, LICENSE,
+ *     .gitattributes.
+ *   - Prefers `.safetensors` over `.bin` (never downloads both).
+ *   - If the repo ALSO ships root-level checkpoints, downloads exactly ONE
+ *     canonical one (smallest pruned-emaonly-style) instead of all variants.
  */
 export function pickDiffusersFiles(siblings: HfModelFile[]): string[] {
-  const SKIP = /(^|\/)(\.gitattributes|README\.md|LICENSE(\.md)?|.*\.(png|jpg|jpeg|gif|webp|svg))$/i
-  return siblings
-    .map(s => s.rfilename)
-    .filter(f => !SKIP.test(f))
+  const files = siblings.map(s => s.rfilename)
+
+  // Folders/files DiffusersLoader never reads.
+  const SKIP_DIR = /^(safety_checker|feature_extractor|coreml|onnx|openvino)\//i
+  const SKIP_FILE = /^(\.gitattributes|README\.md|LICENSE(\.md)?|\.gitignore)$/i
+  const SKIP_EXT = /\.(png|jpg|jpeg|gif|webp|svg|md|txt|msgpack)$/i
+
+  // Group candidate files by their "stem + extension-class" so we can prefer
+  // .safetensors over .bin / .ckpt duplicates of the same component.
+  const wanted: string[] = []
+  const seenStems = new Set<string>()
+
+  const isWantedDir = (f: string) =>
+    /^(model_index\.json|unet\/|vae\/|text_encoder\/|text_encoder_2\/|tokenizer\/|scheduler\/|tokenizer_2\/)/i.test(f)
+
+  // Pass 1: model components (unet/, vae/, text_encoder/, tokenizer/, scheduler/, model_index.json)
+  for (const f of files) {
+    if (f.includes('/') && SKIP_DIR.test(f)) continue
+    if (SKIP_EXT.test(f) && !f.endsWith('.json') && !f.endsWith('.txt')) continue
+    if (!f.includes('/') && !/^model_index\.json$/i.test(f)) continue // root: only model_index.json
+    if (f.endsWith('.bin')) {
+      // Prefer .safetensors files in the same folder; skip the .bin twin.
+      const folder = f.includes('/') ? f.slice(0, f.lastIndexOf('/')) : ''
+      const base = f.includes('/') ? f.slice(f.lastIndexOf('/') + 1) : f
+      const safetensorsTwin = files.some(other =>
+        other !== f
+        && (folder === '' ? !other.includes('/') : other.startsWith(folder + '/'))
+        && other.endsWith('.safetensors'),
+      )
+      if (safetensorsTwin) continue
+    }
+    const stemKey = f.replace(/\.bin$/i, '.safetensors').toLowerCase()
+    if (seenStems.has(stemKey)) continue
+    seenStems.add(stemKey)
+    wanted.push(f)
+  }
+
+  // Pass 2: ONE root-level checkpoint if the repo ships any (many diffusers
+  // repos also carry a fused single-file variant). Prefer pruned/emaonly names.
+  const rootCheckpoints = files.filter(f => !f.includes('/') && /\.(safetensors|ckpt)$/i.test(f))
+  if (rootCheckpoints.length > 0) {
+    const scored = [...rootCheckpoints].sort((a, b) => {
+      const score = (f: string) =>
+        (/emaonly/i.test(f) ? 4 : 0) +
+        (/pruned/i.test(f) ? 2 : 0) +
+        (/safetensors$/i.test(f) ? 1 : 0) -
+        (/fp16|inpainting|noVae/i.test(f) ? 1 : 0)
+      return score(b) - score(a)
+    })
+    const best = scored[0]
+    // Only add if it's a full checkpoint (not a UNet-only fragment); we can't
+    // verify content here, so only pick when the name says "pruned"/"emaonly"
+    // (full pipeline exports) to avoid grabbing UNet-only files.
+    if (/pruned|emaonly|baked_vae/i.test(best)) wanted.push(best)
+  }
+
+  return wanted
 }
 
 /**

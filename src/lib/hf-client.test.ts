@@ -148,4 +148,25 @@ describe('pickDiffusersFiles', () => {
     expect(files).not.toContain('01.png')
     expect(files).not.toContain('.gitattributes')
   })
+
+  it('skips the safety checker, .bin twins, and extra root checkpoints (SD1.5 archive case)', () => {
+    const files = pickDiffusersFiles([
+      'model_index.json', 'feature_extractor/preprocessor_config.json',
+      'safety_checker/config.json', 'safety_checker/model.safetensors', 'safety_checker/pytorch_model.bin',
+      'scheduler/scheduler_config.json',
+      'text_encoder/config.json', 'text_encoder/model.safetensors', 'text_encoder/pytorch_model.bin',
+      'tokenizer/merges.txt', 'tokenizer/special_tokens_map.json', 'tokenizer/tokenizer_config.json', 'tokenizer/vocab.json',
+      'unet/config.json', 'unet/diffusion_pytorch_model.bin', 'unet/diffusion_pytorch_model.safetensors',
+      'v1-5-pruned-emaonly.ckpt', 'v1-5-pruned-emaonly.safetensors', 'v1-5-pruned.ckpt', 'v1-5-pruned.safetensors',
+      'v1-inference.yaml',
+      'vae/config.json', 'vae/diffusion_pytorch_model.bin', 'vae/diffusion_pytorch_model.safetensors',
+    ].map(f => ({ rfilename: f })))
+    // Minimal set: 13 files, one root checkpoint, no safety_checker, no .bin twins
+    expect(files).toHaveLength(13)
+    expect(files).toContain('unet/diffusion_pytorch_model.safetensors')
+    expect(files).toContain('v1-5-pruned-emaonly.safetensors')
+    expect(files.filter(f => f.startsWith('safety_checker'))).toHaveLength(0)
+    expect(files.filter(f => f.endsWith('.bin'))).toHaveLength(0)
+    expect(files.filter(f => !f.includes('/') && /\.(safetensors|ckpt)$/i.test(f))).toHaveLength(1)
+  })
 })
