@@ -13,10 +13,11 @@
  */
 
 import { createWriteStream, promises as fs } from 'node:fs'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, rename, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { prisma } from './prisma'
 import { hfResolveUrl } from './hf-client'
+import { inspectSafetensorsFile } from './safetensors-inspect'
 
 export type ImageDownloadStatus = 'queued' | 'downloading' | 'paused' | 'done' | 'error'
 
@@ -208,9 +209,34 @@ export async function startImageDownload(userId: string, id: string): Promise<Im
       await new Promise<void>(resolve => writer.end(() => resolve()))
     }
 
+    // Ground-truth check: inspect the safetensors header. If we downloaded a
+    // UNet-only/text-encoder/VAE file into `checkpoints/` (because the filename
+    // heuristic expected a full checkpoint), relocate it to the correct folder
+    // so ComfyUI's loaders can actually use it.
+    let finalTarget = row.targetFolder
+    if (row.targetFolder === 'checkpoints' && /\.(safetensors)$/i.test(row.filename)) {
+      try {
+        const inspection = await inspectSafetensorsFile(dest)
+        if (inspection.kind !== 'full-checkpoint') {
+          const correctFolder = inspection.kind === 'vae'
+            ? 'vae'
+            : inspection.kind === 'text-encoder'
+              ? 'text_encoders'
+              : 'diffusion_models'
+          const corrected = path.join(COMFYUI_MODELS_ROOT, correctFolder, path.basename(dest))
+          await mkdir(path.dirname(corrected), { recursive: true })
+          await rename(dest, corrected)
+          finalTarget = correctFolder
+          console.info(`[image-gen] relocated ${row.filename}: ${inspection.kind} -> ${correctFolder}/`)
+        }
+      } catch (inspectError) {
+        console.warn('[image-gen] safetensors inspection failed (keeping original location):', inspectError instanceof Error ? inspectError.message : String(inspectError))
+      }
+    }
+
     await prisma.imageModelDownload.update({
       where: { id },
-      data: { status: 'done', downloadedBytes: BigInt(downloaded), totalBytes: BigInt(downloaded), error: null },
+      data: { status: 'done', targetFolder: finalTarget, downloadedBytes: BigInt(downloaded), totalBytes: BigInt(downloaded), error: null },
     })
   } catch (error) {
     if (controller.signal.aborted) {

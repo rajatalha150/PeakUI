@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentAuth } from '@/lib/request-auth'
 import { getUserSettings } from '@/lib/settings'
-import { submitComfyUiTxt2Img, submitComfyUiTxt2ImgDiffusers, submitComfyUiTxt2ImgSplit, detectComfyUiModelKind, getComfyUiHistory, comfyUiViewUrl } from '@/lib/comfyui-client'
+import { submitComfyUiTxt2Img, submitComfyUiTxt2ImgDiffusers, submitComfyUiTxt2ImgSplit, detectComfyUiModelKind, getComfyUiHistory, comfyUiViewUrl, freeComfyUiMemory } from '@/lib/comfyui-client'
 import { createImageCanvasArtifact } from '@/lib/image-gen-artifacts'
 import { resolvePublicOrigin } from '@/lib/request-origin'
+import { stopOllamaModel, listRunningOllamaModels } from '@/lib/ollama-control'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -38,6 +39,22 @@ export async function POST(req: NextRequest) {
 
     const baseUrl = settings.imageGenBaseUrl
     const origin = resolvePublicOrigin(req)
+
+    // VRAM sequencer: one big consumer at a time. Free ComfyUI's resident
+    // weights, and unload the resident Ollama chat model so a multi-GB image
+    // model has room to load. Never blocks generation on failure.
+    try {
+      await freeComfyUiMemory(baseUrl)
+      if (!settings.ollamaUseCloudApi) {
+        const running = await listRunningOllamaModels(settings.ollamaHost, undefined, settings.ollamaApiKey || undefined)
+        for (const model of running) {
+          await stopOllamaModel(settings.ollamaHost, model, undefined, settings.ollamaApiKey || undefined).catch(() => {})
+        }
+      }
+    } catch (sequencerError) {
+      console.warn('[image-gen/generate] VRAM sequencer failed (continuing):', sequencerError instanceof Error ? sequencerError.message : String(sequencerError))
+    }
+
     const modelKind = await detectComfyUiModelKind(baseUrl, settings.imageGenModel)
     const submitOptions = {
       model: settings.imageGenModel,

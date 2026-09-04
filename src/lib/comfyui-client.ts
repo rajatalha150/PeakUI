@@ -11,6 +11,7 @@
  *   POST /prompt                → run a generation workflow
  *   GET  /history/{prompt_id}   → poll status + fetch the output image
  *   GET  /view?filename=...     → fetch a generated image
+ *   POST /free                  → unload models / free VRAM (VRAM sequencing)
  *
  * All calls are best-effort and time-bounded; a down/unreachable engine
  * returns a typed result rather than throwing, so the UI can show a clean
@@ -389,4 +390,23 @@ export function comfyUiViewUrl(baseUrl: string, image: { filename: string; subfo
   const host = baseUrl.replace(/\/$/, '')
   const params = new URLSearchParams({ filename: image.filename, subfolder: image.subfolder, type: image.type })
   return `${host}/view?${params.toString()}`
+}
+
+/**
+ * Ask ComfyUI to unload resident model weights and free VRAM. Used by the VRAM
+ * sequencer before a generation so two big consumers never fight for memory.
+ * Best-effort: failure never blocks generation.
+ */
+export async function freeComfyUiMemory(baseUrl: string): Promise<void> {
+  const host = baseUrl.replace(/\/$/, '')
+  try {
+    await fetch(`${host}/free`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unload_models: true, free_memory: true }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    })
+  } catch {
+    // Best-effort: ComfyUI manages its own VRAM if this fails.
+  }
 }
