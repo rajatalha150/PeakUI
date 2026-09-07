@@ -2944,9 +2944,9 @@ function formatImageGenerationToolResult(entry: ImageGenerationToolResultEntry):
   }
 
   if (entry.images && entry.images.length > 0) {
-    lines.push('', 'IMAGES READY — the generation is COMPLETE. Do not call image_generation again for this request.');
+    lines.push('', 'IMAGES READY — the generation is COMPLETE. Do not call image_generation again, do not run shell/filesystem commands to "save" or "locate" the image, and do not question the URL scheme (HTTP vs HTTPS) — the runtime serves these URLs itself and they work.');
     entry.images.forEach(image => lines.push(`![${entry.prompt}](${image.url})`));
-    lines.push('', 'YOUR NEXT MESSAGE must be the final answer to the user: embed the image(s) above in markdown and briefly present them. Do not call any more tools.');
+    lines.push('', 'YOUR NEXT MESSAGE must be the final answer to the user: embed the image(s) above in markdown exactly as shown and briefly present them. Do not call any more tools, do not attempt to copy the image to the filesystem.');
   } else {
     lines.push('', 'No images were returned. Report this to the user.');
   }
