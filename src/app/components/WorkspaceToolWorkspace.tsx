@@ -3902,14 +3902,18 @@ export default function WorkspaceToolWorkspace({
     setTags(Array.isArray(data) ? data : []);
   };
 
-  const loadMemory = async () => {
+  const loadMemory = async (excludeSessionId?: string) => {
     try {
-      const res = await fetch('/api/workspace-tool/memory');
+      const query = excludeSessionId ? `?excludeSessionId=${encodeURIComponent(excludeSessionId)}` : '';
+      const res = await fetch(`/api/workspace-tool/memory${query}`);
       const data = await res.json();
       if (data.memoryContext || data.longTermMemory) {
         const combined = [data.memoryContext, data.longTermMemory].filter(Boolean).join('\n\n---\n\n');
         setMemoryContext(combined);
         setHasMemory(true);
+      } else {
+        setMemoryContext('');
+        setHasMemory(false);
       }
     } catch (error) {
       console.error('Failed to load memory context:', error);
@@ -4754,6 +4758,9 @@ export default function WorkspaceToolWorkspace({
     closeMobileChrome();
     requestScrollReset();
     setCurrentSessionId(session.id);
+    // Re-scope memory to this session: exclude the newly-active session so its
+    // own transcript is never re-injected as cross-session "memory".
+    void loadMemory(session.id);
     setCanvasSearchQuery('');
     loadCanvasArtifacts(session.id, { query: '' });
     resetComposerDraftState();

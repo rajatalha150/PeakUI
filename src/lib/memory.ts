@@ -1,10 +1,14 @@
 /**
  * Multi-Layer Memory System for WorkSpaces
  *
- * Three layers:
- * 1. Daily memory logs - auto-generated summaries in memory/YYYY-MM-DD.md
- * 2. Curated long-term memory - user-maintained MEMORY.md
- * 3. Session summaries - auto-generated TL;DR when sessions end
+ * Memory is scoped per-user and per-session:
+ * 1. Daily memory logs - auto-generated summaries in memory/users/<userId>/YYYY-MM-DD.md
+ * 2. Curated long-term memory - user-maintained MEMORY.md (per user)
+ * 3. Session summaries - auto-generated TL;DR when sessions end (per user)
+ *
+ * Memory is injected into NEW sessions with a clear boundary marker so the
+ * model knows prior context is background, not part of the current task.
+ * Within a session, memory is never re-injected after the first turn.
  */
 
 import { promises as fs } from 'fs'
@@ -36,21 +40,39 @@ export interface SessionSummary {
   createdAt: string
 }
 
-const MEMORY_DIR = process.env.PEAKUI_DATA_DIR
+const MEMORY_ROOT = process.env.PEAKUI_DATA_DIR
   ? join(process.env.PEAKUI_DATA_DIR, 'memory')
   : join(/*turbopackIgnore: true*/ process.cwd(), 'memory')
-const LONG_TERM_MEMORY_CANDIDATES = [
-  join(/*turbopackIgnore: true*/ process.cwd(), 'memory.md'),
-  join(/*turbopackIgnore: true*/ process.cwd(), 'MEMORY.md'),
-  join(MEMORY_DIR, 'MEMORY.md'),
-]
+
+/**
+ * Per-user memory directory. Memory is strictly scoped to the owning user:
+ * memory/users/<userId>/. Cross-user reads are impossible because every
+ * path is derived from an authenticated userId.
+ */
+export function getUserMemoryDir(userId: string): string {
+  // userId is a UUID from the authenticated session; still validate defensively.
+  if (!/^[A-Za-z0-9_-]+$/.test(userId)) {
+    throw new Error(`Invalid memory user id: ${userId.slice(0, 8)}…`)
+  }
+  return join(MEMORY_ROOT, 'users', userId)
+}
 
 export async function ensureMemoryDir(): Promise<void> {
+  await ensureUserMemoryDir('__shared__')
+}
+
+export async function ensureUserMemoryDir(userId: string): Promise<void> {
+  const dir = getUserMemoryDir(userId)
   try {
-    await fs.access(MEMORY_DIR)
+    await fs.access(dir)
   } catch {
-    await fs.mkdir(MEMORY_DIR, { recursive: true })
+    await fs.mkdir(dir, { recursive: true })
   }
+}
+
+/** @deprecated Use getUserMemoryDir(userId) — the global dir leaks across users. */
+export function getMemoryDir(): string {
+  return MEMORY_ROOT
 }
 
 export function getTodayDateString(): string {
@@ -64,7 +86,11 @@ export function getYesterdayDateString(): string {
 }
 
 export async function loadDailyMemory(date: string): Promise<DailyMemory | null> {
-  const filePath = join(MEMORY_DIR, `${date}.md`)
+  return loadDailyMemoryForUser('__shared__', date)
+}
+
+export async function loadDailyMemoryForUser(userId: string, date: string): Promise<DailyMemory | null> {
+  const filePath = join(getUserMemoryDir(userId), `${date}.md`)
   try {
     const content = await fs.readFile(filePath, 'utf-8')
     return parseDailyMemory(date, content)
@@ -74,8 +100,12 @@ export async function loadDailyMemory(date: string): Promise<DailyMemory | null>
 }
 
 export async function saveDailyMemory(memory: DailyMemory): Promise<void> {
-  await ensureMemoryDir()
-  const filePath = join(MEMORY_DIR, `${memory.date}.md`)
+  return saveDailyMemoryForUser('__shared__', memory)
+}
+
+export async function saveDailyMemoryForUser(userId: string, memory: DailyMemory): Promise<void> {
+  await ensureUserMemoryDir(userId)
+  const filePath = join(getUserMemoryDir(userId), `${memory.date}.md`)
   const content = formatDailyMemory(memory)
   await fs.writeFile(filePath, content, 'utf-8')
 }
@@ -84,7 +114,15 @@ export async function appendToDailyMemory(
   date: string,
   session: DailyMemorySession
 ): Promise<void> {
-  const existing = await loadDailyMemory(date)
+  return appendToDailyMemoryForUser('__shared__', date, session)
+}
+
+export async function appendToDailyMemoryForUser(
+  userId: string,
+  date: string,
+  session: DailyMemorySession
+): Promise<void> {
+  const existing = await loadDailyMemoryForUser(userId, date)
   const memory: DailyMemory = existing || {
     date,
     sessions: [],
@@ -104,7 +142,7 @@ export async function appendToDailyMemory(
     memory.sessions[existingIndex] = session
   }
 
-  await saveDailyMemory(memory)
+  await saveDailyMemoryForUser(userId, memory)
 }
 
 function parseDailyMemory(date: string, content: string): DailyMemory {
@@ -198,25 +236,61 @@ function formatDailyMemory(memory: DailyMemory): string {
 }
 
 export async function loadRecentMemory(days: number = 2): Promise<DailyMemory[]> {
+  return loadRecentMemoryForUser('__shared__', days)
+}
+
+/**
+ * Load recent daily memories for a user, EXCLUDING the session currently in
+ * progress (its own transcript is already in context — re-injecting summaries
+ * of it is what caused cross-session "memory leak" hallucinations).
+ */
+export async function loadRecentMemoryForUser(
+  userId: string,
+  days: number = 2,
+  options: { excludeSessionId?: string } = {},
+): Promise<DailyMemory[]> {
   const memories: DailyMemory[] = []
-  for (let i = 0; i < days; i++) {
+  for (let i = 1; i <= days; i++) {
+    // Start at i=1 (yesterday): today's other sessions are prior sessions, but
+    // the CURRENT session is excluded by sessionId below.
     const date = new Date()
     date.setDate(date.getDate() - i)
     const dateStr = date.toISOString().split('T')[0]
-    const memory = await loadDailyMemory(dateStr)
+    const memory = await loadDailyMemoryForUser(userId, dateStr)
     if (memory) {
       memories.push(memory)
+    }
+  }
+  // Also include today's *other* completed sessions (but not the live one).
+  const today = getTodayDateString()
+  const todayMemory = await loadDailyMemoryForUser(userId, today)
+  if (todayMemory) {
+    const filtered: DailyMemory = {
+      ...todayMemory,
+      sessions: todayMemory.sessions.filter(s => s.sessionId !== options.excludeSessionId),
+    }
+    if (filtered.sessions.length > 0) {
+      memories.unshift(filtered)
     }
   }
   return memories
 }
 
-export function buildMemoryContext(memories: DailyMemory[]): string {
-  if (memories.length === 0) return ''
+export function buildMemoryContext(
+  memories: DailyMemory[],
+  options: { currentSessionId?: string } = {},
+): string {
+  const relevant = options.currentSessionId
+    ? memories
+        .map(m => ({ ...m, sessions: m.sessions.filter(s => s.sessionId !== options.currentSessionId) }))
+        .filter(m => m.sessions.length > 0 || m.keyFindings.length > 0 || m.decisions.length > 0)
+    : memories
 
-  const lines: string[] = ['Recent memory context:']
+  if (relevant.length === 0) return ''
 
-  for (const memory of memories) {
+  const lines: string[] = ['Context from PREVIOUS sessions (background only — the current conversation starts fresh):']
+
+  for (const memory of relevant) {
     lines.push(`\n### ${memory.date}`)
     if (memory.sessions.length > 0) {
       lines.push('Sessions:')
@@ -236,7 +310,15 @@ export function buildMemoryContext(memories: DailyMemory[]): string {
 }
 
 export async function loadLongTermMemory(): Promise<string> {
-  for (const filePath of LONG_TERM_MEMORY_CANDIDATES) {
+  return loadLongTermMemoryForUser('__shared__')
+}
+
+export async function loadLongTermMemoryForUser(userId: string): Promise<string> {
+  const candidates = [
+    join(getUserMemoryDir(userId), 'MEMORY.md'),
+    join(MEMORY_ROOT, 'MEMORY.md'),
+  ]
+  for (const filePath of candidates) {
     try {
       return await fs.readFile(filePath, 'utf-8')
     } catch {
@@ -247,8 +329,12 @@ export async function loadLongTermMemory(): Promise<string> {
 }
 
 export async function saveSessionSummary(summary: SessionSummary): Promise<void> {
-  await ensureMemoryDir()
-  const filePath = join(MEMORY_DIR, 'session-summaries.md')
+  return saveSessionSummaryForUser('__shared__', summary)
+}
+
+export async function saveSessionSummaryForUser(userId: string, summary: SessionSummary): Promise<void> {
+  await ensureUserMemoryDir(userId)
+  const filePath = join(getUserMemoryDir(userId), 'session-summaries.md')
 
   let content = ''
   try {

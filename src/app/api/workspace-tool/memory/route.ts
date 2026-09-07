@@ -1,13 +1,19 @@
 /**
  * GET /api/workspace-tool/memory
- * Returns recent memory context (today + yesterday) for injection into WorkSpaces sessions
+ * Returns recent memory context (today + yesterday) for injection into
+ * WorkSpaces sessions. Memory is strictly scoped to the authenticated user
+ * and excludes the current session (its transcript is already in context).
  */
 
-import { NextResponse } from 'next/server'
-import { loadRecentMemory, buildMemoryContext, loadLongTermMemory } from '@/lib/memory'
+import { NextRequest, NextResponse } from 'next/server'
+import {
+  loadRecentMemoryForUser,
+  buildMemoryContext,
+  loadLongTermMemoryForUser,
+} from '@/lib/memory'
 import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const access = await requireCurrentAuthWithPermissions(['workspace-tool.use'], {
     forbiddenMessage: 'WorkSpaces access is not granted for this account.',
     actionRequired: 'Grant the WorkSpaces permission in Settings -> User Management before loading WorkSpaces memory for this user.',
@@ -15,9 +21,10 @@ export async function GET() {
   if ('response' in access) return access.response
 
   try {
-    const recentMemories = await loadRecentMemory(2)
-    const memoryContext = buildMemoryContext(recentMemories)
-    const longTermMemory = await loadLongTermMemory()
+    const excludeSessionId = req.nextUrl.searchParams.get('excludeSessionId') || undefined
+    const recentMemories = await loadRecentMemoryForUser(access.userId, 2, { excludeSessionId })
+    const memoryContext = buildMemoryContext(recentMemories, { currentSessionId: excludeSessionId })
+    const longTermMemory = await loadLongTermMemoryForUser(access.userId)
 
     return NextResponse.json({
       memoryContext: memoryContext || null,

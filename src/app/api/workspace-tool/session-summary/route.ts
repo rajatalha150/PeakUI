@@ -7,10 +7,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getUserSettings } from '@/lib/settings'
 import {
-  saveSessionSummary,
+  saveSessionSummaryForUser,
   generateSessionSummaryPrompt,
   parseGeneratedSummary,
-  appendToDailyMemory,
+  appendToDailyMemoryForUser,
   type SessionSummary,
 } from '@/lib/memory'
 import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
@@ -38,6 +38,15 @@ export async function POST(request: NextRequest) {
         { error: 'Missing required fields: sessionId, title, messages' },
         { status: 400 }
       )
+    }
+
+    // Verify the session belongs to this user before writing anything.
+    const owningSession = await prisma.chatSession.findFirst({
+      where: { id: sessionId, userId },
+      select: { id: true },
+    })
+    if (!owningSession) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 })
     }
 
     // Generate summary using the model
@@ -124,8 +133,8 @@ export async function POST(request: NextRequest) {
       createdAt: new Date().toISOString(),
     }
 
-    // Save to memory directory
-    await saveSessionSummary(sessionSummary as SessionSummary)
+    // Save to memory directory (scoped to this user)
+    await saveSessionSummaryForUser(userId, sessionSummary as SessionSummary)
 
     // Update the chat session in database
     const summaryTextFull = [
@@ -142,9 +151,9 @@ export async function POST(request: NextRequest) {
       data: { summary: summaryTextFull },
     })
 
-    // Append to daily memory log
+    // Append to daily memory log (scoped to this user)
     const today = new Date().toISOString().split('T')[0]
-    await appendToDailyMemory(today, {
+    await appendToDailyMemoryForUser(userId, today, {
       sessionId,
       title,
       mode: 'workspace-tool',
