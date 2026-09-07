@@ -97,6 +97,48 @@ scripts/install-comfyui.sh
 
 Then set **Engine** to ComfyUI in Settings → Image Generation, search Hugging Face for a model, download it, and toggle **Image Gen** on in the chat. See [docs/image-generation.md](docs/image-generation.md).
 
+#### How image generation works
+
+```
+┌──────────────┐         ┌──────────────────┐
+│  You (chat)  │────────▶│   PeakUI (Next)  │
+│ "draw a cat" │         │                  │
+└──────────────┘         └────────┬─────────┘
+                                  │ 1. Model emits
+                                  │    image_generation tool call
+                                  ▼
+                         ┌─────────────────┐
+                         │  VRAM sequencer │
+                         │ (free GPU first)│
+                         └────────┬────────┘
+                                  │ 2. Submit workflow
+                                  ▼
+        ┌─────────────────────────────────────────────┐
+        │                 ComfyUI                      │
+        │  UNETLoader ─► KSampler ─► VAEDecode ─► Save │
+        └──────────────────────┬──────────────────────┘
+                               │ 3. PNG output
+                               ▼
+        ┌─────────────────────────────────────────────┐
+        │  PeakUI persists as Canvas artifact          │
+        │  → renders inline in chat                    │
+        │  → downloadable via /api/canvas/.../download │
+        └─────────────────────────────────────────────┘
+```
+
+**Model formats supported** — search Hugging Face and download in one click:
+
+| Format | Layout | Loader |
+|---|---|---|
+| Checkpoint | single `.safetensors` / `.ckpt` | `CheckpointLoaderSimple` |
+| Split | `diffusion_models/` + `text_encoders/` + `vae/` | `UNETLoader` + `CLIPLoader` + `VAELoader` |
+| Diffusers | `unet/` + `vae/` + `text_encoder/` + `model_index.json` | `DiffusersLoader` |
+
+Downloads are resumable (HTTP Range) with persistent state, and the safetensors
+header is inspected after each download to auto-relocate files that landed in
+the wrong folder. A VRAM sequencer frees ComfyUI + Ollama weights before each
+generation so the image model always has the full GPU.
+
 ### 4. Configure The Studio
 
 Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool permissions, and session intelligence preferences.

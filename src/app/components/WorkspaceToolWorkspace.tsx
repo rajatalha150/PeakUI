@@ -2944,8 +2944,9 @@ function formatImageGenerationToolResult(entry: ImageGenerationToolResultEntry):
   }
 
   if (entry.images && entry.images.length > 0) {
-    lines.push('', 'Generated images (present each to the user as a markdown image):');
+    lines.push('', 'IMAGES READY — the generation is COMPLETE. Do not call image_generation again for this request.');
     entry.images.forEach(image => lines.push(`![${entry.prompt}](${image.url})`));
+    lines.push('', 'YOUR NEXT MESSAGE must be the final answer to the user: embed the image(s) above in markdown and briefly present them. Do not call any more tools.');
   } else {
     lines.push('', 'No images were returned. Report this to the user.');
   }
