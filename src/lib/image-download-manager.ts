@@ -13,7 +13,7 @@
  */
 
 import { createWriteStream, promises as fs } from 'node:fs'
-import { mkdir, rename, unlink } from 'node:fs/promises'
+import { mkdir, rename } from 'node:fs/promises'
 import path from 'node:path'
 import { prisma } from './prisma'
 import { hfResolveUrl } from './hf-client'

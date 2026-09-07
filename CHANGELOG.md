@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — ComfyUI installer + systemd service
+
+`scripts/install-comfyui.sh` installs the ComfyUI image-generation engine as a turnkey host dependency: verifies the NVIDIA GPU, installs `uv`, clones ComfyUI, installs pinned PyTorch CUDA + matching torchaudio + all deps, registers a **systemd user service** (auto-start on boot, restart on crash), and wires `COMFYUI_MODELS_DIR` into PeakUI's `.env`. Idempotent; `--uninstall` removes the service while keeping models.
+
+### Fixed — Image-gen tool results leaking into the chat
+
+`looksLikeHiddenToolResult` in `chat-sessions.ts` was missing most tool-result prefixes (only 6 of ~18), so image-generation, PDF, Excel, Word, tax, and fetch-summarize tool results lost their `hidden` flag when a session was reloaded from the database and rendered as visible "You:" messages. Now uses a generic `<words> tool result:` pattern that covers every tool, plus the explicit prefixes.
+
 ### Added — Image generation (ComfyUI engine)
 
 PeakUI can now generate images through a self-hosted **ComfyUI** engine that runs alongside Ollama (Ollama does not support image generation). The `image_generation` tool turns a text prompt into an image that renders inline in chat and is downloadable as a Canvas artifact.

@@ -24,8 +24,25 @@ ComfyUI runs on the **host** (not in Docker), the same way Ollama does. Its
 
 ## Engine setup (host)
 
-ComfyUI is not installed by the PeakUI installer — it is a separate host-side
-dependency. The known-good install (verified on an RTX 3060, CUDA 12.8):
+Run the bundled installer — it handles everything (clone, PyTorch CUDA, deps,
+systemd user service with auto-restart) and is idempotent:
+
+```bash
+scripts/install-comfyui.sh              # install + start + register service
+scripts/install-comfyui.sh --uninstall  # stop + remove service (keeps models)
+```
+
+The installer:
+
+1. Verifies an NVIDIA GPU + driver are present.
+2. Installs `uv` if no Python package manager is available.
+3. Clones/updates ComfyUI into `~/ComfyUI`.
+4. Installs pinned PyTorch CUDA (`torch 2.10.0+cu128`) and matching torchaudio.
+5. Registers a **systemd user service** (`comfyui.service`) so the engine
+   survives reboots and restarts on crash.
+6. Wires `COMFYUI_MODELS_DIR` into PeakUI's `.env`.
+
+Manual install (equivalent), if you prefer:
 
 ```bash
 # 1. Clone ComfyUI
@@ -52,9 +69,6 @@ Two version gotchas to watch for:
   `list[int]` custom-op schema.
 - **torchaudio must match torch exactly** — a mismatched torchaudio fails with
   an undefined-symbol error on import.
-
-> ComfyUI is not yet a systemd service in this repo. On a reboot it must be
-> restarted manually (or wrapped in a systemd unit / launch script).
 
 ## Model download
 

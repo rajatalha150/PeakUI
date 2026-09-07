@@ -86,7 +86,18 @@ Open [http://localhost:3000](http://localhost:3000).
 
 On first visit, create the initial Admin account. After login, the app opens directly into WorkSpaces.
 
-### 3. Configure The Studio
+### 3. Optional: Enable Image Generation (ComfyUI)
+
+Image generation runs through a self-hosted [ComfyUI](https://github.com/comfyanonymous/ComfyUI) engine on the host (requires an NVIDIA GPU):
+
+```bash
+# Linux / macOS — installs ComfyUI + PyTorch CUDA and registers a service
+scripts/install-comfyui.sh
+```
+
+Then set **Engine** to ComfyUI in Settings → Image Generation, search Hugging Face for a model, download it, and toggle **Image Gen** on in the chat. See [docs/image-generation.md](docs/image-generation.md).
+
+### 4. Configure The Studio
 
 Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool permissions, and session intelligence preferences.
 

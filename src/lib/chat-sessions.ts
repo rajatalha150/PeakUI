@@ -141,12 +141,21 @@ function normalizeAssistantToolBridge(content: string) {
 function looksLikeHiddenToolResult(role: StoredChatRole, content: string) {
   if (role === 'assistant') return false;
   const trimmed = content.trim();
-  return trimmed.startsWith('Shell command result:')
+  // Keep in sync with the `<tool> tool result:` prefixes the tool dispatchers
+  // emit (formatXToolResult helpers in WorkspaceToolWorkspace.tsx) and the
+  // TOOL_RESULT_PREFIXES list in session-intelligence.ts.
+  return /^[\w()/&-]+ tool result:/.test(trimmed)
+    || trimmed.startsWith('Shell command result:')
     || trimmed.startsWith('Filesystem tool result:')
     || trimmed.startsWith('Web research tool result:')
     || trimmed.startsWith('Code execution result:')
     || trimmed.startsWith('Browser tool result:')
-    || trimmed.startsWith('UWAF browser tool result:');
+    || trimmed.startsWith('UWAF browser tool result:')
+    || trimmed.startsWith('Tax return PDF tool result:')
+    || trimmed.startsWith('Tax return tool result:')
+    || trimmed.startsWith('Image generation tool result:')
+    || trimmed.startsWith('URL fetch and summarize tool result:')
+    || trimmed.startsWith('Fetch and summarize failed:');
 }
 
 function normalizeMessageCreatedAt(value: unknown): string | undefined {

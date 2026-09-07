@@ -59,10 +59,6 @@ const VAE_PATTERNS = [
   /^encoder\./,
 ]
 
-function matchesAny(key: string, patterns: RegExp[]): boolean {
-  return patterns.some(p => p.test(key))
-}
-
 /**
  * Classify from a list of tensor keys. Exported for testing.
  */
