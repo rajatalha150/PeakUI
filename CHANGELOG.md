@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — Agent-loop guardrail false positives (capability answers, search refinements)
+
+A series of fixes for the "recovery machinery misfires on plain-text answers" class of bug, where the guardrails built to keep local models on-task were themselves too aggressive:
+
+- **Capability/identity answers no longer trigger tool loops.** Answering "what are your capabilities" made the model describe its abilities ("I can generate Word documents…", "my capabilities are focused on…"), which the narration-recovery layer misread as an action intent and synthesized a `word_document` call — looping 3×. Added `isCapabilityStatement()` (shared by the synthesizer and the missing-tool nudge) so identity/capability phrasings are left alone, while real action intents ("create a PDF report") still work.
+- **Document tools are no longer over-eager.** The always-on tool manifest listed every document tool signature regardless of the query, so a capability question could "demonstrate" by generating a file. Added an explicit routing rule: document tools fire only on explicit create/download/export/save requests.
+- **Objective guard no longer blocks legitimate search refinements.** "dig deeper" after a good stock-market search refined to "S&P 500 intraday trading analysis… technical levels" — on-topic, but the divergence guard flagged it as a topic pivot because it shared zero *literal* keywords with "analyze stock market today". Added domain synonym groups (equities/indices, technical analysis, sectors, macro/Fed, earnings) so related terms count as on-topic while genuine pivots are still blocked.
+- **Cross-session memory no longer drifts into the current task.** The injected memory context was double-labeled and made the model anchor on old session content mid-task. Relabeled to a single "BACKGROUND ONLY" header and excluded the current session from its own memory.
+
+### Fixed — Session-intelligence audit (three bugs)
+
+- **`trimMessagesToFit` dropped the first user message (the objective) on long threads.** The removal loop mapped the shrinking array back to the original via `i + removedCount`, which drifts once earlier elements are spliced out — so the preserved first-user index no longer pointed at the right message and the objective was evicted. Now tracks each message's original index. This is the silent context-corruption bug behind "the model forgets what we were doing".
+- **`TOOL_RESULT_PREFIXES` was missing 9 tool-result prefixes** (CSV, Email, Markdown, Slide deck, Archive, Calendar, Mermaid, URL fetch, Image generation, plus the `Tax return tool result:` variant), so those results were summarized as generic "Hidden result:" in working memory.
+- **`normalizeSessionAnalytics` dropped 9 tool types** from per-type tool-call counts.
+
 ### Added — ComfyUI installer + systemd service
 
 `scripts/install-comfyui.sh` installs the ComfyUI image-generation engine as a turnkey host dependency: verifies the NVIDIA GPU, installs `uv`, clones ComfyUI, installs pinned PyTorch CUDA + matching torchaudio + all deps, registers a **systemd user service** (auto-start on boot, restart on crash), and wires `COMFYUI_MODELS_DIR` into PeakUI's `.env`. Idempotent; `--uninstall` removes the service while keeping models.
