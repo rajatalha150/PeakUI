@@ -120,6 +120,12 @@ const DOCUMENT_CREATE_RE_LIST: ReadonlyArray<RegExp> = [
   /\b(?:creat(?:e|ing)|generat(?:e|ing)|build(?:ing)?|mak(?:e|ing)|render(?:ing)?)\s+(?:a\s+|the\s+)?(?:new\s+)?(?:car\s+)?(?:fixing\s+)?(?:repair\s+)?(?:cheat\s+sheet|guide|manual|checklist|report|memo|invoice|letter|proposal|contract|resume|meeting[- ]notes)\b/i,
 ]
 
+/**
+ * Capability/ability statements — the model describing what it CAN do, not an
+ * action it is about to take. These must never synthesize a document tool call.
+ */
+const CAPABILITY_STATEMENT_RE = /\b(?:i\s+can|i\s+am\s+able\s+to|i\s+have\s+the\s+ability\s+to|i\s+am\s+capable\s+of|my\s+capabilities\s+include|i\s+support|i\s+offer)\b/i
+
 const DOCUMENT_CREATE_KIND_MAP: Readonly<Record<string, typeof DOCUMENT_TOOL_NAMES[number]>> = {
   pdf: 'pdf_document',
   pdf_document: 'pdf_document',
@@ -742,6 +748,13 @@ function synthesizeTaxReturn(content: string): NarrationRecovery | null {
 }
 
 function synthesizeDocumentCreate(content: string): NarrationRecovery | null {
+  // Capability statements describe what the model CAN do, not an action it is
+  // about to take. "I can generate Word documents" / "I am able to create
+  // PDFs" must NOT synthesize a tool call — otherwise answering "what are your
+  // capabilities" loops into generating a document. Reject these before any
+  // pattern match.
+  if (CAPABILITY_STATEMENT_RE.test(content)) return null
+
   for (const pattern of DOCUMENT_CREATE_RE_LIST) {
     const match = content.match(pattern)
     if (!match) continue

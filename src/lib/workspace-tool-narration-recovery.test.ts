@@ -423,6 +423,25 @@ describe('synthesizeToolCallFromNarration — document regeneration', () => {
   })
 })
 
+describe('synthesizeToolCallFromNarration — capability statements must NOT synthesize', () => {
+  it('does not synthesize a document call from "I can generate Word documents"', () => {
+    const r = synthesizeToolCallFromNarration(
+      'I can generate Word documents (and other document types such as PDF, Excel, CSV, Markdown, Slides, Mermaid) when explicitly requested.',
+    )
+    expect(r).toBeNull()
+  })
+
+  it('does not synthesize from "I am able to create PDFs"', () => {
+    const r = synthesizeToolCallFromNarration('I am able to create PDFs and spreadsheets on demand.')
+    expect(r).toBeNull()
+  })
+
+  it('still synthesizes a real action "create a PDF report"', () => {
+    const r = synthesizeToolCallFromNarration('Create a PDF report about the quarterly results.')
+    expect(r?.toolName).toBe('pdf_document')
+  })
+})
+
 describe('synthesizeToolCallFromNarration — edge cases', () => {
   it('returns null for empty input', () => {
     expect(synthesizeToolCallFromNarration('')).toBeNull()
