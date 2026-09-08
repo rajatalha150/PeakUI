@@ -156,9 +156,19 @@ const TOOL_RESULT_PREFIXES: ReadonlyArray<readonly [prefix: string, label: strin
   ['Browser tool result:', 'browser'],
   ['UWAF browser tool result:', 'unified browser'],
   ['Tax return PDF tool result:', 'tax return'],
+  ['Tax return tool result:', 'tax return'],
   ['PDF document tool result:', 'PDF document'],
   ['Excel workbook tool result:', 'Excel workbook'],
   ['Word document tool result:', 'Word document'],
+  ['CSV export tool result:', 'CSV export'],
+  ['Email writer tool result:', 'Email writer'],
+  ['Markdown document tool result:', 'Markdown document'],
+  ['Slide deck tool result:', 'Slide deck'],
+  ['Archive tool result:', 'Archive'],
+  ['Calendar tool result:', 'Calendar'],
+  ['Mermaid diagram tool result:', 'Mermaid diagram'],
+  ['URL fetch and summarize tool result:', 'URL fetch and summarize'],
+  ['Image generation tool result:', 'Image generation'],
 ];
 
 function summarizeToolResult(message: SessionMessageLike) {
@@ -420,7 +430,7 @@ export function normalizeSessionAnalytics(raw: unknown): SessionAnalytics | null
   const toolCallsByTypeValue = isRecord(raw.toolCallsByType) ? raw.toolCallsByType : {};
   const toolCallsByType: SessionAnalytics['toolCallsByType'] = {};
 
-  for (const key of ['shell', 'filesystem', 'web', 'code', 'browser', 'unified_browser', 'tax_return', 'pdf_document', 'workbook_document', 'word_document'] as const) {
+  for (const key of ['shell', 'filesystem', 'web', 'code', 'browser', 'unified_browser', 'tax_return', 'pdf_document', 'workbook_document', 'word_document', 'csv_document', 'email_document', 'markdown_document', 'slides_document', 'archive_document', 'calendar_document', 'mermaid_document', 'fetch_summarize', 'image_generation'] as const) {
     if (typeof toolCallsByTypeValue[key] === 'number') {
       toolCallsByType[key] = toolCallsByTypeValue[key] as number;
     }

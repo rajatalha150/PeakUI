@@ -114,24 +114,28 @@ export function trimMessagesToFit(
     preservedIndices.add(i);
   }
 
-  // Iteratively remove the oldest removable message until we fit
-  const result = [...nonSystemMessages];
+  // Iteratively remove the oldest removable message until we fit. Track each
+  // message's ORIGINAL index alongside it so the preserved-set check stays
+  // correct as the array shrinks (a naive `i + removedCount` offset drifts
+  // once earlier elements are spliced out, which dropped the first user
+  // message — the objective — on long threads).
+  const result: Array<{ originalIndex: number; message: unknown }> = nonSystemMessages.map((message, originalIndex) => ({ originalIndex, message }));
   let removedCount = 0;
   const minMessages = 2; // Always keep at least 1 user + 1 assistant
 
   while (
-    estimateMessageTokens(result as Array<{ content?: string; images?: unknown[] }>) > messageBudget
+    estimateMessageTokens(result.map(entry => entry.message) as Array<{ content?: string; images?: unknown[] }>) > messageBudget
     && result.length > minMessages
   ) {
-    // Find the oldest message that isn't preserved
-    const removableIdx = result.findIndex((_, i) => !preservedIndices.has(i + removedCount));
+    // Find the oldest message that isn't preserved.
+    const removableIdx = result.findIndex(entry => !preservedIndices.has(entry.originalIndex));
     if (removableIdx === -1) break;
     result.splice(removableIdx, 1);
     removedCount++;
   }
 
   return {
-    messages: [...systemMessages, ...result],
+    messages: [...systemMessages, ...result.map(entry => entry.message)],
     trimmed: true,
     trimmedCount: removedCount,
   };

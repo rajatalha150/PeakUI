@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { collapseSystemMessages } from './message-trim'
+import { collapseSystemMessages, trimMessagesToFit } from './message-trim'
 
 describe('collapseSystemMessages', () => {
   it('keeps a single leading system message unchanged', () => {
@@ -75,5 +75,24 @@ describe('collapseSystemMessages', () => {
       { role: 'user', content: 'Hi' },
     ]
     expect(collapseSystemMessages(messages)).toEqual([{ role: 'user', content: 'Hi' }])
+  })
+})
+
+describe('trimMessagesToFit — preserves the first user message (objective)', () => {
+  it('keeps the first user message even when trimming many middle messages', () => {
+    const messages: Array<{ role: string; content: string }> = [
+      { role: 'user', content: 'FIRST USER MESSAGE - analyze stock market' },
+    ]
+    for (let i = 0; i < 20; i++) {
+      messages.push({ role: 'assistant', content: 'middle filler ' + i + ' ' + 'x'.repeat(200) })
+      messages.push({ role: 'user', content: 'middle user ' + i + ' ' + 'y'.repeat(200) })
+    }
+    messages.push({ role: 'assistant', content: 'recent answer ' + 'z'.repeat(200) })
+    messages.push({ role: 'user', content: 'recent question ' + 'w'.repeat(200) })
+
+    const result = trimMessagesToFit(messages, 4096, 1000, { preserveTurns: 2 })
+    expect(result.trimmed).toBe(true)
+    const firstUser = result.messages.find(m => (m as { role: string }).role === 'user')
+    expect((firstUser as { content: string }).content).toContain('FIRST USER MESSAGE')
   })
 })
