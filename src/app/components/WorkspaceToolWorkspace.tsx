@@ -93,6 +93,7 @@ import {
 import {
   buildWorkspaceToolRequestFromNarration,
   synthesizeToolCallFromNarration,
+  isCapabilityStatement,
 } from '@/lib/workspace-tool-narration-recovery';
 import { buildMalformedWrapperNudgeText, buildNarrationNudgeText } from '@/lib/workspace-tool-narration-nudge';
 import { compactStaleToolResults } from '@/lib/workspace-tool-context-compaction';
@@ -1824,6 +1825,11 @@ function isSubstantiveProseAnswer(content: string): boolean {
 function detectMissingToolIntent(content: string): boolean {
   const text = content.trim();
   if (!text) return false;
+
+  // A capability/identity statement ("I am a local-first agent...", "my
+  // capabilities include...") is a plain-text answer, not a tool narration.
+  // Never nudge on it — otherwise "what are your capabilities" loops.
+  if (isCapabilityStatement(text)) return false;
 
   const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
   const lastLine = lines[lines.length - 1] || '';

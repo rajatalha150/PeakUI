@@ -121,10 +121,20 @@ const DOCUMENT_CREATE_RE_LIST: ReadonlyArray<RegExp> = [
 ]
 
 /**
- * Capability/ability statements — the model describing what it CAN do, not an
- * action it is about to take. These must never synthesize a document tool call.
+ * Capability/ability/identity statements — the model describing what it IS or
+ * what it CAN do, not an action it is about to take. These must never
+ * synthesize a document tool call or trigger a missing-tool nudge.
  */
-const CAPABILITY_STATEMENT_RE = /\b(?:i\s+can|i\s+am\s+able\s+to|i\s+have\s+the\s+ability\s+to|i\s+am\s+capable\s+of|my\s+capabilities\s+include|i\s+support|i\s+offer)\b/i
+const CAPABILITY_STATEMENT_RE = /\b(?:i\s+can|i\s+am\s+able\s+to|i\s+have\s+the\s+ability\s+to|i\s+am\s+capable\s+of|my\s+capabilities\s+(?:include|are|is|focused\s+on|limited\s+to)|i\s+support|i\s+offer|i\s+am\s+an?\s+[\w-]+\s+(?:agent|assistant|workspace|model)|i\s+operate|i\s+respond\s+in\s+plain\s+text)\b/i
+
+/**
+ * True when the text is a capability/identity statement (the model describing
+ * what it IS or CAN do) rather than an action it is about to take. Used by the
+ * runtime to avoid nudging/synthesizing a tool call from a plain-text answer.
+ */
+export function isCapabilityStatement(content: string): boolean {
+  return typeof content === 'string' && CAPABILITY_STATEMENT_RE.test(content)
+}
 
 const DOCUMENT_CREATE_KIND_MAP: Readonly<Record<string, typeof DOCUMENT_TOOL_NAMES[number]>> = {
   pdf: 'pdf_document',

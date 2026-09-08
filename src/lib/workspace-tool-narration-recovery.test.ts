@@ -440,6 +440,20 @@ describe('synthesizeToolCallFromNarration — capability statements must NOT syn
     const r = synthesizeToolCallFromNarration('Create a PDF report about the quarterly results.')
     expect(r?.toolName).toBe('pdf_document')
   })
+
+  it('does not synthesize from "I am a local-first desktop agent... my capabilities are focused on..."', () => {
+    const r = synthesizeToolCallFromNarration(
+      'I am a local-first desktop agent workspace embedded in PeakUI. My capabilities are focused on practical, task-oriented assistance for PC work — such as writing, reading, and editing files; generating text documents (Markdown, Word, PDF), spreadsheets (Excel/CSV), slide decks, calendars, diagrams (Mermaid), archives, and emails.',
+    )
+    expect(r).toBeNull()
+  })
+
+  it('does not synthesize from "my capabilities are limited to..."', () => {
+    const r = synthesizeToolCallFromNarration(
+      'I am a local-first desktop agent workspace embedded in PeakUI. My capabilities are limited to practical, task-oriented assistance within the workspace.',
+    )
+    expect(r).toBeNull()
+  })
 })
 
 describe('synthesizeToolCallFromNarration — edge cases', () => {
