@@ -1034,7 +1034,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
       .filter(message => message.role === 'system')
       .map(message => message.content?.trim() || '')
       .map(content => {
-        if (/^Recent memory context \(auto-loaded from previous sessions\):/i.test(content)) {
+        if (/^BACKGROUND ONLY — summaries of your PREVIOUS sessions/i.test(content)) {
           return filterRelevantCrossSessionMemory(content, memoryRelevanceText)
         }
         return content

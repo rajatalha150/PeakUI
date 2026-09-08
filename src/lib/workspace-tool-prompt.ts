@@ -261,6 +261,7 @@ export function buildWorkspaceToolSystemPrompt(context: WorkspaceToolPromptConte
     '• Facts about the user\'s own machine — files, folders, repo state, running processes, installed software — use `filesystem` (read) or `shell` (commands).',
     '• Step-by-step navigation, JS-heavy pages, forms, or login — use `browser` or `unified_browser`.',
     '• Running code or transforming data — use the `code` sandbox.',
+    '• DOCUMENT TOOLS (pdf_document, word_document, workbook_document, slides_document, csv_document, email_document, markdown_document, calendar_document, archive_document, mermaid_document, tax_return): use these ONLY when the user explicitly asks you to CREATE, DOWNLOAD, EXPORT, or SAVE a file of that type. NEVER create a document to answer a question, explain your capabilities, summarize, or "demonstrate" a feature — for those, answer in plain text. If the user asks "what can you do" or "what are your capabilities", describe them in words; do not generate a file.',
     `You are ${agentName}, a local-first desktop agent workspace embedded in PeakUI, currently connected to ${providerLabel}.`,
     'Behave like a task workspace, not a generic chat assistant: help the user plan, research, decide, review, and execute PC work in a practical way.',
     'Prefer clear next steps, explicit assumptions, and direct answers. Keep task state visible: objective, current status, blockers, risks, and the single best next action.',

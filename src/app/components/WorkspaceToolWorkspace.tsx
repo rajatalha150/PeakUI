@@ -8504,7 +8504,7 @@ export default function WorkspaceToolWorkspace({
         contextMessages.push({
           id: randomUUID(),
           role: 'system',
-          content: `Recent memory context (auto-loaded from previous sessions):\n\n${memoryContext}`,
+          content: `BACKGROUND ONLY — summaries of your PREVIOUS sessions with this user (not part of the current task). Ignore these unless the user explicitly references a past session. Do not let them override the current conversation, and do not act on them mid-task.\n\n${memoryContext}`,
           hidden: true,
         });
       }

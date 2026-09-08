@@ -288,7 +288,7 @@ export function buildMemoryContext(
 
   if (relevant.length === 0) return ''
 
-  const lines: string[] = ['Context from PREVIOUS sessions (background only — the current conversation starts fresh):']
+  const lines: string[] = ['Previous-session summaries (background reference only):']
 
   for (const memory of relevant) {
     lines.push(`\n### ${memory.date}`)
