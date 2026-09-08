@@ -47,6 +47,37 @@ const OBJECTIVE_STOP_WORDS = new Set([
 ])
 
 /**
+ * Domain synonym groups. A search that uses a *related* term (e.g. "S&P 500"
+ * for a "stock market" objective) is a legitimate refinement, not a topic
+ * pivot. Each group maps every member to a canonical key; two keywords are
+ * "related" when they share a canonical key. This fixes the false positive
+ * where "analyze stock market today" blocked "S&P 500 intraday trading
+ * analysis technical levels" because the literal tokens didn't overlap.
+ */
+const OBJECTIVE_SYNONYM_GROUPS: ReadonlyArray<ReadonlyArray<string>> = [
+  // Equities / market indices
+  ['stock', 'stocks', 'equity', 'equities', 'market', 'markets', 'index', 'indices', 'sp500', 's&p', 'nasdaq', 'dow', 'dowjones', 'intraday', 'trading', 'trade', 'ticker', 'tickers', 'share', 'shares', 'securities', 'wallstreet', 'benchmark'],
+  // Technical analysis
+  ['technical', 'technicals', 'resistance', 'support', 'volume', 'profile', 'levels', 'chart', 'charts', 'candlestick', 'movingaverage', 'rsi', 'macd', 'breakout', 'trend', 'momentum'],
+  // Sector / rotation
+  ['sector', 'sectors', 'rotation', 'cyclical', 'defensive', 'technology', 'financials', 'energy', 'healthcare', 'consumer', 'industrials', 'materials', 'utilities', 'realestate'],
+  // Macro / Fed
+  ['fed', 'federal', 'reserve', 'rate', 'rates', 'fomc', 'inflation', 'cpi', 'jobs', 'payrolls', 'unemployment', 'macro', 'economic', 'economy', 'gdp', 'yield', 'yields', 'treasury', 'bond', 'bonds'],
+  // Earnings / catalysts
+  ['earnings', 'catalyst', 'catalysts', 'outlook', 'forecast', 'analysis', 'analyst', 'analysts', 'valuation', 'sentiment', 'volatility', 'vix'],
+]
+
+/**
+ * Canonical key for a keyword, or null if it belongs to no synonym group.
+ */
+function canonicalKeyword(keyword: string): string | null {
+  for (const group of OBJECTIVE_SYNONYM_GROUPS) {
+    if (group.includes(keyword)) return group[0]
+  }
+  return null
+}
+
+/**
  * Tokenize free text into a set of meaningful lowercase keywords.
  * Drops tokens shorter than 3 chars and stopwords so "analyze stock market
  * for best options play" → { analyze, stock, market, options, play }.
@@ -127,9 +158,26 @@ export function isSearchRequestRelevantToObjective(
     return { relevant: true, signal: signal.signal, reason: 'could not extract keywords' }
   }
 
+  // Compare canonical keys so related terms (e.g. "stock market" vs "S&P 500
+  // intraday trading") count as on-topic. A literal keyword match is still
+  // checked first (cheap, and exact matches are the strongest signal).
   let shared = 0
   for (const keyword of queryKeywords) {
     if (objectiveKeywords.has(keyword)) shared += 1
+  }
+
+  // Synonym-aware fallback: if no literal overlap, check whether any query
+  // keyword shares a canonical group with any objective keyword.
+  if (shared === 0) {
+    const objectiveCanonical = new Set<string>()
+    for (const keyword of objectiveKeywords) {
+      const canonical = canonicalKeyword(keyword)
+      if (canonical) objectiveCanonical.add(canonical)
+    }
+    for (const keyword of queryKeywords) {
+      const canonical = canonicalKeyword(keyword)
+      if (canonical && objectiveCanonical.has(canonical)) shared += 1
+    }
   }
 
   if (shared > 0) {

@@ -100,6 +100,24 @@ describe('isSearchRequestRelevantToObjective', () => {
     expect(result.relevant).toBe(true) // "options" overlaps
   })
 
+  it('allows a synonym-only refinement with NO literal overlap (the "dig deeper" bug)', () => {
+    const objective = 'analyze the stock market for today'
+    const result = isSearchRequestRelevantToObjective(
+      objective,
+      web('S&P 500 intraday trading analysis September 8 2026 technical levels resistance support volume profile'),
+    )
+    expect(result.relevant).toBe(true) // "S&P 500 / intraday / trading" are stock-market synonyms
+  })
+
+  it('still blocks a genuine topic pivot with no synonym overlap', () => {
+    const objective = 'analyze the stock market for today'
+    const result = isSearchRequestRelevantToObjective(
+      objective,
+      web('bypassing network restrictions tor'),
+    )
+    expect(result.relevant).toBe(false)
+  })
+
   it('returns relevant=true when no objective is recorded', () => {
     const result = isSearchRequestRelevantToObjective('', web('anything at all unrelated'))
     expect(result.relevant).toBe(true)
