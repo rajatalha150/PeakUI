@@ -222,6 +222,23 @@ export type WorkspaceToolRequest =
       name: 'image_generation'
       request: WorkspaceToolImageGenerationToolRequest
     }
+  | {
+      name: 'notes_search'
+      request: { query: string }
+    }
+  | {
+      name: 'notes_save'
+      request: { title: string; content: string }
+    }
+
+export interface WorkspaceToolNotesSearchToolRequest {
+  query: string
+}
+
+export interface WorkspaceToolNotesSaveToolRequest {
+  title: string
+  content: string
+}
 
 export const WORKSPACE_TOOL_WEB_TOOL_EXAMPLE = `<workspace_tool name="web">
 {"query":"latest Next.js 16 route handlers docs","description":"Verify the current route-handler behavior before answering"}
@@ -324,6 +341,8 @@ export const WORKSPACE_TOOL_NAMES = [
   'mermaid_document',
   'fetch_summarize',
   'image_generation',
+  'notes_search',
+  'notes_save',
 ] as const
 
 export type WorkspaceToolName = typeof WORKSPACE_TOOL_NAMES[number]
@@ -1008,6 +1027,24 @@ function parseToolIntentFromProse(content: string): WorkspaceToolRequest | undef
   }
 
   return undefined
+}
+
+/**
+ * Convert a native tool call ({ name, args } from the API's `tools` path) into
+ * a validated WorkspaceToolRequest. Reconstructs the <workspace_tool> wrapper
+ * and runs it through the existing parser so every per-tool validation rule
+ * (required fields, enums, placeholder rejection) applies identically to the
+ * wrapper path. Returns null when the name is unknown or the args fail
+ * validation — the caller then falls back to the wrapper/prose path.
+ */
+export function buildWorkspaceToolRequestFromNativeCall(
+  name: string,
+  args: Record<string, unknown>,
+): WorkspaceToolRequest | null {
+  if (!WORKSPACE_TOOL_NAME_SET.has(name)) return null
+  const wrapper = `<workspace_tool name="${name}">${JSON.stringify(args)}</workspace_tool>`
+  const extracted = extractWorkspaceToolRequest(wrapper)
+  return extracted.request ?? null
 }
 
 export function extractWorkspaceToolRequest(content: string): {
@@ -1868,6 +1905,40 @@ export function extractWorkspaceToolRequest(content: string): {
               ? parsed.description.trim()
               : undefined,
           },
+        },
+      }
+    }
+
+    if (toolName === 'notes_search') {
+      const parsed = parseToolJson<Partial<{ query: string }>>(block.rawJson)
+      if (!parsed) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      const query = cleanFieldValue(parsed.query)
+      if (!query) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      return {
+        cleanedContent,
+        request: { name: 'notes_search', request: { query } },
+      }
+    }
+
+    if (toolName === 'notes_save') {
+      const parsed = parseToolJson<Partial<{ title: string; content: string }>>(block.rawJson)
+      if (!parsed) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      const title = cleanFieldValue(parsed.title)
+      const noteContent = typeof parsed.content === 'string' ? parsed.content.trim() : ''
+      if (!title || !noteContent) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      return {
+        cleanedContent,
+        request: {
+          name: 'notes_save',
+          request: { title, content: noteContent },
         },
       }
     }

@@ -154,6 +154,18 @@ export const WORKSPACE_TOOL_CAPABILITIES: WorkspaceToolCapability[] = [
     signature: 'fetch_summarize {"url":"https://..."}',
   },
   {
+    id: 'notes-recall',
+    label: 'Saved notes (cross-session memory)',
+    adapter: 'native',
+    toolName: 'notes_search',
+    promptLines: [
+      'SAVED NOTES CAPABILITY: You can search notes you saved in previous sessions with notes_search, and store durable facts with notes_save.',
+      'Use notes_search when the user references past work ("as we discussed", "the thing I asked for last week") or when prior context would clearly help. Use notes_save when the user asks you to remember something, states a durable preference, or makes a decision worth carrying forward.',
+      'Notes are per-user and persist across sessions. Do not guess at past context — search for it.',
+    ],
+    signature: 'notes_search {"query":"..."} | notes_save {"title":"...","content":"..."}',
+  },
+  {
     id: 'stealth-search',
     label: 'Stealth web search (Tor)',
     adapter: 'native',

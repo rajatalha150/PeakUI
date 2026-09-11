@@ -70,6 +70,7 @@ import {
 import {
   detectMalformedToolWrapper,
   extractWorkspaceToolRequest,
+  buildWorkspaceToolRequestFromNativeCall,
   stripAllToolTags,
   type WorkspaceToolBrowserToolRequest,
   type WorkspaceToolCodeToolRequest,
@@ -335,7 +336,7 @@ interface WorkspaceToolMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   hidden?: boolean;
-  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document' | 'csv_document' | 'email_document' | 'markdown_document' | 'slides_document' | 'archive_document' | 'calendar_document' | 'mermaid_document' | 'fetch_summarize' | 'image_generation';
+  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document' | 'csv_document' | 'email_document' | 'markdown_document' | 'slides_document' | 'archive_document' | 'calendar_document' | 'mermaid_document' | 'fetch_summarize' | 'image_generation' | 'notes_search' | 'notes_save';
   thinking?: string;
   presentation?: ResponsePresentation;
   sources?: MessageSource[];
@@ -2241,6 +2242,8 @@ function describeToolDisplayName(name: WorkspaceToolRequest['name']): string {
     case 'tax_return': return 'tax return generator'
     case 'fetch_summarize': return 'URL summarizer'
     case 'image_generation': return 'image generator'
+    case 'notes_search': return 'notes search'
+    case 'notes_save': return 'notes save'
     default: return name
   }
 }
@@ -2959,6 +2962,25 @@ function formatImageGenerationToolResult(entry: ImageGenerationToolResultEntry):
     lines.push('', 'No images were returned. Report this to the user.');
   }
 
+  return lines.join('\n');
+}
+
+function formatNotesSearchToolResult(data: { query?: string; results?: Array<{ title: string; excerpt: string; createdAt: string }> }): string {
+  const lines = [
+    'Notes search tool result:',
+    `Query: ${data.query || ''}`,
+  ];
+  const results = Array.isArray(data.results) ? data.results : [];
+  if (results.length === 0) {
+    lines.push('Status: completed', 'Results: none', '', 'No saved notes matched. Tell the user you have no notes on this, then answer from the current conversation only.');
+  } else {
+    lines.push('Status: completed', `Results: ${results.length}`);
+    results.forEach((note, index) => {
+      lines.push('', `[${index + 1}] ${note.title}${note.createdAt ? ` (${note.createdAt.slice(0, 10)})` : ''}`);
+      lines.push(note.excerpt);
+    });
+    lines.push('', 'Use these notes only where they are relevant to the current request. Cite them as your saved notes, not as fresh search results.');
+  }
   return lines.join('\n');
 }
 
@@ -8776,7 +8798,7 @@ export default function WorkspaceToolWorkspace({
       // all narration-recovery machinery. This is the path that cannot
       // false-positive on plain-text answers.
       const nativeRequest = roundNativeToolCalls.length > 0
-        ? buildWorkspaceToolRequestFromNarration({ toolName: roundNativeToolCalls[0].name, args: roundNativeToolCalls[0].args, matchedPattern: 'native.tool_calls' })
+        ? buildWorkspaceToolRequestFromNativeCall(roundNativeToolCalls[0].name, roundNativeToolCalls[0].args)
         : null;
       const rawToolTagPresent = assistantMessage.content.includes('<workspace_tool');
       const { cleanedContent, request: parsedRequest } = extractWorkspaceToolRequest(assistantMessage.content);
@@ -8847,7 +8869,11 @@ export default function WorkspaceToolWorkspace({
                                                   ? describeMermaidDocumentRequest(request.request)
                                                   : request.name === 'image_generation'
                                                     ? `Generate image: ${request.request.prompt}`
-                                                    : describeFilesystemRequest(request.request.action, request.request.path)
+                                                    : request.name === 'notes_search'
+                                                      ? `Search notes: ${request.request.query}`
+                                                      : request.name === 'notes_save'
+                                                        ? `Save note: ${request.request.title}`
+                                                        : describeFilesystemRequest((request.request as { action: 'list' | 'read' | 'stat' | 'write' | 'append' | 'mkdir' }).action, (request.request as { path: string }).path)
               : rawToolTagPresent
                 ? stripAllToolTags(assistantMessage.content)
                 : assistantMessage.content
@@ -10053,6 +10079,57 @@ export default function WorkspaceToolWorkspace({
               id: randomUUID(),
               role: 'user',
               content: `Image generation failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. The image engine may be offline or the model may not be loaded.`,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
+          continue;
+        }
+
+        if (request.name === 'notes_search' || request.name === 'notes_save') {
+          lastToolRequestSignature = effectiveToolSignature;
+          duplicateToolRequestCount = 0;
+          try {
+            setStreamPhase('tool-filesystem');
+            const notesRes = await fetch('/api/workspace-tool/notes', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(
+                request.name === 'notes_search'
+                  ? { action: 'search', query: request.request.query }
+                  : { action: 'save', title: request.request.title, content: request.request.content },
+              ),
+            });
+            const notesData = await notesRes.json().catch(() => ({}));
+            setStreamPhase(null);
+            if (!notesRes.ok) {
+              throw new Error(typeof notesData.error === 'string' ? notesData.error : 'Notes request failed');
+            }
+            lastSuccessfulToolRequest = {
+              name: request.name,
+              request: request.request,
+            };
+            const notesText = request.name === 'notes_search'
+              ? formatNotesSearchToolResult(notesData as { query?: string; results?: Array<{ title: string; excerpt: string; createdAt: string }> })
+              : `Notes save tool result:\nStatus: completed\nSaved: ${String(notesData.saved ?? '')}\n\nThe note is stored for future sessions. Briefly confirm to the user what was saved; do not repeat the content back in full.`;
+            const toolResultMessage: WorkspaceToolMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: notesText,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Notes tool failed:', toolError);
+            const errorMessage: WorkspaceToolMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Notes tool failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Report this briefly to the user.`,
               hidden: true,
               createdAt: new Date().toISOString(),
             };

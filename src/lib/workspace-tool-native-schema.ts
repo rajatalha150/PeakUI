@@ -378,6 +378,35 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
       },
     },
   },
+  notes_search: {
+    type: 'function',
+    function: {
+      name: 'notes_search',
+      description: 'Search your saved notes from previous sessions. Use when the user references past work ("as we discussed", "the thing I asked for yesterday") or when prior context would help.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: S('Keywords to search for, e.g. "stock analysis" or "api design".'),
+        },
+        required: ['query'],
+      },
+    },
+  },
+  notes_save: {
+    type: 'function',
+    function: {
+      name: 'notes_save',
+      description: 'Save a durable note for future sessions. Use when the user asks you to remember something, states a durable preference, or a decision should carry into later sessions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: S('Short note title.'),
+          content: S('The note content (what to remember).'),
+        },
+        required: ['title', 'content'],
+      },
+    },
+  },
 }
 
 /**

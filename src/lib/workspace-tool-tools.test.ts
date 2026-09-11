@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { detectMalformedToolWrapper, extractWorkspaceToolRequest, stripAllToolTags } from './workspace-tool-tools'
+import { detectMalformedToolWrapper, extractWorkspaceToolRequest, stripAllToolTags, buildWorkspaceToolRequestFromNativeCall } from './workspace-tool-tools'
 
 describe('workspace-tool tool parsing', () => {
   it('parses the first valid unified browser request from a legacy tag with concatenated JSON', () => {
@@ -631,5 +631,33 @@ describe('detectMalformedToolWrapper', () => {
 
   it('returns null for empty input', () => {
     expect(detectMalformedToolWrapper('')).toBeNull()
+  })
+})
+
+describe('buildWorkspaceToolRequestFromNativeCall', () => {
+  it('converts every tool type (not just the narration subset)', () => {
+    const cases: Array<[string, Record<string, unknown>, string]> = [
+      ['web', { query: 'weather nyc' }, 'web'],
+      ['shell', { command: 'ls' }, 'shell'],
+      ['filesystem', { action: 'read', path: '/tmp/x' }, 'filesystem'],
+      ['pdf_document', { title: 'Report', content: 'body' }, 'pdf_document'],
+      ['word_document', { title: 'doc' }, 'word_document'],
+      ['image_generation', { prompt: 'a cat' }, 'image_generation'],
+      ['notes_search', { query: 'stock analysis' }, 'notes_search'],
+      ['notes_save', { title: 'pref', content: 'remember' }, 'notes_save'],
+    ]
+    for (const [name, args, expected] of cases) {
+      const r = buildWorkspaceToolRequestFromNativeCall(name, args)
+      expect(r?.name).toBe(expected)
+    }
+  })
+
+  it('returns null for an unknown tool name', () => {
+    expect(buildWorkspaceToolRequestFromNativeCall('not_a_tool', {})).toBeNull()
+  })
+
+  it('returns null when required args are missing (validation applies)', () => {
+    expect(buildWorkspaceToolRequestFromNativeCall('web', {})).toBeNull()
+    expect(buildWorkspaceToolRequestFromNativeCall('notes_save', { title: 'x' })).toBeNull()
   })
 })

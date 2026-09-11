@@ -971,6 +971,8 @@ export async function createChatCompletionResponse(req: NextRequest) {
           ...(internetToolEnabled && effectiveUwafBrowserMode !== 'deny' ? ['unified_browser' as const] : []),
           'fetch_summarize' as const,
           'image_generation' as const,
+          'notes_search' as const,
+          'notes_save' as const,
           'tax_return' as const,
           'pdf_document' as const,
           'workbook_document' as const,
