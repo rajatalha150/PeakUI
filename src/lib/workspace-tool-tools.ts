@@ -339,8 +339,12 @@ const TOOL_BLOCK_PATTERN = new RegExp(
 //   {json}
 // Parse it as a tool call rather than letting the raw text leak into the chat.
 const TOOL_BLOCK_BARE_PATTERN = new RegExp(
-  `^\\s*workspace_tool\\s+name=["'](${TOOL_NAME_ALTERNATION})["']\\s*\\n([\\s\\S]*?)(?:\\n\\s*$|$)`,
+  `(?:^|\\n)\\s*workspace_tool\\s+name=["'](${TOOL_NAME_ALTERNATION})["']\\s*\\n([\\s\\S]*?)(?:\\n\\s*$|$)`,
   'i',
+)
+const STRIP_BARE_TOOL_BLOCK = new RegExp(
+  `(?:^|\\n)\\s*workspace_tool\\s+name=["'][\\w.\\-]+["']\\s*\\n\\s*\\{[\\s\\S]*`,
+  'gi',
 )
 const STRIP_COMPLETE_TOOL_TAG = new RegExp(
   `<workspace_tool\\s+name=["'](${TOOL_NAME_ALTERNATION})["']\\s*>[\\s\\S]*?<\\/workspace_tool>`,
@@ -812,7 +816,7 @@ export function stripAllToolTags(content: string): string {
   cleaned = cleaned.replace(/<unified_browser>\s*[\s\S]*/gi, '')
   // Bracket-less wrapper (GLM/kimi quirk): strip when the content begins with
   // the bare header line followed by a JSON body.
-  cleaned = cleaned.replace(/^\s*workspace_tool\s+name=["'][\w.\-]+["']\s*\n\s*\{[\s\S]*/gi, '')
+  cleaned = cleaned.replace(STRIP_BARE_TOOL_BLOCK, '')
   // Strip well-known malformed tool-call formats the model occasionally
   // hallucinates. These are different SDK conventions (Anthropic,
   // Qwen, etc.) and must never reach the user as visible text.

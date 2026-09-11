@@ -442,6 +442,20 @@ describe('workspace-tool tool parsing', () => {
     expect(extracted.cleanedContent).not.toContain('"action"')
   })
 
+  it('parses the bracket-less wrapper when it follows a prose lead-in line', () => {
+    const input = [
+      'Let me check that.',
+      'workspace_tool name="web"',
+      '{"query": "weather nyc"}',
+    ].join('\n')
+
+    const extracted = extractWorkspaceToolRequest(input)
+    expect(extracted.request?.name).toBe('web')
+    if (extracted.request?.name !== 'web') throw new Error('Expected web request')
+    expect(extracted.request.request.query).toBe('weather nyc')
+    expect(extracted.cleanedContent).not.toContain('workspace_tool')
+  })
+
   it('does not misparse ordinary prose that merely mentions workspace_tool', () => {
     const input = 'The workspace_tool component handles tool routing. Ask me to search for anything.'
     const extracted = extractWorkspaceToolRequest(input)
