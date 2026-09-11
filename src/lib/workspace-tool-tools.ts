@@ -333,6 +333,15 @@ const TOOL_BLOCK_PATTERN = new RegExp(
   `<workspace_tool\\s+name=["'](${TOOL_NAME_ALTERNATION})["']\\s*>([\\s\\S]*?)<\\/workspace_tool>`,
   'i',
 )
+// Bracket-less wrapper: some models (notably GLM/kimi via certain Ollama
+// templates) drop the angle brackets but keep the exact structure
+//   workspace_tool name="tool"
+//   {json}
+// Parse it as a tool call rather than letting the raw text leak into the chat.
+const TOOL_BLOCK_BARE_PATTERN = new RegExp(
+  `^\\s*workspace_tool\\s+name=["'](${TOOL_NAME_ALTERNATION})["']\\s*\\n([\\s\\S]*?)(?:\\n\\s*$|$)`,
+  'i',
+)
 const STRIP_COMPLETE_TOOL_TAG = new RegExp(
   `<workspace_tool\\s+name=["'](${TOOL_NAME_ALTERNATION})["']\\s*>[\\s\\S]*?<\\/workspace_tool>`,
   'gi',
@@ -471,6 +480,18 @@ function findToolBlock(content: string): { toolName: string; rawBlock: string; r
       toolName: match[1],
       rawBlock: match[0],
       rawJson: match[2],
+    }
+  }
+
+  // Bracket-less wrapper (phase: GLM/kimi template quirk). Only matched when
+  // the message STARTS with the bare header line so normal prose mentioning
+  // "workspace_tool" is never misparsed.
+  const bareMatch = content.match(TOOL_BLOCK_BARE_PATTERN)
+  if (bareMatch && extractFirstJsonObject(bareMatch[2])) {
+    return {
+      toolName: bareMatch[1],
+      rawBlock: bareMatch[0],
+      rawJson: bareMatch[2],
     }
   }
 
@@ -789,6 +810,9 @@ export function stripAllToolTags(content: string): string {
   // Remove partial/incomplete tags (no closing tag)
   cleaned = cleaned.replace(STRIP_PARTIAL_TOOL_TAG, '')
   cleaned = cleaned.replace(/<unified_browser>\s*[\s\S]*/gi, '')
+  // Bracket-less wrapper (GLM/kimi quirk): strip when the content begins with
+  // the bare header line followed by a JSON body.
+  cleaned = cleaned.replace(/^\s*workspace_tool\s+name=["'][\w.\-]+["']\s*\n\s*\{[\s\S]*/gi, '')
   // Strip well-known malformed tool-call formats the model occasionally
   // hallucinates. These are different SDK conventions (Anthropic,
   // Qwen, etc.) and must never reach the user as visible text.

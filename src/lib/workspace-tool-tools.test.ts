@@ -426,6 +426,28 @@ describe('workspace-tool tool parsing', () => {
     expect(extracted.cleanedContent).toContain('More prose.')
     expect(extracted.cleanedContent).not.toContain('<function_calls>')
   })
+
+  it('parses the bracket-less wrapper (GLM/kimi template quirk) and strips it from content', () => {
+    const input = [
+      'workspace_tool name="unified_browser"',
+      '{"action": "search", "query": "current weather New York City", "browserMode": "direct"}',
+    ].join('\n')
+
+    const extracted = extractWorkspaceToolRequest(input)
+    expect(extracted.request?.name).toBe('unified_browser')
+    if (extracted.request?.name !== 'unified_browser') throw new Error('Expected unified_browser request')
+    expect(extracted.request.request.action).toBe('search')
+    expect(extracted.request.request.query).toBe('current weather New York City')
+    expect(extracted.cleanedContent).not.toContain('workspace_tool')
+    expect(extracted.cleanedContent).not.toContain('"action"')
+  })
+
+  it('does not misparse ordinary prose that merely mentions workspace_tool', () => {
+    const input = 'The workspace_tool component handles tool routing. Ask me to search for anything.'
+    const extracted = extractWorkspaceToolRequest(input)
+    expect(extracted.request?.name).toBeUndefined()
+    expect(extracted.cleanedContent).toContain('Ask me to search')
+  })
 })
 
 describe('template placeholder guard', () => {
