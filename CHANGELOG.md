@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — Bracket-less tool wrapper parsed as a tool call (GLM/kimi template quirk)
+
+When asked "check weather in nyc", the model emitted the tool block without its angle brackets:
+
+```
+workspace_tool name="unified_browser"
+{"action": "search", ...}
+```
+
+instead of `<workspace_tool ...>...</workspace_tool>`. The parser required the brackets, so the call was silently dropped and the raw wrapper text rendered into the chat under a "This response could not be fully rendered" banner. `findToolBlock` now also matches the bracket-less header line at the start of a message followed by a JSON body, and `stripAllToolTags` removes the bare form. Ordinary prose that merely mentions "workspace_tool" is never misparsed.
+
 ### Added — Native tool calling (phase 1)
 
 Models that support native function calling can now bypass the `<workspace_tool>` XML wrapper entirely. When `workspaceToolNativeToolCalls` is enabled, PeakUI passes the enabled tools' JSON schemas to the model via the API's `tools` parameter and dispatches the structured `tool_calls` frames the model returns — no wrapper to drop, no narration-recovery heuristics, no missing-tool nudges. This removes the entire class of "guardrail misfires on plain text" bugs for capable models.
