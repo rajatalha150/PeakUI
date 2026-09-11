@@ -18,6 +18,8 @@ import {
   type ResponsePresentation,
 } from '@/lib/response-format';
 import { buildWorkspaceToolSystemPrompt, buildChatInternetToolPrompt } from '@/lib/workspace-tool-prompt';
+import { buildNativeToolsArray, parseNativeToolCalls } from '@/lib/workspace-tool-native-schema';
+import type { WorkspaceToolName } from '@/lib/workspace-tool-tools';
 import type { WorkspaceToolPersona, WorkspaceToolUserProfile } from '@/lib/workspace-tool-persona';
 import { buildAccountantPersonaPrompt } from '@/lib/workspace-tool-accountant-persona';
 import { normalizeWorkspaceToolProvider } from '@/lib/settings';
@@ -887,6 +889,11 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const provider = surface === 'workspace-tool'
       ? normalizeProvider(body.provider ?? settings.workspaceToolProvider)
       : normalizeProvider(body.provider ?? settings.chatModelProvider);
+    // Native tool-calling gate (phase 1c). Only the workspace-tool surface has
+    // real tools to expose; the chat surface keeps the wrapper primer path.
+    const nativeToolCallsSetting = settings.workspaceToolNativeToolCalls || 'off';
+    const nativeToolCallsActive = surface === 'workspace-tool'
+      && (nativeToolCallsSetting === 'on' || (nativeToolCallsSetting === 'auto' && provider === 'openai-compatible'));
     const apiKey = typeof body.api_key === 'string' && body.api_key.trim()
       ? body.api_key.trim()
       : typeof body.apiKey === 'string' && body.apiKey.trim()
@@ -950,6 +957,37 @@ export async function createChatCompletionResponse(req: NextRequest) {
       : null;
     const workspacePrepEndedAt = performance.now();
     const effectiveUwafBrowserMode = internetToolEnabled ? effectiveToolAccess.uwafBrowserMode : 'deny';
+
+    // Native tool-calling: the exact tool set the model may call this turn,
+    // mirroring the same gates that feed buildWorkspaceToolSystemPrompt.
+    const nativeToolNames: WorkspaceToolName[] = surface === 'workspace-tool' && nativeToolCallsActive
+      ? [
+          ...(internetToolEnabled && effectiveUwafBrowserMode === 'deny' ? ['web' as const] : []),
+          ...(effectiveToolAccess.shellEnabled ? ['shell' as const] : []),
+          ...(effectiveToolAccess.filesystemEnabled ? ['filesystem' as const] : []),
+          ...(effectiveToolAccess.codeExecutionEnabled ? ['code' as const] : []),
+          ...(effectiveToolAccess.filesystemWriteEnabled ? ['filesystem' as const] : []),
+          ...(internetToolEnabled && effectiveToolAccess.browserMode !== 'deny' ? ['browser' as const] : []),
+          ...(internetToolEnabled && effectiveUwafBrowserMode !== 'deny' ? ['unified_browser' as const] : []),
+          'fetch_summarize' as const,
+          'image_generation' as const,
+          'tax_return' as const,
+          'pdf_document' as const,
+          'workbook_document' as const,
+          'word_document' as const,
+          'csv_document' as const,
+          'email_document' as const,
+          'markdown_document' as const,
+          'slides_document' as const,
+          'archive_document' as const,
+          'calendar_document' as const,
+          'mermaid_document' as const,
+        ]
+      : [];
+    // `filesystem` appears once even when read+write are both enabled.
+    const nativeTools = nativeToolCallsActive && nativeToolNames.length > 0
+      ? buildNativeToolsArray([...new Set(nativeToolNames)])
+      : [];
 
     const latestUserContent = [...nonSystemMessages].reverse().find(message => message.role === 'user')?.content || ''
     // Detect the model's capacity (parameter size + native context) so the
@@ -1363,6 +1401,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
                 stream: true,
                 ...(activeKeepAlive ? { keep_alive: activeKeepAlive } : {}),
                 options: buildOllamaOptions(settings, numCtx),
+                ...(nativeTools.length > 0 ? { tools: nativeTools } : {}),
               }),
               signal: startAbort.signal,
             });
@@ -1466,6 +1505,15 @@ export async function createChatCompletionResponse(req: NextRequest) {
             if (typeof message?.content === 'string') {
               if (message.content && firstContentAt === null) firstContentAt = performance.now();
               bufferedContent += message.content;
+            }
+
+            // Native tool calls (phase 1d): forward structured tool_calls
+            // frames to the client as a dedicated JSON line. The client
+            // dispatches them directly, bypassing the XML-wrapper parser and
+            // the narration-recovery machinery entirely.
+            const nativeToolCalls = parseNativeToolCalls(parsed);
+            if (nativeToolCalls.length > 0) {
+              sendJsonLine({ native_tool_calls: nativeToolCalls });
             }
 
             if (parsed.done === true) {

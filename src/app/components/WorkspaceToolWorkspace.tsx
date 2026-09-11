@@ -1277,6 +1277,8 @@ type WorkspaceToolStreamFrame = {
   status?: unknown;
   sources?: unknown;
   knowledge_sources?: unknown;
+  /** Native tool calls (workspaceToolNativeToolCalls='on'), one JSON line per frame. */
+  native_tool_calls?: Array<{ name: string; args: Record<string, unknown> }>;
   message?: {
     thinking?: unknown;
     content?: unknown;
@@ -8173,7 +8175,7 @@ export default function WorkspaceToolWorkspace({
     internetEnabledForTurn: boolean;
     internetToolEnabledForTurn: boolean;
     initialSources: MessageSource[];
-  }): Promise<{ assistantMessage: WorkspaceToolMessage; activeSources: MessageSource[] }> => {
+  }): Promise<{ assistantMessage: WorkspaceToolMessage; activeSources: MessageSource[]; nativeToolCalls: Array<{ name: string; args: Record<string, unknown> }> }> => {
     startTimeRef.current = Date.now();
     tokenCountRef.current = 0;
     setLiveStats({ tps: 0, tokens: 0 });
@@ -8185,6 +8187,10 @@ export default function WorkspaceToolWorkspace({
     let ocWasInsideToolTag = false;
     let finalMeta: WorkspaceToolMessage['meta'] | undefined;
     let latestTimings: WorkspaceToolLatencyTimings | undefined;
+    // Native tool calls received via structured tool_calls frames (phase 1d).
+    // When present, the dispatcher uses these INSTEAD of parsing the content
+    // for a <workspace_tool> wrapper.
+    let nativeToolCalls: Array<{ name: string; args: Record<string, unknown> }> = [];
 
     if (activeSources.length > 0) {
       updateChatMessage(options.assistantMessageId, current => ({
@@ -8275,6 +8281,11 @@ export default function WorkspaceToolWorkspace({
 
       if (typeof data.error === 'string' && data.error.trim()) {
         throw new Error(data.error);
+      }
+
+      // Native tool calls (phase 1d): collect structured frames.
+      if (Array.isArray(data.native_tool_calls) && data.native_tool_calls.length > 0) {
+        nativeToolCalls = [...nativeToolCalls, ...data.native_tool_calls];
       }
 
       if (isServerStreamStatus(data.status)) {
@@ -8376,6 +8387,7 @@ export default function WorkspaceToolWorkspace({
         createdAt: new Date().toISOString(),
       },
       activeSources,
+      nativeToolCalls,
     };
   };
 
@@ -8733,7 +8745,7 @@ export default function WorkspaceToolWorkspace({
           ]);
         }
 
-        const { assistantMessage, activeSources: roundSources } = await streamAssistantResponse({
+        const { assistantMessage, activeSources: roundSources, nativeToolCalls: roundNativeToolCalls } = await streamAssistantResponse({
           assistantMessageId: nextAssistantId,
           // Compact the bulky bodies of stale tool results before resending so
           // the context window stays lean on long browsing/shell sessions.
@@ -8759,13 +8771,20 @@ export default function WorkspaceToolWorkspace({
         });
 
         currentSources = roundSources;
+      // Native tool calls (phase 1d): when the model used structured
+      // tool_calls, build the request directly and skip the wrapper parser +
+      // all narration-recovery machinery. This is the path that cannot
+      // false-positive on plain-text answers.
+      const nativeRequest = roundNativeToolCalls.length > 0
+        ? buildWorkspaceToolRequestFromNarration({ toolName: roundNativeToolCalls[0].name, args: roundNativeToolCalls[0].args, matchedPattern: 'native.tool_calls' })
+        : null;
       const rawToolTagPresent = assistantMessage.content.includes('<workspace_tool');
       const { cleanedContent, request: parsedRequest } = extractWorkspaceToolRequest(assistantMessage.content);
       // effectiveRequest is the value the dispatch block uses. It may be
       // replaced at the recovery layer (lines ~8195-8230) when the model
       // narrated a tool action but never wrapped it; the synthesizer builds
       // a request from prose and dispatches it without re-invoking the model.
-      let request = parsedRequest
+      let request = nativeRequest ?? parsedRequest
       const inferredFilesystemRequest = request?.name === 'shell' && filesystemEnabled
         ? inferFilesystemRequestFromShellCommand(request.request.command, allowedFilesystemPaths)
         : null;
