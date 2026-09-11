@@ -45,6 +45,7 @@ interface UserSettings {
   workspaceToolSessionAutoContinueDefault: 'manual' | 'ask' | 'safe';
   workspaceToolSessionAutoContinueMaxSteps: number;
   workspaceToolMaxToolRoundsPerTurn: number;
+  workspaceToolNativeToolCalls: 'auto' | 'on' | 'off';
   workspaceToolSessionSummariesEnabled: boolean;
   workspaceToolSessionSummaryTargetTokens: number;
   workspaceToolSessionPreserveTurns: number;
@@ -201,6 +202,7 @@ const INITIAL_SETTINGS: UserSettings = {
   workspaceToolSessionAutoContinueDefault: 'manual',
   workspaceToolSessionAutoContinueMaxSteps: 3,
   workspaceToolMaxToolRoundsPerTurn: 100,
+  workspaceToolNativeToolCalls: 'off',
   workspaceToolSessionSummariesEnabled: true,
   workspaceToolSessionSummaryTargetTokens: 6000,
   workspaceToolSessionPreserveTurns: 6,
@@ -2143,6 +2145,19 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             value={settings.workspaceToolMaxToolRoundsPerTurn}
             onChange={e => update('workspaceToolMaxToolRoundsPerTurn', Math.max(1, Math.min(100, Number(e.target.value) || 25)))}
           />
+        </Field>
+
+        <Field label="Native Tool Calling" help="How the model invokes tools. 'Off' uses the built-in <workspace_tool> wrapper format (works with every model). 'On' passes tool schemas via the API's tools parameter and parses structured tool calls — much more reliable, but only for models that support function calling (e.g. Qwen 2.5+, Llama 3.x+ with a tool template, or OpenAI-compatible providers). 'Auto' enables native calls only for OpenAI-compatible providers. If a model with 'On' produces no tool calls at all, switch back to 'Off'.">
+          <select
+            className="input-field"
+            value={settings.workspaceToolNativeToolCalls}
+            onChange={e => update('workspaceToolNativeToolCalls', e.target.value as 'auto' | 'on' | 'off')}
+            style={{ width: '100%' }}
+          >
+            <option value="off">Off — wrapper format (default, all models)</option>
+            <option value="on">On — native function calling</option>
+            <option value="auto">Auto — native for OpenAI-compatible providers</option>
+          </select>
         </Field>
 
         <Field label="Long-Session Context Management" help="Control when WorkSpaces compresses older transcript turns into a rolling session summary instead of dropping context blindly.">

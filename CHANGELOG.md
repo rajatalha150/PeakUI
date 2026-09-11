@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Native tool calling (phase 1)
+
+Models that support native function calling can now bypass the `<workspace_tool>` XML wrapper entirely. When `workspaceToolNativeToolCalls` is enabled, PeakUI passes the enabled tools' JSON schemas to the model via the API's `tools` parameter and dispatches the structured `tool_calls` frames the model returns — no wrapper to drop, no narration-recovery heuristics, no missing-tool nudges. This removes the entire class of "guardrail misfires on plain text" bugs for capable models.
+
+- `workspaceToolNativeToolCalls` setting: `'on'` (always native), `'off'` (legacy wrapper, the default), or `'auto'` (native only for providers known to support it).
+- `src/lib/workspace-tool-native-schema.ts`: JSON schemas for all 19 tools (Ollama `/api/chat` + OpenAI-compatible format), `buildNativeToolsArray()`, and `parseNativeToolCalls()` (tolerates object- or string-serialized arguments).
+- The tool set exposed natively mirrors the same permission/mode gates that feed the system prompt.
+- The legacy wrapper path remains fully intact for models without native support; recovery machinery still exists as a fallback.
+- New tool settings UI control + `workspaceToolNativeToolCalls` column on `UserSettings`.
+
 ### Fixed — Agent-loop guardrail false positives (capability answers, search refinements)
 
 A series of fixes for the "recovery machinery misfires on plain-text answers" class of bug, where the guardrails built to keep local models on-task were themselves too aggressive:
