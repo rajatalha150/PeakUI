@@ -147,6 +147,14 @@ export interface AppSettings {
   imageGenVaeName: string
   hfToken: string
   /**
+   * Native tool-calling mode. 'on' passes the tool schemas via the API's
+   * `tools` parameter and parses structured tool_calls frames (no XML wrapper,
+   * no regex recovery). 'off' uses the legacy <workspace_tool> wrapper. 'auto'
+   * enables native calls only for providers known to support them
+   * (openai-compatible; Ollama support is probed at request time).
+   */
+  workspaceToolNativeToolCalls: 'auto' | 'on' | 'off'
+  /**
    * Starred / favorite models, persisted server-side so they follow the user
    * across browsers/devices (not just localStorage). Stored in the DB (and
    * in AppSettings) as a JSON-encoded string array of `provider:modelName`
@@ -229,6 +237,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   imageGenClipName: '',
   imageGenVaeName: '',
   hfToken: '',
+  workspaceToolNativeToolCalls: 'off',
   workspaceToolFavoriteModels: '[]',
 }
 
@@ -515,6 +524,9 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     imageGenClipName: typeof settings?.imageGenClipName === 'string' ? settings.imageGenClipName.trim() : DEFAULT_SETTINGS.imageGenClipName,
     imageGenVaeName: typeof settings?.imageGenVaeName === 'string' ? settings.imageGenVaeName.trim() : DEFAULT_SETTINGS.imageGenVaeName,
     hfToken: typeof settings?.hfToken === 'string' ? settings.hfToken.trim() : DEFAULT_SETTINGS.hfToken,
+    workspaceToolNativeToolCalls: settings?.workspaceToolNativeToolCalls === 'on' || settings?.workspaceToolNativeToolCalls === 'off' || settings?.workspaceToolNativeToolCalls === 'auto'
+      ? settings.workspaceToolNativeToolCalls
+      : DEFAULT_SETTINGS.workspaceToolNativeToolCalls,
     systemPrompt,
     temperature: normalizeTemperature(settings?.temperature),
     ollamaUseModelDefaultTemperature: normalizeOllamaUseModelDefaultTemperature(

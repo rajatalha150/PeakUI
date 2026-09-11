@@ -103,6 +103,7 @@ model UserSettings {
   ragTopK                                         Int      @default(8)
   updatedAt                                       DateTime @updatedAt
   workspaceToolMaxToolRoundsPerTurn               Int      @default(100)
+  workspaceToolNativeToolCalls                    String   @default("off")
   ollamaApiKey                                    String   @default("")
   ollamaUseCloudApi                               Boolean  @default(false)
   workspaceToolFavoriteModels                     String   @default("[]")
