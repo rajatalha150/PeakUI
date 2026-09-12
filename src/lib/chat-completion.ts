@@ -974,6 +974,8 @@ export async function createChatCompletionResponse(req: NextRequest) {
           'notes_search' as const,
           'notes_save' as const,
           'http_request' as const,
+          'spreadsheet_query' as const,
+          'calendar_query' as const,
           'tax_return' as const,
           'pdf_document' as const,
           'workbook_document' as const,

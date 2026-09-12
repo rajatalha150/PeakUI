@@ -177,6 +177,26 @@ export const WORKSPACE_TOOL_CAPABILITIES: WorkspaceToolCapability[] = [
     signature: 'http_request {"method":"GET|POST|PUT|PATCH|DELETE","url":"https://...","headers":{...},"body":{...}}',
   },
   {
+    id: 'spreadsheet-query',
+    label: 'Read spreadsheet data',
+    adapter: 'native',
+    toolName: 'spreadsheet_query',
+    promptLines: [
+      'SPREADSHEET QUERY CAPABILITY: When the user asks about data in a saved CSV file, use spreadsheet_query with the workspace path to read its headers and rows.',
+    ],
+    signature: 'spreadsheet_query {"path":"<workspace path to .csv>"}',
+  },
+  {
+    id: 'calendar-query',
+    label: 'Read calendar events',
+    adapter: 'native',
+    toolName: 'calendar_query',
+    promptLines: [
+      'CALENDAR QUERY CAPABILITY: When the user asks about scheduled events in a saved .ics file, use calendar_query with the workspace path to read its events.',
+    ],
+    signature: 'calendar_query {"path":"<workspace path to .ics>"}',
+  },
+  {
     id: 'stealth-search',
     label: 'Stealth web search (Tor)',
     adapter: 'native',

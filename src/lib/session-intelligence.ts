@@ -8,7 +8,7 @@ export interface SessionMessageLike {
   role: 'user' | 'assistant' | 'system';
   content?: string;
   hidden?: boolean;
-  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document' | 'csv_document' | 'email_document' | 'markdown_document' | 'slides_document' | 'archive_document' | 'calendar_document' | 'mermaid_document' | 'fetch_summarize' | 'image_generation' | 'notes_search' | 'notes_save' | 'http_request';
+  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document' | 'csv_document' | 'email_document' | 'markdown_document' | 'slides_document' | 'archive_document' | 'calendar_document' | 'mermaid_document' | 'fetch_summarize' | 'image_generation' | 'notes_search' | 'notes_save' | 'http_request' | 'spreadsheet_query' | 'calendar_query';
   thinking?: string;
   images?: unknown[];
   attachments?: unknown[];
@@ -172,6 +172,8 @@ const TOOL_RESULT_PREFIXES: ReadonlyArray<readonly [prefix: string, label: strin
   ['Notes search tool result:', 'Notes search'],
   ['Notes save tool result:', 'Notes save'],
   ['HTTP request tool result:', 'HTTP request'],
+  ['Spreadsheet query tool result:', 'Spreadsheet query'],
+  ['Calendar query tool result:', 'Calendar query'],
 ];
 
 function summarizeToolResult(message: SessionMessageLike) {
@@ -433,7 +435,7 @@ export function normalizeSessionAnalytics(raw: unknown): SessionAnalytics | null
   const toolCallsByTypeValue = isRecord(raw.toolCallsByType) ? raw.toolCallsByType : {};
   const toolCallsByType: SessionAnalytics['toolCallsByType'] = {};
 
-  for (const key of ['shell', 'filesystem', 'web', 'code', 'browser', 'unified_browser', 'tax_return', 'pdf_document', 'workbook_document', 'word_document', 'csv_document', 'email_document', 'markdown_document', 'slides_document', 'archive_document', 'calendar_document', 'mermaid_document', 'fetch_summarize', 'image_generation', 'notes_search', 'notes_save', 'http_request'] as const) {
+  for (const key of ['shell', 'filesystem', 'web', 'code', 'browser', 'unified_browser', 'tax_return', 'pdf_document', 'workbook_document', 'word_document', 'csv_document', 'email_document', 'markdown_document', 'slides_document', 'archive_document', 'calendar_document', 'mermaid_document', 'fetch_summarize', 'image_generation', 'notes_search', 'notes_save', 'http_request', 'spreadsheet_query', 'calendar_query'] as const) {
     if (typeof toolCallsByTypeValue[key] === 'number') {
       toolCallsByType[key] = toolCallsByTypeValue[key] as number;
     }

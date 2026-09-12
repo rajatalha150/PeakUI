@@ -234,6 +234,14 @@ export type WorkspaceToolRequest =
       name: 'http_request'
       request: WorkspaceToolHttpRequestToolRequest
     }
+  | {
+      name: 'spreadsheet_query'
+      request: { path: string; maxRows?: number }
+    }
+  | {
+      name: 'calendar_query'
+      request: { path: string; maxRows?: number }
+    }
 
 export interface WorkspaceToolNotesSearchToolRequest {
   query: string
@@ -357,6 +365,8 @@ export const WORKSPACE_TOOL_NAMES = [
   'notes_search',
   'notes_save',
   'http_request',
+  'spreadsheet_query',
+  'calendar_query',
 ] as const
 
 export type WorkspaceToolName = typeof WORKSPACE_TOOL_NAMES[number]
@@ -1986,6 +1996,25 @@ export function extractWorkspaceToolRequest(content: string): {
       return {
         cleanedContent,
         request: { name: 'http_request', request },
+      }
+    }
+
+    if (toolName === 'spreadsheet_query' || toolName === 'calendar_query') {
+      const parsed = parseToolJson<Partial<{ path: string; maxRows?: number }>>(block.rawJson)
+      if (!parsed) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      const path = cleanFieldValue(parsed.path)
+      if (!path) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      const request: { path: string; maxRows?: number } = { path }
+      if (typeof parsed.maxRows === 'number' && Number.isFinite(parsed.maxRows)) {
+        request.maxRows = parsed.maxRows
+      }
+      return {
+        cleanedContent,
+        request: { name: toolName, request },
       }
     }
 

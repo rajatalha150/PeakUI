@@ -426,6 +426,36 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
       },
     },
   },
+  spreadsheet_query: {
+    type: 'function',
+    function: {
+      name: 'spreadsheet_query',
+      description: 'Read a CSV file from the workspace and return its headers and rows. Use to answer questions about tabular data the user has saved.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: S('Workspace path to the .csv file.'),
+          maxRows: N('Optional max rows to return (default 50).'),
+        },
+        required: ['path'],
+      },
+    },
+  },
+  calendar_query: {
+    type: 'function',
+    function: {
+      name: 'calendar_query',
+      description: 'Read an .ics calendar file from the workspace and return its events. Use to answer questions about scheduled events.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: S('Workspace path to the .ics file.'),
+          maxRows: N('Optional max events to return (default 50).'),
+        },
+        required: ['path'],
+      },
+    },
+  },
 }
 
 /**

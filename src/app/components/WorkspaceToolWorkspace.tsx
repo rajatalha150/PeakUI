@@ -336,7 +336,7 @@ interface WorkspaceToolMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   hidden?: boolean;
-  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document' | 'csv_document' | 'email_document' | 'markdown_document' | 'slides_document' | 'archive_document' | 'calendar_document' | 'mermaid_document' | 'fetch_summarize' | 'image_generation' | 'notes_search' | 'notes_save' | 'http_request';
+  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document' | 'csv_document' | 'email_document' | 'markdown_document' | 'slides_document' | 'archive_document' | 'calendar_document' | 'mermaid_document' | 'fetch_summarize' | 'image_generation' | 'notes_search' | 'notes_save' | 'http_request' | 'spreadsheet_query' | 'calendar_query';
   thinking?: string;
   presentation?: ResponsePresentation;
   sources?: MessageSource[];
@@ -2245,6 +2245,8 @@ function describeToolDisplayName(name: WorkspaceToolRequest['name']): string {
     case 'notes_search': return 'notes search'
     case 'notes_save': return 'notes save'
     case 'http_request': return 'HTTP request'
+    case 'spreadsheet_query': return 'spreadsheet query'
+    case 'calendar_query': return 'calendar query'
     default: return name
   }
 }
@@ -2980,6 +2982,40 @@ function formatHttpRequestToolResult(data: { status?: number; ok?: boolean; cont
     lines.push('', 'No text body returned (binary or empty).');
   }
   lines.push('', 'Use this response to answer the user. Cite the status code and any data you actually received; do not invent fields.');
+  return lines.join('\n');
+}
+
+function formatSpreadsheetQueryToolResult(data: { headers?: string[]; rows?: string[][]; rowCount?: number; truncated?: boolean }): string {
+  const lines = ['Spreadsheet query tool result:'];
+  const headers = Array.isArray(data.headers) ? data.headers : [];
+  const rows = Array.isArray(data.rows) ? data.rows : [];
+  if (headers.length === 0) {
+    lines.push('Status: completed', 'No data found.', '', 'Tell the user the file is empty or has no header row.');
+    return lines.join('\n');
+  }
+  lines.push(`Status: completed`, `Columns: ${headers.join(' | ')}`, `Rows: ${rows.length}${data.truncated ? ' (truncated)' : ''}`);
+  rows.forEach((row, index) => {
+    lines.push(`  ${index + 1}. ${row.join(' | ')}`);
+  });
+  lines.push('', 'Answer the user\'s question using these rows. Do not invent data beyond what is shown.');
+  return lines.join('\n');
+}
+
+function formatCalendarQueryToolResult(data: { events?: Array<Record<string, string>>; eventCount?: number }): string {
+  const lines = ['Calendar query tool result:'];
+  const events = Array.isArray(data.events) ? data.events : [];
+  if (events.length === 0) {
+    lines.push('Status: completed', 'No events found.', '', 'Tell the user the calendar has no events.');
+    return lines.join('\n');
+  }
+  lines.push(`Status: completed`, `Events: ${events.length}`);
+  events.forEach((event, index) => {
+    const summary = event.SUMMARY || event.summary || '(untitled)';
+    const start = event.DTSTART || event.dtstart || '';
+    const location = event.LOCATION || event.location || '';
+    lines.push(`  ${index + 1}. ${summary}${start ? ` — ${start}` : ''}${location ? ` @ ${location}` : ''}`);
+  });
+  lines.push('', 'Answer the user\'s question using these events. Do not invent events beyond what is shown.');
   return lines.join('\n');
 }
 
@@ -8893,7 +8929,11 @@ export default function WorkspaceToolWorkspace({
                                                         ? `Save note: ${request.request.title}`
                                                         : request.name === 'http_request'
                                                           ? `HTTP ${(request.request as { method?: string }).method || 'GET'} ${(request.request as { url: string }).url}`
-                                                          : describeFilesystemRequest((request.request as { action: 'list' | 'read' | 'stat' | 'write' | 'append' | 'mkdir' }).action, (request.request as { path: string }).path)
+                                                          : request.name === 'spreadsheet_query'
+                                                            ? `Read spreadsheet: ${(request.request as { path: string }).path}`
+                                                            : request.name === 'calendar_query'
+                                                              ? `Read calendar: ${(request.request as { path: string }).path}`
+                                                              : describeFilesystemRequest((request.request as { action: 'list' | 'read' | 'stat' | 'write' | 'append' | 'mkdir' }).action, (request.request as { path: string }).path)
               : rawToolTagPresent
                 ? stripAllToolTags(assistantMessage.content)
                 : assistantMessage.content
@@ -10194,6 +10234,56 @@ export default function WorkspaceToolWorkspace({
               id: randomUUID(),
               role: 'user',
               content: `HTTP request tool failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Report this briefly to the user.`,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
+          continue;
+        }
+
+        if (request.name === 'spreadsheet_query' || request.name === 'calendar_query') {
+          lastToolRequestSignature = effectiveToolSignature;
+          duplicateToolRequestCount = 0;
+          try {
+            setStreamPhase('tool-filesystem');
+            const dataRes = await fetch('/api/workspace-tool/data-query', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: request.name === 'spreadsheet_query' ? 'spreadsheet' : 'calendar',
+                path: request.request.path,
+                maxRows: request.request.maxRows,
+              }),
+            });
+            const data = await dataRes.json().catch(() => ({}));
+            setStreamPhase(null);
+            if (!dataRes.ok) {
+              throw new Error(typeof data.error === 'string' ? data.error : 'Data query failed');
+            }
+            lastSuccessfulToolRequest = {
+              name: request.name,
+              request: request.request,
+            };
+            const toolResultMessage: WorkspaceToolMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: request.name === 'spreadsheet_query'
+                ? formatSpreadsheetQueryToolResult(data as { headers?: string[]; rows?: string[][]; rowCount?: number; truncated?: boolean })
+                : formatCalendarQueryToolResult(data as { events?: Array<Record<string, string>>; eventCount?: number }),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('Data query tool failed:', toolError);
+            const errorMessage: WorkspaceToolMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `Data query tool failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Report this briefly to the user.`,
               hidden: true,
               createdAt: new Date().toISOString(),
             };
