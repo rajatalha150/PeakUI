@@ -34,7 +34,7 @@
  * formatters; the test suite asserts the symmetry.
  */
 const TOOL_RESULT_HEADER_RE =
-  /^(?:Shell command|Filesystem tool|Code execution|Web research tool|Browser tool|Tax return PDF tool|PDF document tool|Excel workbook tool|Word document tool|CSV export tool|Email writer tool|Markdown document tool|Slide deck tool|Archive tool|Calendar tool|Mermaid diagram tool|URL fetch and summarize tool|Image generation tool|Notes search tool|Notes save tool) result:/
+  /^(?:Shell command|Filesystem tool|Code execution|Web research tool|Browser tool|Tax return PDF tool|PDF document tool|Excel workbook tool|Word document tool|CSV export tool|Email writer tool|Markdown document tool|Slide deck tool|Archive tool|Calendar tool|Mermaid diagram tool|URL fetch and summarize tool|Image generation tool|Notes search tool|Notes save tool|HTTP request tool) result:/
 
 export interface CompactableMessage {
   role: 'user' | 'assistant' | 'system'

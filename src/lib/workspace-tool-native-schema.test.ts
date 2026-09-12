@@ -40,9 +40,9 @@ describe('buildNativeToolsArray', () => {
       'pdf_document', 'workbook_document', 'word_document', 'csv_document', 'email_document',
       'markdown_document', 'slides_document', 'archive_document', 'calendar_document',
       'mermaid_document', 'fetch_summarize', 'image_generation',
-      'notes_search', 'notes_save',
+      'notes_search', 'notes_save', 'http_request',
     ])
-    expect(all).toHaveLength(21)
+    expect(all).toHaveLength(22)
     for (const tool of all) {
       const fn = (tool as { function: { name: string; description: string; parameters: Record<string, unknown> } }).function
       expect(fn.name).toBeTruthy()

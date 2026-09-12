@@ -158,7 +158,7 @@ function isBlockedIpv6(value: string): boolean {
   )
 }
 
-async function assertPublicHttpUrl(rawUrl: string): Promise<URL> {
+export async function assertPublicHttpUrl(rawUrl: string): Promise<URL> {
   let url: URL
 
   try {

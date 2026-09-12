@@ -230,6 +230,10 @@ export type WorkspaceToolRequest =
       name: 'notes_save'
       request: { title: string; content: string }
     }
+  | {
+      name: 'http_request'
+      request: WorkspaceToolHttpRequestToolRequest
+    }
 
 export interface WorkspaceToolNotesSearchToolRequest {
   query: string
@@ -238,6 +242,15 @@ export interface WorkspaceToolNotesSearchToolRequest {
 export interface WorkspaceToolNotesSaveToolRequest {
   title: string
   content: string
+}
+
+export interface WorkspaceToolHttpRequestToolRequest {
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  url: string
+  headers?: Record<string, string>
+  body?: unknown
+  timeoutMs?: number
+  description?: string
 }
 
 export const WORKSPACE_TOOL_WEB_TOOL_EXAMPLE = `<workspace_tool name="web">
@@ -343,6 +356,7 @@ export const WORKSPACE_TOOL_NAMES = [
   'image_generation',
   'notes_search',
   'notes_save',
+  'http_request',
 ] as const
 
 export type WorkspaceToolName = typeof WORKSPACE_TOOL_NAMES[number]
@@ -1940,6 +1954,38 @@ export function extractWorkspaceToolRequest(content: string): {
           name: 'notes_save',
           request: { title, content: noteContent },
         },
+      }
+    }
+
+    if (toolName === 'http_request') {
+      const parsed = parseToolJson<Partial<WorkspaceToolHttpRequestToolRequest>>(block.rawJson)
+      if (!parsed) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      const url = cleanFieldValue(parsed.url)
+      if (!url) {
+        return { cleanedContent: stripAllToolTags(content) }
+      }
+      const method = parsed.method && ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(parsed.method)
+        ? parsed.method
+        : 'GET'
+      const request: WorkspaceToolHttpRequestToolRequest = {
+        method,
+        url,
+        description: typeof parsed.description === 'string' && parsed.description.trim()
+          ? parsed.description.trim()
+          : undefined,
+      }
+      if (parsed.headers && typeof parsed.headers === 'object' && !Array.isArray(parsed.headers)) {
+        request.headers = parsed.headers as Record<string, string>
+      }
+      if (parsed.body !== undefined) request.body = parsed.body
+      if (typeof parsed.timeoutMs === 'number' && Number.isFinite(parsed.timeoutMs)) {
+        request.timeoutMs = parsed.timeoutMs
+      }
+      return {
+        cleanedContent,
+        request: { name: 'http_request', request },
       }
     }
 

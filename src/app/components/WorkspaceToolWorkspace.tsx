@@ -336,7 +336,7 @@ interface WorkspaceToolMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   hidden?: boolean;
-  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document' | 'csv_document' | 'email_document' | 'markdown_document' | 'slides_document' | 'archive_document' | 'calendar_document' | 'mermaid_document' | 'fetch_summarize' | 'image_generation' | 'notes_search' | 'notes_save';
+  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser' | 'tax_return' | 'pdf_document' | 'workbook_document' | 'word_document' | 'csv_document' | 'email_document' | 'markdown_document' | 'slides_document' | 'archive_document' | 'calendar_document' | 'mermaid_document' | 'fetch_summarize' | 'image_generation' | 'notes_search' | 'notes_save' | 'http_request';
   thinking?: string;
   presentation?: ResponsePresentation;
   sources?: MessageSource[];
@@ -2244,6 +2244,7 @@ function describeToolDisplayName(name: WorkspaceToolRequest['name']): string {
     case 'image_generation': return 'image generator'
     case 'notes_search': return 'notes search'
     case 'notes_save': return 'notes save'
+    case 'http_request': return 'HTTP request'
     default: return name
   }
 }
@@ -2962,6 +2963,23 @@ function formatImageGenerationToolResult(entry: ImageGenerationToolResultEntry):
     lines.push('', 'No images were returned. Report this to the user.');
   }
 
+  return lines.join('\n');
+}
+
+function formatHttpRequestToolResult(data: { status?: number; ok?: boolean; contentType?: string; body?: string | null; truncated?: boolean; finalUrl?: string }): string {
+  const lines = [
+    'HTTP request tool result:',
+    `Status: ${data.status ?? 'unknown'}${data.ok === false ? ' (error)' : ''}`,
+    `Content-Type: ${data.contentType || 'unknown'}`,
+  ];
+  if (data.finalUrl) lines.push(`Final URL: ${data.finalUrl}`);
+  if (data.body) {
+    lines.push('', 'Response body:', data.body);
+    if (data.truncated) lines.push('', '(response truncated)');
+  } else {
+    lines.push('', 'No text body returned (binary or empty).');
+  }
+  lines.push('', 'Use this response to answer the user. Cite the status code and any data you actually received; do not invent fields.');
   return lines.join('\n');
 }
 
@@ -8873,7 +8891,9 @@ export default function WorkspaceToolWorkspace({
                                                       ? `Search notes: ${request.request.query}`
                                                       : request.name === 'notes_save'
                                                         ? `Save note: ${request.request.title}`
-                                                        : describeFilesystemRequest((request.request as { action: 'list' | 'read' | 'stat' | 'write' | 'append' | 'mkdir' }).action, (request.request as { path: string }).path)
+                                                        : request.name === 'http_request'
+                                                          ? `HTTP ${(request.request as { method?: string }).method || 'GET'} ${(request.request as { url: string }).url}`
+                                                          : describeFilesystemRequest((request.request as { action: 'list' | 'read' | 'stat' | 'write' | 'append' | 'mkdir' }).action, (request.request as { path: string }).path)
               : rawToolTagPresent
                 ? stripAllToolTags(assistantMessage.content)
                 : assistantMessage.content
@@ -10130,6 +10150,50 @@ export default function WorkspaceToolWorkspace({
               id: randomUUID(),
               role: 'user',
               content: `Notes tool failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Report this briefly to the user.`,
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, errorMessage];
+            setChatHistory(prev => [...prev, errorMessage]);
+          }
+          continue;
+        }
+
+        if (request.name === 'http_request') {
+          lastToolRequestSignature = effectiveToolSignature;
+          duplicateToolRequestCount = 0;
+          try {
+            setStreamPhase('web-search');
+            const httpRes = await fetch('/api/workspace-tool/http-request', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(request.request),
+            });
+            const httpData = await httpRes.json().catch(() => ({}));
+            setStreamPhase(null);
+            if (!httpRes.ok) {
+              throw new Error(typeof httpData.error === 'string' ? httpData.error : 'HTTP request failed');
+            }
+            lastSuccessfulToolRequest = {
+              name: 'http_request',
+              request: request.request,
+            };
+            const toolResultMessage: WorkspaceToolMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: formatHttpRequestToolResult(httpData as { status?: number; ok?: boolean; contentType?: string; body?: string | null; truncated?: boolean; finalUrl?: string }),
+              hidden: true,
+              createdAt: new Date().toISOString(),
+            };
+            sessionHistory = [...sessionHistory, toolResultMessage];
+            setChatHistory(prev => [...prev, toolResultMessage]);
+          } catch (toolError) {
+            setStreamPhase(null);
+            console.error('HTTP request tool failed:', toolError);
+            const errorMessage: WorkspaceToolMessage = {
+              id: randomUUID(),
+              role: 'user',
+              content: `HTTP request tool failed: ${toolError instanceof Error ? toolError.message : String(toolError)}. Report this briefly to the user.`,
               hidden: true,
               createdAt: new Date().toISOString(),
             };

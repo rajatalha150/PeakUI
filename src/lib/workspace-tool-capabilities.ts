@@ -166,6 +166,17 @@ export const WORKSPACE_TOOL_CAPABILITIES: WorkspaceToolCapability[] = [
     signature: 'notes_search {"query":"..."} | notes_save {"title":"...","content":"..."}',
   },
   {
+    id: 'http-request',
+    label: 'HTTP API request',
+    adapter: 'native',
+    toolName: 'http_request',
+    promptLines: [
+      'HTTP REQUEST CAPABILITY: When the user asks you to call a public API (Jira, GitHub, a REST endpoint), use the http_request tool with a method, URL, optional headers, and optional JSON body.',
+      'Only public http(s) URLs are allowed; private/localhost addresses are blocked. The response body is returned as text for you to summarize.',
+    ],
+    signature: 'http_request {"method":"GET|POST|PUT|PATCH|DELETE","url":"https://...","headers":{...},"body":{...}}',
+  },
+  {
     id: 'stealth-search',
     label: 'Stealth web search (Tor)',
     adapter: 'native',

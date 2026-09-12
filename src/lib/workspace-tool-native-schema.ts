@@ -407,6 +407,25 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
       },
     },
   },
+  http_request: {
+    type: 'function',
+    function: {
+      name: 'http_request',
+      description: 'Make an authenticated HTTP request to a public API (GET/POST/PUT/PATCH/DELETE) with custom headers and a JSON body. Use to call real APIs (Jira, GitHub, internal services). Private/localhost URLs are blocked.',
+      parameters: {
+        type: 'object',
+        properties: {
+          method: SEnum('HTTP method.', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE'),
+          url: S('Public http(s) URL to call.'),
+          headers: Obj('Optional request headers (e.g. Authorization).'),
+          body: Obj('Optional JSON body for non-GET requests.'),
+          timeoutMs: N('Optional timeout in milliseconds.'),
+          description: S('What this request is for.'),
+        },
+        required: ['url'],
+      },
+    },
+  },
 }
 
 /**
