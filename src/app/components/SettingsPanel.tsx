@@ -9,6 +9,7 @@ import { ollamaModelKey, RECOMMENDED_EMBEDDING_MODELS } from '@/lib/embedding-mo
 import { classifyModelFit } from '@/lib/model-context';
 import { applyTheme, THEME_OPTIONS } from '@/lib/theme-options';
 import HelpHint from './HelpHint';
+import ToolReliabilityPanel from './ToolReliabilityPanel';
 interface UserSettings {
   huggingFaceBaseUrl: string;
   modelKeepAlive: boolean;
@@ -2158,6 +2159,10 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             <option value="on">On — native function calling</option>
             <option value="auto">Auto — native for OpenAI-compatible providers</option>
           </select>
+        </Field>
+
+        <Field label="Tool Reliability" help="Live success/failure counts per model and tool, recorded as tools run. The most-broken pairs sort to the top — if a model keeps failing a tool, switch models or disable that tool. In-memory only; resets on restart.">
+          <ToolReliabilityPanel />
         </Field>
 
         <Field label="Long-Session Context Management" help="Control when WorkSpaces compresses older transcript turns into a rolling session summary instead of dropping context blindly.">

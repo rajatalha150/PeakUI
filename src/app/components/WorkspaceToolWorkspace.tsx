@@ -2251,6 +2251,21 @@ function describeToolDisplayName(name: WorkspaceToolRequest['name']): string {
   }
 }
 
+// Fire-and-forget tool-reliability telemetry (Phase 4). Records a success or
+// failure for the current model + tool so the Settings scoreboard can surface
+// which model/tool pairs are unreliable. Never blocks or throws.
+function recordToolReliability(model: string, tool: string, success: boolean, errorMessage?: string) {
+  try {
+    void fetch('/api/workspace-tool/reliability', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, tool, success, errorMessage }),
+    }).catch(() => {})
+  } catch {
+    // Diagnostics must never create user-facing failures.
+  }
+}
+
 // Builds a SHORT placeholder wrapper example for the recovery nudge when the
 // model narrated a tool call in prose instead of wrapping it. The example uses
 // `<placeholder>` markers so the model can't just copy it verbatim — it has to
@@ -9357,6 +9372,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Filesystem tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9395,6 +9411,7 @@ export default function WorkspaceToolWorkspace({
               request: request.request,
               description: request.request.description,
             };
+            recordToolReliability(selectedModel, 'web', true);
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9407,6 +9424,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Web research tool failed:', toolError);
+            recordToolReliability(selectedModel, 'web', false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9435,6 +9453,7 @@ export default function WorkspaceToolWorkspace({
               request: request.request,
               description: request.request.description,
             };
+            recordToolReliability(selectedModel, 'code', true);
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9447,6 +9466,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Code execution tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9478,6 +9498,7 @@ export default function WorkspaceToolWorkspace({
               request: request.request,
               description: request.request.description,
             };
+            recordToolReliability(selectedModel, 'browser', true);
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9490,6 +9511,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Browser tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9536,6 +9558,7 @@ export default function WorkspaceToolWorkspace({
               request: request.request,
               description: request.request.description,
             };
+            recordToolReliability(selectedModel, 'unified_browser', true);
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9548,6 +9571,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('UWAF browser tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9586,6 +9610,7 @@ export default function WorkspaceToolWorkspace({
                 request: request.request,
                 description: request.request.description,
               };
+            recordToolReliability(selectedModel, 'tax_return', true);
             }
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
@@ -9599,6 +9624,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Tax return tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9627,6 +9653,7 @@ export default function WorkspaceToolWorkspace({
               producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'pdf_document', description: meta?.description, filename: meta?.filename, request: request.request };
+              recordToolReliability(selectedModel, 'pdf_document', true);
             }
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
@@ -9640,6 +9667,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('PDF document tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9668,6 +9696,7 @@ export default function WorkspaceToolWorkspace({
               producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'workbook_document', description: meta?.description, filename: meta?.filename, request: request.request };
+              recordToolReliability(selectedModel, 'workbook_document', true);
             }
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
@@ -9681,6 +9710,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Excel workbook tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9709,6 +9739,7 @@ export default function WorkspaceToolWorkspace({
               producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'word_document', description: meta?.description, filename: meta?.filename, request: request.request };
+              recordToolReliability(selectedModel, 'word_document', true);
             }
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
@@ -9722,6 +9753,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Word document tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9750,6 +9782,7 @@ export default function WorkspaceToolWorkspace({
               producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'csv_document', description: meta?.description, filename: meta?.filename, request: request.request };
+              recordToolReliability(selectedModel, 'csv_document', true);
             }
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
@@ -9763,6 +9796,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('CSV export tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9791,6 +9825,7 @@ export default function WorkspaceToolWorkspace({
               producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'email_document', description: meta?.description, filename: meta?.filename, request: request.request };
+              recordToolReliability(selectedModel, 'email_document', true);
             }
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
@@ -9804,6 +9839,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Email writer tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9832,6 +9868,7 @@ export default function WorkspaceToolWorkspace({
               request: request.request,
               description: request.request.description,
             };
+            recordToolReliability(selectedModel, 'fetch_summarize', true);
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9844,6 +9881,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Fetch summarize tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9872,6 +9910,7 @@ export default function WorkspaceToolWorkspace({
               producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'markdown_document', description: meta?.description, filename: meta?.filename, request: request.request };
+              recordToolReliability(selectedModel, 'markdown_document', true);
             }
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
@@ -9885,6 +9924,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Markdown document tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9913,6 +9953,7 @@ export default function WorkspaceToolWorkspace({
               producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'slides_document', description: meta?.description, filename: meta?.filename, request: request.request };
+              recordToolReliability(selectedModel, 'slides_document', true);
             }
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
@@ -9926,6 +9967,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Slides tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9954,6 +9996,7 @@ export default function WorkspaceToolWorkspace({
               producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'archive_document', description: meta?.description, filename: meta?.filename, request: request.request };
+              recordToolReliability(selectedModel, 'archive_document', true);
             }
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
@@ -9967,6 +10010,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Archive tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -9995,6 +10039,7 @@ export default function WorkspaceToolWorkspace({
               producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'calendar_document', description: meta?.description, filename: meta?.filename, request: request.request };
+              recordToolReliability(selectedModel, 'calendar_document', true);
             }
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
@@ -10008,6 +10053,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Calendar tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -10036,6 +10082,7 @@ export default function WorkspaceToolWorkspace({
               producedArtifactThisTurn = true;
               const meta = describeDocumentToolRequest(request);
               lastSuccessfulToolRequest = { name: 'mermaid_document', description: meta?.description, filename: meta?.filename, request: request.request };
+              recordToolReliability(selectedModel, 'mermaid_document', true);
             }
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
@@ -10049,6 +10096,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Mermaid tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -10081,6 +10129,7 @@ export default function WorkspaceToolWorkspace({
               request: request.request,
               description: request.request.description,
             };
+            recordToolReliability(selectedModel, 'shell', true);
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -10093,6 +10142,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Shell tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -10122,6 +10172,7 @@ export default function WorkspaceToolWorkspace({
                 request: request.request,
                 description: request.request.description,
               };
+            recordToolReliability(selectedModel, 'image_generation', true);
             }
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
@@ -10135,6 +10186,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Image generation tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -10186,6 +10238,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Notes tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -10218,6 +10271,7 @@ export default function WorkspaceToolWorkspace({
               name: 'http_request',
               request: request.request,
             };
+            recordToolReliability(selectedModel, 'http_request', true);
             const toolResultMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -10230,6 +10284,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('HTTP request tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -10280,6 +10335,7 @@ export default function WorkspaceToolWorkspace({
           } catch (toolError) {
             setStreamPhase(null);
             console.error('Data query tool failed:', toolError);
+            recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
             const errorMessage: WorkspaceToolMessage = {
               id: randomUUID(),
               role: 'user',
@@ -10305,6 +10361,7 @@ export default function WorkspaceToolWorkspace({
             name: 'filesystem',
             request: request.request,
           };
+            recordToolReliability(selectedModel, 'filesystem', true);
           const toolResultMessage: WorkspaceToolMessage = {
             id: randomUUID(),
             role: 'user',
@@ -10317,6 +10374,7 @@ export default function WorkspaceToolWorkspace({
         } catch (toolError) {
           setStreamPhase(null);
           console.error('Filesystem tool failed:', toolError);
+          recordToolReliability(selectedModel, request.name, false, toolError instanceof Error ? toolError.message : String(toolError));
           const errorMessage: WorkspaceToolMessage = {
             id: randomUUID(),
             role: 'user',
