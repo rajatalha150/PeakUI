@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Pull-based memory + new tools (phases 2–3)
+
+**Pull-based cross-session memory** (`notes_search` / `notes_save`): memory is now opt-in instead of injected. The model searches saved notes when the user references past work, and stores durable facts on request. Notes are per-user (`memory/users/<userId>/notes.md`) and persist across sessions. This replaces the push-injection that caused cross-session "memory leak" hallucinations.
+
+**New tools** (24 total now):
+
+- `http_request` — authenticated HTTP calls to public APIs (GET/POST/PUT/PATCH/DELETE) with headers + JSON body, behind the same SSRF guard as the web tool, per-user rate limiting, and header sanitization.
+- `spreadsheet_query` — read a CSV from the workspace and return headers + rows.
+- `calendar_query` — read an `.ics` file and return its events.
+
+The read tools reuse the filesystem read path (same access settings + path validation). XLSX is rejected with a clear "export to CSV" message.
+
+### Fixed — Native tool-call dispatch dropped non-narration tools
+
+Native tool calls were routed through `buildWorkspaceToolRequestFromNarration`, which only handled a subset (filesystem/shell/code/web/fetch/unified_browser/tax). Document tools, `image_generation`, and the new tools would have been silently dropped. Added `buildWorkspaceToolRequestFromNativeCall`, which reconstructs the wrapper and runs it through the full parser so every per-tool validation rule applies.
+
 ### Fixed — Bracket-less tool wrapper parsed as a tool call (GLM/kimi template quirk)
 
 When asked "check weather in nyc", the model emitted the tool block without its angle brackets:
