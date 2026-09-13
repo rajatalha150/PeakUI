@@ -1,5 +1,5 @@
 import type { BrowserMode } from './uwaf-pool'
-import { fetchPublicWebPage } from './web-context'
+import { extractReadableText, fetchPublicWebPage } from './web-context'
 import type { MessageSource } from './message-sources'
 import { looksLikeChallengePage } from './captcha-solver'
 
@@ -286,11 +286,15 @@ export async function fetchViaBrowser(
     await page.waitForLoadState('networkidle', { timeout: 3_000 }).catch(() => null)
     await page.waitForTimeout(250)
 
-    let text = await page.evaluate(() => document.body?.innerText ?? '').catch(() => '')
-    if (looksLikeChallengePage(text)) {
+    const rawText = await page.evaluate(() => document.body?.innerText ?? '').catch(() => '')
+    const html = await page.content().catch(() => '')
+    const renderedUrl = new URL(page.url() || url.href)
+    const extracted = html ? extractReadableText(html, renderedUrl) : null
+    let text = extracted?.text || rawText
+    if (looksLikeChallengePage(rawText)) {
       text = `[Challenge page detected. The site requires CAPTCHA. Configure CAPTCHA_PROVIDER to auto-solve.]`
     }
-    const title = (await page.title().catch(() => '')) || fallbackTitle || url.hostname
+    const title = extracted?.title || (await page.title().catch(() => '')) || fallbackTitle || url.hostname
     const trimmed = text.trim()
     if (!trimmed) return null
 

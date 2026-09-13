@@ -28,6 +28,7 @@ vi.mock('playwright-core', () => {
     waitForTimeout = async () => null
     title = async () => 'Mock Title'
     evaluate = async () => 'Mock rendered text from page body'
+    content = async () => '<html><body><main></main></body></html>'
     close = async () => {}
     context = () => new MockContext()
     browser = () => new MockBrowser()
@@ -52,6 +53,9 @@ vi.mock('./uwaf-pool', () => ({
 const fetchPublicWebPageMock = vi.fn()
 vi.mock('./web-context', () => ({
   fetchPublicWebPage: (...args: unknown[]) => fetchPublicWebPageMock(...args),
+  extractReadableText: () => ({
+    title: '', description: '', text: '', datePublished: null, author: null, siteName: '',
+  }),
 }))
 
 describe('web-fetch-strategy', () => {

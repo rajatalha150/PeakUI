@@ -1,5 +1,7 @@
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
+import { Readability } from '@mozilla/readability'
+import { JSDOM } from 'jsdom'
 import { mergeMessageSources, type MessageSource } from './message-sources'
 
 const SEARCH_TIMEOUT_MS = 8000
@@ -678,32 +680,58 @@ function scoreParagraph(text: string): number {
   return score
 }
 
-function extractReadableText(html: string, url: URL): ExtractedPage {
+function extractWithReadability(html: string, url: URL): Pick<ExtractedPage, 'title' | 'description' | 'text' | 'author'> | null {
+  try {
+    // JSDOM does not execute remote page scripts by default. Readability gets
+    // a detached, inert document, then isolates the article body from chrome,
+    // navigation, cookie banners, and recommendation rails.
+    const dom = new JSDOM(html, { url: url.href })
+    const article = new Readability(dom.window.document).parse()
+    dom.window.close()
+    const text = normalizeWhitespace(article?.textContent || '')
+    if (!article || text.length < 160) return null
+    return {
+      title: stripTags(article.title || ''),
+      description: stripTags(article.excerpt || ''),
+      text,
+      author: article.byline?.trim() || null,
+    }
+  } catch {
+    // Some malformed or non-HTML documents cannot be parsed by Readability;
+    // preserve the existing metadata/paragraph extractor as a safe fallback.
+    return null
+  }
+}
+
+export function extractReadableText(html: string, url: URL): ExtractedPage {
   const og = extractOpenGraph(html)
   const meta = extractMetaTags(html)
   const jsonLd = extractJsonLd(html)
+  const readability = extractWithReadability(html, url)
 
   // Try to get article body from JSON-LD
-  let articleBody = ''
-  for (const item of jsonLd) {
-    if (typeof item.articleBody === 'string' && item.articleBody.length > 200) {
-      articleBody = item.articleBody
-      break
-    }
-    if (typeof item.text === 'string' && item.text.length > 200) {
-      articleBody = item.text
-      break
+  let articleBody = readability?.text || ''
+  if (!articleBody) {
+    for (const item of jsonLd) {
+      if (typeof item.articleBody === 'string' && item.articleBody.length > 200) {
+        articleBody = item.articleBody
+        break
+      }
+      if (typeof item.text === 'string' && item.text.length > 200) {
+        articleBody = item.text
+        break
+      }
     }
   }
 
-  const title = og.title || meta['twitter:title'] || extractTitle(html) || url.hostname
-  const description = og.description || meta['twitter:description'] || meta.description || ''
+  const title = readability?.title || og.title || meta['twitter:title'] || extractTitle(html) || url.hostname
+  const description = readability?.description || og.description || meta['twitter:description'] || meta.description || ''
   const datePublished = extractDateFromMeta(html)
-  let author: string | null = null
+  let author: string | null = readability?.author || null
 
   for (const item of jsonLd) {
-    if (typeof item.author === 'string') author = item.author
-    else if (item.author && typeof item.author === 'object' && item.author !== null && 'name' in item.author && typeof (item.author as Record<string, unknown>).name === 'string') author = (item.author as Record<string, unknown>).name as string
+    if (!author && typeof item.author === 'string') author = item.author
+    else if (!author && item.author && typeof item.author === 'object' && item.author !== null && 'name' in item.author && typeof (item.author as Record<string, unknown>).name === 'string') author = (item.author as Record<string, unknown>).name as string
   }
 
   if (articleBody) {

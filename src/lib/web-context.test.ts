@@ -251,3 +251,22 @@ describe('web-context: result diversity', () => {
     ], 4).map(result => result.title)).toEqual(['A1', 'B1', 'A2'])
   })
 })
+
+describe('web-context: readable article extraction', () => {
+  it('prefers the article body over navigation and cookie chrome', async () => {
+    const { extractReadableText } = await loadWebContext()
+    const article = [
+      'The first paragraph explains the subject in complete sentences with enough detail to be a real article.',
+      'The second paragraph adds context, evidence, and a clear conclusion without repeating navigation labels.',
+      'The third paragraph is deliberately long enough for Readability to distinguish the main story from page chrome.',
+    ].join(' ')
+    const result = extractReadableText(`
+      <html><head><title>Fallback title</title><meta property="og:title" content="Article title" /></head>
+      <body><nav>Home Products Subscribe Cookie settings</nav><article><h1>Article title</h1><p>${article}</p></article><footer>Privacy terms</footer></body></html>
+    `, new URL('https://example.com/story'))
+
+    expect(result.title).toBe('Article title')
+    expect(result.text).toContain('first paragraph explains')
+    expect(result.text).not.toContain('Cookie settings')
+  })
+})
