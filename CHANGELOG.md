@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — Session intelligence audit
+
+- Context budgets include all system messages, retrieved context, native tool schemas, and Ollama backoff. Impossible active requests fail explicitly instead of silently overflowing.
+- Recent context is counted in visible user turns, preserving tool chains. Working-memory bullets are bounded and retain their order; analytics normalize invalid numeric values and use weighted throughput.
+- Memory files use cross-process locks and atomic replacement. Updating a summary no longer removes unrelated entries. Authenticated memory reads never fall back to another user's shared memory.
+- Summary generation validates requests, respects the summaries setting, uses the stored transcript, times out, and conditionally publishes against the original database snapshot.
+- Cross-session retrieval selects matching excerpts. Memory loading ignores stale responses, and automatic continuation is cancellable and uses the latest conversation state.
+- Shared tool identity drives storage and context recognition. Workspace controller, view, tool execution, agent loop, and helpers now live in separate modules.
+
+See [session intelligence maintenance notes](docs/session-intelligence.md) for boundaries and remaining work.
+
 ### Added — Tool reliability scoreboard (phase 4)
 
 Per-model, per-tool success/failure telemetry surfaced in Settings → WorkSpaces → **Tool Reliability**. The most-broken pairs sort to the top with a color-coded failure-rate badge and the last error message, so a model that keeps failing a tool is visible instead of surfacing as a cryptic transcript.

@@ -30,7 +30,7 @@ import { getHostExecutorStatus } from './workspace-tool-host-executor';
 import type { ServerStreamStatus } from '@/lib/stream-status';
 import { isHuggingFaceRouterUrl } from './chat-platforms';
 import { buildOllamaKeepAlive } from './ollama-keepalive';
-import { trimMessagesToFit, estimateMessageTokens, estimateStringTokens, collapseSystemMessages } from './message-trim';
+import { trimMessagesToFit, estimateMessageTokens, estimateStringTokens, collapseSystemMessages, requireContextBudget } from './message-trim';
 import { normalizeImageMimeType, shouldNormalizeImageForCompatibility } from './file-shared';
 import { convertImageBufferToJpeg } from './image-normalization';
 import { getWorkspaceToolWorkspaceContext } from './workspace-tool-project-workspaces';
@@ -219,6 +219,7 @@ function normalizeContextCap(value: string | undefined): number {
 const LOCAL_OLLAMA_CONTEXT_CAP = normalizeContextCap(process.env[OLLAMA_CONTEXT_CAP_ENV]);
 
 interface IncomingChatMessage {
+  hidden?: unknown;
   role?: unknown;
   content?: unknown;
   images?: unknown;
@@ -257,6 +258,7 @@ interface IncomingChatBody {
 }
 
 interface InternalChatMessage {
+  hidden?: boolean;
   role: 'user' | 'assistant' | 'system';
   content?: string;
   images?: InternalImagePayload[];
@@ -387,6 +389,7 @@ function normalizeMessages(messages: unknown): InternalChatMessage[] {
 
   return messages
     .flatMap(rawMessage => {
+      if (!rawMessage || typeof rawMessage !== 'object') return [];
       const message = rawMessage as IncomingChatMessage;
       const role = typeof message.role === 'string' ? message.role : '';
       const content = typeof message.content === 'string' ? message.content : '';
@@ -398,6 +401,7 @@ function normalizeMessages(messages: unknown): InternalChatMessage[] {
       return [{
         role,
         content,
+        hidden: message.hidden === true,
         ...(images.length > 0 ? { images } : {}),
       } as InternalChatMessage];
     })
@@ -1178,10 +1182,13 @@ export async function createChatCompletionResponse(req: NextRequest) {
 
     // Trim conversation history to fit within context window
     const contextManagementStartedAt = performance.now();
-    const systemOverhead = estimateStringTokens(systemPrompt);
+    const effectiveContextLength = provider === 'ollama'
+      ? buildContextCandidates(settings.contextLength, settings.ollamaUseModelDefaultContext, requestedModel, provider, capacityProfile)[0] || settings.contextLength
+      : settings.contextLength;
+    const systemOverhead = estimateMessageTokens(untrimmedMessages.filter(message => message.role === 'system'));
     const contextManaged = surface === 'workspace-tool'
       ? applyContextManagement(untrimmedMessages, {
-          contextLength: settings.contextLength,
+          contextLength: effectiveContextLength,
           systemOverhead,
           existingSummary: existingSession?.contextSummary || existingSession?.summary || '',
           summaryEnabled: settings.workspaceToolSessionSummariesEnabled,
@@ -1189,7 +1196,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
           preserveTurns: settings.workspaceToolSessionPreserveTurns,
         })
       : {
-          ...trimMessagesToFit(untrimmedMessages, settings.contextLength, systemOverhead),
+          ...trimMessagesToFit(untrimmedMessages, effectiveContextLength, systemOverhead),
           contextSummary: '',
           contextHealth: 'fresh' as const,
           rawTokenEstimate: 0,
@@ -1665,7 +1672,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
                 baseUrl,
                 apiKey,
                 model: requestedModel,
-                messages: openAiMessages,
+                messages: requireContextBudget(openAiMessages, effectiveContextLength, 0, settings.workspaceToolSessionPreserveTurns),
                 temperature: settings.temperature,
                 signal: upstreamAbort.signal,
                 emit: payload => sendJsonLine({
@@ -1774,7 +1781,10 @@ export async function createChatCompletionResponse(req: NextRequest) {
                   sendJsonLine({ knowledge_sources: knowledgeSources })
                 }
 
-                await streamOllamaResponse(numCtx, messagesForStream);
+                await streamOllamaResponse(numCtx, requireContextBudget(messagesForStream,
+                  numCtx || effectiveContextLength,
+                  nativeTools.length ? estimateStringTokens(JSON.stringify(nativeTools)) : 0,
+                  settings.workspaceToolSessionPreserveTurns));
                 finish();
                 return;
               } catch (error) {

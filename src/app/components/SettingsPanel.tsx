@@ -2188,7 +2188,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
                   onChange={e => update('workspaceToolSessionSummaryTargetTokens', Math.max(2048, Number(e.target.value) || 2048))}
                 />
                 <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: '5px', lineHeight: 1.45 }}>
-                  Approximate token threshold before older turns are compressed.
+                  Summarization trigger in input tokens, not summary size. Older turns outside the preserved window also trigger a summary, capped at 3,200 characters.
                 </div>
               </div>
               <div>

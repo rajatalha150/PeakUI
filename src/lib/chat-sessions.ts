@@ -1,7 +1,8 @@
 import { prisma } from './prisma';
 import { normalizeResponsePresentation, type ResponsePresentation } from './response-format';
 import { normalizeMessageSources, type MessageSource } from './message-sources';
-import { extractWorkspaceToolRequest } from './workspace-tool-tools';
+import { extractWorkspaceToolRequest, WORKSPACE_TOOL_NAMES, type WorkspaceToolName } from './workspace-tool-tools';
+import { recentTurnStart } from './conversation-turns';
 import { estimateMessageTokens } from './message-trim';
 import { getUserSettings } from './settings';
 import {
@@ -22,7 +23,7 @@ export interface StoredChatMessage {
   role: StoredChatRole;
   content: string;
   hidden?: boolean;
-  toolRequest?: 'shell' | 'filesystem' | 'web' | 'code' | 'browser' | 'unified_browser';
+  toolRequest?: WorkspaceToolName;
   thinking?: string;
   sources?: MessageSource[];
   images?: unknown[];
@@ -116,8 +117,8 @@ function normalizeAttachmentName(value: unknown): string {
 }
 
 function normalizeToolRequest(value: unknown): StoredChatMessage['toolRequest'] {
-  return value === 'shell' || value === 'filesystem' || value === 'web' || value === 'code' || value === 'browser' || value === 'unified_browser'
-    ? value
+  return typeof value === 'string' && WORKSPACE_TOOL_NAMES.includes(value as WorkspaceToolName)
+    ? value as WorkspaceToolName
     : undefined;
 }
 
@@ -393,8 +394,7 @@ async function buildDerivedSessionState(
       })
     : null;
   const tokenEstimate = estimateMessageTokens(messages);
-  const nonSystemCount = messages.filter(message => message.role !== 'system').length;
-  const hasOlderTurnsOutsideRawWindow = nonSystemCount > settings.workspaceToolSessionPreserveTurns * 2;
+  const hasOlderTurnsOutsideRawWindow = recentTurnStart(messages, settings.workspaceToolSessionPreserveTurns) > 0;
   const contextSummary = settings.workspaceToolSessionSummariesEnabled
     && (tokenEstimate >= settings.workspaceToolSessionSummaryTargetTokens || hasOlderTurnsOutsideRawWindow)
       ? buildSessionContextSummary(messages, {

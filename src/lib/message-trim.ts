@@ -6,6 +6,8 @@
  * message (for topic context), and recent turns while trimming from the middle.
  */
 
+import { recentTurnStart, isUserTurn, type ConversationMessage } from './conversation-turns';
+
 const CHARS_PER_TOKEN = 4;
 const ROLE_OVERHEAD_TOKENS = 4;
 const IMAGE_TOKEN_OVERHEAD = 256;
@@ -22,10 +24,13 @@ export function estimateMessageTokens(messages: Array<{ content?: string; images
   }, 0);
 }
 
-export interface TrimResult {
-  messages: Array<unknown>;
+export interface TrimResult<T = unknown> {
+  messages: T[];
   trimmed: boolean;
   trimmedCount: number;
+  fitsBudget: boolean;
+  tokenEstimate: number;
+  inputBudget: number;
 }
 
 /**
@@ -69,74 +74,61 @@ export function collapseSystemMessages<T extends { role: string; content?: strin
  * @param options - preserveTurns: how many recent turns to keep (default 4)
  * @returns Trimmed message array and metadata
  */
-export function trimMessagesToFit(
-  messages: Array<unknown>,
+export function trimMessagesToFit<T extends ConversationMessage>(
+  messages: T[],
   contextLength: number,
   systemOverhead: number,
   options?: { preserveTurns?: number },
-): TrimResult {
-  const preserveTurns = options?.preserveTurns ?? 4;
-  const roleOf = (message: unknown): string => {
-    const record = message as { role?: unknown };
-    return typeof record.role === 'string' ? record.role : '';
-  };
-  const systemMessages = messages.filter(message => roleOf(message) === 'system');
-  const nonSystemMessages = messages.filter(message => roleOf(message) !== 'system');
-
-  // Reserve 20% of context for the model's response
-  const responseBudget = Math.floor(contextLength * 0.2);
-  const messageBudget = contextLength - responseBudget - systemOverhead;
-
-  if (messageBudget <= 0) {
-    // System prompt alone exceeds budget — send only system + latest user message
-    const lastUserMsg = [...messages].reverse().find(message => roleOf(message) === 'user');
+): TrimResult<T> {
+  const context = Number.isFinite(contextLength) ? Math.max(0, Math.floor(contextLength)) : 0;
+  const inputBudget = Math.floor(context * 0.8);
+  const systems = messages.filter(message => message.role === 'system');
+  const conversation = messages.filter(message => message.role !== 'system');
+  const systemTokens = estimateMessageTokens(systems);
+  // Additional external overhead (e.g. native tool schemas) is counted once.
+  const overhead = Math.max(systemTokens, Number.isFinite(systemOverhead) ? systemOverhead : 0);
+  const budget = inputBudget - overhead;
+  const result = (kept: T[]): TrimResult<T> => {
+    const tokenEstimate = estimateMessageTokens(kept) + overhead;
     return {
-      messages: [...systemMessages, ...(lastUserMsg ? [lastUserMsg] : [])],
-      trimmed: true,
-      trimmedCount: messages.length - systemMessages.length - (lastUserMsg ? 1 : 0),
+      messages: [...systems, ...kept],
+      trimmed: kept.length !== conversation.length,
+      trimmedCount: conversation.length - kept.length,
+      fitsBudget: tokenEstimate <= inputBudget,
+      tokenEstimate,
+      inputBudget,
     };
-  }
-
-  // The system/tool prompt is already represented by systemOverhead, so only
-  // compare conversation turns against messageBudget. Counting system messages
-  // here as well trims useful chat memory too early.
-  const currentTokens = estimateMessageTokens(nonSystemMessages as Array<{ content?: string; images?: unknown[] }>);
-  if (currentTokens <= messageBudget) {
-    return { messages, trimmed: false, trimmedCount: 0 };
-  }
-
-  // Preserve: first user message + last N turns
-  const preservedIndices = new Set<number>();
-  const firstUserIdx = nonSystemMessages.findIndex(message => roleOf(message) === 'user');
-  if (firstUserIdx >= 0) preservedIndices.add(firstUserIdx);
-  const recentStart = Math.max(0, nonSystemMessages.length - preserveTurns * 2);
-  for (let i = recentStart; i < nonSystemMessages.length; i++) {
-    preservedIndices.add(i);
-  }
-
-  // Iteratively remove the oldest removable message until we fit. Track each
-  // message's ORIGINAL index alongside it so the preserved-set check stays
-  // correct as the array shrinks (a naive `i + removedCount` offset drifts
-  // once earlier elements are spliced out, which dropped the first user
-  // message — the objective — on long threads).
-  const result: Array<{ originalIndex: number; message: unknown }> = nonSystemMessages.map((message, originalIndex) => ({ originalIndex, message }));
-  let removedCount = 0;
-  const minMessages = 2; // Always keep at least 1 user + 1 assistant
-
-  while (
-    estimateMessageTokens(result.map(entry => entry.message) as Array<{ content?: string; images?: unknown[] }>) > messageBudget
-    && result.length > minMessages
-  ) {
-    // Find the oldest message that isn't preserved.
-    const removableIdx = result.findIndex(entry => !preservedIndices.has(entry.originalIndex));
-    if (removableIdx === -1) break;
-    result.splice(removableIdx, 1);
-    removedCount++;
-  }
-
-  return {
-    messages: [...systemMessages, ...result.map(entry => entry.message)],
-    trimmed: true,
-    trimmedCount: removedCount,
   };
+  if (estimateMessageTokens(conversation) <= budget) return result(conversation);
+
+  const firstUser = conversation.findIndex(isUserTurn);
+  const recentStart = recentTurnStart(conversation, options?.preserveTurns ?? 4);
+  // Drop old turns as whole groups, preserving the original objective.
+  let kept = conversation.filter((_, index) => index === firstUser || index >= recentStart);
+  if (estimateMessageTokens(kept) <= budget) return result(kept);
+
+  // Recent-turn preservation is a preference, not permission to overflow.
+  // Progressively retire older complete turns, retaining the active turn and
+  // initial user objective. Never truncate instructions or orphan tool results.
+  const activeStart = recentTurnStart(conversation, 1);
+  for (let index = recentStart + 1; index <= activeStart; index++) {
+    if (!isUserTurn(conversation[index])) continue;
+    kept = conversation.filter((_, position) => position === firstUser || position >= index);
+    if (estimateMessageTokens(kept) <= budget) return result(kept);
+  }
+  // The caller must reject an impossible budget explicitly. This protects the
+  // latest request/images and system instructions from silent data loss.
+  return result(kept);
+}
+
+export function requireContextBudget<T extends ConversationMessage>(
+  messages: T[], contextLength: number, extraTokens = 0, preserveTurns = 4,
+): T[] {
+  const result = trimMessagesToFit(messages, contextLength,
+    estimateMessageTokens(messages.filter(message => message.role === 'system')) + extraTokens,
+    { preserveTurns });
+  if (!result.fitsBudget) {
+    throw new Error(`Context budget exceeded: required about ${result.tokenEstimate} input tokens, budget ${result.inputBudget}. Increase context length, shorten the request, or reduce attached context.`);
+  }
+  return result.messages;
 }

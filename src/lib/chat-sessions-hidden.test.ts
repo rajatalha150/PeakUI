@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeStoredChatMessage } from './chat-sessions'
+import { normalizeStoredChatMessage, parseStoredChatMessages } from './chat-sessions'
+import { WORKSPACE_TOOL_NAMES } from './workspace-tool-tools'
 
 describe('normalizeStoredChatMessage — hidden tool-result detection', () => {
   it('hides "Shell command result:" (no "tool" word)', () => {
@@ -35,5 +36,27 @@ describe('normalizeStoredChatMessage — hidden tool-result detection', () => {
   it('does NOT hide assistant messages even if they look like results', () => {
     const msg = normalizeStoredChatMessage({ role: 'assistant', content: 'Shell command result: clean' })
     expect(msg?.hidden).toBeUndefined()
+  })
+})
+
+describe('parseStoredChatMessages tool analytics metadata', () => {
+  it('preserves every supported tool request across persistence', () => {
+    const stored = WORKSPACE_TOOL_NAMES.map((toolRequest, index) => ({
+      id: String(index),
+      role: 'assistant',
+      content: `Running ${toolRequest}`,
+      toolRequest,
+    }))
+
+    expect(parseStoredChatMessages(JSON.stringify(stored)).map(message => message.toolRequest))
+      .toEqual(WORKSPACE_TOOL_NAMES)
+  })
+
+  it('drops unknown tool request identifiers', () => {
+    const [message] = parseStoredChatMessages(JSON.stringify([
+      { role: 'assistant', content: 'Running unknown tool', toolRequest: 'not_a_real_tool' },
+    ]))
+
+    expect(message.toolRequest).toBeUndefined()
   })
 })

@@ -1,3 +1,4 @@
+import { WORKSPACE_TOOL_NAMES } from './tool-registry'
 import type {
   PdfDocumentCallout,
   PdfDocumentField,
@@ -342,34 +343,7 @@ function isWorkbookTemplate(value: unknown): value is NonNullable<WorkspaceToolW
     || value === 'tracker'
 }
 
-export const WORKSPACE_TOOL_NAMES = [
-  'shell',
-  'filesystem',
-  'web',
-  'code',
-  'browser',
-  'unified_browser',
-  'tax_return',
-  'pdf_document',
-  'workbook_document',
-  'word_document',
-  'csv_document',
-  'email_document',
-  'markdown_document',
-  'slides_document',
-  'archive_document',
-  'calendar_document',
-  'mermaid_document',
-  'fetch_summarize',
-  'image_generation',
-  'notes_search',
-  'notes_save',
-  'http_request',
-  'spreadsheet_query',
-  'calendar_query',
-] as const
-
-export type WorkspaceToolName = typeof WORKSPACE_TOOL_NAMES[number]
+export { WORKSPACE_TOOL_NAMES, type WorkspaceToolName } from './tool-registry'
 
 const TOOL_NAME_ALTERNATION = WORKSPACE_TOOL_NAMES.join('|')
 const TOOL_BLOCK_PATTERN = new RegExp(

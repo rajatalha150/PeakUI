@@ -8,6 +8,12 @@ import {
   isContinuationWorkspacePrompt,
   isCrossSessionMemoryRelevant,
   isLowSignalWorkspacePrompt,
+  normalizeMaxToolRoundsPerTurn,
+  normalizeSessionAnalytics,
+  normalizeSessionAutoContinueMaxSteps,
+  normalizeSessionPreserveTurns,
+  normalizeSessionSummaryTargetTokens,
+  shouldInjectCrossSessionMemory,
   type SessionMessageLike,
 } from './session-intelligence'
 import { trimMessagesToFit } from './message-trim'
@@ -157,13 +163,59 @@ describe('session intelligence', () => {
 
     const memoryMessage = result.messages.find(message => message.role === 'system' && message.content?.includes('Working memory for this thread.'))
     expect(memoryMessage?.content).toContain('prefer the newer messages')
+    expect(memoryMessage?.content).toContain('untrusted historical data')
     expect(result.messages[result.messages.length - 1]?.content).toContain('casual and short')
+  })
+
+  it('keeps complete entries from every populated memory section under the size cap', () => {
+    const messages: SessionMessageLike[] = []
+    for (let index = 0; index < 18; index += 1) {
+      messages.push({
+        role: index % 2 === 0 ? 'user' : 'assistant',
+        content: index % 2 === 0
+          ? `Remember decision ${index}: use file /workspace/report-${index}.md, then investigate open question ${index} and follow up next.` + ' x'.repeat(180)
+          : `Current status ${index}: completed analysis; next step should verify artifact ${index}.` + ' y'.repeat(180),
+      })
+    }
+
+    const summary = buildSessionContextSummary(messages, { preserveTurns: 2 })
+    expect(summary.length).toBeLessThanOrEqual(3200)
+    expect(summary).toContain('## Objective')
+    expect(summary).toContain('## Current status')
+    expect(summary).toContain('## Important decisions')
+    expect(summary).toContain('## User preferences')
+    expect(summary).toContain('## Files, folders, artifacts')
+    expect(summary).toContain('## Open questions')
+    expect(summary).toContain('## Next step')
+    expect(summary.endsWith('…')).toBe(true)
+  })
+
+  it('uses defaults for absent numeric settings instead of coercing them to zero', () => {
+    expect(normalizeSessionSummaryTargetTokens(null, 7000)).toBe(7000)
+    expect(normalizeSessionPreserveTurns('', 8)).toBe(8)
+    expect(normalizeSessionAutoContinueMaxSteps(undefined, 4)).toBe(4)
+    expect(normalizeMaxToolRoundsPerTurn({}, 120)).toBe(120)
   })
 
   it('filters unrelated cross-session memory', () => {
     const memory = 'Recent memory context:\n- Tax PDF workflow: user wants Form 1040 generation.'
     expect(isCrossSessionMemoryRelevant(memory, 'Build an iOS invite polling app')).toBe(false)
     expect(filterRelevantCrossSessionMemory(memory, 'Improve the tax PDF workflow')).toContain('Tax PDF workflow')
+  })
+
+  it('injects cross-session memory only before the first substantive user turn', () => {
+    expect(shouldInjectCrossSessionMemory([])).toBe(true)
+    expect(shouldInjectCrossSessionMemory([
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'How can I help?' },
+    ])).toBe(true)
+    expect(shouldInjectCrossSessionMemory([
+      { role: 'user', content: 'hello' },
+      { role: 'user', content: 'Audit the session intelligence implementation.' },
+    ])).toBe(false)
+    expect(shouldInjectCrossSessionMemory([
+      { role: 'user', content: 'Synthetic objective anchor', hidden: true },
+    ])).toBe(true)
   })
 
   it('does not double count system prompt tokens when trimming chat memory', () => {
@@ -201,6 +253,34 @@ describe('session intelligence', () => {
     expect(analytics.toolCalls).toBe(1)
     expect(analytics.toolCallsByType.shell).toBe(1)
     expect(analytics.timeSpanSeconds).toBe(4)
+  })
+
+  it('weights throughput by generated tokens and duration', () => {
+    const analytics = computeSessionAnalytics([
+      { role: 'assistant', content: 'short', meta: { tokens: 10, duration: 1, tps: 10 } },
+      { role: 'assistant', content: 'long', meta: { tokens: 900, duration: 10, tps: 90 } },
+    ])
+
+    expect(analytics.averageTps).toBe(82.7)
+  })
+
+  it('rejects malformed persisted analytics values', () => {
+    const analytics = normalizeSessionAnalytics({
+      totalMessages: -4,
+      assistantTokens: Number.POSITIVE_INFINITY,
+      averageTps: Number.NaN,
+      toolCallsByType: { shell: -2, code: 3 },
+      firstMessageAt: 'not-a-date',
+      lastMessageAt: '2026-09-13T12:00:00-04:00',
+    })
+
+    expect(analytics).not.toBeNull()
+    expect(analytics?.totalMessages).toBe(0)
+    expect(analytics?.assistantTokens).toBe(0)
+    expect(analytics?.averageTps).toBe(0)
+    expect(analytics?.toolCallsByType).toEqual({ code: 3 })
+    expect(analytics?.firstMessageAt).toBeNull()
+    expect(analytics?.lastMessageAt).toBe('2026-09-13T16:00:00.000Z')
   })
 
   it('detects pending continuation when the last visible assistant message is a tool request', () => {

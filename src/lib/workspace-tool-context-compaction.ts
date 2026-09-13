@@ -33,8 +33,8 @@
  * "The previous tool result…"). Keep this list in lockstep with the
  * formatters; the test suite asserts the symmetry.
  */
-const TOOL_RESULT_HEADER_RE =
-  /^(?:Shell command|Filesystem tool|Code execution|Web research tool|Browser tool|Tax return PDF tool|PDF document tool|Excel workbook tool|Word document tool|CSV export tool|Email writer tool|Markdown document tool|Slide deck tool|Archive tool|Calendar tool|Mermaid diagram tool|URL fetch and summarize tool|Image generation tool|Notes search tool|Notes save tool|HTTP request tool|Spreadsheet query tool|Calendar query tool) result:/
+import { TOOL_RESULT_HEADER_RE, isToolResultMessage } from './tool-registry'
+export { isToolResultMessage } from './tool-registry'
 
 export interface CompactableMessage {
   role: 'user' | 'assistant' | 'system'
@@ -75,11 +75,7 @@ const MAX_RETAINED_HEADER_LINES = 16
 const COMPACTED_NOTE =
   '[… earlier tool result compacted to keep the context window lean for tool-call formatting. The metadata above is intact; the full body was already shown to you when the tool ran. If you still need the exact bytes, re-run the tool rather than guessing. …]'
 
-export function isToolResultMessage(msg: unknown): boolean {
-  if (!msg || typeof msg !== 'object') return false
-  const m = msg as CompactableMessage
-  return m.role === 'user' && Boolean(m.hidden) && typeof m.content === 'string' && TOOL_RESULT_HEADER_RE.test(m.content)
-}
+
 
 /**
  * Build the compacted replacement content for a single tool-result message.
@@ -104,8 +100,8 @@ export function compactToolResultContent(content: string): string {
       break
     }
   }
-  if (cut === -1) cut = Math.min(lines.length, MAX_RETAINED_HEADER_LINES)
-  const kept = lines.slice(0, cut)
+  cut = Math.min(cut === -1 ? lines.length : cut, MAX_RETAINED_HEADER_LINES)
+  const kept = lines.slice(0, cut).map(line => line.slice(0, 300))
   // Avoid a double blank line if the cut already landed on a trailing blank.
   while (kept.length > 0 && kept[kept.length - 1].trim() === '') kept.pop()
   return `${kept.join('\n')}\n\n${COMPACTED_NOTE}`
@@ -121,8 +117,8 @@ export function compactStaleToolResults<T extends CompactableMessage>(
   messages: ReadonlyArray<T>,
   options?: CompactStaleToolResultsOptions,
 ): T[] {
-  const keepRecent = options?.keepRecent ?? DEFAULT_KEEP_RECENT
-  const minCharsToCompact = options?.minCharsToCompact ?? DEFAULT_MIN_CHARS_TO_COMPACT
+  const keepRecent = Number.isFinite(options?.keepRecent) ? Math.max(0, Math.floor(options!.keepRecent!)) : DEFAULT_KEEP_RECENT
+  const minCharsToCompact = Number.isFinite(options?.minCharsToCompact) ? Math.max(0, options!.minCharsToCompact!) : DEFAULT_MIN_CHARS_TO_COMPACT
 
   // Indices of tool-result messages, in array order.
   const toolResultIndices: number[] = []

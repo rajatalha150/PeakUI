@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { collapseSystemMessages, trimMessagesToFit } from './message-trim'
+import { collapseSystemMessages, trimMessagesToFit, requireContextBudget, estimateMessageTokens } from './message-trim'
+import { recentTurnStart } from './conversation-turns'
 
 describe('collapseSystemMessages', () => {
   it('keeps a single leading system message unchanged', () => {
@@ -94,5 +95,48 @@ describe('trimMessagesToFit — preserves the first user message (objective)', (
     expect(result.trimmed).toBe(true)
     const firstUser = result.messages.find(m => (m as { role: string }).role === 'user')
     expect((firstUser as { content: string }).content).toContain('FIRST USER MESSAGE')
+  })
+})
+
+describe('context budget invariants', () => {
+  it('counts visible user turns, not hidden tool messages or assistant replies', () => {
+    const messages = [
+      { role: 'user', content: 'Objective' },
+      { role: 'assistant', content: 'Working' },
+      { role: 'user', content: 'Next task' },
+      ...Array.from({ length: 20 }, () => ({ role: 'user', hidden: true, content: 'Shell command result: ok' })),
+      { role: 'assistant', content: 'Done' },
+    ]
+    expect(recentTurnStart(messages, 1)).toBe(2)
+    expect(recentTurnStart(messages, 2)).toBe(0)
+  })
+
+  it('counts every system message, even with understated external overhead', () => {
+    const messages = [{ role: 'system', content: 's'.repeat(1600) }, { role: 'system', content: 'rag'.repeat(800) }, { role: 'user', content: 'Hello' }]
+    const result = trimMessagesToFit(messages, 1024, 0)
+    expect(result.fitsBudget).toBe(false)
+    expect(result.tokenEstimate).toBe(estimateMessageTokens(messages))
+    expect(() => requireContextBudget(messages, 1024)).toThrow('Context budget exceeded')
+  })
+
+  it('reduces the recent-turn preference to fit without orphaning an active tool chain', () => {
+    const messages = Array.from({ length: 10 }, (_, index) => [
+      { role: 'user', content: `Task ${index}` },
+      { role: 'assistant', content: 'x'.repeat(400) },
+      { role: 'user', hidden: true, content: 'Shell command result: ok' },
+    ]).flat()
+    const result = trimMessagesToFit(messages, 400, 0, { preserveTurns: 8 })
+    expect(result.fitsBudget).toBe(true)
+    expect(result.tokenEstimate).toBeLessThanOrEqual(result.inputBudget)
+    expect(result.messages.slice(-3)).toEqual(messages.slice(-3))
+    expect(result.messages[0]).toEqual(messages[0])
+  })
+
+  it('rejects impossible active requests and model backoff instead of truncating them', () => {
+    const messages = [{ role: 'user', content: 'x'.repeat(8000), images: ['image'] }]
+    expect(requireContextBudget(messages, 4096)).toEqual(messages)
+    expect(() => requireContextBudget(messages, 1024)).toThrow('Context budget exceeded')
+    expect(() => requireContextBudget([{ role: 'user', content: 'Hi' }], 1024, 1000)).toThrow('Context budget exceeded')
+    expect(messages[0].content).toHaveLength(8000)
   })
 })

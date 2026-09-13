@@ -15,6 +15,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { promises as fs } from 'fs'
 import { join } from 'path'
+import { z } from 'zod'
+import { atomicWriteFile, readFileOrEmpty, withFileLock } from '@/lib/atomic-file'
 import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import { ensureUserMemoryDir, getUserMemoryDir } from '@/lib/memory'
 
@@ -23,13 +25,17 @@ const MAX_NOTES_BYTES = 512 * 1024
 const MAX_SEARCH_RESULTS = 8
 
 type NoteEntry = { id: string; title: string; content: string; createdAt: string }
+const noteRequest = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('save'), title: z.string().trim().min(1).max(180), content: z.string().trim().min(1).max(4000) }),
+  z.object({ action: z.literal('search'), query: z.string().trim().min(1).max(300) }),
+])
 
 function parseNotes(raw: string): NoteEntry[] {
   const entries: NoteEntry[] = []
   const blocks = raw.split(/^## /gm).slice(1)
   for (const block of blocks) {
-    const idMatch = block.match(/<!-- note:([A-Za-z0-9_-]+) -->/)
-    const createdMatch = block.match(/<!-- created:(\d{4}-\d{2}-\d{2}T[^>]+) -->/)
+    const idMatch = block.match(/<!-- note:([A-Za-z0-9_-]+)(?:\s|-->)/)
+    const createdMatch = block.match(/created:(\d{4}-\d{2}-\d{2}T[^> ]+)\s*-->/)
     const titleMatch = block.match(/^(.+)$/m)
     entries.push({
       id: idMatch?.[1] || `note-${entries.length}`,
@@ -46,8 +52,8 @@ function serializeNotes(entries: NoteEntry[]): string {
     '# User Notes',
     '',
     ...entries.map(e => [
-      `## ${e.title} <!-- note:${e.id} created:${e.createdAt} -->`,
-      e.content,
+      `## ${e.title.replace(/[\r\n]+/g, ' ').replace(/<!--|-->/g, '')} <!-- note:${e.id} created:${e.createdAt} -->`,
+      e.content.replace(/^## /gm, '### '),
       '',
     ].join('\n')),
   ].join('\n')
@@ -62,7 +68,9 @@ export async function POST(req: NextRequest) {
   const userId = access.userId
 
   try {
-    const body = await req.json() as { action?: string; query?: string; title?: string; content?: string }
+    const validated = noteRequest.safeParse(await req.json().catch(() => null))
+    if (!validated.success) return NextResponse.json({ error: 'Invalid notes request' }, { status: 400 })
+    const body = validated.data
 
     await ensureUserMemoryDir(userId)
     const filePath = join(getUserMemoryDir(userId), NOTES_FILE)
@@ -74,12 +82,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Both title and content are required.' }, { status: 400 })
       }
 
-      let raw = ''
-      try {
-        raw = await fs.readFile(filePath, 'utf-8')
-      } catch {
-        raw = ''
-      }
+      return await withFileLock(filePath, async () => {
+      const raw = await readFileOrEmpty(filePath)
       const entries = parseNotes(raw)
       entries.unshift({
         id: `n-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
@@ -92,8 +96,9 @@ export async function POST(req: NextRequest) {
       if (Buffer.byteLength(serialized, 'utf-8') > MAX_NOTES_BYTES) {
         return NextResponse.json({ error: 'Notes storage is full. Delete old notes first.' }, { status: 507 })
       }
-      await fs.writeFile(filePath, serialized, 'utf-8')
+      await atomicWriteFile(filePath, serialized)
       return NextResponse.json({ success: true, saved: title })
+      })
     }
 
     if (body.action === 'search') {
