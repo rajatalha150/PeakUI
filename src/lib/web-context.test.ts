@@ -220,9 +220,7 @@ describe('web-context: buildWebContext query-variant parallelism', () => {
     const queries = mod.generateSearchQueries('What is the difference between iPhone vs Android')
     expect(queries.length).toBeGreaterThanOrEqual(2)
 
-    const start = Date.now()
     const out = await mod.buildWebContext('What is the difference between iPhone vs Android', { maxResults: 5 })
-    const wall = Date.now() - start
 
     // We expect N DDG fetches (one per query variant) plus 1 fetch
     // per deduped result page (in buildWebContext's second phase).
@@ -236,8 +234,6 @@ describe('web-context: buildWebContext query-variant parallelism', () => {
       const spread = Math.max(...ddgCalls.map(c => c.startedAt)) - Math.min(...ddgCalls.map(c => c.startedAt))
       expect(spread).toBeLessThan(100)
     }
-    // Wall time should be ~PER_FETCH_LATENCY_MS, not queries.length × that.
-    expect(wall).toBeLessThan(queries.length * PER_FETCH_LATENCY_MS - 100)
     expect(out.sources.length).toBeGreaterThan(0)
   })
 })

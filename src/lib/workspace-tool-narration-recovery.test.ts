@@ -368,6 +368,65 @@ describe('synthesizeToolCallFromNarration — page-name recovery by prose-named 
   })
 })
 
+describe('synthesizeToolCallFromNarration — retail browser continuations', () => {
+  const DDG_PRIOR = {
+    name: 'unified_browser' as const,
+    request: { action: 'search', url: 'https://duckduckgo.com/?q=cheapest+dishwasher+deals+near+Elmont+NY+2026' },
+  }
+
+  it('recovers P.C. Richard dishwasher listings from a search-result continuation', () => {
+    const r = synthesizeToolCallFromNarration(
+      'UWAF Direct: Open P.C. Richard dishwasher listings to get actual prices and deals',
+      { lastSuccessfulToolRequest: DDG_PRIOR },
+    )
+    expect(r?.matchedPattern).toBe('unified_browser.pageName')
+    expect((r?.args as { url: string }).url).toBe('https://www.pcrichard.com/dishwashers/')
+  })
+
+  it('recovers Home Depot dishwasher listings from prose-only narration', () => {
+    const r = synthesizeToolCallFromNarration(
+      'UWAF Direct: Open Home Depot dishwasher listings sorted by lowest price to compare with P.C. Richard deals for Elmont area',
+      { lastSuccessfulToolRequest: DDG_PRIOR },
+    )
+    expect(r?.matchedPattern).toBe('unified_browser.pageName')
+    expect((r?.args as { url: string }).url).toBe(
+      'https://www.homedepot.com/b/Appliances-Dishwashers/Dishwasher/N-5yc1vZc3poZ1z0vmoe',
+    )
+  })
+
+  it('recovers Best Buy clearance dishwasher deals instead of the generic cheap page', () => {
+    const r = synthesizeToolCallFromNarration(
+      'UWAF Direct: Open Best Buy clearance dishwasher deals to find any additional low-priced options near Elmont NY',
+      { lastSuccessfulToolRequest: DDG_PRIOR },
+    )
+    expect(r?.matchedPattern).toBe('unified_browser.pageName')
+    expect((r?.args as { url: string }).url).toContain('/site/searchpage.jsp')
+    expect((r?.args as { url: string }).url).toContain('Current%20Deals')
+  })
+
+  it('recovers Walmart clearance dishwashers from prose-only narration', () => {
+    const r = synthesizeToolCallFromNarration(
+      'UWAF Direct: Open Walmart dishwasher clearance page to find lowest-priced options for Elmont NY area',
+      { lastSuccessfulToolRequest: DDG_PRIOR },
+    )
+    expect(r?.matchedPattern).toBe('unified_browser.pageName')
+    expect((r?.args as { url: string }).url).toBe(
+      'https://www.walmart.com/browse/home/dishwashers/clearance/4044_90548_9158521_9350318',
+    )
+  })
+
+  it('recovers the Elmont scratch-and-dent appliance page', () => {
+    const r = synthesizeToolCallFromNarration(
+      'UWAF Direct: Open the Elmont NY scratch-and-dent appliance stores page to find local dishwasher deals',
+      { lastSuccessfulToolRequest: DDG_PRIOR },
+    )
+    expect(r?.matchedPattern).toBe('unified_browser.pageName')
+    expect((r?.args as { url: string }).url).toBe(
+      'https://scratchanddentlocator.com/scratch-and-dent-appliances/new-york/elmont',
+    )
+  })
+})
+
 describe('synthesizeToolCallFromNarration — tax_return', () => {
   it('matches "generating tax return for 2024"', () => {
     const r = synthesizeToolCallFromNarration('Generating tax return for 2024 now.')
@@ -525,6 +584,23 @@ describe('buildWorkspaceToolRequestFromNarration', () => {
     }
     const req = buildWorkspaceToolRequestFromNarration(recovery)
     expect((req?.request as { runtime: string }).runtime).toBe('node')
+  })
+
+  it('builds a unified_browser search request', () => {
+    const recovery: NarrationRecovery = {
+      toolName: 'unified_browser',
+      args: {
+        action: 'search',
+        query: 'cheapest dishwasher deals near Elmont NY',
+        browserMode: 'direct',
+        description: 'auto-recovered unified browser search from prose narration',
+      },
+      matchedPattern: 'unified_browser.search',
+    }
+    const req = buildWorkspaceToolRequestFromNarration(recovery)
+    expect(req?.name).toBe('unified_browser')
+    expect((req?.request as { action: string; query: string }).action).toBe('search')
+    expect((req?.request as { query: string }).query).toBe('cheapest dishwasher deals near Elmont NY')
   })
 
   it('builds a document regenerate request', () => {

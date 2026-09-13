@@ -644,6 +644,85 @@ const KNOWN_SITE_PAGES: ReadonlyArray<{
       },
     ],
   },
+  {
+    site: /^https?:\/\/(?:www\.)?bestbuy\.com\//i,
+    siteName: /\bbest\s*buy(?:\.com)?\b/i,
+    origin: 'https://www.bestbuy.com',
+    pages: [
+      {
+        name: /\b(?:clearance|open[-\s]*box|discount(?:ed)?|sale)\s+dishwashers?(?:\s+(?:deals?|listings?|page))?\b|\bdishwashers?\s+(?:clearance|open[-\s]*box|discount(?:ed)?|sale)\b/i,
+        buildPath: () => '/site/searchpage.jsp?browsedCategory=pcmcat1637590848797&id=pcat17071&qp=currentoffers_facet%3DCurrent%20Deals~Clearance&st=pcmcat1637590848797categoryid%24abcat0905000',
+      },
+      {
+        name: /\b(?:cheap|budget|affordable|lowest[-\s]*priced?)\s+dishwashers?(?:\s+(?:listings?|deals?|page))?\b|\bdishwashers?\s+(?:deals?|listings?|page)\b/i,
+        buildPath: () => '/site/shop/cheap-dishwashers',
+      },
+    ],
+  },
+  {
+    site: /^https?:\/\/(?:www\.)?pcrichard\.com\//i,
+    siteName: /\bp\.?\s*c\.?\s*richard(?:\s*&?\s*son)?(?:\.com)?\b/i,
+    origin: 'https://www.pcrichard.com',
+    pages: [
+      {
+        name: /\bdishwashers?(?:\s+(?:listings?|deals?|prices?|page))?\b/i,
+        buildPath: () => '/dishwashers/',
+      },
+      {
+        name: /\b(?:open[-\s]*box|scratch[-\s]*(?:and|&)\s*dent|clearance)\s+(?:appliances?|dishwashers?)\b/i,
+        buildPath: () => '/open-box-appliances/',
+      },
+      {
+        name: /\b(?:deals?|sale|promotions?|weekly\s+(?:ad|circular|flyer))\b/i,
+        buildPath: () => '/deals/',
+      },
+      {
+        name: /\belmont\s+(?:store|location|page)\b/i,
+        buildPath: () => '/stores/new-york/nassau/elmont.html',
+      },
+    ],
+  },
+  {
+    site: /^https?:\/\/(?:www\.)?homedepot\.com\//i,
+    siteName: /\bhome\s*depot(?:\.com)?\b/i,
+    origin: 'https://www.homedepot.com',
+    pages: [
+      {
+        name: /\bdishwashers?(?:\s+(?:listings?|deals?|prices?|page))?\b/i,
+        buildPath: () => '/b/Appliances-Dishwashers/Dishwasher/N-5yc1vZc3poZ1z0vmoe',
+      },
+      {
+        name: /\belmont\s+(?:store|location|special\s+buys?|page)\b|\bspecial\s+buys?\b/i,
+        buildPath: () => '/l/Elmont/NY/Elmont/11003/1208',
+      },
+    ],
+  },
+  {
+    site: /^https?:\/\/(?:www\.)?walmart\.com\//i,
+    siteName: /\bwalmart(?:\.com)?\b/i,
+    origin: 'https://www.walmart.com',
+    pages: [
+      {
+        name: /\b(?:clearance|rollback|reduced\s+price)\s+dishwashers?(?:\s+(?:deals?|listings?|page))?\b|\bdishwashers?\s+(?:clearance|rollback|reduced\s+price)\b/i,
+        buildPath: () => '/browse/home/dishwashers/clearance/4044_90548_9158521_9350318',
+      },
+      {
+        name: /\bdishwashers?(?:\s+(?:listings?|deals?|prices?|page))?\b/i,
+        buildPath: () => '/browse/home/dishwashers/4044_90548_9158521',
+      },
+    ],
+  },
+  {
+    site: /^https?:\/\/scratchanddentlocator\.com\//i,
+    siteName: /\bscratch[-\s]*(?:and|&)[-\s]*dent(?:\s+locator)?(?:\.com)?\b/i,
+    origin: 'https://scratchanddentlocator.com',
+    pages: [
+      {
+        name: /\belmont\b|\bscratch[-\s]*(?:and|&)[-\s]*dent\s+(?:appliance\s+)?(?:stores?|source|page)\b/i,
+        buildPath: () => '/scratch-and-dent-appliances/new-york/elmont',
+      },
+    ],
+  },
 ]
 
 /**
@@ -665,6 +744,25 @@ const COMMON_UPPERCASE_WORDS = new Set(['A', 'I', 'THE', 'AND', 'OR', 'FOR', 'AN
 
 function isCommonWord(token: string): boolean {
   return COMMON_UPPERCASE_WORDS.has(token.toUpperCase())
+}
+
+function getSiteNameIndex(
+  catalog: (typeof KNOWN_SITE_PAGES)[number],
+  content: string,
+): number | null {
+  if (!catalog.siteName) return null
+  const match = catalog.siteName.exec(content)
+  return match ? match.index : null
+}
+
+function getEarliestNamedSiteIndex(content: string): number | null {
+  let earliest: number | null = null
+  for (const catalog of KNOWN_SITE_PAGES) {
+    const index = getSiteNameIndex(catalog, content)
+    if (index === null) continue
+    if (earliest === null || index < earliest) earliest = index
+  }
+  return earliest
 }
 
 /**
@@ -704,6 +802,7 @@ function synthesizeUnifiedBrowserByPageName(
   if (ctx.lastSuccessfulToolRequest.name !== 'unified_browser') return null
   const prev = ctx.lastSuccessfulToolRequest.request as { action?: string; url?: string } | undefined
   const prevUrl = prev?.url
+  const earliestNamedSiteIndex = getEarliestNamedSiteIndex(content)
 
   for (const catalog of KNOWN_SITE_PAGES) {
     // Choose the base URL to resolve page paths against. Prefer the prior
@@ -714,9 +813,19 @@ function synthesizeUnifiedBrowserByPageName(
     // search, then said "open the StockAnalysis GME overview page"). We
     // never fabricate a base for a site the prose did not name.
     let base: string | null = null
+    const currentNamedSiteIndex = getSiteNameIndex(catalog, content)
     if (prevUrl && typeof prevUrl === 'string' && catalog.site.test(prevUrl)) {
+      if (
+        earliestNamedSiteIndex !== null
+        && (currentNamedSiteIndex === null || currentNamedSiteIndex > earliestNamedSiteIndex)
+      ) {
+        continue
+      }
       base = prevUrl
-    } else if (catalog.siteName && catalog.origin && catalog.siteName.test(content)) {
+    } else if (catalog.origin && currentNamedSiteIndex !== null) {
+      if (earliestNamedSiteIndex !== null && currentNamedSiteIndex > earliestNamedSiteIndex) {
+        continue
+      }
       base = catalog.origin
     }
     if (!base) continue
@@ -872,11 +981,24 @@ export function buildWorkspaceToolRequestFromNarration(
   }
 
   if (recovery.toolName === 'unified_browser') {
+    const action = recovery.args.action === 'search' ? 'search' : 'open'
+    if (action === 'search') {
+      const query = recovery.args.query as string
+      if (typeof query !== 'string' || !query.trim()) return null
+      return {
+        name: 'unified_browser',
+        request: {
+          action: 'search',
+          query: query.trim(),
+          browserMode: recovery.args.browserMode === 'stealth' ? 'stealth' : 'direct',
+          description: (recovery.args.description as string) || '',
+        },
+      }
+    }
     const url = recovery.args.url as string
     if (typeof url !== 'string' || !url) return null
-    // The unified_browser action enum does NOT include 'navigate'; the
-    // closest semantic match is `open` for navigation. Drop to `open` when
-    // the synthesizer would otherwise emit an invalid value.
+    // The unified_browser action enum does NOT include 'navigate'; the closest
+    // semantic match is `open` for navigation.
     return {
       name: 'unified_browser',
       request: {
