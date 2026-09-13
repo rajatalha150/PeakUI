@@ -144,9 +144,13 @@ function looksLikeHiddenToolResult(role: StoredChatRole, content: string) {
   // Keep in sync with the `<tool> tool result:` prefixes the tool dispatchers
   // emit (formatXToolResult helpers in WorkspaceToolWorkspace.tsx) and the
   // TOOL_RESULT_PREFIXES list in session-intelligence.ts. The tool-name portion
-  // may contain spaces (e.g. "Image generation tool result:").
-  return /^[\w ()/&-]+ tool result:/.test(trimmed)
-    || trimmed.startsWith('Fetch and summarize failed:');
+  // may contain spaces (e.g. "Image generation tool result:"). Two tools emit
+  // "result:" WITHOUT the word "tool" ("Shell command result:", "Code execution
+  // result:"), so they are matched explicitly.
+  return /^[\w ()/&-]+ (?:tool )?result:/.test(trimmed)
+    || trimmed.startsWith('Fetch and summarize failed:')
+    || trimmed.startsWith('Shell command result:')
+    || trimmed.startsWith('Code execution result:');
 }
 
 function normalizeMessageCreatedAt(value: unknown): string | undefined {
