@@ -11,6 +11,7 @@ import {
   recordDarkWebSearchNote,
   type DarkWebSearchNoteEntry,
 } from './workspace-tool-workspace'
+import { isTerminalStealthSearchFailure } from './workspace-tool-tool-results'
 
 function makeEntry(overrides: Partial<DarkWebSearchNoteEntry> = {}): DarkWebSearchNoteEntry {
   return {
@@ -42,6 +43,26 @@ function makeEntry(overrides: Partial<DarkWebSearchNoteEntry> = {}): DarkWebSear
 }
 
 describe('formatDarkWebSearchSection', () => {
+  it('marks an exhausted stealth search terminal for the turn', () => {
+    expect(isTerminalStealthSearchFailure({
+      action: 'search', mode: 'stealth', success: false, failureCode: 'search_failed', resultCount: 0,
+      searchAttempts: [
+        { providerId: 'ahmia', providerLabel: 'Ahmia', success: false, resultCount: 0 },
+        { providerId: 'tordex', providerLabel: 'TorDex', success: false, resultCount: 0 },
+      ],
+    })).toBe(true)
+  })
+
+  it('does not mark successful or unexhausted searches terminal', () => {
+    expect(isTerminalStealthSearchFailure({
+      action: 'search', mode: 'stealth', success: true, resultCount: 2,
+      searchAttempts: [{ providerId: 'ahmia', providerLabel: 'Ahmia', success: true, resultCount: 2 }],
+    })).toBe(false)
+    expect(isTerminalStealthSearchFailure({
+      action: 'search', mode: 'stealth', success: false, failureCode: 'search_failed', resultCount: 0,
+      searchAttempts: [],
+    })).toBe(false)
+  })
   it('renders an H2 with timestamp, mode, provider, and result count', () => {
     const section = formatDarkWebSearchSection(makeEntry())
     expect(section.startsWith('## ')).toBe(true)

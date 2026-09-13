@@ -144,6 +144,17 @@ export interface UwafBrowserToolResultEntry {
   };
 }
 
+/** A failed stealth SERP is terminal for this turn once provider fan-out ran. */
+export function isTerminalStealthSearchFailure(entry: Pick<UwafBrowserToolResultEntry, 'action' | 'mode' | 'success' | 'failureCode' | 'resultCount' | 'searchAttempts'>): boolean {
+  return entry.action === 'search'
+    && entry.mode === 'stealth'
+    && !entry.success
+    && entry.failureCode === 'search_failed'
+    && (entry.resultCount ?? 0) === 0
+    && Boolean(entry.searchAttempts?.length)
+    && entry.searchAttempts!.every(attempt => !attempt.success && attempt.resultCount === 0)
+}
+
 /**
  * True for URLs that are inlined base64 image blobs, oversized redirect
  * chains, or other "not a real navigation target" payloads. We strip these

@@ -26,7 +26,7 @@ buildObjectiveAnchorMessage,
 buildObjectiveDivergenceNudge,
 isSearchRequestRelevantToObjective,
 } from '@/lib/workspace-tool-objective-guard';
-import { formatUwafBrowserToolResult,type UwafBrowserToolResultEntry } from '@/lib/workspace-tool-tool-results';
+import { formatUwafBrowserToolResult,isTerminalStealthSearchFailure,type UwafBrowserToolResultEntry } from '@/lib/workspace-tool-tool-results';
 import {
 buildWorkspaceToolRequestFromNativeCall,
 detectMalformedToolWrapper,
@@ -1555,6 +1555,10 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
               && (uwafResult.resultCount ?? 0) > 0
             ) {
               hadRelevantSearchResult = true;
+            }
+            if (isTerminalStealthSearchFailure(uwafResult)) {
+              forceFinalSynthesis = true;
+              forcedSynthesisReminderCount = 0;
             }
             lastSuccessfulToolRequest = {
               name: 'unified_browser',

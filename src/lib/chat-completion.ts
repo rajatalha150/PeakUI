@@ -140,7 +140,7 @@ function buildUwafRuntimeContext(mode: 'deny' | 'direct' | 'stealth'): string {
     `Direct search providers by current score: ${providerLine(directProviders) || 'none'}.`,
     `Stealth search providers by current score: ${providerLine(stealthProviders) || 'none'}.`,
     `Recent UWAF search success rate: ${searchSuccessRate}; median browser launch: ${metrics.medianLaunchTimeMs ?? 'unknown'}ms; median page open: ${metrics.medianPageOpenTimeMs ?? 'unknown'}ms.`,
-    'For dark-web or .onion requests, use unified_browser with browserMode "stealth"; for normal public sites, use browserMode "direct". Omit providerId unless retrying or comparing one of the approved provider ids listed above.',
+    'For dark-web or .onion requests, use unified_browser with browserMode "stealth"; for normal public sites, use browserMode "direct". Omit providerId unless retrying or comparing one of the approved provider ids listed above. A search_failed result that says all approved providers returned zero usable results is terminal for this turn: do not keep changing providers or inventing follow-up searches; report the failure and ask for a materially different query or permission to use clear-web sources.',
   ].join('\n');
 }
 
