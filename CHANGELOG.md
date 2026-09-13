@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Tool reliability scoreboard (phase 4)
+
+Per-model, per-tool success/failure telemetry surfaced in Settings → WorkSpaces → **Tool Reliability**. The most-broken pairs sort to the top with a color-coded failure-rate badge and the last error message, so a model that keeps failing a tool is visible instead of surfacing as a cryptic transcript.
+
+- `src/lib/tool-reliability.ts`: in-memory bounded store (record/get/reset), sorted by failure rate.
+- `/api/workspace-tool/reliability`: GET snapshot + POST record/reset.
+- All 24 tool dispatch blocks instrumented (success + failure paths) with fire-and-forget recording.
+- `ToolReliabilityPanel` component + Settings wiring. 5 tests.
+
 ### Added — Pull-based memory + new tools (phases 2–3)
 
 **Pull-based cross-session memory** (`notes_search` / `notes_save`): memory is now opt-in instead of injected. The model searches saved notes when the user references past work, and stores durable facts on request. Notes are per-user (`memory/users/<userId>/notes.md`) and persist across sessions. This replaces the push-injection that caused cross-session "memory leak" hallucinations.
