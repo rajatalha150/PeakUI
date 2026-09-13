@@ -136,7 +136,8 @@ describe('web-context: configured-tier parallelism (2+ providers = parallel)', (
     expect(spread).toBeLessThan(50)
     // Wall time is ~300ms (parallel) not 600ms (sequential).
     expect(wall).toBeLessThan(500)
-    expect(results.length).toBe(1)
+    expect(results.length).toBe(2)
+    expect(results.map(result => result.title)).toEqual(['Brave result', 'Google result'])
   })
 
   it('falls through to the always-on tier when both configured providers fail', async () => {
@@ -238,5 +239,15 @@ describe('web-context: buildWebContext query-variant parallelism', () => {
     // Wall time should be ~PER_FETCH_LATENCY_MS, not queries.length × that.
     expect(wall).toBeLessThan(queries.length * PER_FETCH_LATENCY_MS - 100)
     expect(out.sources.length).toBeGreaterThan(0)
+  })
+})
+
+describe('web-context: result diversity', () => {
+  it('round-robins providers and removes tracking-param duplicates', async () => {
+    const { mergeSearchResults } = await loadWebContext()
+    expect(mergeSearchResults([
+      [buildResult('https://a.example/article?utm_source=test', 'A1'), buildResult('https://a.example/second', 'A2')],
+      [buildResult('https://b.example/article', 'B1'), buildResult('https://a.example/article?fbclid=tracking', 'Duplicate A1')],
+    ], 4).map(result => result.title)).toEqual(['A1', 'B1', 'A2'])
   })
 })

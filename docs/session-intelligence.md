@@ -14,6 +14,15 @@
 
 Run `npm test`, `npx tsc --noEmit`, and `npm run build`. Persistence tests use temporary directories and include concurrent daily writes, summary replacement without collateral deletion, and user isolation. Context tests cover hidden tool chains, system overhead and impossible budgets.
 
+## Web gateway rollout
+
+PeakUI ships a loopback-only SearXNG instance with Compose as its no-key search
+baseline. `SEARXNG_URL` defaults to that private service on Linux/macOS and to
+the Compose service on Windows. Brave and Google keys are optional, parallel
+search providers; when two providers are available, results are deduplicated
+and interleaved so one index cannot monopolize the evidence set. Do not expose
+the bundled SearXNG port publicly without adding a reverse proxy and rate limit.
+
 ## Deferred after scope was closed
 
 Further split the large workspace controller/view into feature-specific components, replace repetitive tool-dispatch branches with typed handlers, and add browser-level lifecycle tests. This change is a session-intelligence hardening pass, not a complete security or dependency audit of the application.

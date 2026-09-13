@@ -30,6 +30,19 @@ export interface PublicWebSearchResult {
   snippet: string
 }
 
+export interface WebSearchAttempt {
+  provider: string
+  durationMs: number
+  resultCount: number
+  success: boolean
+  error?: string
+}
+
+export interface WebSearchResponse {
+  results: PublicWebSearchResult[]
+  attempts: WebSearchAttempt[]
+}
+
 function decodeHtmlEntities(value: string): string {
   return value
     .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
@@ -933,8 +946,20 @@ export async function searchPublicWeb(
   query: string,
   options: { maxResults?: number; signal?: AbortSignal } = {},
 ): Promise<PublicWebSearchResult[]> {
+  return (await searchPublicWebWithDiagnostics(query, options)).results
+}
+
+/**
+ * Search with provider diagnostics. This is the canonical search-gateway
+ * boundary: callers that need evidence/progress can use it, while existing
+ * callers retain the compact result-only API above.
+ */
+export async function searchPublicWebWithDiagnostics(
+  query: string,
+  options: { maxResults?: number; signal?: AbortSignal } = {},
+): Promise<WebSearchResponse> {
   const cleanQuery = query.trim()
-  if (!cleanQuery) return []
+  if (!cleanQuery) return { results: [], attempts: [] }
 
   const maxResults = Math.min(Math.max(options.maxResults ?? MAX_SEARCH_RESULTS, 1), 10)
   const signal = options.signal
@@ -944,56 +969,72 @@ export async function searchPublicWeb(
   if (BRAVE_API_KEY) configuredProviders.push({ label: 'Brave', search: searchBrave })
   if (GOOGLE_SEARCH_API_KEY && GOOGLE_SEARCH_CX) configuredProviders.push({ label: 'Google', search: searchGoogle })
 
-  if (configuredProviders.length >= 2) {
-    const [first, second] = configuredProviders
-    const settled = await Promise.allSettled([
-      safeSearch(first.search, cleanQuery, maxResults, signal, first.label),
-      safeSearch(second.search, cleanQuery, maxResults, signal, second.label),
-    ])
-    for (const result of settled) {
-      if (result.status === 'fulfilled' && result.value.length > 0) {
-        return result.value
+  const attempts: WebSearchAttempt[] = []
+  const runProviders = async (providers: typeof configuredProviders): Promise<PublicWebSearchResult[]> => {
+    const settled = await Promise.all(providers.map(async provider => {
+      const startedAt = Date.now()
+      try {
+        const results = await provider.search(cleanQuery, maxResults, signal)
+        attempts.push({ provider: provider.label, durationMs: Date.now() - startedAt, resultCount: results.length, success: results.length > 0 })
+        return results
+      } catch (error) {
+        if (signal?.aborted) throw error
+        const message = error instanceof Error ? error.message : String(error)
+        attempts.push({ provider: provider.label, durationMs: Date.now() - startedAt, resultCount: 0, success: false, error: message })
+        console.warn(`${provider.label} search failed:`, error)
+        return []
       }
-    }
-  } else if (configuredProviders.length === 1) {
-    const only = configuredProviders[0]
-    try {
-      const results = await only.search(cleanQuery, maxResults, signal)
-      if (results.length > 0) return results
-    } catch (error) {
-      if (signal?.aborted) throw error
-      console.warn(`${only.label} search failed:`, error)
-    }
+    }))
+    return mergeSearchResults(settled, maxResults)
   }
 
-  for (let i = 2; i < configuredProviders.length; i += 1) {
-    const provider = configuredProviders[i]
-    try {
-      const results = await provider.search(cleanQuery, maxResults, signal)
-      if (results.length > 0) return results
-    } catch (error) {
-      if (signal?.aborted) throw error
-      console.warn(`${provider.label} search failed:`, error)
-    }
-  }
+  // Run two configured providers concurrently and blend their results. This
+  // avoids a single index's blind spots while keeping a fixed latency budget.
+  const configuredResults = await runProviders(configuredProviders.slice(0, 2))
+  if (configuredResults.length > 0) return { results: configuredResults, attempts }
 
+  const remainingResults = await runProviders(configuredProviders.slice(2))
+  if (remainingResults.length > 0) return { results: remainingResults, attempts }
+
+  const noKeyResults = await runProviders([
+    { label: 'DuckDuckGo HTML fallback', search: searchDuckDuckGo },
+    { label: 'Bing HTML fallback', search: searchBing },
+  ])
+  return { results: noKeyResults, attempts }
+}
+
+function canonicalSearchUrl(rawUrl: string): string {
   try {
-    const results = await searchDuckDuckGo(cleanQuery, maxResults, signal)
-    if (results.length > 0) return results
-  } catch (error) {
-    if (signal?.aborted) throw error
-    console.warn('DuckDuckGo search failed, falling back to Bing:', error)
+    const url = new URL(rawUrl)
+    url.hash = ''
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(utm_|fbclid$|gclid$|mc_[ce]id$)/i.test(key)) url.searchParams.delete(key)
+    }
+    return url.toString()
+  } catch {
+    return rawUrl
   }
+}
 
-  try {
-    const results = await searchBing(cleanQuery, maxResults, signal)
-    if (results.length > 0) return results
-  } catch (error) {
-    if (signal?.aborted) throw error
-    console.warn('Bing search failed:', error)
+/** Round-robin provider results so two indices cannot monopolize evidence. */
+export function mergeSearchResults(groups: PublicWebSearchResult[][], maxResults: number): PublicWebSearchResult[] {
+  const merged: PublicWebSearchResult[] = []
+  const seen = new Set<string>()
+  for (let index = 0; merged.length < maxResults; index += 1) {
+    let progressed = false
+    for (const group of groups) {
+      const candidate = group[index]
+      if (!candidate) continue
+      progressed = true
+      const key = canonicalSearchUrl(candidate.url)
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      merged.push(candidate)
+      if (merged.length >= maxResults) break
+    }
+    if (!progressed) break
   }
-
-  return []
+  return merged
 }
 
 async function safeSearch(
