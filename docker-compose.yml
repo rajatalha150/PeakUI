@@ -9,7 +9,7 @@ services:
     environment:
       SEARXNG_SECRET: ${SEARXNG_SECRET:-peakui-local-search-change-me}
     volumes:
-      - ./searxng:/etc/searxng:ro
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
       - searxng_cache:/var/cache/searxng
     # The app uses host networking on Linux, so bind SearXNG only to loopback.
     ports:
