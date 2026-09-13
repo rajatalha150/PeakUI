@@ -1,0 +1,20 @@
+# Private, local-only SearXNG instance used by PeakUI when no commercial
+# search API key is configured. JSON is enabled because PeakUI consumes the
+# documented /search?format=json endpoint, never scraped SearXNG HTML.
+use_default_settings: true
+
+general:
+  instance_name: "PeakUI local search"
+  debug: false
+
+search:
+  safe_search: 1
+  autocomplete: ""
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "peakui-local-search-change-me"
+  limiter: false
+  image_proxy: false

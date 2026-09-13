@@ -79,6 +79,9 @@ if (Test-Path $EnvFile) {
     $jwtBytes = New-Object byte[] 48
     [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($jwtBytes)
     $jwt = [Convert]::ToBase64String($jwtBytes)
+    $searxBytes = New-Object byte[] 32
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($searxBytes)
+    $searxSecret = [Convert]::ToBase64String($searxBytes)
     $workspace = "C:\Users\$env:USERNAME\peakui-workspace"
     $projects  = "C:\Users\$env:USERNAME\Desktop"
     New-Item -ItemType Directory -Path $workspace -Force | Out-Null
@@ -89,6 +92,7 @@ POSTGRES_PASSWORD=$pgPass
 POSTGRES_DB=peakui
 DATABASE_URL=postgresql://peakui:$pgPass@db:5432/peakui
 JWT_SECRET=$jwt
+SEARXNG_SECRET=$searxSecret
 OLLAMA_HOST=http://host.docker.internal:11434
 WORKSPACE_TOOL_HOST_HOME_DIR=C:\Users\$env:USERNAME
 WORKSPACE_TOOL_HOST_TMP_DIR=C:\Users\$env:USERNAME\AppData\Local\Temp

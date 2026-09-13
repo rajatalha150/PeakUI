@@ -45,6 +45,25 @@ describe('web-context: searchPublicWeb basic shape', () => {
 })
 
 describe('web-context: configured-tier parallelism (1 provider = sequential)', () => {
+  it('uses private SearXNG as the no-key primary provider', async () => {
+    process.env.SEARXNG_URL = 'http://searxng.test:8080'
+    delete process.env.BRAVE_API_KEY
+    delete process.env.GOOGLE_SEARCH_API_KEY
+    delete process.env.GOOGLE_SEARCH_CX
+    globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input.toString()
+      expect(url).toContain('searxng.test:8080/search')
+      expect(url).toContain('format=json')
+      expect(url).not.toContain('engines=')
+      return new Response(JSON.stringify({ results: [{ title: 'Private result', url: 'https://example.com', content: 'desc' }] }), { status: 200 })
+    }) as typeof fetch
+
+    const { searchPublicWeb } = await loadWebContext()
+    await expect(searchPublicWeb('no key search')).resolves.toEqual([
+      { title: 'Private result', url: 'https://example.com', snippet: 'desc' },
+    ])
+  })
+
   it('calls Brave exactly once when it is the only configured provider', async () => {
     process.env.BRAVE_API_KEY = 'test_key'
     delete process.env.GOOGLE_SEARCH_API_KEY

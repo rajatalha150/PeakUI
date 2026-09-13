@@ -72,7 +72,8 @@ Common optional:
 | `WORKSPACE_TOOL_HOST_EXECUTOR_URL` | `http://127.0.0.1:4318` (Linux) or `http://host.docker.internal:4318` (Win/macOS) | Host shell executor endpoint |
 | `WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN` | _(unset)_ | Shared secret for the host executor. **Required** when running the host executor |
 | `TOR_PROXY_URL` | Auto-detected | SOCKS5 proxy for UWAF stealth mode. Override only if you have a non-Docker Tor instance |
-| `BRAVE_API_KEY` / `SEARXNG_URL` / `GOOGLE_SEARCH_API_KEY` + `GOOGLE_SEARCH_CX` | _(unset)_ | Internet-mode search backends (any one is enough) |
+| `SEARXNG_URL` | Local Compose default | Private no-key search backend; override only for a separately managed instance |
+| `BRAVE_API_KEY` / `GOOGLE_SEARCH_API_KEY` + `GOOGLE_SEARCH_CX` | _(unset)_ | Optional paid search fallbacks |
 | `PEAKUI_DATA_DIR` | `/mnt/workspace-tool/workspace` | Override the managed workspace mount |
 | `PEAKUI_ALLOW_INTERNAL_HOSTS` | `false` | Permits `.internal` hostnames in browser/search guards. Do not enable in production |
 

@@ -7,6 +7,17 @@
 #   - PowerShell execution policy allows scripts: Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 services:
+  searxng:
+    image: searxng/searxng:latest
+    restart: always
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-peakui-local-search-change-me}
+    volumes:
+      - ./searxng:/etc/searxng:ro
+      - searxng_cache:/var/cache/searxng
+    networks:
+      - peakui
+
   db:
     image: postgres:15-alpine
     restart: always
@@ -59,11 +70,13 @@ services:
       SCREENCAST_PORT: 3001
       PEAKUI_DATA_DIR: /var/lib/peakui
       BRAVE_API_KEY: ${BRAVE_API_KEY:-}
-      SEARXNG_URL: ${SEARXNG_URL:-}
+      SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
       GOOGLE_SEARCH_API_KEY: ${GOOGLE_SEARCH_API_KEY:-}
       GOOGLE_SEARCH_CX: ${GOOGLE_SEARCH_CX:-}
       OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
     depends_on:
+      searxng:
+        condition: service_started
       db:
         condition: service_healthy
       tor-proxy:
@@ -91,6 +104,7 @@ services:
 volumes:
   db_data:
   app_runtime:
+  searxng_cache:
 
 networks:
   peakui:

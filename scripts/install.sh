@@ -70,6 +70,7 @@ else
   rand() { head -c "$1" /dev/urandom 2>/dev/null | base64 | tr -d '/+=\n' | cut -c1-"$2"; }
   PG_PASS="$(rand 24 24)"; [ -n "$PG_PASS" ] || PG_PASS="peakui_$(date 2>/dev/null || echo changeme)"
   JWT_SECRET="$(rand 48 64)"; [ -n "$JWT_SECRET" ] || JWT_SECRET="peakui_jwt_$(date 2>/dev/null || echo changeme)"
+  SEARXNG_SECRET="$(rand 32 48)"; [ -n "$SEARXNG_SECRET" ] || SEARXNG_SECRET="peakui_searxng_$(date 2>/dev/null || echo changeme)"
   HOME_DIR="${WORKSPACE_TOOL_HOST_HOME_DIR:-$HOME}"
   TMP_DIR="${WORKSPACE_TOOL_HOST_TMP_DIR:-/tmp}"
   WORKSPACE_DIR="${WORKSPACE_TOOL_HOST_WORKSPACE_DIR:-$HOME/.peakui/workspace}"
@@ -84,6 +85,7 @@ POSTGRES_PASSWORD=$PG_PASS
 POSTGRES_DB=peakui
 DATABASE_URL=postgresql://peakui:$PG_PASS@$DB_HOST:5432/peakui
 JWT_SECRET=$JWT_SECRET
+SEARXNG_SECRET=$SEARXNG_SECRET
 OLLAMA_HOST=$OLLAMA_HOST
 WORKSPACE_TOOL_HOST_HOME_DIR=$HOME_DIR
 WORKSPACE_TOOL_HOST_TMP_DIR=$TMP_DIR

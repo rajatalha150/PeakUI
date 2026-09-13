@@ -84,6 +84,10 @@ docker compose -f docker-compose.windows.yml up --build
 
 Open [http://localhost:3000](http://localhost:3000).
 
+PeakUI also starts a private, local-only SearXNG metasearch service by default,
+so ordinary web search works without a Brave, Google, or other commercial API
+key. Paid providers are optional fallbacks, not prerequisites.
+
 On first visit, create the initial Admin account. After login, the app opens directly into WorkSpaces.
 
 ### 3. Optional: Enable Image Generation (ComfyUI)

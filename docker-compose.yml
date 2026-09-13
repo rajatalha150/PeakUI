@@ -3,6 +3,18 @@
 # Use docker-compose.windows.yml on Windows instead.
 
 services:
+  searxng:
+    image: searxng/searxng:latest
+    restart: always
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-peakui-local-search-change-me}
+    volumes:
+      - ./searxng:/etc/searxng:ro
+      - searxng_cache:/var/cache/searxng
+    # The app uses host networking on Linux, so bind SearXNG only to loopback.
+    ports:
+      - "127.0.0.1:${SEARXNG_PORT:-8080}:8080"
+
   db:
     image: pgvector/pgvector:pg15
     restart: always
@@ -47,10 +59,11 @@ services:
       - SCREENCAST_PORT=3001
       - PEAKUI_DATA_DIR=/var/lib/peakui
       - BRAVE_API_KEY=${BRAVE_API_KEY:-}
-      - SEARXNG_URL=${SEARXNG_URL:-}
+      - SEARXNG_URL=${SEARXNG_URL:-http://127.0.0.1:8080}
       - GOOGLE_SEARCH_API_KEY=${GOOGLE_SEARCH_API_KEY:-}
       - GOOGLE_SEARCH_CX=${GOOGLE_SEARCH_CX:-}
     depends_on:
+      - searxng
       - db
       - tor-proxy
     restart: always
@@ -67,3 +80,4 @@ services:
 volumes:
   db_data:
   app_runtime:
+  searxng_cache:

@@ -353,7 +353,10 @@ async function searchSearxng(query: string, maxResults: number, signal?: AbortSi
   const url = new URL(`${SEARXNG_URL.replace(/\/$/, '')}/search`)
   url.searchParams.set('q', query)
   url.searchParams.set('format', 'json')
-  url.searchParams.set('engines', 'google,bing,duckduckgo,wikipedia')
+  // Let the self-hosted instance choose its enabled engines. Hard-coding a
+  // browser-era engine list causes avoidable 403/empty responses on valid
+  // private SearXNG deployments with different provider policy.
+  url.searchParams.set('categories', 'general')
 
   try {
     const response = await fetch(url.toString(), {
@@ -937,9 +940,9 @@ export async function searchPublicWeb(
   const signal = options.signal
 
   const configuredProviders: Array<{ label: string; search: typeof searchGoogle }> = []
-  if (GOOGLE_SEARCH_API_KEY && GOOGLE_SEARCH_CX) configuredProviders.push({ label: 'Google', search: searchGoogle })
-  if (BRAVE_API_KEY) configuredProviders.push({ label: 'Brave', search: searchBrave })
   if (SEARXNG_URL) configuredProviders.push({ label: 'SearXNG', search: searchSearxng })
+  if (BRAVE_API_KEY) configuredProviders.push({ label: 'Brave', search: searchBrave })
+  if (GOOGLE_SEARCH_API_KEY && GOOGLE_SEARCH_CX) configuredProviders.push({ label: 'Google', search: searchGoogle })
 
   if (configuredProviders.length >= 2) {
     const [first, second] = configuredProviders
