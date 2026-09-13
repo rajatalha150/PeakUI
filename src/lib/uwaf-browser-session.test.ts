@@ -6,6 +6,7 @@ import {
   recordSearchHistory,
   recordVisitedPage,
   resolveTargetLink,
+  selectResearchLinks,
   updateTabSnapshots,
   type PageObservation,
   type UwafBrowserSession,
@@ -232,6 +233,32 @@ describe('uwaf browser cross-tab link resolution', () => {
     const retrieved = getUwafBrowserSession('user-1', 'lookup-session', 'direct')
     expect(retrieved).toBe(session)
     expect(retrieved?.visitedPages[0].url).toBe('https://example.com/lookup')
+  })
+})
+
+describe('uwaf research crawl frontier', () => {
+  it('stays on the starting origin, strips tracking, and respects the page cap', () => {
+    const visited = new Set<string>(['https://example.com/start'])
+    const links = selectResearchLinks([
+      { index: 0, text: 'Tracked', url: 'https://example.com/a?utm_source=newsletter' },
+      { index: 1, text: 'External', url: 'https://other.example/article' },
+      { index: 2, text: 'Duplicate', url: 'https://example.com/a' },
+      { index: 3, text: 'Second', url: 'https://example.com/b#section' },
+    ], 'https://example.com/start', visited, false, 2)
+
+    expect(links.map(link => link.url)).toEqual(['https://example.com/a', 'https://example.com/b'])
+    expect(visited.has('https://other.example/article')).toBe(false)
+  })
+
+  it('includes external links only when explicitly enabled', () => {
+    const links = selectResearchLinks(
+      [{ index: 0, text: 'External', url: 'https://other.example/article' }],
+      'https://example.com/start',
+      new Set(['https://example.com/start']),
+      true,
+      5,
+    )
+    expect(links).toHaveLength(1)
   })
 })
 

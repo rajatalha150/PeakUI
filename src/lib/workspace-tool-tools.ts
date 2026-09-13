@@ -67,6 +67,8 @@ export interface WorkspaceToolUwafBrowserToolRequest {
   browserMode?: 'direct' | 'stealth'
   stealthProfile?: 'normal' | 'high'
   depth?: number
+  includeExternal?: boolean
+  maxPages?: number
   selector?: string
   text?: string
   key?: string
@@ -1293,6 +1295,11 @@ export function extractWorkspaceToolRequest(content: string): {
 
       if (typeof parsed.depth === 'number' && Number.isInteger(parsed.depth) && parsed.depth >= 1 && parsed.depth <= 3) {
         request.depth = parsed.depth
+      }
+
+      if (parsed.includeExternal === true) request.includeExternal = true
+      if (typeof parsed.maxPages === 'number' && Number.isInteger(parsed.maxPages) && parsed.maxPages >= 1 && parsed.maxPages <= 20) {
+        request.maxPages = parsed.maxPages
       }
 
       const selector = cleanFieldValue(parsed.selector)

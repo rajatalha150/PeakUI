@@ -157,6 +157,8 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
           values: Obj('Field name -> value map (action=fill).'),
           mode: SEnum('Extraction mode.', 'summary', 'text', 'links', 'forms', 'html'),
           browserMode: SEnum('direct = normal HTTPS; stealth = Tor.', 'direct', 'stealth'),
+          includeExternal: B('research_batch only: follow off-site links; requires explicit approval.'),
+          maxPages: N('research_batch only: total page cap, 1-20.'),
           selector: S('CSS selector (wait_for_selector / extract).'),
           text: S('Text to type (action=type).'),
           key: S('Key name to press (action=press).'),

@@ -138,11 +138,21 @@ export async function POST(request: NextRequest) {
     }
 
     const { verifyWorkspaceToolApprovalToken } = await import('@/lib/workspace-tool-tool-approvals')
+    const depth = typeof body.depth === 'number' && Number.isInteger(body.depth)
+      ? Math.min(Math.max(body.depth, 1), 3)
+      : 1
+    const includeExternal = body.includeExternal === true
+    const maxPages = typeof body.maxPages === 'number' && Number.isInteger(body.maxPages)
+      ? Math.min(Math.max(body.maxPages, 1), 20)
+      : 10
     const payload = {
       action: 'research_batch',
       sessionId,
       url: typeof body.url === 'string' ? body.url : '',
       browserMode: requestBrowserMode,
+      depth,
+      includeExternal,
+      maxPages,
       stealthProfile: resolveStealthProfileForRequest({
         action: 'research_batch',
         url: typeof body.url === 'string' ? body.url : undefined,
@@ -194,6 +204,10 @@ export async function POST(request: NextRequest) {
   }
   if (typeof body.depth === 'number' && Number.isInteger(body.depth) && body.depth >= 1 && body.depth <= 3) {
     uwafRequest.depth = body.depth
+  }
+  if (body.includeExternal === true) uwafRequest.includeExternal = true
+  if (typeof body.maxPages === 'number' && Number.isInteger(body.maxPages) && body.maxPages >= 1 && body.maxPages <= 20) {
+    uwafRequest.maxPages = body.maxPages
   }
   if (typeof body.selector === 'string' && body.selector.trim()) uwafRequest.selector = body.selector.trim()
   if (typeof body.text === 'string') uwafRequest.text = body.text

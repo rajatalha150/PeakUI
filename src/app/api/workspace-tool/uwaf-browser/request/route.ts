@@ -104,7 +104,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ allowed: false, reason: 'URL is required for research_batch.' })
     }
 
-    const depth = typeof body.depth === 'number' ? body.depth : 1
+    const depth = typeof body.depth === 'number' && Number.isInteger(body.depth)
+      ? Math.min(Math.max(body.depth, 1), 3)
+      : 1
+    const includeExternal = body.includeExternal === true
+    const maxPages = typeof body.maxPages === 'number' && Number.isInteger(body.maxPages)
+      ? Math.min(Math.max(body.maxPages, 1), 20)
+      : 10
     const payload = {
       action: 'research_batch',
       sessionId,
@@ -112,6 +118,8 @@ export async function POST(request: NextRequest) {
       browserMode,
       stealthProfile,
       depth,
+      includeExternal,
+      maxPages,
     }
 
     const approvalToken = createWorkspaceToolApprovalToken({
@@ -128,10 +136,12 @@ export async function POST(request: NextRequest) {
       action: 'research_batch',
       url,
       depth,
+      includeExternal,
+      maxPages,
       browserMode,
       stealthProfile,
       approvalToken,
-      description: `Research batch: crawl ${url} up to depth ${depth} in ${modeLabel} mode`,
+      description: `Research batch: crawl ${url} up to depth ${depth} (${maxPages} pages, ${includeExternal ? 'including approved external links' : 'same site only'}) in ${modeLabel} mode`,
     })
   }
 

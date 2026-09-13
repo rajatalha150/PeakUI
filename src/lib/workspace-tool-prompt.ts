@@ -495,7 +495,7 @@ export function buildWorkspaceToolSystemPrompt(context: WorkspaceToolPromptConte
         'select/hover: Interact with dropdowns and hover-driven menus before extracting.',
         'extract: Re-extract the current page in a specific mode (summary, text, links, forms, html).',
         'extract_table: Extract all HTML tables from the current page as Markdown or CSV.',
-        'research_batch: Crawl a URL and follow links up to a depth (1-3). Returns aggregated content from multiple pages.',
+        'research_batch: Crawl a URL and follow same-site links up to a depth (1-3), with a bounded maxPages (1-20). It runs child pages in parallel. Set includeExternal:true only when the user approved following off-site links.',
         'wait_for_user: Pause for the human to take over the visible browser, solve CAPTCHA/MFA/login/bot checks, then resume after the page is re-observed.',
         'browserMode can be "direct" (default, clear web) or "stealth" (Tor-routed, for .onion and anonymous research).',
         'Optional stealthProfile can be "normal" or "high". Use high only when a stealth search target is unusually bot-sensitive or repeatedly blocks the normal profile.',

@@ -49,7 +49,8 @@ const MAX_TEXT_CHARS = 30_000
 const MAX_LINKS = 50
 const SCREENSHOT_QUALITY = 60
 const RESEARCH_BATCH_MAX_DEPTH = 3
-const RESEARCH_BATCH_MAX_PAGES = 10
+const RESEARCH_BATCH_MAX_PAGES = 20
+const RESEARCH_BATCH_CONCURRENCY = 3
 const SESSION_TTL_MS = 15 * 60 * 1000
 const DEFAULT_WAIT_TIMEOUT_MS = 10_000
 const MAX_WAIT_TIMEOUT_MS = 30_000
@@ -192,6 +193,10 @@ export interface UwafBrowserRequest {
   browserMode?: BrowserMode
   stealthProfile?: StealthProfile
   depth?: number
+  /** research_batch: allow links outside the starting origin (default false). */
+  includeExternal?: boolean
+  /** research_batch: bounded total pages, including the starting URL. */
+  maxPages?: number
   selector?: string
   text?: string
   key?: string
@@ -1305,6 +1310,50 @@ export async function resolveTargetLink(session: UwafBrowserSession, request: Uw
   throw new Error(`Link not found. Available links: 0–${linkSource.links.length - 1}${tabSnapshot ? ` on tab ${tabSnapshot.tabIndex}` : ''}`)
 }
 
+function canonicalResearchUrl(rawUrl: string): string | null {
+  try {
+    const url = new URL(rawUrl)
+    if (!['http:', 'https:'].includes(url.protocol)) return null
+    url.hash = ''
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(utm_|fbclid$|gclid$|mc_[ce]id$)/i.test(key)) url.searchParams.delete(key)
+    }
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Select a deterministic, bounded crawl frontier. Same-origin crawling is
+ * the safe default; external expansion requires an explicit request and the
+ * existing research_batch approval flow.
+ */
+export function selectResearchLinks(
+  links: UwafBrowserLink[],
+  rootUrl: string,
+  visited: Set<string>,
+  includeExternal: boolean,
+  maxLinks: number,
+): UwafBrowserLink[] {
+  let rootOrigin = ''
+  try { rootOrigin = new URL(rootUrl).origin } catch { return [] }
+  const selected: UwafBrowserLink[] = []
+  for (const link of links) {
+    if (selected.length >= maxLinks) break
+    const canonical = canonicalResearchUrl(link.url)
+    if (!canonical || visited.has(canonical)) continue
+    try {
+      if (!includeExternal && new URL(canonical).origin !== rootOrigin) continue
+    } catch {
+      continue
+    }
+    visited.add(canonical)
+    selected.push({ ...link, url: canonical })
+  }
+  return selected
+}
+
 async function navigateToUrl(
   page: Page,
   url: string,
@@ -1998,9 +2047,12 @@ export async function runUwafBrowserAction(
     case 'research_batch': {
       if (!request.url) throw new Error('URL is required for "research_batch" action.')
       const depth = Math.min(Math.max(request.depth || 1, 1), RESEARCH_BATCH_MAX_DEPTH)
+      const maxPages = Math.min(Math.max(request.maxPages || 10, 1), RESEARCH_BATCH_MAX_PAGES)
+      const includeExternal = request.includeExternal === true
       const since = Date.now()
       const startObservation = await navigateToUrl(page, request.url, mode, takeScreenshot, { since, stealthProfile })
-      const visited = new Set<string>([startObservation.url])
+      const startingUrl = canonicalResearchUrl(startObservation.url) || startObservation.url
+      const visited = new Set<string>([startingUrl])
       const results: UwafBatchResult[] = [{
         url: startObservation.url,
         title: startObservation.title,
@@ -2012,15 +2064,36 @@ export async function runUwafBrowserAction(
       commitObservationToSession(session, startObservation, 'research_batch')
       if (startObservation.screenshot) pushScreenshot(session, startObservation.screenshot)
 
-      let currentLinks = startObservation.links
-      for (let currentDepth = 1; currentDepth <= depth && results.length < RESEARCH_BATCH_MAX_PAGES; currentDepth += 1) {
+      let frontier = selectResearchLinks(
+        startObservation.links,
+        startObservation.url,
+        visited,
+        includeExternal,
+        maxPages - results.length,
+      )
+      for (let currentDepth = 1; currentDepth <= depth && frontier.length > 0 && results.length < maxPages; currentDepth += 1) {
         const nextLinks: UwafBrowserLink[] = []
-        for (const link of currentLinks) {
-          if (results.length >= RESEARCH_BATCH_MAX_PAGES) break
-          if (visited.has(link.url)) continue
-          try {
-            const pageResult = await navigateToUrl(page, link.url, mode, false, { since, stealthProfile })
-            visited.add(pageResult.url)
+        const batches = Array.from({ length: Math.ceil(frontier.length / RESEARCH_BATCH_CONCURRENCY) }, (_, index) =>
+          frontier.slice(index * RESEARCH_BATCH_CONCURRENCY, (index + 1) * RESEARCH_BATCH_CONCURRENCY),
+        )
+        for (const batch of batches) {
+          if (results.length >= maxPages) break
+          const fetched = await Promise.all(batch.map(async link => {
+            const childPage = await page.context().newPage()
+            try {
+              return await navigateToUrl(childPage, link.url, mode, false, {
+                since,
+                stealthProfile,
+                timeoutMs: 12_000,
+              })
+            } catch {
+              return null
+            } finally {
+              await childPage.close().catch(() => {})
+            }
+          }))
+          for (const pageResult of fetched) {
+            if (!pageResult || results.length >= maxPages) continue
             results.push({
               url: pageResult.url,
               title: pageResult.title,
@@ -2030,16 +2103,21 @@ export async function runUwafBrowserAction(
             })
             recordVisitedPage(session, pageResult, 'research_batch')
             nextLinks.push(...pageResult.links)
-          } catch {
-            // Skip unreachable pages and keep crawling.
           }
         }
-        currentLinks = nextLinks
+        frontier = selectResearchLinks(
+          nextLinks,
+          startObservation.url,
+          visited,
+          includeExternal,
+          maxPages - results.length,
+        )
       }
 
       return toResult('research_batch', mode, startObservation, {
         requestedUrl: request.url,
         batchResults: results,
+        textOverride: `${startObservation.text}\n\nResearch batch: collected ${results.length} page(s)${includeExternal ? ' with approved external links enabled' : ' within the starting site'}.`,
       })
     }
 
