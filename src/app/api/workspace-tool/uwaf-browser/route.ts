@@ -11,6 +11,7 @@ import { getDefaultStealthProfile, normalizeStealthProfile } from '@/lib/uwaf-fi
 const VALID_ACTIONS: UwafBrowserRequest['action'][] = [
   'search',
   'open',
+  'snapshot',
   'click',
   'type',
   'press',
@@ -36,6 +37,7 @@ function describeRequestTarget(body: Record<string, unknown>): string | undefine
   if (typeof body.url === 'string' && body.url.trim()) return body.url.trim()
   if (typeof body.query === 'string' && body.query.trim()) return body.query.trim()
   if (typeof body.selector === 'string' && body.selector.trim()) return body.selector.trim()
+  if (typeof body.targetRef === 'string' && body.targetRef.trim()) return body.targetRef.trim()
   if (typeof body.linkText === 'string' && body.linkText.trim()) return body.linkText.trim()
   if (typeof body.key === 'string' && body.key.trim()) return body.key.trim()
   return undefined
@@ -171,6 +173,7 @@ export async function POST(request: NextRequest) {
   if (typeof body.query === 'string' && body.query.trim()) uwafRequest.query = body.query.trim()
   if (typeof body.providerId === 'string' && body.providerId.trim()) uwafRequest.providerId = body.providerId.trim().toLowerCase()
   if (typeof body.url === 'string' && body.url.trim()) uwafRequest.url = body.url.trim()
+  if (typeof body.targetRef === 'string' && /^e\d{1,4}$/.test(body.targetRef.trim())) uwafRequest.targetRef = body.targetRef.trim()
   if (typeof body.linkIndex === 'number' && Number.isInteger(body.linkIndex) && body.linkIndex >= 0) uwafRequest.linkIndex = body.linkIndex
   if (typeof body.linkText === 'string' && body.linkText.trim()) uwafRequest.linkText = body.linkText.trim()
   if (typeof body.formIndex === 'number' && Number.isInteger(body.formIndex) && body.formIndex >= 0) uwafRequest.formIndex = body.formIndex

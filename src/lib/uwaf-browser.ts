@@ -154,6 +154,7 @@ export type UwafFailureCode =
 export type UwafAction =
   | 'search'
   | 'open'
+  | 'snapshot'
   | 'click'
   | 'type'
   | 'press'
@@ -181,6 +182,8 @@ export interface UwafBrowserRequest {
   query?: string
   providerId?: string
   url?: string
+  /** Opaque element reference returned by the most recent snapshot action. */
+  targetRef?: string
   linkIndex?: number
   linkText?: string
   formIndex?: number
@@ -208,6 +211,23 @@ export interface UwafBrowserLink {
   index: number
   text: string
   url: string
+}
+
+/**
+ * A compact, accessibility-derived control description. The `ref` is scoped
+ * to the current browser session and page state; callers should never need to
+ * construct CSS selectors for ordinary interactions.
+ */
+export interface UwafBrowserElement {
+  ref: string
+  role: string
+  name: string
+  value?: string
+  disabled?: boolean
+}
+
+interface UwafBrowserElementBinding extends UwafBrowserElement {
+  selector: string
 }
 
 export interface UwafBrowserFormField {
@@ -286,6 +306,10 @@ export interface UwafBrowserResult {
    * structured shortcut.
    */
   clusteredResults?: UwafClusteredResults
+  /** Playwright ARIA snapshot, capped to keep tool responses model-friendly. */
+  accessibilitySnapshot?: string
+  /** Visible interactive controls. Pass an item `ref` as targetRef to act on it. */
+  interactiveElements?: UwafBrowserElement[]
 }
 
 export interface UwafBatchResult {
@@ -306,6 +330,8 @@ const MAX_SESSION_SCREENSHOTS = 20
 const MAX_SESSION_VISITED_PAGES = 50
 const MAX_SESSION_SEARCH_HISTORY = 20
 const MAX_TAB_SNAPSHOTS = 10
+const MAX_INTERACTIVE_ELEMENTS = 100
+const MAX_ARIA_SNAPSHOT_CHARS = 12_000
 
 export interface VisitedPageEntry {
   url: string
@@ -349,7 +375,10 @@ export interface UwafBrowserSession {
     title: string
     links: UwafBrowserLink[]
     forms: UwafBrowserForm[]
+    pageSignature?: string
   }
+  snapshotPageSignature?: string
+  interactiveElements?: UwafBrowserElementBinding[]
   tabSnapshots: TabPageSnapshot[]
   filledForms: Record<number, Record<string, string>>
   screenshots: string[]
@@ -519,11 +548,19 @@ export function commitObservationToSession(
   observation: PageObservation,
   source: VisitedPageEntry['source'],
 ): void {
+  if (session.snapshotPageSignature && session.snapshotPageSignature !== observation.pageSignature) {
+    // A ref is intentionally valid only for the exact observed page state.
+    // This prevents a model from accidentally acting on a different element
+    // after a navigation or client-side re-render.
+    session.snapshotPageSignature = undefined
+    session.interactiveElements = undefined
+  }
   session.currentPage = {
     url: observation.url,
     title: observation.title,
     links: observation.links,
     forms: observation.forms,
+    pageSignature: observation.pageSignature,
   }
   updateTabSnapshots(session, observation)
   recordVisitedPage(session, observation, source)
@@ -720,6 +757,142 @@ function extractFormsFromPage(page: Page): Promise<UwafBrowserForm[]> {
     }
     return forms
   }, 10)
+}
+
+async function captureInteractiveElements(page: Page): Promise<UwafBrowserElementBinding[]> {
+  const candidates = await page.evaluate((maxElements: number) => {
+    type Candidate = {
+      role: string
+      name: string
+      value?: string
+      disabled?: boolean
+      selector: string
+    }
+
+    const cssPath = (element: Element): string => {
+      const segments: string[] = []
+      let current: Element | null = element
+      while (current && current.tagName.toLowerCase() !== 'html') {
+        const tag = current.tagName.toLowerCase()
+        if (current.id) {
+          // Attribute syntax avoids depending on CSS.escape support in pages.
+          return `[id=${JSON.stringify(current.id)}] ${segments.reverse().join(' ')}`.trim()
+        }
+        const siblings = current.parentElement
+          ? Array.from(current.parentElement.children).filter(item => item.tagName === current!.tagName)
+          : []
+        const index = Math.max(1, siblings.indexOf(current) + 1)
+        segments.push(`${tag}:nth-of-type(${index})`)
+        current = current.parentElement
+      }
+      return `html ${segments.reverse().join(' ')}`.trim()
+    }
+
+    const visible = (element: HTMLElement): boolean => {
+      const style = window.getComputedStyle(element)
+      const rect = element.getBoundingClientRect()
+      return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0
+    }
+
+    const labelFor = (element: HTMLElement): string => {
+      const labelledBy = element.getAttribute('aria-labelledby')
+      if (labelledBy) {
+        const text = labelledBy.split(/\s+/)
+          .map(id => document.getElementById(id)?.textContent?.trim() || '')
+          .filter(Boolean)
+          .join(' ')
+        if (text) return text
+      }
+      const ariaLabel = element.getAttribute('aria-label')?.trim()
+      if (ariaLabel) return ariaLabel
+      if (element.id) {
+        const label = document.querySelector(`label[for=${JSON.stringify(element.id)}]`)?.textContent?.trim()
+        if (label) return label
+      }
+      return (element.getAttribute('title') || element.getAttribute('placeholder') || element.textContent || element.getAttribute('name') || '').trim()
+    }
+
+    const roleFor = (element: HTMLElement): string | null => {
+      const explicit = element.getAttribute('role')?.trim()
+      if (explicit) return explicit
+      const tag = element.tagName.toLowerCase()
+      if (tag === 'a' && (element as HTMLAnchorElement).href) return 'link'
+      if (tag === 'button') return 'button'
+      if (tag === 'textarea' || element.isContentEditable) return 'textbox'
+      if (tag === 'select') return 'combobox'
+      if (tag !== 'input') return null
+      const type = (element as HTMLInputElement).type.toLowerCase()
+      if (type === 'checkbox' || type === 'radio') return type
+      if (['button', 'submit', 'reset', 'image'].includes(type)) return 'button'
+      if (type === 'hidden') return null
+      return 'textbox'
+    }
+
+    const selector = 'a[href], button, input:not([type="hidden"]), textarea, select, [role], [contenteditable="true"]'
+    const results: Candidate[] = []
+    for (const rawElement of document.querySelectorAll(selector)) {
+      if (results.length >= maxElements) break
+      const element = rawElement as HTMLElement
+      if (!visible(element)) continue
+      const role = roleFor(element)
+      if (!role) continue
+      const name = labelFor(element).replace(/\s+/g, ' ').slice(0, 240)
+      if (!name && role !== 'textbox') continue
+      const isPassword = rawElement instanceof HTMLInputElement && rawElement.type === 'password'
+      const value = !isPassword && ('value' in rawElement)
+        ? String((rawElement as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).value || '').slice(0, 240)
+        : undefined
+      results.push({
+        role,
+        name: name || 'unnamed field',
+        value,
+        disabled: 'disabled' in rawElement ? Boolean((rawElement as HTMLButtonElement).disabled) : undefined,
+        selector: cssPath(rawElement),
+      })
+    }
+    return results
+  }, MAX_INTERACTIVE_ELEMENTS)
+
+  return candidates.map((candidate, index) => ({ ...candidate, ref: `e${index + 1}` }))
+}
+
+async function captureAccessibilitySnapshot(page: Page): Promise<string> {
+  const snapshot = await page.locator('body').ariaSnapshot({ timeout: 2_000 }).catch(() => '')
+  return snapshot.slice(0, MAX_ARIA_SNAPSHOT_CHARS)
+}
+
+async function buildSnapshotForSession(
+  session: UwafBrowserSession,
+  page: Page,
+  observation: PageObservation,
+): Promise<{ accessibilitySnapshot: string; interactiveElements: UwafBrowserElement[] }> {
+  const [accessibilitySnapshot, bindings] = await Promise.all([
+    captureAccessibilitySnapshot(page),
+    captureInteractiveElements(page),
+  ])
+  session.snapshotPageSignature = observation.pageSignature
+  session.interactiveElements = bindings
+  return {
+    accessibilitySnapshot,
+    interactiveElements: bindings.map(({ selector: _selector, ...element }) => element),
+  }
+}
+
+async function resolveSnapshotLocator(
+  session: UwafBrowserSession,
+  page: Page,
+  targetRef: string | undefined,
+): Promise<{ locator?: ReturnType<Page['locator']>; error?: string }> {
+  if (!targetRef?.trim()) return { error: 'targetRef is required. Call the "snapshot" action first and use one of its refs.' }
+  if (!session.currentPage?.pageSignature || session.snapshotPageSignature !== session.currentPage.pageSignature) {
+    return { error: 'The page changed after the last snapshot. Call "snapshot" again before interacting.' }
+  }
+  const binding = session.interactiveElements?.find(element => element.ref === targetRef)
+  if (!binding) return { error: `Unknown or expired targetRef: ${targetRef}. Call "snapshot" again.` }
+  const locator = page.locator(binding.selector)
+  const count = await locator.count().catch(() => 0)
+  if (count !== 1) return { error: `Target ${targetRef} is no longer uniquely available. Call "snapshot" again.` }
+  return { locator }
 }
 
 async function captureScreenshot(page: Page): Promise<string | undefined> {
@@ -1047,6 +1220,8 @@ function toResult(
     batchResults?: UwafBatchResult[]
     textOverride?: string
     clusteredResults?: UwafClusteredResults
+    accessibilitySnapshot?: string
+    interactiveElements?: UwafBrowserElement[]
   } = {},
 ): UwafBrowserResult {
   return {
@@ -1092,6 +1267,8 @@ function toResult(
     activeTabIndex: observation.activeTabIndex,
     observations: observation.observations,
     clusteredResults: options.clusteredResults,
+    accessibilitySnapshot: options.accessibilitySnapshot,
+    interactiveElements: options.interactiveElements,
   }
 }
 
@@ -1712,6 +1889,23 @@ export async function runUwafBrowserAction(
       })
     }
 
+    case 'snapshot': {
+      const observation = await syncSessionCurrentPage(session, page)
+      const snapshot = await buildSnapshotForSession(session, page, observation)
+      const controls = snapshot.interactiveElements
+        .map(element => `- [${element.ref}] ${element.role} "${element.name}"${element.disabled ? ' (disabled)' : ''}`)
+        .join('\n')
+      const text = [
+        snapshot.accessibilitySnapshot ? `Accessibility tree:\n${snapshot.accessibilitySnapshot}` : '',
+        controls ? `Interactive elements (use targetRef):\n${controls}` : 'No visible interactive elements were found.',
+      ].filter(Boolean).join('\n\n')
+      return toResult('snapshot', mode, observation, {
+        textOverride: text,
+        accessibilitySnapshot: snapshot.accessibilitySnapshot,
+        interactiveElements: snapshot.interactiveElements,
+      })
+    }
+
     case 'reopen_recent': {
       // Pull a URL from prior session state (searchHistory[recentIndex] or
       // tabSnapshots[recentIndex]) and navigate to it. Lets the model
@@ -1732,6 +1926,32 @@ export async function runUwafBrowserAction(
 
     case 'click': {
       await syncSessionCurrentPage(session, page)
+      if (request.targetRef) {
+        const resolved = await resolveSnapshotLocator(session, page, request.targetRef)
+        if (!resolved.locator) {
+          const observation = await observePage(page, mode, takeScreenshot)
+          return toResult('click', mode, observation, {
+            success: false,
+            error: resolved.error,
+            failureCode: 'selector_not_found',
+            failureDetail: 'The requested snapshot control is stale or unavailable.',
+            selectorMatched: false,
+          })
+        }
+        const since = Date.now()
+        const beforeUrl = page.url()
+        const beforeObservation = await observePage(page, mode, false, { since: 0 })
+        await resolved.locator.click()
+        await page.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {})
+        const observation = await observePage(page, mode, takeScreenshot, { since })
+        commitObservationToSession(session, observation, 'click')
+        if (observation.screenshot) pushScreenshot(session, observation.screenshot)
+        return toResult('click', mode, observation, {
+          selectorMatched: true,
+          pageChanged: observation.pageSignature !== beforeObservation.pageSignature,
+          navigationChanged: observation.url !== beforeUrl,
+        })
+      }
       const targetUrl = await resolveTargetLink(session, request)
       const since = Date.now()
       const beforeUrl = page.url()
@@ -1885,15 +2105,17 @@ export async function runUwafBrowserAction(
     }
 
     case 'type': {
-      if (!request.selector?.trim()) throw new Error('selector is required for the "type" action.')
+      if (!request.selector?.trim() && !request.targetRef?.trim()) throw new Error('targetRef from "snapshot" or selector is required for the "type" action.')
       if (request.text === undefined) throw new Error('text is required for the "type" action.')
-      const locator = page.locator(request.selector).first()
-      const count = await locator.count().catch(() => 0)
-      if (count === 0) {
+      await syncSessionCurrentPage(session, page)
+      const snapshotTarget = request.targetRef ? await resolveSnapshotLocator(session, page, request.targetRef) : null
+      const locator = snapshotTarget?.locator || (request.selector ? page.locator(request.selector).first() : undefined)
+      const count = locator ? await locator.count().catch(() => 0) : 0
+      if (!locator || count === 0) {
         const observation = await observePage(page, mode, takeScreenshot)
         return toResult('type', mode, observation, {
           success: false,
-          error: `Selector not found: ${request.selector}`,
+          error: snapshotTarget?.error || `Selector not found: ${request.selector}`,
           failureCode: 'selector_not_found',
           failureDetail: 'No matching element was found for the provided selector.',
           selectorMatched: false,
@@ -1916,7 +2138,12 @@ export async function runUwafBrowserAction(
       const since = Date.now()
       const beforeUrl = page.url()
       const beforeObservation = await observePage(page, mode, false, { since: 0 })
-      if (request.selector?.trim()) {
+      if (request.targetRef?.trim()) {
+        await syncSessionCurrentPage(session, page)
+        const resolved = await resolveSnapshotLocator(session, page, request.targetRef)
+        if (!resolved.locator) throw new Error(resolved.error)
+        await resolved.locator.press(key)
+      } else if (request.selector?.trim()) {
         await page.locator(request.selector).first().press(key)
       } else {
         await page.keyboard.press(key)
@@ -1925,7 +2152,7 @@ export async function runUwafBrowserAction(
       const observation = await observePage(page, mode, takeScreenshot, { since })
       commitObservationToSession(session, observation, 'open')
       return toResult('press', mode, observation, {
-        selectorMatched: Boolean(request.selector),
+        selectorMatched: Boolean(request.selector || request.targetRef),
         pageChanged: observation.pageSignature !== beforeObservation.pageSignature,
         navigationChanged: observation.url !== beforeUrl,
       })
@@ -2060,17 +2287,19 @@ export async function runUwafBrowserAction(
     }
 
     case 'select': {
-      if (!request.selector?.trim()) throw new Error('selector is required for the "select" action.')
+      if (!request.selector?.trim() && !request.targetRef?.trim()) throw new Error('targetRef from "snapshot" or selector is required for the "select" action.')
       if (!request.optionValue?.trim() && !request.optionLabel?.trim()) {
         throw new Error('optionValue or optionLabel is required for the "select" action.')
       }
-      const locator = page.locator(request.selector).first()
-      const count = await locator.count().catch(() => 0)
-      if (count === 0) {
+      await syncSessionCurrentPage(session, page)
+      const snapshotTarget = request.targetRef ? await resolveSnapshotLocator(session, page, request.targetRef) : null
+      const locator = snapshotTarget?.locator || (request.selector ? page.locator(request.selector).first() : undefined)
+      const count = locator ? await locator.count().catch(() => 0) : 0
+      if (!locator || count === 0) {
         const observation = await observePage(page, mode, takeScreenshot)
         return toResult('select', mode, observation, {
           success: false,
-          error: `Selector not found: ${request.selector}`,
+          error: snapshotTarget?.error || `Selector not found: ${request.selector}`,
           failureCode: 'selector_not_found',
           failureDetail: 'No matching select element was found for the provided selector.',
           selectorMatched: false,
@@ -2092,14 +2321,16 @@ export async function runUwafBrowserAction(
     }
 
     case 'hover': {
-      if (!request.selector?.trim()) throw new Error('selector is required for the "hover" action.')
-      const locator = page.locator(request.selector).first()
-      const count = await locator.count().catch(() => 0)
-      if (count === 0) {
+      if (!request.selector?.trim() && !request.targetRef?.trim()) throw new Error('targetRef from "snapshot" or selector is required for the "hover" action.')
+      await syncSessionCurrentPage(session, page)
+      const snapshotTarget = request.targetRef ? await resolveSnapshotLocator(session, page, request.targetRef) : null
+      const locator = snapshotTarget?.locator || (request.selector ? page.locator(request.selector).first() : undefined)
+      const count = locator ? await locator.count().catch(() => 0) : 0
+      if (!locator || count === 0) {
         const observation = await observePage(page, mode, takeScreenshot)
         return toResult('hover', mode, observation, {
           success: false,
-          error: `Selector not found: ${request.selector}`,
+          error: snapshotTarget?.error || `Selector not found: ${request.selector}`,
           failureCode: 'selector_not_found',
           failureDetail: 'No matching element was found for the provided selector.',
           selectorMatched: false,

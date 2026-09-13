@@ -147,9 +147,10 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
       parameters: {
         type: 'object',
         properties: {
-          action: SEnum('Browser operation.', 'search', 'open', 'click', 'type', 'press', 'wait_for_selector', 'scroll', 'back', 'forward', 'new_tab', 'list_tabs', 'switch_tab', 'close_tab', 'select', 'hover', 'extract_table', 'research_batch', 'fill', 'submit', 'extract', 'wait_for_user', 'reopen_recent'),
+          action: SEnum('Browser operation.', 'search', 'open', 'snapshot', 'click', 'type', 'press', 'wait_for_selector', 'scroll', 'back', 'forward', 'new_tab', 'list_tabs', 'switch_tab', 'close_tab', 'select', 'hover', 'extract_table', 'research_batch', 'fill', 'submit', 'extract', 'wait_for_user', 'reopen_recent'),
           query: S('Search phrase (action=search).'),
           url: S('URL to open (action=open).'),
+          targetRef: S('Opaque ref returned by snapshot; preferred for click/type/select/hover/press.'),
           linkIndex: N('Link index to click.'),
           linkText: S('Link text to click.'),
           formIndex: N('Form index to fill.'),

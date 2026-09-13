@@ -54,10 +54,11 @@ export interface WorkspaceToolBrowserToolRequest {
 }
 
 export interface WorkspaceToolUwafBrowserToolRequest {
-  action: 'search' | 'open' | 'click' | 'type' | 'press' | 'wait_for_selector' | 'scroll' | 'back' | 'forward' | 'new_tab' | 'list_tabs' | 'switch_tab' | 'close_tab' | 'select' | 'hover' | 'extract_table' | 'research_batch' | 'fill' | 'submit' | 'extract' | 'wait_for_user' | 'reopen_recent'
+  action: 'search' | 'open' | 'snapshot' | 'click' | 'type' | 'press' | 'wait_for_selector' | 'scroll' | 'back' | 'forward' | 'new_tab' | 'list_tabs' | 'switch_tab' | 'close_tab' | 'select' | 'hover' | 'extract_table' | 'research_batch' | 'fill' | 'submit' | 'extract' | 'wait_for_user' | 'reopen_recent'
   query?: string
   providerId?: string
   url?: string
+  targetRef?: string
   linkIndex?: number
   linkText?: string
   formIndex?: number
@@ -293,6 +294,7 @@ export const WORKSPACE_TOOL_UWAF_BROWSER_TOOL_EXAMPLE = `<workspace_tool name="u
 function isUwafAction(value: unknown): value is WorkspaceToolUwafBrowserToolRequest['action'] {
   return value === 'search'
     || value === 'open'
+    || value === 'snapshot'
     || value === 'click'
     || value === 'type'
     || value === 'press'
@@ -1251,6 +1253,10 @@ export function extractWorkspaceToolRequest(content: string): {
         request.url = ubUrl
       }
 
+      if (typeof parsed.targetRef === 'string' && /^e\d{1,4}$/.test(parsed.targetRef.trim())) {
+        request.targetRef = parsed.targetRef.trim()
+      }
+
       if (typeof parsed.linkIndex === 'number' && Number.isInteger(parsed.linkIndex) && parsed.linkIndex >= 0) {
         request.linkIndex = parsed.linkIndex
       }
@@ -1339,13 +1345,13 @@ export function extractWorkspaceToolRequest(content: string): {
       if (
         (action === 'search' && !request.query)
         || (action === 'open' && !request.url)
-        || (action === 'click' && request.linkIndex === undefined && !request.linkText)
-        || (action === 'type' && (!request.selector || request.text === undefined))
+        || (action === 'click' && request.linkIndex === undefined && !request.linkText && !request.targetRef)
+        || (action === 'type' && ((!request.selector && !request.targetRef) || request.text === undefined))
         || (action === 'press' && !request.key)
         || (action === 'wait_for_selector' && !request.selector)
         || (action === 'switch_tab' && request.tabIndex === undefined)
-        || (action === 'select' && (!request.selector || (!request.optionValue && !request.optionLabel)))
-        || (action === 'hover' && !request.selector)
+        || (action === 'select' && ((!request.selector && !request.targetRef) || (!request.optionValue && !request.optionLabel)))
+        || (action === 'hover' && !request.selector && !request.targetRef)
         || (action === 'research_batch' && !request.url)
         || (action === 'reopen_recent' && (!request.recentKind || request.recentIndex === undefined))
       ) {
