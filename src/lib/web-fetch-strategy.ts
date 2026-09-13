@@ -234,10 +234,42 @@ export async function fetchViaBrowser(
 
   let page: import('playwright-core').Page | null = null
   let usedManagedPool = false
+  let usedRemoteBrowser = false
+  let ownedBrowser: import('playwright-core').Browser | null = null
+  let ownedContext: import('playwright-core').BrowserContext | null = null
+
+  // An operator can point this at a managed Chrome/Browserless CDP endpoint
+  // for higher browser capacity and cross-machine isolation. It is entirely
+  // optional: local UWAF Chromium remains the no-key default. Do not log this
+  // value because managed endpoint URLs commonly include an access token.
+  const remoteCdpUrl = process.env.BROWSER_CDP_URL?.trim()
+  if (remoteCdpUrl) {
+    const { chromium } = await import('playwright-core')
+    const remoteBrowser = await chromium.connectOverCDP(remoteCdpUrl, { timeout: 10_000 }).catch(() => null)
+    if (remoteBrowser) {
+      const remoteContext = remoteBrowser.contexts()[0]
+      if (remoteContext) {
+        page = await remoteContext.newPage().catch(() => null)
+        usedRemoteBrowser = Boolean(page)
+      }
+    }
+  }
+
+  if (page) {
+    const response = await page.goto(url.href, {
+      waitUntil: 'domcontentloaded',
+      timeout: 15_000,
+    }).catch(() => null)
+    if (response === null || response.status() >= 400) {
+      await page.close().catch(() => {})
+      page = null
+      usedRemoteBrowser = false
+    }
+  }
 
   // Try the managed UWAF pool first. It gives us the same display/VNC/proxy
   // stack that live browser sessions use, and it reuses the user's identity.
-  if (!options.bypassCache) {
+  if (!page && !options.bypassCache) {
     page = await tryGetPoolPage(contextId, options.mode ?? 'direct')
     usedManagedPool = Boolean(page)
 
@@ -267,12 +299,14 @@ export async function fetchViaBrowser(
       headless: true,
     }).catch(() => null)
     if (!browser) return null
+    ownedBrowser = browser
 
     try {
       const context = await browser.newContext({
         viewport: { width: 1280, height: 720 },
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.7778.167 Safari/537.36',
       })
+      ownedContext = context
 
       page = await context.newPage()
       await page.goto(url.href, { waitUntil: 'domcontentloaded', timeout: 5_000 }).catch(() => null)
@@ -312,11 +346,13 @@ export async function fetchViaBrowser(
     console.warn('[web-fetch-strategy] browser path failed:', error instanceof Error ? error.message : String(error))
     return null
   } finally {
-    if (!usedManagedPool && page) {
-      const context = page.context()
-      const browser = context.browser()
-      await context.close().catch(() => {})
-      await browser?.close().catch(() => {})
+    if (ownedContext) {
+      await ownedContext.close().catch(() => {})
+      await ownedBrowser?.close().catch(() => {})
+    } else if (usedRemoteBrowser && page) {
+      // This is a page in the remote browser's shared default context. Close
+      // only our page; closing the context/browser could evict other tenants.
+      await page.close().catch(() => {})
     }
   }
 }

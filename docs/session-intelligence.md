@@ -23,6 +23,12 @@ search providers; when two providers are available, results are deduplicated
 and interleaved so one index cannot monopolize the evidence set. Do not expose
 the bundled SearXNG port publicly without adding a reverse proxy and rate limit.
 
+For larger deployments, `BROWSER_CDP_URL` may point to a managed Chrome CDP
+service. It is an optional operator credential, never a user requirement; when
+unset, rendered-page fetching uses the bundled UWAF Chromium pool and then an
+isolated local fallback. Treat the endpoint as a secret because it can embed a
+provider token.
+
 ## Deferred after scope was closed
 
 Further split the large workspace controller/view into feature-specific components, replace repetitive tool-dispatch branches with typed handlers, and add browser-level lifecycle tests. This change is a session-intelligence hardening pass, not a complete security or dependency audit of the application.
