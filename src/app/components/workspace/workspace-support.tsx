@@ -278,6 +278,11 @@ export interface WorkspaceToolMessage {
     tps: number;
     timings?: WorkspaceToolLatencyTimings;
   };
+  /**
+   * Internal loop-control hints are useful for the active model turn but must
+   * not become part of the saved/user-facing transcript.
+   */
+  transient?: boolean;
   createdAt?: string;
 }
 
@@ -1828,6 +1833,7 @@ export function normalizeWorkspaceToolMessage(value: unknown): WorkspaceToolMess
     images,
     attachments,
     meta: raw.meta,
+    transient: raw.transient === true,
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : undefined,
   };
 }

@@ -645,6 +645,69 @@ const KNOWN_SITE_PAGES: ReadonlyArray<{
     ],
   },
   {
+    site: /^https?:\/\/tickzen\.app\//i,
+    siteName: /\btickzen(?:\.app)?\b/i,
+    origin: 'https://tickzen.app',
+    pages: [
+      {
+        name: /\b(?:overview|current\s+price|key\s+metrics?|analyst\s+targets?|stock\s+analysis)\b/i,
+        buildPath: (content, prevUrl) => {
+          const ticker = extractTicker(content, prevUrl)
+          return ticker ? `/stocks/${ticker.toLowerCase()}/overview` : null
+        },
+      },
+      {
+        name: /\b(?:forecast|price\s+(?:prediction|target)|analyst\s+consensus)\b/i,
+        buildPath: (content, prevUrl) => {
+          const ticker = extractTicker(content, prevUrl)
+          return ticker ? `/stocks/${ticker.toLowerCase()}/forecast` : null
+        },
+      },
+      {
+        name: /\b(?:technical|technicals?|rsi|moving\s+averages?)\b/i,
+        buildPath: (content, prevUrl) => {
+          const ticker = extractTicker(content, prevUrl)
+          return ticker ? `/stocks/${ticker.toLowerCase()}/technicals` : null
+        },
+      },
+      {
+        name: /\b(?:fundamentals?|valuation|financial\s+metrics?)\b/i,
+        buildPath: (content, prevUrl) => {
+          const ticker = extractTicker(content, prevUrl)
+          return ticker ? `/stocks/${ticker.toLowerCase()}/fundamentals` : null
+        },
+      },
+      {
+        name: /\b(?:risks?|sentiment|short\s+interest)\b/i,
+        buildPath: (content, prevUrl) => {
+          const ticker = extractTicker(content, prevUrl)
+          return ticker ? `/stocks/${ticker.toLowerCase()}/risks-sentiment` : null
+        },
+      },
+    ],
+  },
+  {
+    site: /^https?:\/\/tickflow\.io\//i,
+    siteName: /\btickflow(?:\.io)?\b/i,
+    origin: 'https://tickflow.io',
+    pages: [
+      {
+        name: /\b(?:forecast|price\s+target|analyst\s+consensus|analyst\s+ratings?)\b/i,
+        buildPath: (content, prevUrl) => {
+          const ticker = extractTicker(content, prevUrl)
+          return ticker ? `/stock/${ticker}/forecast` : null
+        },
+      },
+      {
+        name: /\b(?:overview|current\s+price|stock\s+page)\b/i,
+        buildPath: (content, prevUrl) => {
+          const ticker = extractTicker(content, prevUrl)
+          return ticker ? `/stock/${ticker}` : null
+        },
+      },
+    ],
+  },
+  {
     site: /^https?:\/\/(?:www\.)?bestbuy\.com\//i,
     siteName: /\bbest\s*buy(?:\.com)?\b/i,
     origin: 'https://www.bestbuy.com',
@@ -734,6 +797,8 @@ const KNOWN_SITE_PAGES: ReadonlyArray<{
 function extractTicker(content: string, prevUrl: string): string | null {
   const inContent = content.match(/\b([A-Z]{1,5})\b/)
   if (inContent && inContent[1] && !isCommonWord(inContent[1])) return inContent[1].toUpperCase()
+  const inContentUrl = content.match(/\/(?:stocks|quote|stock)\/([A-Z]{1,5})(?:\/|$)/i)
+  if (inContentUrl && inContentUrl[1] && !isCommonWord(inContentUrl[1])) return inContentUrl[1].toUpperCase()
   const inUrl = prevUrl.match(/\/(?:stocks|quote|stock)\/([A-Z]{1,5})(?:\/|$)/i)
   return inUrl ? inUrl[1].toUpperCase() : null
 }
@@ -800,8 +865,14 @@ function synthesizeUnifiedBrowserByPageName(
 ): NarrationRecovery | null {
   if (!ctx.lastSuccessfulToolRequest) return null
   if (ctx.lastSuccessfulToolRequest.name !== 'unified_browser') return null
-  const prev = ctx.lastSuccessfulToolRequest.request as { action?: string; url?: string } | undefined
+  const prev = ctx.lastSuccessfulToolRequest.request as { action?: string; url?: string; query?: string } | undefined
   const prevUrl = prev?.url
+  const contextHints = [
+    content,
+    typeof prev?.query === 'string' ? prev.query.trim() : '',
+    typeof prevUrl === 'string' ? prevUrl : '',
+  ].filter(Boolean)
+  const contentWithPriorQuery = contextHints.join('\n')
   const earliestNamedSiteIndex = getEarliestNamedSiteIndex(content)
 
   for (const catalog of KNOWN_SITE_PAGES) {
@@ -832,7 +903,7 @@ function synthesizeUnifiedBrowserByPageName(
 
     for (const page of catalog.pages) {
       if (!page.name.test(content)) continue
-      const path = page.buildPath(content, base)
+      const path = page.buildPath(contentWithPriorQuery, base)
       if (!path) continue
       let resolved: string
       try {

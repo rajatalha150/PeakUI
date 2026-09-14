@@ -427,6 +427,42 @@ describe('synthesizeToolCallFromNarration — retail browser continuations', () 
   })
 })
 
+describe('synthesizeToolCallFromNarration — finance browser continuations', () => {
+  const PLTR_SEARCH_PRIOR = {
+    name: 'unified_browser' as const,
+    request: {
+      action: 'search',
+      query: 'PLTR Palantir stock price analysis September 2026',
+    },
+  }
+
+  it('recovers Tickzen overview when the ticker only appears in the prior search query', () => {
+    const r = synthesizeToolCallFromNarration(
+      'Let me pull up the tickzen overview page for current price, metrics, and analyst targets.',
+      { lastSuccessfulToolRequest: PLTR_SEARCH_PRIOR },
+    )
+    expect(r?.matchedPattern).toBe('unified_browser.pageName')
+    expect((r?.args as { url: string }).url).toBe('https://tickzen.app/stocks/pltr/overview')
+  })
+
+  it('recovers TickFlow forecast from prose after the Tickzen overview page', () => {
+    const r = synthesizeToolCallFromNarration(
+      'Let me grab the TickFlow forecast page for the 30-analyst consensus data to complement the overview.',
+      {
+        lastSuccessfulToolRequest: {
+          name: 'unified_browser',
+          request: {
+            action: 'open',
+            url: 'https://tickzen.app/stocks/pltr/overview',
+          },
+        },
+      },
+    )
+    expect(r?.matchedPattern).toBe('unified_browser.pageName')
+    expect((r?.args as { url: string }).url).toBe('https://tickflow.io/stock/PLTR/forecast')
+  })
+})
+
 describe('synthesizeToolCallFromNarration — tax_return', () => {
   it('matches "generating tax return for 2024"', () => {
     const r = synthesizeToolCallFromNarration('Generating tax return for 2024 now.')

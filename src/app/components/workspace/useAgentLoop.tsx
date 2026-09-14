@@ -704,6 +704,13 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
       const FORCED_SYNTHESIS_REMINDER_MAX = 2;
       let forceFinalSynthesis = false;
       let forcedSynthesisReminderCount = 0;
+      const pushInternalMessage = (message: WorkspaceToolMessage): void => {
+        sessionHistory = [...sessionHistory, {
+          ...message,
+          hidden: true,
+          transient: true,
+        }];
+      };
       // True once a canvas/document artifact (mermaid, pdf, slides, …) has been
       // successfully produced this turn. A duplicate tool call after this point
       // is the model redundantly re-emitting the finished work — the task is
@@ -780,10 +787,10 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
             role: 'user',
             content: buildForcedSynthesisNudge(),
             hidden: true,
+            transient: true,
             createdAt: new Date().toISOString(),
           };
-          sessionHistory = [...sessionHistory, reminder];
-          setChatHistory(prev => [...prev, reminder]);
+          pushInternalMessage(reminder);
           lastToolRequestSignature = null;
           setLiveStats(null);
           setStreamPhase(null);
@@ -1026,10 +1033,8 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
           }
           if (synthesizedRequest) {
             // The model described a tool call in prose but never wrapped it.
-            // Run the synthesized tool silently instead of showing a confusing
-            // "auto-recovered" placeholder or asking the user to continue.
-            // Keep the original prose visible so the conversation still reads
-            // naturally; just mark it as the tool request it was meant to be.
+            // Run the synthesized tool silently instead of showing prose-only
+            // pseudo-actions or asking the user to continue.
             const inferredFilesystemRequest = synthesizedRequest.name === 'shell' && filesystemEnabled
               ? inferFilesystemRequestFromShellCommand(
                   (synthesizedRequest.request as { command?: string }).command ?? '',
@@ -1042,10 +1047,21 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
             updateChatMessage(nextAssistantId, current => ({
               ...current,
               toolRequest: synthesizedRequest!.name,
+              hidden: true,
               content: inferredFilesystemRequest
                 ? displayName
-                : current.content.replace(/\s+/g, ' ').trim() || displayName,
+                : displayName,
             }))
+            sessionHistory = sessionHistory.map(message => (
+              message.id === nextAssistantId
+                ? {
+                    ...message,
+                    toolRequest: synthesizedRequest!.name,
+                    hidden: true,
+                    content: displayName,
+                  }
+                : message
+            ))
             // Replace request so the dispatch block below runs with the
             // synthesized call.
             request = synthesizedRequest
@@ -1095,10 +1111,10 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
               role: 'user',
               content: recoveryText,
               hidden: true,
+              transient: true,
               createdAt: new Date().toISOString(),
             };
-            sessionHistory = [...sessionHistory, recoveryNotice];
-            setChatHistory(prev => [...prev, recoveryNotice]);
+            pushInternalMessage(recoveryNotice);
             setLiveStats(null);
             setStreamPhase(null);
             continue;
@@ -1128,10 +1144,10 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
               role: 'user',
               content: buildForcedSynthesisNudge(),
               hidden: true,
+              transient: true,
               createdAt: new Date().toISOString(),
             };
-            sessionHistory = [...sessionHistory, synthesisNotice];
-            setChatHistory(prev => [...prev, synthesisNotice]);
+            pushInternalMessage(synthesisNotice);
             lastToolRequestSignature = null;
             setLiveStats(null);
             setStreamPhase(null);
@@ -1203,10 +1219,10 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
             role: 'user',
             content: buildForcedSynthesisNudge(),
             hidden: true,
+            transient: true,
             createdAt: new Date().toISOString(),
           };
-          sessionHistory = [...sessionHistory, synthesisNotice];
-          setChatHistory(prev => [...prev, synthesisNotice]);
+          pushInternalMessage(synthesisNotice);
           lastToolRequestSignature = null;
           setLiveStats(null);
           setStreamPhase(null);
@@ -1255,10 +1271,10 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
                 ? 'You have cycled back to a tool request you already made in the last few steps. You are looping — do not repeat it. Use the results you already have to answer the user, or choose a genuinely different next step. If you cannot make progress with what you have, stop calling tools and give your best answer.'
                 : 'The previous tool result for this exact request was already provided. Do not repeat the same request. Use that result to answer the user or choose a different next step only if new information is needed.',
             hidden: true,
+            transient: true,
             createdAt: new Date().toISOString(),
           };
-          sessionHistory = [...sessionHistory, duplicateNotice];
-          setChatHistory(prev => [...prev, duplicateNotice]);
+          pushInternalMessage(duplicateNotice);
 
           // If a canvas/document artifact was already produced this turn, a
           // duplicate tool call is the model redundantly re-emitting finished
@@ -1291,10 +1307,10 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
               role: 'user',
               content: buildForcedSynthesisNudge(),
               hidden: true,
+              transient: true,
               createdAt: new Date().toISOString(),
             };
-            sessionHistory = [...sessionHistory, synthesisNotice];
-            setChatHistory(prev => [...prev, synthesisNotice]);
+            pushInternalMessage(synthesisNotice);
             lastToolRequestSignature = null;
             setLiveStats(null);
             setStreamPhase(null);
@@ -1342,10 +1358,10 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
               role: 'user',
               content: divergenceText,
               hidden: true,
+              transient: true,
               createdAt: new Date().toISOString(),
             }
-            sessionHistory = [...sessionHistory, divergenceNotice]
-            setChatHistory(prev => [...prev, divergenceNotice])
+            pushInternalMessage(divergenceNotice)
             lastToolRequestSignature = null
             setLiveStats(null)
             setStreamPhase(null)
@@ -2408,7 +2424,8 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
         throw new Error('No assistant response was produced');
       }
 
-      const messagesBeforeFinalAssistant = sessionHistory.slice(0, -1);
+      const persistedSessionHistory = sessionHistory.filter(message => !message.transient);
+      const messagesBeforeFinalAssistant = persistedSessionHistory.slice(0, -1);
 
       // Final RAG snapshot: only round 0 carries RAG on the server
       // (toolRound === 0 in streamAssistantResponse), and ragQueryText is invariant
@@ -2445,7 +2462,7 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
       void generateSessionSummary(
         chatId,
         getChatTitle(baseHistory),
-        [...messagesBeforeFinalAssistant, finalAssistantMessage],
+        [...messagesBeforeFinalAssistant, finalAssistantMessage].filter(message => !message.transient),
         effectiveTaskState.objective
       );
 
@@ -2455,7 +2472,7 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
         const updatedSession: WorkspaceToolSession = completedSession || {
           ...sessionRecord,
           title: getChatTitle(baseHistory),
-          messages: [...messagesBeforeFinalAssistant, finalAssistantMessage!],
+          messages: [...messagesBeforeFinalAssistant, finalAssistantMessage!].filter(message => !message.transient),
           updatedAt: Date.now(),
           autoContinueMode: effectiveSessionAutoContinueMode,
           autoContinueMaxSteps: effectiveSessionAutoContinueMaxSteps,
