@@ -767,14 +767,14 @@ export function parseWorkspaceToolSettingsResponse(data: Record<string, unknown>
       : 6,
     workspaceToolAutomationExecutionAttachWorkspace: data.workspaceToolAutomationExecutionAttachWorkspace !== false,
     workspaceToolAutomationExecutionAttachMemory: data.workspaceToolAutomationExecutionAttachMemory !== false,
-    workspaceToolSessionAutoContinueDefault: data.workspaceToolSessionAutoContinueDefault === 'safe'
-      ? 'safe'
+    workspaceToolSessionAutoContinueDefault: data.workspaceToolSessionAutoContinueDefault === 'manual'
+      ? 'manual'
       : data.workspaceToolSessionAutoContinueDefault === 'ask'
         ? 'ask'
-        : 'manual',
+        : 'safe',
     workspaceToolSessionAutoContinueMaxSteps: typeof data.workspaceToolSessionAutoContinueMaxSteps === 'number'
       ? data.workspaceToolSessionAutoContinueMaxSteps
-      : 3,
+      : 10,
     workspaceToolMaxToolRoundsPerTurn: typeof data.workspaceToolMaxToolRoundsPerTurn === 'number'
       ? data.workspaceToolMaxToolRoundsPerTurn
       : 100,

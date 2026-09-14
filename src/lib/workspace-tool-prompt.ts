@@ -223,7 +223,12 @@ export function buildWorkspaceToolSystemPrompt(context: WorkspaceToolPromptConte
   const shellTarget = context.shellTarget || 'container';
   const workspace = context.workspace;
   const toolLabels = [
-    context.internetToolEnabled && !uwafBrowserAvailable ? 'web research' : null,
+    // Web research and the interactive browser complement one another.  Do
+    // not hide `web` merely because UWAF is enabled: that made routine
+    // current-information questions (stocks, news, prices) take the noisy,
+    // multi-turn browser path even though the prompt told the model to use
+    // the lightweight research tool.
+    context.internetToolEnabled ? 'web research' : null,
     ...listActiveCapabilityLabels({ workspaceAvailable: Boolean(context.workspace) }),
     context.shellEnabled ? 'shell' : null,
     filesystemAvailable ? 'filesystem' : null,
@@ -291,7 +296,7 @@ export function buildWorkspaceToolSystemPrompt(context: WorkspaceToolPromptConte
     ...(toolLabels.length > 0
       ? [
           'TOOL MANIFEST (exact name + JSON signature for every tool available this turn — use these names and field names verbatim):',
-          ...(context.internetToolEnabled && !uwafBrowserAvailable ? ['web {"query":"..."}'] : []),
+          ...(context.internetToolEnabled ? ['web {"query":"..."}'] : []),
           ...(context.shellEnabled ? ['shell {"command":"...","description":"..."}'] : []),
           ...(filesystemAvailable ? ['filesystem {"action":"list|read|stat","path":"..."}'] : []),
           ...(filesystemWriteAvailable ? ['filesystem {"action":"write|append|mkdir","path":"...","content":"...","createDirectories":true}'] : []),
@@ -337,7 +342,7 @@ export function buildWorkspaceToolSystemPrompt(context: WorkspaceToolPromptConte
     `Current model: ${context.model || 'unspecified'}.`,
   ];
 
-  if (context.internetToolEnabled && !uwafBrowserAvailable) {
+  if (context.internetToolEnabled) {
     const internetIntent = queryMatchesToolIntent(context.latestUserQuery, TOOL_INTENT_KEYWORDS.internet);
     if (shouldEmitFullToolSection(tier, internetIntent)) {
       lines.push(buildChatInternetToolPrompt());

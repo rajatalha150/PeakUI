@@ -297,6 +297,19 @@ describe('buildWorkspaceToolSystemPrompt — always-on tool manifest', () => {
     expect(prompt).not.toContain('"action":"open_url"')
   })
 
+  it('keeps lightweight web research available when UWAF is enabled', () => {
+    const prompt = buildWorkspaceToolSystemPrompt({
+      ...baseContext,
+      promptTier: 'minimal',
+      latestUserQuery: 'analyze PLTR options sentiment',
+      internetToolEnabled: true,
+      uwafBrowserMode: 'direct',
+    })
+    expect(prompt).toContain('web {"query":"..."}')
+    expect(prompt).toContain('unified_browser {"action":"search|open"')
+    expect(prompt).toContain('stock prices, market data')
+  })
+
   it('includes the manifest even with no shell/filesystem/code/browser enabled (document tools are always active)', () => {
     const prompt = buildWorkspaceToolSystemPrompt({
       provider: 'ollama',

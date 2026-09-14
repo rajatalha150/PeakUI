@@ -653,6 +653,13 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
       let lastToolRequestSignature: string | null = null;
       let duplicateToolRequestCount = 0;
       let missingToolNudgeCount = 0;
+      // A provider occasionally closes a successful SSE response without any
+      // content or native tool call. Previously we persisted that as a blank
+      // assistant bubble, which then made the user type "continue" to rescue
+      // an internal transport/model failure. Retry it invisibly and keep the
+      // retry budget deliberately small so a broken provider cannot loop.
+      let emptyAssistantResponseRetryCount = 0;
+      const MAX_EMPTY_ASSISTANT_RESPONSE_RETRIES = 2;
       // Ring buffer of the last N dispatched tool signatures, for cycle
       // detection. `lastToolRequestSignature` only catches an immediate
       // A→A repeat; A→B→A→B ping-pong (the loop shape seen in real browsing
@@ -975,6 +982,56 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
 
         sessionHistory = [...sessionHistory, normalizedAssistant];
         finalAssistantMessage = normalizedAssistant;
+
+        // Never present or persist an empty assistant turn. This is distinct
+        // from a tool wrapper: there is no action to recover, just an empty
+        // model response. Ask the model to answer the same request again,
+        // without exposing a system nudge or asking the user to continue.
+        if (!request && !rawToolTagPresent && !normalizedAssistant.content.trim()) {
+          const hiddenEmptyResponse: WorkspaceToolMessage = {
+            ...normalizedAssistant,
+            hidden: true,
+            transient: true,
+          };
+          updateChatMessage(nextAssistantId, current => ({
+            ...current,
+            ...hiddenEmptyResponse,
+          }));
+          sessionHistory = sessionHistory.map(entry => (
+            entry.id === nextAssistantId ? hiddenEmptyResponse : entry
+          ));
+
+          if (
+            emptyAssistantResponseRetryCount < MAX_EMPTY_ASSISTANT_RESPONSE_RETRIES
+            && toolRound < MAX_TOOL_LOOP_ITERATIONS - 1
+            && !controller.signal.aborted
+          ) {
+            emptyAssistantResponseRetryCount += 1;
+            pushInternalMessage({
+              id: randomUUID(),
+              role: 'user',
+              content: 'Your prior response was empty. Continue the user\'s request now: either provide the answer, or emit exactly one complete tool block if more evidence is required. Do not mention this retry.',
+              hidden: true,
+              transient: true,
+              createdAt: new Date().toISOString(),
+            });
+            setLiveStats(null);
+            setStreamPhase(null);
+            continue;
+          }
+
+          const failureNotice: WorkspaceToolMessage = {
+            id: randomUUID(),
+            role: 'assistant',
+            content: 'I could not get a usable response from the selected model after automatic retries. No partial answer was sent. Please resend the request; I will start it cleanly.',
+            createdAt: new Date().toISOString(),
+          };
+          setChatHistory(prev => [...prev, failureNotice]);
+          sessionHistory = [...sessionHistory, failureNotice];
+          finalAssistantMessage = failureNotice;
+          break;
+        }
+        emptyAssistantResponseRetryCount = 0;
 
         // Forced final synthesis (#2): if tools were disabled this turn and the
         // model is STILL attempting a tool (or narrating one), re-nudge it
