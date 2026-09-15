@@ -1428,6 +1428,12 @@ return (
               }} title="Go to WorkSpaces" style={{ margin: '0 4px', padding: '5px 10px', gap: '8px', fontSize: '0.88rem' }}>
                 <Wand2 size={16} /> <span className="sidebar-label">WorkSpaces</span>
               </div>
+              <div className="nav-item" onClick={() => {
+                closeMobileChrome();
+                onNavigateToCoding?.();
+              }} title="Open the Coding environment" style={{ margin: '0 4px', padding: '5px 10px', gap: '8px', fontSize: '0.88rem' }}>
+                <Terminal size={16} /> <span className="sidebar-label">Coding</span>
+              </div>
               <div className={`nav-item${showingSettings ? ' active' : ''}`} onClick={() => {
                 closeMobileChrome();
                 onNavigateToSettings?.();
