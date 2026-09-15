@@ -1,13 +1,15 @@
 "use client";
 
 import React from 'react';
-import { AlertCircle, Bot, ChevronRight, Globe, Loader2, MessageSquare, Plus, Send, Terminal, Trash2, X } from 'lucide-react';
+import { AlertCircle, Bot, CheckCircle2, ChevronRight, Circle, Globe, Loader2, MessageSquare, Plus, Send, Terminal, Trash2, X } from 'lucide-react';
 
 /** A message in the coding chat, projected from the daemon transcript. */
 interface CoderChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  /** Delivery acknowledgment for user messages. */
+  ack?: 'sending' | 'accepted' | 'queued' | 'error';
   status?: 'streaming' | 'done' | 'error';
   usage?: { inputTokens?: number; outputTokens?: number };
 }
@@ -27,16 +29,40 @@ interface CoderSessionListResponse {
   sessions?: CoderSession[];
 }
 
+/** A tool activity event (WriteFile, shell, etc.) from the transcript. */
+interface ToolActivity {
+  id: string;
+  title: string;
+  status: string;
+  detail: string;
+  at: number;
+}
+
+interface CoderTranscriptEvent {
+  type: string;
+  data?: {
+    sessionUpdate?: string;
+    content?: unknown;
+    usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
+    toolCallId?: string;
+    status?: string;
+    title?: string;
+    toolName?: string;
+  };
+}
+
 interface CoderTranscriptResponse {
   sessionId?: string;
-  events?: Array<{
-    type: string;
-    data?: {
-      sessionUpdate?: string;
-      content?: { type?: string; text?: string };
-      usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number };
-    };
-  }>;
+  events?: CoderTranscriptEvent[];
+}
+
+interface CoderSessionStatus {
+  hasActivePrompt?: boolean;
+  activeWorkState?: string;
+  isWaitingForPermission?: boolean;
+  isWaitingForUserQuestion?: boolean;
+  pendingInteractionCount?: number;
+  hasTurnError?: boolean;
 }
 
 interface CoderSessionCreateResponse {
@@ -44,40 +70,52 @@ interface CoderSessionCreateResponse {
   error?: string;
 }
 
+interface CoderPromptResponse {
+  promptId?: string;
+  error?: string;
+}
+
 /**
- * CodingView — the futuristic coding environment (Phase 2 core).
+ * CodingView — the futuristic coding environment.
  *
- * A self-contained surface that drives the Qwen Code agent through the
- * /api/coder gateway: chat (center), session sidebar (right), terminal-style
- * agent output (bottom). The preview browser (Phase 3) and coder settings
- * (Phase 5) land in later iterations.
- *
- * Cyberpunk TUI/GUI hybrid: monospace terminal pane + neon-accented GUI panels.
+ * Bulletproof UX: every message gets a delivery acknowledgment (sending →
+ * accepted/queued → done), a live status bar reflects the daemon's real
+ * session state, and a tool-activity feed shows what the agent is actually
+ * doing (WriteFile, shell, etc.). Commands queue while the agent works (Claude
+ * Code CLI behavior).
  */
 export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [sessions, setSessions] = React.useState<CoderSession[]>([]);
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null);
   const [messages, setMessages] = React.useState<CoderChatMessage[]>([]);
   const [composer, setComposer] = React.useState('');
-  const [busy, setBusy] = React.useState(false);
   const [connecting, setConnecting] = React.useState(true);
   const [error, setError] = React.useState('');
   const [terminalLines, setTerminalLines] = React.useState<string[]>([]);
   const [terminalOpen, setTerminalOpen] = React.useState(true);
   const [workspace, setWorkspace] = React.useState('/workspace');
   const [daemonOnline, setDaemonOnline] = React.useState(false);
-  // Phase 5: model selection (drives POST /session/:id/model).
+  // Live session status (from /status).
+  const [sessionStatus, setSessionStatus] = React.useState<CoderSessionStatus | null>(null);
+  // Tool activity feed (from transcript tool_call events).
+  const [toolActivity, setToolActivity] = React.useState<ToolActivity[]>([]);
+  // Model selection.
   const [models, setModels] = React.useState<Array<{ id: string; name: string }>>([]);
   const [selectedModel, setSelectedModel] = React.useState('');
   const [modelLoading, setModelLoading] = React.useState(false);
-  // Phase 3: interactive preview browser.
+  // Preview browser.
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [previewUrl, setPreviewUrl] = React.useState('http://localhost:3000');
   const [previewInput, setPreviewInput] = React.useState('http://localhost:3000');
 
   const pushTerminal = (line: string) => setTerminalLines(prev => [...prev.slice(-200), line]);
 
-  // Load local Ollama models for the model dropdown (Phase 5).
+  // Derived: are we busy (active prompt, or waiting for permission/question)?
+  const busy = sessionStatus?.hasActivePrompt === true
+    || sessionStatus?.isWaitingForPermission === true
+    || sessionStatus?.isWaitingForUserQuestion === true;
+
+  // Load local Ollama models for the dropdown.
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -86,11 +124,10 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         const res = await fetch('/api/tags');
         const data = await res.json();
         if (!cancelled && Array.isArray(data.models)) {
-          const list = (data.models as Array<{ name: string }>).map(m => ({ id: m.name, name: m.name }));
-          setModels(list);
+          setModels((data.models as Array<{ name: string }>).map(m => ({ id: m.name, name: m.name })));
         }
       } catch {
-        // Non-fatal: dropdown stays empty if Ollama is unreachable.
+        // Non-fatal.
       } finally {
         if (!cancelled) setModelLoading(false);
       }
@@ -123,25 +160,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     return () => { cancelled = true; };
   }, []);
 
-  // Load sessions when the daemon is online.
-  React.useEffect(() => {
-    if (!daemonOnline) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`/api/coder/sessions?workspace=${encodeURIComponent(workspace)}`);
-        const data = (await res.json().catch(() => ({}))) as CoderSessionListResponse;
-        if (!cancelled && Array.isArray(data.sessions)) {
-          setSessions(data.sessions);
-        }
-      } catch {
-        // Non-fatal; the sidebar just stays empty.
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [daemonOnline, workspace, activeSessionId]);
-
-  const refreshSessions = async () => {
+  const refreshSessions = React.useCallback(async () => {
     try {
       const res = await fetch(`/api/coder/sessions?workspace=${encodeURIComponent(workspace)}`);
       const data = (await res.json().catch(() => ({}))) as CoderSessionListResponse;
@@ -149,40 +168,99 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     } catch {
       // Ignore.
     }
-  };
+  }, [workspace]);
 
-  const loadTranscript = async (sessionId: string) => {
-    setMessages([]);
-    try {
-      const res = await fetch(`/api/coder/session/${sessionId}/transcript`);
-      const data = (await res.json().catch(() => ({}))) as CoderTranscriptResponse;
-      const next: CoderChatMessage[] = [];
-      const events = Array.isArray(data.events) ? data.events : [];
-      let assistantId = 0;
-      for (const event of events) {
-        const su = event.data?.sessionUpdate;
-        const text = event.data?.content?.text || '';
-        if (su === 'user_message_chunk' && text) {
-          next.push({ id: `u-${next.length}`, role: 'user', content: text });
-        } else if (su === 'agent_message_chunk' && text) {
-          const usage = event.data?.usage;
-          next.push({ id: `a-${assistantId++}`, role: 'assistant', content: text, status: 'done', usage });
+  // Load sessions whenever daemon/workspace changes.
+  React.useEffect(() => {
+    if (!daemonOnline) return;
+    const t = setTimeout(() => { void refreshSessions(); }, 0);
+    return () => clearTimeout(t);
+  }, [daemonOnline, workspace, refreshSessions]);
+
+  // Background poller: transcript + status + tool activity, every 1.2s.
+  React.useEffect(() => {
+    if (!activeSessionId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      try {
+        // Transcript (messages + tool activity).
+        const tRes = await fetch(`/api/coder/session/${activeSessionId}/transcript`);
+        if (tRes.status === 404) {
+          if (!cancelled) {
+            setError('This coding session was closed. Start a new session.');
+            setSessionStatus(null);
+          }
+          return;
         }
+        if (tRes.ok) {
+          const tData = (await tRes.json().catch(() => ({}))) as CoderTranscriptResponse;
+          const events = Array.isArray(tData.events) ? tData.events : [];
+          const next: CoderChatMessage[] = [];
+          const activities: ToolActivity[] = [];
+          let assistantId = 0;
+          for (const event of events) {
+            const su = event.data?.sessionUpdate;
+            const content = event.data?.content;
+            const text = content && typeof content === 'object' && 'text' in content && typeof (content as { text?: unknown }).text === 'string'
+              ? (content as { text: string }).text
+              : '';
+            if (su === 'user_message_chunk' && text) {
+              next.push({ id: `u-${next.length}`, role: 'user', content: text, ack: 'accepted' });
+            } else if (su === 'agent_message_chunk' && text) {
+              const usage = event.data?.usage;
+              next.push({ id: `a-${assistantId++}`, role: 'assistant', content: text, status: 'done', usage });
+            } else if (su === 'tool_call') {
+              activities.push({
+                id: event.data?.toolCallId || `t-${activities.length}`,
+                title: event.data?.title || event.data?.toolName || 'tool',
+                status: event.data?.status || 'in_progress',
+                detail: typeof event.data?.content === 'string' ? event.data.content : '',
+                at: Date.now(),
+              });
+            } else if (su === 'tool_call_update') {
+              activities.push({
+                id: event.data?.toolCallId || `tu-${activities.length}`,
+                title: event.data?.title || event.data?.toolName || 'tool',
+                status: event.data?.status || 'update',
+                detail: typeof event.data?.content === 'string' ? event.data.content.slice(0, 200) : '',
+                at: Date.now(),
+              });
+            }
+          }
+          if (!cancelled) {
+            setMessages(next);
+            setToolActivity(activities.slice(-30).reverse());
+          }
+        }
+
+        // Status.
+        const sRes = await fetch(`/api/coder/session/${activeSessionId}/status`);
+        if (sRes.ok) {
+          const sData = (await sRes.json().catch(() => ({}))) as CoderSessionStatus;
+          if (!cancelled) setSessionStatus(sData);
+        }
+      } catch {
+        // Transient; retry next tick.
+      } finally {
+        if (!cancelled) timer = setTimeout(poll, 1200);
       }
-      setMessages(next);
-      pushTerminal(`[transcript] loaded ${events.length} events from ${sessionId.slice(0, 8)}…`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load transcript');
-    }
-  };
+    };
+
+    poll();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [activeSessionId]);
 
   const selectSession = (session: CoderSession) => {
     setActiveSessionId(session.sessionId);
-    void loadTranscript(session.sessionId);
+    setError('');
+    setToolActivity([]);
+    setSessionStatus(null);
+    // The poller immediately loads transcript + status for this id.
   };
 
   const newSession = async () => {
-    setBusy(true);
     setError('');
     try {
       const res = await fetch('/api/coder/session', {
@@ -196,12 +274,11 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       }
       setActiveSessionId(data.sessionId);
       setMessages([]);
+      setToolActivity([]);
       pushTerminal(`[session] created ${data.sessionId.slice(0, 8)}…`);
       await refreshSessions();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create session');
-    } finally {
-      setBusy(false);
     }
   };
 
@@ -211,13 +288,12 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     const sessionId = activeSessionId;
     setError('');
     setComposer('');
-    const userMsg: CoderChatMessage = { id: `u-${Date.now()}`, role: 'user', content: prompt };
+
+    // Optimistic user message with "sending" ack.
+    const msgId = `u-${Date.now()}`;
+    const userMsg: CoderChatMessage = { id: msgId, role: 'user', content: prompt, ack: 'sending' };
     setMessages(prev => [...prev, userMsg]);
-    // The daemon FIFO-queues prompts: if a turn is active, this one waits. We
-    // fire-and-forget the POST so the user can keep typing more commands while
-    // the agent works (Claude Code CLI behavior). We don't poll here; a
-    // background poller refreshes the transcript continuously.
-    pushTerminal(busy ? `[queued] ${prompt.slice(0, 100)}` : `[prompt] ${prompt.slice(0, 100)}`);
+    pushTerminal(`[prompt] ${prompt.slice(0, 100)}`);
 
     try {
       const res = await fetch(`/api/coder/session/${sessionId}/prompt`, {
@@ -225,62 +301,23 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: [{ type: 'text', text: prompt }] }),
       });
-      const data = await res.json().catch(() => ({})) as { promptId?: string; error?: string };
+      const data = (await res.json().catch(() => ({}))) as CoderPromptResponse;
       if (!res.ok || !data.promptId) {
         throw new Error(typeof data.error === 'string' ? data.error : 'Prompt rejected');
       }
+      // Update ack → accepted/queued. We can't know queued-vs-active from the
+      // response alone; the poller's transcript will reconcile. Mark accepted.
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, ack: 'accepted' } : m));
       pushTerminal(`[accepted] ${data.promptId.slice(0, 8)}…`);
+      // Refresh status so the "active" state shows immediately.
+      const sRes = await fetch(`/api/coder/session/${sessionId}/status`);
+      if (sRes.ok) setSessionStatus((await sRes.json().catch(() => ({}))) as CoderSessionStatus);
     } catch (e) {
+      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, ack: 'error' } : m));
       setError(e instanceof Error ? e.message : 'Prompt failed');
-      setMessages(prev => [...prev, { id: `e-${Date.now()}`, role: 'assistant', content: `Error: ${e instanceof Error ? e.message : 'failed'}`, status: 'error' }]);
+      pushTerminal(`[error] ${e instanceof Error ? e.message : 'prompt failed'}`);
     }
   };
-
-  // Background transcript poller: keeps the chat live regardless of how many
-  // prompts are queued, and drives the busy indicator from the session's real
-  // state rather than blocking the composer.
-  React.useEffect(() => {
-    if (!activeSessionId) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const poll = async () => {
-      try {
-        const tRes = await fetch(`/api/coder/session/${activeSessionId}/transcript`);
-        if (tRes.status === 404) {
-          if (!cancelled) { setError('This coding session was closed. Start a new session.'); setBusy(false); }
-          return;
-        }
-        const tData = (await tRes.json().catch(() => ({}))) as CoderTranscriptResponse;
-        const events = Array.isArray(tData.events) ? tData.events : [];
-        const next: CoderChatMessage[] = [];
-        let assistantId = 0;
-        for (const event of events) {
-          const su = event.data?.sessionUpdate;
-          const text = event.data?.content?.text || '';
-          if (su === 'user_message_chunk' && text) {
-            next.push({ id: `u-${next.length}`, role: 'user', content: text });
-          } else if (su === 'agent_message_chunk' && text) {
-            const usage = event.data?.usage;
-            next.push({ id: `a-${assistantId++}`, role: 'assistant', content: text, status: 'done', usage });
-          }
-        }
-        if (!cancelled) {
-          setMessages(next);
-          // Busy iff the last event is a user chunk with no following assistant
-          // reply (a queued/active turn).
-          const last = events[events.length - 1];
-          const lastSu = last?.data?.sessionUpdate;
-          setBusy(lastSu === 'user_message_chunk');
-        }
-      } catch {
-        // Transient; next poll retries.
-      } finally {
-        if (!cancelled) timer = setTimeout(poll, 1500);
-      }
-    };
-    poll();
-    return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [activeSessionId]);
 
   const deleteSession = async (sessionId: string) => {
     try {
@@ -288,6 +325,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       if (activeSessionId === sessionId) {
         setActiveSessionId(null);
         setMessages([]);
+        setToolActivity([]);
+        setSessionStatus(null);
       }
       await refreshSessions();
     } catch {
@@ -307,6 +346,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       const data = await res.json().catch(() => ({})) as { error?: string };
       if (!res.ok) {
         pushTerminal(`[model] switch rejected: ${data.error || res.status}`);
+        setError(`Model switch failed: ${data.error || res.status}`);
       } else {
         pushTerminal(`[model] switched to ${modelId}`);
       }
@@ -314,6 +354,18 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       pushTerminal(`[model] switch failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
+
+  // Status label + color.
+  const statusLabel = sessionStatus?.isWaitingForUserQuestion ? 'Awaiting your answer'
+    : sessionStatus?.isWaitingForPermission ? 'Needs approval'
+    : sessionStatus?.hasActivePrompt ? 'Working…'
+    : sessionStatus?.hasTurnError ? 'Turn error'
+    : sessionStatus?.activeWorkState === 'idle' || sessionStatus === null ? 'Idle'
+    : 'Working…';
+  const statusColor = sessionStatus?.isWaitingForUserQuestion || sessionStatus?.isWaitingForPermission ? '#f59e0b'
+    : sessionStatus?.hasTurnError ? '#ef4444'
+    : sessionStatus?.hasActivePrompt ? '#22d3ee'
+    : '#34d399';
 
   const accent = '#22d3ee';
   const magenta = '#e879f9';
@@ -338,16 +390,24 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         }}>
           {connecting ? 'probing…' : daemonOnline ? 'daemon online' : 'daemon offline'}
         </span>
-        <span style={{ fontSize: '0.7rem', color: 'rgba(209,213,219,0.5)', fontFamily: 'ui-monospace, monospace' }}>
-          {workspace}
-        </span>
+        {activeSessionId && (
+          <span style={{
+            display: 'flex', alignItems: 'center', gap: '5px',
+            fontSize: '0.7rem', padding: '2px 8px', borderRadius: '999px',
+            border: `1px solid ${statusColor}`, color: statusColor,
+            background: 'rgba(255,255,255,0.03)', fontFamily: 'ui-monospace, monospace',
+          }}>
+            {busy ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <Circle size={8} />}
+            {statusLabel}
+          </span>
+        )}
         <input
           value={workspace}
           onChange={e => setWorkspace(e.target.value)}
           placeholder="/workspace"
           title="Project directory (workspace cwd)"
           style={{
-            width: 180, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb',
+            width: 160, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb',
             border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '5px 8px',
             fontSize: '0.7rem', fontFamily: 'ui-monospace, monospace', outline: 'none',
           }}
@@ -369,12 +429,10 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
             <option key={m.id} value={m.id} style={{ color: '#111' }}>{m.name}</option>
           ))}
         </select>
-        <button onClick={() => setPreviewOpen(o => !o)}
-          style={ghostBtnStyle()}>
+        <button onClick={() => setPreviewOpen(o => !o)} style={ghostBtnStyle()}>
           <Globe size={14} /> Preview
         </button>
-        <button onClick={newSession} disabled={busy || !daemonOnline}
-          style={btnStyle(accent)}>
+        <button onClick={() => void newSession()} disabled={!daemonOnline} style={btnStyle(accent)}>
           <Plus size={14} /> New session
         </button>
         {onExit && (
@@ -417,6 +475,14 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                   fontSize: '0.88rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                 }}>
                   {msg.content}
+                  {msg.role === 'user' && msg.ack && (
+                    <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.66rem', fontFamily: 'ui-monospace, monospace' }}>
+                      {msg.ack === 'sending' && <><Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} color="#9ca3af" /> <span style={{ color: '#9ca3af' }}>sending…</span></>}
+                      {msg.ack === 'accepted' && <><CheckCircle2 size={11} color="#34d399" /> <span style={{ color: '#34d399' }}>accepted</span></>}
+                      {msg.ack === 'queued' && <><Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} color="#f59e0b" /> <span style={{ color: '#f59e0b' }}>queued</span></>}
+                      {msg.ack === 'error' && <><AlertCircle size={11} color="#ef4444" /> <span style={{ color: '#ef4444' }}>failed</span></>}
+                    </div>
+                  )}
                   {msg.usage && msg.role === 'assistant' && (
                     <div style={{ marginTop: '8px', fontSize: '0.68rem', color: 'rgba(209,213,219,0.4)' }}>
                       ↑{msg.usage.inputTokens ?? '?'} / ↓{msg.usage.outputTokens ?? '?'} tok
@@ -425,11 +491,6 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                 </div>
               </div>
             ))}
-            {busy && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: accent, fontSize: '0.8rem', fontFamily: 'ui-monospace, monospace' }}>
-                <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> agent working…
-              </div>
-            )}
             {error && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#fca5a5', fontSize: '0.82rem' }}>
                 <AlertCircle size={14} /> {error}
@@ -465,22 +526,33 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
               background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.7)', cursor: 'pointer',
               fontFamily: 'ui-monospace, monospace', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.08em',
             }}>
-              <Terminal size={13} /> agent terminal {terminalOpen ? '▾' : '▸'}
+              <Terminal size={13} /> agent activity {terminalOpen ? '▾' : '▸'}
             </button>
             {terminalOpen && (
               <div style={{
-                height: 140, overflowY: 'auto', padding: '8px 20px',
+                height: 150, overflowY: 'auto', padding: '8px 20px',
                 background: 'rgba(0,0,0,0.4)', fontFamily: 'ui-monospace, monospace', fontSize: '0.76rem',
                 color: 'rgba(209,213,219,0.65)',
               }}>
-                {terminalLines.length === 0 && <div style={{ color: 'rgba(209,213,219,0.3)' }}>— no activity yet —</div>}
-                {terminalLines.map((line, i) => <div key={i} style={{ whiteSpace: 'pre-wrap' }}>{line}</div>)}
+                {terminalLines.map((line, idx) => <div key={`l-${idx}`} style={{ whiteSpace: 'pre-wrap', color: 'rgba(209,213,219,0.55)' }}>{line}</div>)}
+                {toolActivity.length === 0 && terminalLines.length === 0 && <div style={{ color: 'rgba(209,213,219,0.3)' }}>— no activity yet —</div>}
+                {toolActivity.map(t => (
+                  <div key={t.id} style={{ display: 'flex', gap: '8px', whiteSpace: 'pre-wrap' }}>
+                    <span style={{ color: t.status === 'failed' || t.status === 'error' ? '#ef4444' : t.status === 'completed' || t.status === 'success' ? '#34d399' : '#22d3ee', flexShrink: 0 }}>
+                      {t.status === 'in_progress' || t.status === 'running' ? '▸' : t.status === 'failed' || t.status === 'error' ? '✗' : t.status === 'completed' || t.status === 'success' ? '✓' : '·'}
+                    </span>
+                    <span>
+                      <strong style={{ color: '#e5e7eb' }}>{t.title}</strong>
+                      {t.detail ? <span style={{ color: 'rgba(209,213,219,0.5)' }}> — {t.detail.slice(0, 160)}</span> : null}
+                    </span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         </div>
 
-        {/* Preview browser (Phase 3) — interactive, AI-demonstrates running apps */}
+        {/* Preview browser */}
         {previewOpen && (
           <div style={{ width: 380, borderLeft: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
