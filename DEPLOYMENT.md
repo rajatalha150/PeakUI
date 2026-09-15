@@ -74,6 +74,8 @@ Common optional:
 | `TOR_PROXY_URL` | Auto-detected | SOCKS5 proxy for UWAF stealth mode. Override only if you have a non-Docker Tor instance |
 | `SEARXNG_URL` | Local Compose default | Private no-key search backend; override only for a separately managed instance |
 | `BRAVE_API_KEY` / `GOOGLE_SEARCH_API_KEY` + `GOOGLE_SEARCH_CX` | _(unset)_ | Optional paid search fallbacks |
+| `FIRECRAWL_API_KEY` | _(unset)_ | Optional Firecrawl v2 search fallback; no-key search continues to use SearXNG/DDG/Bing |
+| `FIRECRAWL_API_URL` | `https://api.firecrawl.dev` | Firecrawl-compatible API base URL |
 | `PEAKUI_DATA_DIR` | `/mnt/workspace-tool/workspace` | Override the managed workspace mount |
 | `PEAKUI_ALLOW_INTERNAL_HOSTS` | `false` | Permits `.internal` hostnames in browser/search guards. Do not enable in production |
 

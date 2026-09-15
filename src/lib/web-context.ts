@@ -25,6 +25,11 @@ const BRAVE_API_KEY = process.env.BRAVE_API_KEY?.trim() || ''
 const SEARXNG_URL = process.env.SEARXNG_URL?.trim() || ''
 const GOOGLE_SEARCH_API_KEY = process.env.GOOGLE_SEARCH_API_KEY?.trim() || ''
 const GOOGLE_SEARCH_CX = process.env.GOOGLE_SEARCH_CX?.trim() || ''
+// Firecrawl is deliberately optional. PeakUI's free SearXNG/DDG/Bing path is
+// still the default for installations without a paid/cloud provider key.
+// FIRECRAWL_API_URL also supports a privately hosted compatible endpoint.
+const FIRECRAWL_API_KEY = process.env.FIRECRAWL_API_KEY?.trim() || ''
+const FIRECRAWL_API_URL = (process.env.FIRECRAWL_API_URL?.trim() || 'https://api.firecrawl.dev').replace(/\/$/, '')
 
 export interface PublicWebSearchResult {
   title: string
@@ -571,6 +576,61 @@ async function searchGoogle(query: string, maxResults: number, signal?: AbortSig
   }
 }
 
+type FirecrawlSearchItem = {
+  title?: unknown
+  url?: unknown
+  description?: unknown
+  markdown?: unknown
+}
+
+function firecrawlItems(value: unknown): FirecrawlSearchItem[] {
+  if (Array.isArray(value)) return value as FirecrawlSearchItem[]
+  if (!value || typeof value !== 'object') return []
+  const record = value as Record<string, unknown>
+  const data = record.data
+  if (Array.isArray(data)) return data as FirecrawlSearchItem[]
+  if (data && typeof data === 'object') {
+    const nested = data as Record<string, unknown>
+    if (Array.isArray(nested.web)) return nested.web as FirecrawlSearchItem[]
+  }
+  if (Array.isArray(record.web)) return record.web as FirecrawlSearchItem[]
+  return []
+}
+
+/** Optional Firecrawl v2 search provider. Never runs without an explicit key. */
+async function searchFirecrawl(query: string, maxResults: number, signal?: AbortSignal): Promise<PublicWebSearchResult[]> {
+  if (!FIRECRAWL_API_KEY) return []
+  await applyProviderRateLimit('Firecrawl', query, 500)
+  try {
+    const response = await fetch(`${FIRECRAWL_API_URL}/v2/search`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: JSON.stringify({ query, limit: Math.min(maxResults, 10) }),
+      signal: withTimeoutSignal(SEARCH_TIMEOUT_MS, signal),
+    })
+    if (!response.ok) throw new Error(`Firecrawl search failed: ${response.status}`)
+    const items = firecrawlItems(await response.json())
+    const mapped = items.slice(0, maxResults).map(item => ({
+      title: typeof item.title === 'string' ? item.title.trim() : '',
+      url: typeof item.url === 'string' ? item.url.trim() : '',
+      snippet: typeof item.description === 'string'
+        ? item.description.trim()
+        : typeof item.markdown === 'string'
+          ? truncate(normalizeWhitespace(item.markdown), MAX_SOURCE_EXCERPT_CHARS)
+          : '',
+    })).filter(result => result.title && result.url)
+    recordProviderSuccess('Firecrawl', query, 500)
+    return mapped
+  } catch (error) {
+    recordProviderFailure('Firecrawl', query, 500)
+    throw error
+  }
+}
+
 /* ───────── Content extraction ───────── */
 
 function extractJsonLd(html: string): Array<Record<string, unknown>> {
@@ -996,6 +1056,10 @@ export async function searchPublicWebWithDiagnostics(
   if (SEARXNG_URL) configuredProviders.push({ label: 'SearXNG', search: searchSearxng })
   if (BRAVE_API_KEY) configuredProviders.push({ label: 'Brave', search: searchBrave })
   if (GOOGLE_SEARCH_API_KEY && GOOGLE_SEARCH_CX) configuredProviders.push({ label: 'Google', search: searchGoogle })
+  // Firecrawl stays behind the free/self-hosted search choices. It is useful
+  // when an operator deliberately configures it, but must never make a key
+  // mandatory for ordinary PeakUI web research.
+  if (FIRECRAWL_API_KEY) configuredProviders.push({ label: 'Firecrawl', search: searchFirecrawl })
 
   const attempts: WebSearchAttempt[] = []
   const runProviders = async (providers: typeof configuredProviders): Promise<PublicWebSearchResult[]> => {
@@ -1309,6 +1373,7 @@ export const __test__ = {
   searchGoogle,
   searchBrave,
   searchSearxng,
+  searchFirecrawl,
   searchDuckDuckGo,
   searchBing,
   safeSearch,

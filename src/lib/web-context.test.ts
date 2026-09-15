@@ -44,6 +44,31 @@ describe('web-context: searchPublicWeb basic shape', () => {
   })
 })
 
+describe('web-context: optional Firecrawl provider', () => {
+  it('uses Firecrawl only when explicitly configured', async () => {
+    process.env.FIRECRAWL_API_KEY = 'fc-test'
+    process.env.FIRECRAWL_API_URL = 'https://firecrawl.test'
+    delete process.env.BRAVE_API_KEY
+    delete process.env.GOOGLE_SEARCH_API_KEY
+    delete process.env.GOOGLE_SEARCH_CX
+    delete process.env.SEARXNG_URL
+    globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      expect(String(input)).toBe('https://firecrawl.test/v2/search')
+      expect(init?.method).toBe('POST')
+      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer fc-test')
+      return new Response(JSON.stringify({
+        success: true,
+        data: { web: [{ title: 'Firecrawl result', url: 'https://example.com/firecrawl', description: 'clean result' }] },
+      }), { status: 200 })
+    }) as typeof fetch
+
+    const { searchPublicWeb } = await loadWebContext()
+    await expect(searchPublicWeb('firecrawl provider', { maxResults: 3 })).resolves.toEqual([
+      { title: 'Firecrawl result', url: 'https://example.com/firecrawl', snippet: 'clean result' },
+    ])
+  })
+})
+
 describe('web-context: configured-tier parallelism (1 provider = sequential)', () => {
   it('uses private SearXNG as the no-key primary provider', async () => {
     process.env.SEARXNG_URL = 'http://searxng.test:8080'

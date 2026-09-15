@@ -62,6 +62,8 @@ services:
       - SEARXNG_URL=${SEARXNG_URL:-http://127.0.0.1:8080}
       - GOOGLE_SEARCH_API_KEY=${GOOGLE_SEARCH_API_KEY:-}
       - GOOGLE_SEARCH_CX=${GOOGLE_SEARCH_CX:-}
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
+      - FIRECRAWL_API_URL=${FIRECRAWL_API_URL:-https://api.firecrawl.dev}
     depends_on:
       - searxng
       - db

@@ -232,6 +232,8 @@ See [`.env.example`](.env.example) for a full template.
 | `SEARXNG_URL` | Optional | Self-hosted SearXNG backend |
 | `GOOGLE_SEARCH_API_KEY` | Optional | Google Programmable Search backend |
 | `GOOGLE_SEARCH_CX` | Optional | Google Programmable Search CX id |
+| `FIRECRAWL_API_KEY` | Optional | Firecrawl v2 search fallback; not required for normal web research |
+| `FIRECRAWL_API_URL` | Optional | Firecrawl API base URL, including a compatible private deployment |
 
 ---
 
