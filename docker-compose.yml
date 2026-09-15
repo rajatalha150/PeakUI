@@ -55,7 +55,7 @@ services:
       # Model/provider, driven by the Coding settings UI (Phase 5). Defaults to
       # local Ollama with a dummy key; swap these for cloud providers.
       - OPENAI_API_KEY=${CODER_OPENAI_API_KEY:-local}
-      - OPENAI_MODEL=${CODER_MODEL:-hf.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF:latest}
+      - OPENAI_MODEL=${CODER_MODEL:-gemma4:latest}
       - OPENAI_BASE_URL=${CODER_OPENAI_BASE_URL:-http://127.0.0.1:11434/v1}
     volumes:
       - coder_workspace:/workspace

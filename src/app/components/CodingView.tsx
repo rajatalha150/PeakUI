@@ -208,6 +208,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const send = async () => {
     const prompt = composer.trim();
     if (!prompt || busy || !activeSessionId) return;
+    const sessionId = activeSessionId;
     setBusy(true);
     setError('');
     setComposer('');
@@ -216,7 +217,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     pushTerminal(`[prompt] ${prompt.slice(0, 120)}`);
 
     try {
-      const res = await fetch(`/api/coder/session/${activeSessionId}/prompt`, {
+      const res = await fetch(`/api/coder/session/${sessionId}/prompt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt: [{ type: 'text', text: prompt }] }),
@@ -231,7 +232,13 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       let settled = false;
       for (let i = 0; i < 60 && !settled; i++) {
         await new Promise(r => setTimeout(r, 1500));
-        const tRes = await fetch(`/api/coder/session/${activeSessionId}/transcript`);
+        const tRes = await fetch(`/api/coder/session/${sessionId}/transcript`);
+        // If the session vanished mid-turn (deleted/expired), stop gracefully.
+        if (tRes.status === 404) {
+          setError('This coding session was closed. Start a new session.');
+          settled = true;
+          break;
+        }
         const tData = (await tRes.json().catch(() => ({}))) as CoderTranscriptResponse;
         const events = Array.isArray(tData.events) ? tData.events : [];
         const next: CoderChatMessage[] = [];
