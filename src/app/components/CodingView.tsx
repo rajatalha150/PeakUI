@@ -207,14 +207,17 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
   const send = async () => {
     const prompt = composer.trim();
-    if (!prompt || busy || !activeSessionId) return;
+    if (!prompt || !activeSessionId) return;
     const sessionId = activeSessionId;
-    setBusy(true);
     setError('');
     setComposer('');
     const userMsg: CoderChatMessage = { id: `u-${Date.now()}`, role: 'user', content: prompt };
     setMessages(prev => [...prev, userMsg]);
-    pushTerminal(`[prompt] ${prompt.slice(0, 120)}`);
+    // The daemon FIFO-queues prompts: if a turn is active, this one waits. We
+    // fire-and-forget the POST so the user can keep typing more commands while
+    // the agent works (Claude Code CLI behavior). We don't poll here; a
+    // background poller refreshes the transcript continuously.
+    pushTerminal(busy ? `[queued] ${prompt.slice(0, 100)}` : `[prompt] ${prompt.slice(0, 100)}`);
 
     try {
       const res = await fetch(`/api/coder/session/${sessionId}/prompt`, {
@@ -227,17 +230,25 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         throw new Error(typeof data.error === 'string' ? data.error : 'Prompt rejected');
       }
       pushTerminal(`[accepted] ${data.promptId.slice(0, 8)}…`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Prompt failed');
+      setMessages(prev => [...prev, { id: `e-${Date.now()}`, role: 'assistant', content: `Error: ${e instanceof Error ? e.message : 'failed'}`, status: 'error' }]);
+    }
+  };
 
-      // Poll transcript until the turn settles (no SSE relay yet; Phase 3 adds it).
-      let settled = false;
-      for (let i = 0; i < 60 && !settled; i++) {
-        await new Promise(r => setTimeout(r, 1500));
-        const tRes = await fetch(`/api/coder/session/${sessionId}/transcript`);
-        // If the session vanished mid-turn (deleted/expired), stop gracefully.
+  // Background transcript poller: keeps the chat live regardless of how many
+  // prompts are queued, and drives the busy indicator from the session's real
+  // state rather than blocking the composer.
+  React.useEffect(() => {
+    if (!activeSessionId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const poll = async () => {
+      try {
+        const tRes = await fetch(`/api/coder/session/${activeSessionId}/transcript`);
         if (tRes.status === 404) {
-          setError('This coding session was closed. Start a new session.');
-          settled = true;
-          break;
+          if (!cancelled) { setError('This coding session was closed. Start a new session.'); setBusy(false); }
+          return;
         }
         const tData = (await tRes.json().catch(() => ({}))) as CoderTranscriptResponse;
         const events = Array.isArray(tData.events) ? tData.events : [];
@@ -253,19 +264,23 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
             next.push({ id: `a-${assistantId++}`, role: 'assistant', content: text, status: 'done', usage });
           }
         }
-        setMessages(next);
-        // Settle when we have an assistant reply and it isn't still growing.
-        const lastAssistant = [...next].reverse().find(m => m.role === 'assistant');
-        if (lastAssistant) settled = true;
+        if (!cancelled) {
+          setMessages(next);
+          // Busy iff the last event is a user chunk with no following assistant
+          // reply (a queued/active turn).
+          const last = events[events.length - 1];
+          const lastSu = last?.data?.sessionUpdate;
+          setBusy(lastSu === 'user_message_chunk');
+        }
+      } catch {
+        // Transient; next poll retries.
+      } finally {
+        if (!cancelled) timer = setTimeout(poll, 1500);
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Prompt failed');
-      setMessages(prev => [...prev, { id: `e-${Date.now()}`, role: 'assistant', content: `Error: ${e instanceof Error ? e.message : 'failed'}`, status: 'error' }]);
-    } finally {
-      setBusy(false);
-      await refreshSessions();
-    }
-  };
+    };
+    poll();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [activeSessionId]);
 
   const deleteSession = async (sessionId: string) => {
     try {
@@ -428,8 +443,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
               value={composer}
               onChange={e => setComposer(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
-              placeholder={activeSessionId ? 'Tell the agent what to build…' : 'Create a session first'}
-              disabled={!activeSessionId || busy}
+              placeholder={activeSessionId ? (busy ? 'Agent is working — type to queue the next command…' : 'Tell the agent what to build…') : 'Create a session first'}
+              disabled={!activeSessionId}
               rows={2}
               style={{
                 flex: 1, resize: 'none', background: 'rgba(255,255,255,0.03)', color: '#e5e7eb',
@@ -437,9 +452,9 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                 fontSize: '0.88rem', fontFamily: 'ui-monospace, monospace', outline: 'none',
               }}
             />
-            <button onClick={() => void send()} disabled={!activeSessionId || busy || !composer.trim()}
+            <button onClick={() => void send()} disabled={!activeSessionId || !composer.trim()}
               style={{ ...btnStyle(accent), alignSelf: 'flex-end' }}>
-              <Send size={14} /> Run
+              <Send size={14} /> {busy ? 'Queue' : 'Run'}
             </button>
           </div>
 

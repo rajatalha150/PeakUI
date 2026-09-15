@@ -55,12 +55,10 @@ ENV QWEN_SERVER_TOKEN=""
 # Default to API-only (no Web Shell); the PeakUI Coding surface is the UI.
 EXPOSE 4170
 
-# Entrypoint: run the daemon. Binds loopback inside the container (secure, no
-# token required); the compose port map `127.0.0.1:4170:4170` exposes it to the
-# app (which uses host networking) while keeping it off the LAN.
-# Provider/auth is driven by env vars set in docker-compose
-# (OPENAI_API_KEY/OPENAI_MODEL/OPENAI_BASE_URL for Ollama, or ANTHROPIC_*/
-# GEMINI_* for cloud providers).
-CMD ["node", "/opt/qwen-code/scripts/cli-entry.js", "serve", \
-     "--hostname", "127.0.0.1", "--port", "4170", \
-     "--workspace", "/workspace", "--no-web"]
+# Model-list sync: mirror Ollama's live models into ~/.qwen/settings.json so the
+# daemon can route to every model (local + cloud) the UI offers.
+COPY scripts/sync-coder-models.mjs /opt/qwen-code/sync-coder-models.mjs
+
+# Entrypoint: sync models, then run the daemon. Binds loopback (secure, no
+# token); host networking + the loopback port map expose it to the app.
+CMD ["sh", "-c", "node /opt/qwen-code/sync-coder-models.mjs && exec node /opt/qwen-code/scripts/cli-entry.js serve --hostname 127.0.0.1 --port 4170 --workspace /workspace --no-web"]
