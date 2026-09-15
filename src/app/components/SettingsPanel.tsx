@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Settings, Server, Bot, Database, MessageSquare, Image as ImageIcon, Search, Pause, Play,
-  CheckCircle, AlertCircle, Loader2, Save, Palette, Users, Shield, Trash2, LogOut, X, Download, Upload, Archive
+  CheckCircle, AlertCircle, Loader2, Save, Palette, Users, Shield, Trash2, LogOut, X, Download, Upload, Archive, Terminal
 } from 'lucide-react';
 import { ollamaModelKey, RECOMMENDED_EMBEDDING_MODELS } from '@/lib/embedding-models';
 import { classifyModelFit } from '@/lib/model-context';
@@ -166,6 +166,7 @@ interface HostAccessStatus {
 interface Props {
   onSettingsChange?: (settings: UserSettings) => void;
   onLogout?: () => void;
+  onOpenCoding?: () => void;
 }
 
 const INITIAL_SETTINGS: UserSettings = {
@@ -322,7 +323,7 @@ function stopProgressPoll(intervalRef: React.MutableRefObject<ReturnType<typeof 
   intervalRef.current = null;
 }
 
-export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
+export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding }: Props) {
   const [settings, setSettings] = useState<UserSettings>(INITIAL_SETTINGS);
   const [models, setModels] = useState<Model[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1037,6 +1038,16 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {onOpenCoding && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={onOpenCoding}
+              style={{ padding: '10px 14px' }}
+            >
+              <Terminal size={16} /> Coding
+            </button>
+          )}
           {onLogout && (
             <button
               type="button"
