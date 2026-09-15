@@ -118,6 +118,7 @@ interface SettingsBody {
   ragTopK?: unknown;
   ollamaUseCloudApi?: unknown;
   ollamaApiKey?: unknown;
+  firecrawlApiKey?: unknown;
   imageGenProvider?: unknown;
   imageGenBaseUrl?: unknown;
   imageGenModel?: unknown;
@@ -146,6 +147,7 @@ export async function GET() {
     return NextResponse.json({
       ...normalized,
       ollamaApiKey: '',
+      firecrawlApiKey: '',
       hfToken: '',
       permissions: auth.permissions,
       effectiveToolAccess: buildEffectiveWorkspaceToolAccess(normalized, auth.permissions),
@@ -289,6 +291,7 @@ export async function POST(req: Request) {
     if (Object.prototype.hasOwnProperty.call(body, 'ragEnabled')) data.ragEnabled = normalizeBoolean(body.ragEnabled);
     if (Object.prototype.hasOwnProperty.call(body, 'ollamaUseCloudApi')) data.ollamaUseCloudApi = normalizeBoolean(body.ollamaUseCloudApi);
     if (body.ollamaApiKey !== undefined) data.ollamaApiKey = String(body.ollamaApiKey);
+    if (body.firecrawlApiKey !== undefined) data.firecrawlApiKey = String(body.firecrawlApiKey).trim();
     if (body.imageGenProvider !== undefined) data.imageGenProvider = normalizeImageGenProvider(body.imageGenProvider);
     if (body.imageGenBaseUrl !== undefined) data.imageGenBaseUrl = normalizeImageGenBaseUrl(body.imageGenBaseUrl);
     if (body.imageGenModel !== undefined) data.imageGenModel = String(body.imageGenModel);
@@ -334,6 +337,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ...normalized,
       ollamaApiKey: '', // scrubbed
+      firecrawlApiKey: '', // scrubbed
       hfToken: '', // scrubbed
       permissions: auth.permissions,
       effectiveToolAccess: buildEffectiveWorkspaceToolAccess(normalized, auth.permissions),

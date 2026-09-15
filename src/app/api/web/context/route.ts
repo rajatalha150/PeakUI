@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getCurrentUserId } from '@/lib/request-auth';
 import { buildWebContext } from '@/lib/web-context';
 import { getErrorMessage } from '@/lib/rag';
+import { getUserSettings } from '@/lib/settings';
 
 export const runtime = 'nodejs';
 
@@ -21,7 +22,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Query is required' }, { status: 400 });
     }
 
-    const result = await buildWebContext(query, { signal: req.signal });
+    const settings = await getUserSettings(userId);
+    const result = await buildWebContext(query, {
+      signal: req.signal,
+      firecrawlApiKey: settings.firecrawlApiKey,
+    });
     return NextResponse.json(result);
   } catch (error) {
     console.error('Web context error:', error);

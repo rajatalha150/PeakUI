@@ -105,6 +105,7 @@ model UserSettings {
   workspaceToolMaxToolRoundsPerTurn               Int      @default(100)
   workspaceToolNativeToolCalls                    String   @default("off")
   ollamaApiKey                                    String   @default("")
+  firecrawlApiKey                                 String   @default("")
   ollamaUseCloudApi                               Boolean  @default(false)
   workspaceToolFavoriteModels                     String   @default("[]")
   imageGenProvider                                String   @default("none")

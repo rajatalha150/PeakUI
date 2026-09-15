@@ -139,6 +139,8 @@ export interface AppSettings {
   ragTopK: number
   ollamaUseCloudApi: boolean
   ollamaApiKey: string
+  /** Optional per-user Firecrawl key. Never returned from the settings API. */
+  firecrawlApiKey: string
   imageGenProvider: ImageGenProvider
   imageGenBaseUrl: string
   imageGenModel: string
@@ -230,6 +232,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   ragTopK: 8,
   ollamaUseCloudApi: false,
   ollamaApiKey: '',
+  firecrawlApiKey: '',
   imageGenProvider: 'none',
   imageGenBaseUrl: 'http://127.0.0.1:8188',
   imageGenModel: '',
@@ -517,6 +520,7 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     ollamaHost: normalizeOllamaHost(settings?.ollamaHost),
     ollamaUseCloudApi: normalizeBoolean(settings?.ollamaUseCloudApi, DEFAULT_SETTINGS.ollamaUseCloudApi),
     ollamaApiKey: typeof settings?.ollamaApiKey === 'string' ? settings.ollamaApiKey.trim() : DEFAULT_SETTINGS.ollamaApiKey,
+    firecrawlApiKey: typeof settings?.firecrawlApiKey === 'string' ? settings.firecrawlApiKey.trim() : DEFAULT_SETTINGS.firecrawlApiKey,
     imageGenProvider: normalizeImageGenProvider(settings?.imageGenProvider),
     imageGenBaseUrl: normalizeImageGenBaseUrl(settings?.imageGenBaseUrl),
     imageGenModel: typeof settings?.imageGenModel === 'string' ? settings.imageGenModel.trim() : DEFAULT_SETTINGS.imageGenModel,

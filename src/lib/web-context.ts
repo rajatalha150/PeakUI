@@ -598,14 +598,19 @@ function firecrawlItems(value: unknown): FirecrawlSearchItem[] {
 }
 
 /** Optional Firecrawl v2 search provider. Never runs without an explicit key. */
-async function searchFirecrawl(query: string, maxResults: number, signal?: AbortSignal): Promise<PublicWebSearchResult[]> {
-  if (!FIRECRAWL_API_KEY) return []
+async function searchFirecrawl(
+  query: string,
+  maxResults: number,
+  signal?: AbortSignal,
+  apiKey = FIRECRAWL_API_KEY,
+): Promise<PublicWebSearchResult[]> {
+  if (!apiKey) return []
   await applyProviderRateLimit('Firecrawl', query, 500)
   try {
     const response = await fetch(`${FIRECRAWL_API_URL}/v2/search`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${FIRECRAWL_API_KEY}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
@@ -1032,7 +1037,7 @@ function searchResultsToSources(results: PublicWebSearchResult[]): MessageSource
 
 export async function searchPublicWeb(
   query: string,
-  options: { maxResults?: number; signal?: AbortSignal } = {},
+  options: { maxResults?: number; signal?: AbortSignal; firecrawlApiKey?: string } = {},
 ): Promise<PublicWebSearchResult[]> {
   return (await searchPublicWebWithDiagnostics(query, options)).results
 }
@@ -1044,7 +1049,7 @@ export async function searchPublicWeb(
  */
 export async function searchPublicWebWithDiagnostics(
   query: string,
-  options: { maxResults?: number; signal?: AbortSignal } = {},
+  options: { maxResults?: number; signal?: AbortSignal; firecrawlApiKey?: string } = {},
 ): Promise<WebSearchResponse> {
   const cleanQuery = query.trim()
   if (!cleanQuery) return { results: [], attempts: [] }
@@ -1059,7 +1064,15 @@ export async function searchPublicWebWithDiagnostics(
   // Firecrawl stays behind the free/self-hosted search choices. It is useful
   // when an operator deliberately configures it, but must never make a key
   // mandatory for ordinary PeakUI web research.
-  if (FIRECRAWL_API_KEY) configuredProviders.push({ label: 'Firecrawl', search: searchFirecrawl })
+  const firecrawlApiKey = options.firecrawlApiKey?.trim() || FIRECRAWL_API_KEY
+  if (firecrawlApiKey) {
+    configuredProviders.push({
+      label: 'Firecrawl',
+      search: (providerQuery, providerMaxResults, providerSignal) => (
+        searchFirecrawl(providerQuery, providerMaxResults, providerSignal, firecrawlApiKey)
+      ),
+    })
+  }
 
   const attempts: WebSearchAttempt[] = []
   const runProviders = async (providers: typeof configuredProviders): Promise<PublicWebSearchResult[]> => {
@@ -1265,6 +1278,7 @@ interface BuildWebContextOptions {
   signal?: AbortSignal
   maxResults?: number
   maxPages?: number
+  firecrawlApiKey?: string
 }
 
 export async function buildWebContext(
@@ -1308,6 +1322,7 @@ export async function buildWebContext(
     searchQueries.map(sq => searchPublicWeb(sq, {
       maxResults: Math.ceil(maxResults / searchQueries.length) + 2,
       signal: options.signal,
+      firecrawlApiKey: options.firecrawlApiKey,
     })),
   )
   for (const settled of settledSearches) {

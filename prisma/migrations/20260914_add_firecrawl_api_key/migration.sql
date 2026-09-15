@@ -1,0 +1,1 @@
+ALTER TABLE "UserSettings" ADD COLUMN IF NOT EXISTS "firecrawlApiKey" TEXT NOT NULL DEFAULT '';

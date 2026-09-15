@@ -59,6 +59,7 @@ interface UserSettings {
   ollamaHost: string;
   ollamaUseCloudApi: boolean;
   ollamaApiKey: string;
+  firecrawlApiKey: string;
   imageGenProvider: string;
   imageGenBaseUrl: string;
   imageGenModel: string;
@@ -216,6 +217,7 @@ const INITIAL_SETTINGS: UserSettings = {
   ollamaHost: 'http://127.0.0.1:11434',
   ollamaUseCloudApi: false,
   ollamaApiKey: '',
+  firecrawlApiKey: '',
   imageGenProvider: 'none',
   imageGenBaseUrl: 'http://127.0.0.1:8188',
   imageGenModel: '',
@@ -1517,6 +1519,20 @@ export default function SettingsPanel({ onSettingsChange, onLogout }: Props) {
             />
           </Field>
         )}
+      </Section>
+
+      <Section icon={<Search size={18} />} title="Web Research">
+        <Field label="Firecrawl API Key" help="Optional: improves search and extraction when configured. The key is stored server-side per user and is never returned to the browser. Leave blank to use the free SearXNG/DDG/Bing providers.">
+          <input
+            type="password"
+            className="input-field"
+            style={{ width: '100%' }}
+            value={settings.firecrawlApiKey}
+            onChange={e => update('firecrawlApiKey', e.target.value)}
+            placeholder="fc_..."
+            autoComplete="off"
+          />
+        </Field>
       </Section>
 
       {/* Image Generation */}
