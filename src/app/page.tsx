@@ -89,6 +89,7 @@ export default function Home() {
             onNavigateToKnowledgeBase={openWorkspaceToolKnowledgeBase}
             onNavigateToWorkspace={openWorkspaceToolWorkspace}
             onNavigateToSettings={openSettings}
+            onNavigateToCoding={openCoding}
           />
         )}
       </main>

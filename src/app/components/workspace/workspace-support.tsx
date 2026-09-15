@@ -2963,6 +2963,7 @@ export interface WorkspaceToolWorkspaceProps {
   onNavigateToKnowledgeBase?: () => void;
   onNavigateToWorkspace?: () => void;
   onNavigateToSettings?: () => void;
+  onNavigateToCoding?: () => void;
   view?: 'workspace' | 'knowledge-base' | 'settings';
   knowledgeBaseContent?: React.ReactNode;
   settingsContent?: React.ReactNode;
