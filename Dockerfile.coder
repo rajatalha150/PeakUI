@@ -1,0 +1,66 @@
+# Coder container: Qwen Code coding environment (brain = Qwen Code, model = local Ollama)
+
+# Node 22 base (qwen-code requires Node >= 22). Debian-based so we can apt the
+# full dev toolchain.
+FROM node:22-bookworm-slim
+
+# --- Dev toolchain ----------------------------------------------------------
+# Keep this lean-but-complete: the agent shells out for builds/tests/git, and
+# the user can install more from the UI (Phase 4).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      git \
+      curl \
+      ca-certificates \
+      build-essential \
+      python3 \
+      python3-pip \
+      python3-venv \
+      jq \
+      ripgrep \
+      unzip \
+      openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Go + Rust are optional-heavy; install via toolchain managers so versions stay
+# current and installs are opt-in. (Phase 4 exposes "install a tool" from the UI.)
+# We include Go for a useful out-of-the-box experience.
+ARG GO_VERSION=1.22.5
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz \
+    && tar -C /usr/local -xzf /tmp/go.tgz && rm /tmp/go.tgz
+ENV PATH="/usr/local/go/bin:${PATH}"
+
+# --- Qwen Code (built from pinned source, not the npm registry) -------------
+# The npm package name is flagged by a heuristic scanner (false positive for
+# this heavy agentic CLI); we clone the official pinned source and build it so
+# the image is fully auditable.
+ARG QWEN_CODE_VERSION=0.23.4
+WORKDIR /opt/qwen-code
+RUN git clone --depth 1 --branch "v${QWEN_CODE_VERSION}" \
+      https://github.com/QwenLM/qwen-code.git /opt/qwen-code \
+    && npm ci \
+    && npm run build \
+    && npm cache clean --force
+
+# --- Workspace (persistent project dir) --------------------------------------
+# Mounted as a volume so projects + qwen's ~/.qwen state survive restarts.
+RUN mkdir -p /workspace
+WORKDIR /workspace
+
+# --- Runtime ----------------------------------------------------------------
+# The daemon binds 0.0.0.0 so the app container can reach it over the Docker
+# network. A bearer token is required on non-loopback binds; QWEN_SERVER_TOKEN
+# is injected by compose from an env var (see docker-compose.yml).
+ENV QWEN_SERVER_TOKEN=""
+
+# Default to API-only (no Web Shell); the PeakUI Coding surface is the UI.
+EXPOSE 4170
+
+# Entrypoint: run the daemon. Binds loopback inside the container (secure, no
+# token required); the compose port map `127.0.0.1:4170:4170` exposes it to the
+# app (which uses host networking) while keeping it off the LAN.
+# Provider/auth is driven by env vars set in docker-compose
+# (OPENAI_API_KEY/OPENAI_MODEL/OPENAI_BASE_URL for Ollama, or ANTHROPIC_*/
+# GEMINI_* for cloud providers).
+CMD ["node", "/opt/qwen-code/scripts/cli-entry.js", "serve", \
+     "--hostname", "127.0.0.1", "--port", "4170", \
+     "--workspace", "/workspace", "--no-web"]

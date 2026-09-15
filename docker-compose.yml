@@ -40,6 +40,27 @@ services:
       retries: 3
       start_period: 30s
 
+  coder:
+    image: peakui-coder
+    build:
+      context: .
+      dockerfile: Dockerfile.coder
+    restart: always
+    # The coding environment: Qwen Code daemon (brain) + dev toolchain.
+    # Host networking (like the app) so it binds loopback directly and reaches
+    # the host's Ollama at 127.0.0.1:11434 — no token, no host.docker.internal.
+    network_mode: host
+    environment:
+      - QWEN_SERVER_TOKEN=${CODER_SERVER_TOKEN:-}
+      # Model/provider, driven by the Coding settings UI (Phase 5). Defaults to
+      # local Ollama with a dummy key; swap these for cloud providers.
+      - OPENAI_API_KEY=${CODER_OPENAI_API_KEY:-local}
+      - OPENAI_MODEL=${CODER_MODEL:-hf.co/Qwen/Qwen2.5-Coder-14B-Instruct-GGUF:latest}
+      - OPENAI_BASE_URL=${CODER_OPENAI_BASE_URL:-http://127.0.0.1:11434/v1}
+    volumes:
+      - coder_workspace:/workspace
+      - coder_qwen_state:/root/.qwen
+
   app:
     image: peakui-app
     build: .
@@ -83,3 +104,5 @@ volumes:
   db_data:
   app_runtime:
   searxng_cache:
+  coder_workspace:
+  coder_qwen_state:
