@@ -85,6 +85,8 @@ services:
       - GOOGLE_SEARCH_CX=${GOOGLE_SEARCH_CX:-}
       - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
       - FIRECRAWL_API_URL=${FIRECRAWL_API_URL:-https://api.firecrawl.dev}
+      - CODER_DAEMON_URL=${CODER_DAEMON_URL:-http://127.0.0.1:4170}
+      - CODER_SERVER_TOKEN=${CODER_SERVER_TOKEN:-}
     depends_on:
       - searxng
       - db
