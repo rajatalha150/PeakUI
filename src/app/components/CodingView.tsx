@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { AlertCircle, Bot, ChevronRight, Loader2, MessageSquare, Plus, Send, Terminal, Trash2, X } from 'lucide-react';
+import { AlertCircle, Bot, ChevronRight, Globe, Loader2, MessageSquare, Plus, Send, Terminal, Trash2, X } from 'lucide-react';
 
 /** A message in the coding chat, projected from the daemon transcript. */
 interface CoderChatMessage {
@@ -66,8 +66,37 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [terminalOpen, setTerminalOpen] = React.useState(true);
   const [workspace, setWorkspace] = React.useState('/workspace');
   const [daemonOnline, setDaemonOnline] = React.useState(false);
+  // Phase 5: model selection (drives POST /session/:id/model).
+  const [models, setModels] = React.useState<Array<{ id: string; name: string }>>([]);
+  const [selectedModel, setSelectedModel] = React.useState('');
+  const [modelLoading, setModelLoading] = React.useState(false);
+  // Phase 3: interactive preview browser.
+  const [previewOpen, setPreviewOpen] = React.useState(false);
+  const [previewUrl, setPreviewUrl] = React.useState('http://localhost:3000');
+  const [previewInput, setPreviewInput] = React.useState('http://localhost:3000');
 
   const pushTerminal = (line: string) => setTerminalLines(prev => [...prev.slice(-200), line]);
+
+  // Load local Ollama models for the model dropdown (Phase 5).
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setModelLoading(true);
+      try {
+        const res = await fetch('/api/tags');
+        const data = await res.json();
+        if (!cancelled && Array.isArray(data.models)) {
+          const list = (data.models as Array<{ name: string }>).map(m => ({ id: m.name, name: m.name }));
+          setModels(list);
+        }
+      } catch {
+        // Non-fatal: dropdown stays empty if Ollama is unreachable.
+      } finally {
+        if (!cancelled) setModelLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Probe the daemon on mount.
   React.useEffect(() => {
@@ -244,6 +273,26 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     }
   };
 
+  const switchModel = async (modelId: string) => {
+    setSelectedModel(modelId);
+    if (!activeSessionId) return;
+    try {
+      const res = await fetch(`/api/coder/session/${activeSessionId}/model`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId }),
+      });
+      const data = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) {
+        pushTerminal(`[model] switch rejected: ${data.error || res.status}`);
+      } else {
+        pushTerminal(`[model] switched to ${modelId}`);
+      }
+    } catch (e) {
+      pushTerminal(`[model] switch failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
   const accent = '#22d3ee';
   const magenta = '#e879f9';
 
@@ -282,6 +331,26 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           }}
         />
         <div style={{ flex: 1 }} />
+        <select
+          value={selectedModel}
+          onChange={e => void switchModel(e.target.value)}
+          disabled={modelLoading || models.length === 0}
+          title="Model for the coding brain (Ollama)"
+          style={{
+            maxWidth: 220, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb',
+            border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '5px 8px',
+            fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none',
+          }}
+        >
+          <option value="">{modelLoading ? 'loading models…' : 'select model'}</option>
+          {models.map(m => (
+            <option key={m.id} value={m.id} style={{ color: '#111' }}>{m.name}</option>
+          ))}
+        </select>
+        <button onClick={() => setPreviewOpen(o => !o)}
+          style={ghostBtnStyle()}>
+          <Globe size={14} /> Preview
+        </button>
         <button onClick={newSession} disabled={busy || !daemonOnline}
           style={btnStyle(accent)}>
           <Plus size={14} /> New session
@@ -388,6 +457,42 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
             )}
           </div>
         </div>
+
+        {/* Preview browser (Phase 3) — interactive, AI-demonstrates running apps */}
+        {previewOpen && (
+          <div style={{ width: 380, borderLeft: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <Globe size={13} style={{ color: accent }} />
+              <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(209,213,219,0.5)' }}>Preview</span>
+              <button onClick={() => setPreviewOpen(false)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.5)', cursor: 'pointer', padding: 0 }}>
+                <X size={13} />
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: '6px', padding: '8px 10px' }}>
+              <input
+                value={previewInput}
+                onChange={e => setPreviewInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') setPreviewUrl(previewInput.trim() || 'http://localhost:3000'); }}
+                placeholder="http://localhost:3000"
+                style={{
+                  flex: 1, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb',
+                  border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '5px 8px',
+                  fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none',
+                }}
+              />
+              <button onClick={() => setPreviewUrl(previewInput.trim() || 'http://localhost:3000')}
+                style={{ background: 'rgba(34,211,238,0.12)', color: accent, border: `1px solid ${accent}`, borderRadius: '6px', padding: '4px 10px', fontSize: '0.72rem', cursor: 'pointer' }}>
+                Go
+              </button>
+            </div>
+            <iframe
+              src={previewUrl}
+              title="App preview"
+              style={{ flex: 1, border: 'none', background: '#fff' }}
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            />
+          </div>
+        )}
 
         {/* Session sidebar */}
         <div style={{ width: 260, borderLeft: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>

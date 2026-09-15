@@ -59,6 +59,11 @@ export async function GET(req: NextRequest) {
     return relay(`/session/${transcriptMatch[1]}/transcript`)
   }
 
+  // workspace providers / tools / env (GET)
+  if (suffix.startsWith('/workspace/')) {
+    return relay(suffix)
+  }
+
   return NextResponse.json({ error: 'Unknown coding route', code: 'not_found' }, { status: 404 })
 }
 
@@ -79,6 +84,17 @@ export async function POST(req: NextRequest) {
   const promptMatch = suffix.match(/^\/session\/([^/]+)\/prompt$/)
   if (promptMatch) {
     return relay(`/session/${promptMatch[1]}/prompt`, body)
+  }
+
+  // model switch: /api/coder/session/<id>/model
+  const modelMatch = suffix.match(/^\/session\/([^/]+)\/model$/)
+  if (modelMatch) {
+    return relay(`/session/${modelMatch[1]}/model`, body)
+  }
+
+  // generic fallthrough: /api/coder/workspace/providers etc.
+  if (suffix.startsWith('/workspace/') || suffix === '/workspaces') {
+    return relay(suffix, body)
   }
 
   return NextResponse.json({ error: 'Unknown coding route', code: 'not_found' }, { status: 404 })
