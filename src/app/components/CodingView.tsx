@@ -338,10 +338,13 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     setSelectedModel(modelId);
     if (!activeSessionId) return;
     try {
+      // The daemon's model ids carry an `(openai)` suffix; POST /session/:id/model
+      // expects that suffixed form, not the raw Ollama name.
+      const suffixed = `${modelId}(openai)`;
       const res = await fetch(`/api/coder/session/${activeSessionId}/model`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modelId }),
+        body: JSON.stringify({ modelId: suffixed }),
       });
       const data = await res.json().catch(() => ({})) as { error?: string };
       if (!res.ok) {

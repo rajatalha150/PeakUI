@@ -39,8 +39,10 @@ async function main() {
       modelProviders: {
         openai: models.map(id => ({
           id,
-          // No envKey: falls back to OPENAI_API_KEY, which is set to a dummy
-          // value in the container for local Ollama.
+          // Explicit envKey so the daemon resolves credentials from
+          // OPENAI_API_KEY (set to a dummy "local" for Ollama). Without an
+          // envKey the daemon refuses the switch with "Missing credentials".
+          envKey: 'OPENAI_API_KEY',
           baseUrl: OLLAMA_BASE_URL,
         })),
       },
