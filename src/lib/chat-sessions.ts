@@ -16,7 +16,7 @@ import {
 } from './session-intelligence';
 
 export type StoredChatRole = 'user' | 'assistant' | 'system';
-export type ChatSessionSurface = 'chat' | 'workspace-tool';
+export type ChatSessionSurface = 'chat' | 'workspace-tool' | 'coder';
 
 export interface StoredChatMessage {
   id?: string;
@@ -109,7 +109,9 @@ function normalizeRole(role: unknown): StoredChatRole | null {
 }
 
 function normalizeSurface(surface: unknown): ChatSessionSurface {
-  return surface === 'workspace-tool' ? 'workspace-tool' : 'chat';
+  if (surface === 'workspace-tool') return 'workspace-tool';
+  if (surface === 'coder') return 'coder';
+  return 'chat';
 }
 
 function normalizeAttachmentName(value: unknown): string {

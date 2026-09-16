@@ -109,6 +109,20 @@ describe('listChatSessions lean projection', () => {
 
     expect(result).toBeNull()
   })
+
+  it('preserves the "coder" surface (not collapsed to "chat") on upsert', async () => {
+    userSettingsFindUnique.mockResolvedValue(null)
+    create.mockResolvedValue({ ...baseRow, id: 's5', userId: 'user-1', surface: 'coder', messages: JSON.stringify([{ role: 'user', content: 'build me a weather app', createdAt: '2026-01-01T00:00:00.000Z' }]) })
+
+    const result = await upsertChatSession('user-1', {
+      surface: 'coder',
+      messages: [{ role: 'user', content: 'build me a weather app', createdAt: '2026-01-01T00:00:00.000Z' }],
+    })
+
+    expect(result.session.surface).toBe('coder')
+    // The persisted row's surface must be 'coder', not 'chat'.
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ surface: 'coder' }) }))
+  })
 })
 
 describe('upsertChatSession write path', () => {
