@@ -1,24 +1,21 @@
 "use client";
 
 import React from 'react';
-import { AlertCircle, Bot, CheckCircle2, ChevronRight, Circle, Globe, Loader2, MessageSquare, Plus, Send, Terminal, Trash2, X } from 'lucide-react';
+import { AlertCircle, Bot, CheckCircle2, ChevronRight, Circle, ClipboardCopy, Globe, Loader2, MessageSquare, Plus, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
+import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
+import { buildConversation, serializeConversation, type CoderTranscriptEvent } from '@/lib/coder-transcript';
+import { copyToClipboard } from '@/lib/clipboard';
+import AssistantContent from './AssistantContent';
+import { ThinkingBlock } from './ChatMessageContent';
 
 /** A message in the coding chat, projected from the daemon transcript. */
 interface CoderChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  thinking?: string;
   ack?: 'sending' | 'accepted' | 'error';
   usage?: { inputTokens?: number; outputTokens?: number };
-}
-
-/** A persistent coding session (stored in the Hermes ChatSession table). */
-interface CoderSession {
-  id: string;
-  title: string;
-  createdAt: string;
-  updatedAt: string;
-  messages: CoderChatMessage[];
 }
 
 /** A tool activity event (WriteFile, shell, etc.) from the transcript. */
@@ -27,19 +24,18 @@ interface ToolActivity {
   title: string;
   status: string;
   detail: string;
+  toolName?: string;
+  rawInput?: unknown;
 }
 
-interface CoderTranscriptEvent {
-  type: string;
-  data?: {
-    sessionUpdate?: string;
-    content?: unknown;
-    usage?: { inputTokens?: number; outputTokens?: number };
-    toolCallId?: string;
-    status?: string;
-    title?: string;
-    toolName?: string;
-  };
+/** A pending permission ask or user question the agent is blocked on. */
+interface PendingInteraction {
+  requestId: string;
+  kind: 'permission' | 'user_question';
+  title: string;
+  detail: string;
+  options: Array<{ optionId: string; label: string }>;
+  answerKey?: string;
 }
 
 interface CoderSessionStatus {
@@ -48,7 +44,16 @@ interface CoderSessionStatus {
   isWaitingForPermission?: boolean;
   isWaitingForUserQuestion?: boolean;
   pendingInteractionCount?: number;
+  pendingInteractions?: PendingInteraction[];
   hasTurnError?: boolean;
+}
+
+/** A persistent coding session (stored in the Hermes ChatSession table). */
+interface CoderSession {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** Stored message shape from the Hermes ChatSession table. */
@@ -57,16 +62,148 @@ interface StoredMsg {
   role: string;
   content: string;
   usage?: { inputTokens?: number; outputTokens?: number };
+  meta?: { thinking?: string; toolActivity?: ToolActivity[] };
+}
+
+/** Settings persisted server-side (`/api/settings`). */
+interface CoderSettings {
+  coderModel: string;
+  coderApprovalMode: string;
+  coderContextLength: number;
+  coderToolSearchThreshold: number;
+  coderWorkspace: string;
+  coderToolsEnabled: boolean;
+}
+
+const APPROVAL_MODES: Array<{ id: string; label: string; hint: string }> = [
+  { id: 'yolo', label: 'YOLO', hint: 'No tool confirmations — edits and runs commands freely (still asks when it needs your opinion)' },
+  { id: 'auto', label: 'Auto', hint: 'Classifier gates the risky tools (shell/edit/write) automatically' },
+];
+
+/** Pull readable text out of the daemon's content-block shapes. */
+function contentText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map(part => {
+        if (typeof part === 'string') return part;
+        if (part && typeof part === 'object' && 'text' in part && typeof (part as { text?: unknown }).text === 'string') {
+          return (part as { text: string }).text;
+        }
+        // tool_call_update wraps text one level deeper.
+        if (part && typeof part === 'object' && 'content' in part) {
+          return contentText((part as { content?: unknown }).content);
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  if (content && typeof content === 'object' && 'text' in content && typeof (content as { text?: unknown }).text === 'string') {
+    return (content as { text: string }).text;
+  }
+  return '';
+}
+
+/** Render an object (e.g. a tool call's `rawInput`) as readable text. */
+function inputText(input: unknown): string {
+  if (input === null || input === undefined) return '';
+  if (typeof input === 'string') return input;
+  if (typeof input === 'object') {
+    const rec = input as Record<string, unknown>;
+    // Prefer the fields that actually describe the action.
+    for (const key of ['command', 'file_path', 'path', 'pattern', 'query', 'description']) {
+      const value = rec[key];
+      if (typeof value === 'string' && value.trim()) return value;
+    }
+    try {
+      return JSON.stringify(input);
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
+/** Normalise one `options` entry from either the SSE frame or the status payload. */
+function normalizeOptions(raw: unknown): Array<{ optionId: string; label: string }> {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(entry => {
+    const rec = (entry || {}) as Record<string, unknown>;
+    const optionId = typeof rec.optionId === 'string' ? rec.optionId : (typeof rec.id === 'string' ? rec.id : '');
+    // The daemon labels options `name` ("Allow", "Reject", "Always Allow in
+    // project: rm *"); `label` only appears on some other surfaces.
+    const label = typeof rec.name === 'string' && rec.name
+      ? rec.name
+      : typeof rec.label === 'string' && rec.label
+        ? rec.label
+        : optionId;
+    return { optionId, label };
+  }).filter(o => o.optionId);
+}
+
+/**
+ * Fold the daemon's authoritative `pendingInteractions` into the local prompt
+ * list.
+ *
+ * The SSE stream is the fast path, but it can miss a `permission_request` while
+ * reconnecting — and a page reload loses the frame entirely. The status poll
+ * carries the same asks in a slightly different shape (the action is nested
+ * under `action`, not `toolCall`), so both need to converge on the same cards.
+ *
+ * Asks the daemon no longer lists are dropped: that is how a resolution made
+ * from another client (or an expiry) clears the card here.
+ */
+function reconcilePending(
+  current: PendingInteraction[],
+  incoming: PendingInteraction[] | undefined,
+): PendingInteraction[] {
+  // An absent/undefined list means "the daemon didn't tell us" — keep what the
+  // SSE stream already surfaced rather than wiping live cards.
+  if (!Array.isArray(incoming)) return current;
+
+  const next: PendingInteraction[] = incoming.map(raw => {
+    const rec = (raw || {}) as unknown as Record<string, unknown>;
+    const requestId = typeof rec.requestId === 'string' ? rec.requestId : '';
+    const kind: PendingInteraction['kind'] = rec.kind === 'user_question' ? 'user_question' : 'permission';
+    // The status payload nests the ask under `action`; the SSE frame under
+    // `toolCall`. user_question asks carry `title`/`question` directly.
+    const action = (rec.action || rec.toolCall || {}) as Record<string, unknown>;
+    const detail = contentText(action.content)
+      || (typeof action.title === 'string' ? action.title : '')
+      || inputText(action.input)
+      || (typeof rec.title === 'string' ? rec.title : '')
+      || contentText(rec.question)
+      || (typeof rec.question === 'string' ? rec.question : '');
+    return {
+      requestId,
+      kind,
+      title: kind === 'permission' ? 'Permission needed' : 'The agent has a question',
+      detail,
+      options: normalizeOptions(rec.options),
+      ...(typeof rec.answerKey === 'string' ? { answerKey: rec.answerKey } : {}),
+    };
+  }).filter(p => p.requestId);
+
+  // Preserve any card the SSE stream surfaced that the daemon hasn't caught up
+  // to yet, so a just-arrived ask can't flicker away on the next poll.
+  const incomingIds = new Set(next.map(p => p.requestId));
+  const stillLive = current.filter(p => !incomingIds.has(p.requestId) && !next.length);
+  return [...next, ...stillLive];
 }
 
 /**
  * CodingView — the futuristic coding environment.
  *
- * Session persistence copies the Hermes pattern exactly: coding history is
- * stored in the `ChatSession` table (surface `'coder'`) via `/api/chats`, so
- * sessions survive restarts, can be listed/deleted, and old sessions can be
- * reopened. The Qwen Code daemon session is a transient runtime handle only —
- * its transcript is mirrored into the persistent store after each turn.
+ * Session persistence copies the Hermes pattern: coding history lives in the
+ * `ChatSession` table (surface `'coder'`) via `/api/chats`, so sessions survive
+ * restarts and old transcripts reopen. The Qwen Code daemon session is a
+ * transient runtime handle; its transcript is mirrored into that store.
+ *
+ * Live updates come from the daemon's SSE stream (`/session/:id/events`)
+ * relayed by the gateway — status, tool activity and pending permission asks
+ * all render inline on the chat surface, so the agent's work is visible while
+ * it happens instead of only after a refresh.
  */
 export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [sessions, setSessions] = React.useState<CoderSession[]>([]);
@@ -75,40 +212,108 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [composer, setComposer] = React.useState('');
   const [connecting, setConnecting] = React.useState(true);
   const [error, setError] = React.useState('');
-  const [terminalLines, setTerminalLines] = React.useState<string[]>([]);
-  const [terminalOpen, setTerminalOpen] = React.useState(true);
   const [workspace, setWorkspace] = React.useState('/workspace');
   const [daemonOnline, setDaemonOnline] = React.useState(false);
   const [sessionStatus, setSessionStatus] = React.useState<CoderSessionStatus | null>(null);
   const [toolActivity, setToolActivity] = React.useState<ToolActivity[]>([]);
-  // The transient daemon session handle for the active persistent session.
+  const [pending, setPending] = React.useState<PendingInteraction[]>([]);
   const [daemonSessionId, setDaemonSessionId] = React.useState<string | null>(null);
-  // Model selection.
-  const [models, setModels] = React.useState<Array<{ id: string; name: string }>>([]);
-  const [selectedModel, setSelectedModel] = React.useState('');
+  // Live "what is it doing right now" line shown on the chat surface.
+  const [liveStatus, setLiveStatus] = React.useState('');
+  // Which tool-activity row the user expanded.
+  const [expandedTool, setExpandedTool] = React.useState<string | null>(null);
+  // Raw daemon transcript events — the authoritative source the chat is rebuilt
+  // from (survives SSE reconnects and page reloads), and what the copy button dumps.
+  const [transcriptEvents, setTranscriptEvents] = React.useState<CoderTranscriptEvent[]>([]);
+  const transcriptRef = React.useRef<CoderTranscriptEvent[]>([]);
+  // History loaded from the persistent store (turns that happened before this
+  // page's daemon session). The live daemon transcript only contains the
+  // current session's turns, so the two are disjoint and merge without dedup.
+  const baselineRef = React.useRef<CoderChatMessage[]>([]);
+  const [copied, setCopied] = React.useState(false);
+  // Model + coder settings (server-persisted).
+  const [models, setModels] = React.useState<Array<{ id: string; name: string; toolsCapable: boolean }>>([]);
   const [modelLoading, setModelLoading] = React.useState(false);
+  const [settings, setSettings] = React.useState<CoderSettings | null>(null);
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [settingsSaving, setSettingsSaving] = React.useState(false);
   // Preview browser.
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [previewUrl, setPreviewUrl] = React.useState('http://localhost:3000');
   const [previewInput, setPreviewInput] = React.useState('http://localhost:3000');
 
-  const pushTerminal = (line: string) => setTerminalLines(prev => [...prev.slice(-200), line]);
-
   const busy = sessionStatus?.hasActivePrompt === true
     || sessionStatus?.isWaitingForPermission === true
     || sessionStatus?.isWaitingForUserQuestion === true;
 
-  // Load local Ollama models for the dropdown.
+  const accent = '#22d3ee';
+  const magenta = '#e879f9';
+
+  // ---- Settings load -------------------------------------------------------
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/settings');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        const next: CoderSettings = {
+          coderModel: typeof data.coderModel === 'string' ? data.coderModel : '',
+          coderApprovalMode: typeof data.coderApprovalMode === 'string' ? data.coderApprovalMode : 'yolo',
+          coderContextLength: Number(data.coderContextLength) || 0,
+          coderToolSearchThreshold: Number(data.coderToolSearchThreshold) || 0,
+          coderWorkspace: typeof data.coderWorkspace === 'string' && data.coderWorkspace ? data.coderWorkspace : '/workspace',
+          coderToolsEnabled: data.coderToolsEnabled !== false,
+        };
+        setSettings(next);
+        setWorkspace(next.coderWorkspace);
+      } catch {
+        // Non-fatal; the surface still works with daemon defaults.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  /**
+   * Load selectable models from the DAEMON, not raw Ollama.
+   *
+   * The daemon's `/workspace/models` is the authoritative list: it reports the
+   * models actually routable under the configured provider (with their real
+   * context windows), whereas `/api/tags` returns every blob on the host —
+   * including completion-only models that cannot drive an agent. Picking one of
+   * those is what silently produced an agent that answered "I have no tools".
+   */
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
       setModelLoading(true);
       try {
-        const res = await fetch('/api/tags');
-        const data = await res.json();
-        if (!cancelled && Array.isArray(data.models)) {
-          setModels((data.models as Array<{ name: string }>).map(m => ({ id: m.name, name: m.name })));
+        const res = await fetch(`/api/coder/workspace/models?workspace=${encodeURIComponent(workspace)}`);
+        const data = await res.json().catch(() => ({}));
+        const list = Array.isArray(data.models) ? data.models : [];
+        if (cancelled) return;
+        // Tool capability isn't reported per-model by the daemon, so probe
+        // Ollama once and annotate — this lets the UI warn instead of letting
+        // the user pick a completion-only model and wonder why nothing happens.
+        const caps = new Map<string, boolean>();
+        try {
+          const tagRes = await fetch('/api/tags');
+          const tagData = await tagRes.json();
+          for (const m of (Array.isArray(tagData.models) ? tagData.models : [])) {
+            const name = typeof m?.name === 'string' ? m.name : '';
+            const capabilities = Array.isArray(m?.capabilities) ? m.capabilities : [];
+            if (name) caps.set(name, capabilities.includes('tools'));
+          }
+        } catch {
+          // Leave capability unknown; treated as capable so nothing is hidden.
         }
+        setModels(list.map((m: { modelId?: string; name?: string }) => {
+          const id = typeof m?.modelId === 'string' ? m.modelId.replace(/\([^)]*\)$/, '') : '';
+          const label = typeof m?.name === 'string' && m.name ? m.name : id;
+          return { id, name: label, toolsCapable: caps.get(id) ?? true };
+        }).filter((m: { id: string }) => Boolean(m.id)));
       } catch {
         // Non-fatal.
       } finally {
@@ -116,7 +321,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [workspace]);
 
   // Probe the daemon on mount.
   React.useEffect(() => {
@@ -126,11 +331,10 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         const res = await fetch('/api/coder/health');
         const data = await res.json().catch(() => ({}));
         if (!cancelled) {
-          setDaemonOnline(res.ok && data.status === 'ok');
+          const ok = res.ok && data.status === 'ok';
+          setDaemonOnline(ok);
           setConnecting(false);
-          if (!(res.ok && data.status === 'ok')) {
-            setError('Coding environment (Qwen Code daemon) is offline. Start the coder container.');
-          }
+          if (!ok) setError('Coding environment (Qwen Code daemon) is offline. Start the coder container.');
         }
       } catch {
         if (!cancelled) {
@@ -155,7 +359,6 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           title: s.title,
           createdAt: s.createdAt,
           updatedAt: s.updatedAt,
-          messages: [],
         })));
       }
     } catch {
@@ -168,9 +371,23 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     return () => clearTimeout(t);
   }, [refreshSessions]);
 
-  const persistMessages = async (sessionId: string, title: string, msgs: CoderChatMessage[]) => {
+  const persistMessages = React.useCallback(async (
+    sessionId: string,
+    title: string,
+    msgs: CoderChatMessage[],
+    activity: ToolActivity[],
+  ) => {
     try {
-      const stored = msgs.map(m => ({ role: m.role, content: m.content, ...(m.usage ? { usage: m.usage } : {}) }));
+      // Tool activity + thinking are folded into `meta` so reopening a session
+      // restores what the agent did, not just its prose.
+      const stored = msgs.map(m => ({
+        role: m.role,
+        content: m.content,
+        ...(m.usage ? { usage: m.usage } : {}),
+        ...(m.thinking || (m.role === 'assistant' && activity.length)
+          ? { meta: { ...(m.thinking ? { thinking: m.thinking } : {}), ...(m.role === 'assistant' ? { toolActivity: activity } : {}) } }
+          : {}),
+      }));
       await fetch('/api/chats', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -179,28 +396,41 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     } catch {
       // Non-fatal; persistence is best-effort.
     }
-  };
+  }, []);
 
   const loadSession = async (sessionId: string) => {
     setActiveSessionId(sessionId);
     setError('');
     setToolActivity([]);
     setSessionStatus(null);
+    setPending([]);
+    setLiveStatus('');
     setMessages([]);
+    // Stop polling the old daemon handle and clear the transient transcript; a
+    // fresh daemon session is created lazily on the next send, and its
+    // transcript repopulates the view from the daemon's own history.
+    void closeDaemonSession();
+    transcriptRef.current = [];
+    setTranscriptEvents([]);
+    baselineRef.current = [];
     try {
       const res = await fetch(`/api/chats/${sessionId}`);
       if (res.ok) {
         const data = await res.json();
         const stored = (Array.isArray(data.messages) ? data.messages : []) as StoredMsg[];
-        setMessages(stored
+        const loaded = stored
           .filter(m => m.role === 'user' || m.role === 'assistant')
           .map(m => ({
             id: m.id || `${m.role}-${Math.random().toString(36).slice(2, 8)}`,
             role: m.role as 'user' | 'assistant',
             content: m.content,
             ...(m.usage ? { usage: m.usage } : {}),
-          })));
-        pushTerminal(`[history] loaded ${stored.length} messages`);
+            ...(m.meta?.thinking ? { thinking: m.meta.thinking } : {}),
+          }));
+        baselineRef.current = loaded;
+        setMessages(loaded);
+        const restored = stored.flatMap(m => (m.role === 'assistant' && Array.isArray(m.meta?.toolActivity) ? m.meta.toolActivity : []));
+        setToolActivity(restored);
       } else if (res.status === 404) {
         setError('Session not found.');
       }
@@ -225,9 +455,15 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       setActiveSessionId(id);
       setMessages([]);
       setToolActivity([]);
+      setPending([]);
       setSessionStatus(null);
-      setDaemonSessionId(null);
-      pushTerminal(`[session] created ${id.slice(0, 8)}…`);
+      setLiveStatus('');
+      transcriptRef.current = [];
+      setTranscriptEvents([]);
+      baselineRef.current = [];
+      // Close the previous daemon session so its memory doesn't leak into the
+      // brand-new one.
+      void closeDaemonSession();
       await refreshSessions();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create session');
@@ -247,7 +483,14 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           setMessages([]);
           setToolActivity([]);
           setSessionStatus(null);
-          setDaemonSessionId(null);
+          setPending([]);
+          setLiveStatus('');
+          transcriptRef.current = [];
+          setTranscriptEvents([]);
+          baselineRef.current = [];
+          // Tear down the daemon session so its conversation memory can't leak
+          // into whatever session opens next.
+          void closeDaemonSession();
         }
         await refreshSessions();
       } else {
@@ -258,8 +501,34 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     }
   };
 
-  // ---- Daemon runtime handle ------------------------------------------------
+  // ---- Daemon runtime handle ----------------------------------------------
 
+  /**
+   * Close the current daemon session. The daemon session is where the agent's
+   * conversation memory / working context lives; leaving it open after a delete
+   * or switch means that memory lingers and can bleed into the next session,
+   * and an abandoned tab keeps the ACP child alive. Best-effort: a stale 404 is
+   * fine (already reaped).
+   */
+  const closeDaemonSession = async () => {
+    const id = daemonSessionId;
+    if (!id) return;
+    // Null the handle first so a poll in flight can't resurrect state after
+    // we've torn the session down.
+    setDaemonSessionId(null);
+    try {
+      await fetch(`/api/coder/session/${id}`, { method: 'DELETE' });
+    } catch {
+      // Best-effort; the daemon reaper will collect it eventually.
+    }
+  };
+
+  /**
+   * Create (or reuse) the daemon session and apply the user's saved model /
+   * approval mode to it. Applying settings here — rather than only when the
+   * dropdown changes — is what makes a saved model choice actually take effect
+   * on a fresh session.
+   */
   const ensureDaemonSession = async (): Promise<string | null> => {
     if (daemonSessionId) return daemonSessionId;
     try {
@@ -274,7 +543,12 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         return null;
       }
       setDaemonSessionId(data.sessionId);
-      pushTerminal(`[daemon] session ${data.sessionId.slice(0, 8)}…`);
+
+      // Apply the persisted model + approval mode to the new session.
+      if (settings?.coderModel) {
+        await applyModel(data.sessionId, settings.coderModel, { quiet: true });
+      }
+      await applyApprovalMode(data.sessionId, settings?.coderApprovalMode || 'yolo', { quiet: true });
       return data.sessionId;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to start daemon session');
@@ -282,25 +556,94 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     }
   };
 
-  // ---- Send / queue ---------------------------------------------------------
+  // ---- Model + approval-mode control --------------------------------------
+
+  const applyModel = async (sessionId: string, modelId: string, opts: { quiet?: boolean } = {}) => {
+    try {
+      // The daemon addresses models as `<id>(<authType>)`; the suffix picks the
+      // provider route when the same id exists under more than one auth type.
+      const suffixed = /\([^)]*\)$/.test(modelId) ? modelId : `${modelId}(openai)`;
+      const res = await fetch(`/api/coder/session/${sessionId}/model`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId: suffixed }),
+      });
+      const data = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) {
+        setError(`Model switch failed: ${data.error || res.status}`);
+      } else if (!opts.quiet) {
+        setLiveStatus(`model → ${modelId}`);
+      }
+    } catch (e) {
+      setError(`Model switch failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const applyApprovalMode = async (sessionId: string, mode: string, opts: { quiet?: boolean } = {}) => {
+    try {
+      const res = await fetch(`/api/coder/session/${sessionId}/approval-mode`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        if (!opts.quiet) setError(`Approval mode failed: ${data.error || res.status}`);
+      } else if (!opts.quiet) {
+        setLiveStatus(`approval → ${mode}`);
+      }
+    } catch (e) {
+      if (!opts.quiet) setError(`Approval mode failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const switchModel = async (modelId: string) => {
+    setSettings(prev => (prev ? { ...prev, coderModel: modelId } : prev));
+    void saveSettings({ coderModel: modelId });
+    if (!daemonSessionId) return;
+    await applyModel(daemonSessionId, modelId);
+  };
+
+  const switchApprovalMode = async (mode: string) => {
+    setSettings(prev => (prev ? { ...prev, coderApprovalMode: mode } : prev));
+    void saveSettings({ coderApprovalMode: mode });
+    if (!daemonSessionId) return;
+    await applyApprovalMode(daemonSessionId, mode);
+  };
+
+  const saveSettings = async (patch: Partial<CoderSettings>) => {
+    setSettingsSaving(true);
+    try {
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+    } catch {
+      setError('Failed to save coding settings.');
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
+
+  // ---- Send / stop ---------------------------------------------------------
 
   const send = async () => {
     const prompt = composer.trim();
     if (!prompt || !activeSessionId) return;
-    const sessionId = activeSessionId;
     setError('');
     setComposer('');
 
-    const msgId = `u-${Date.now()}`;
-    const userMsg: CoderChatMessage = { id: msgId, role: 'user', content: prompt, ack: 'sending' };
-    const nextMessages = [...messages, userMsg];
-    setMessages(nextMessages);
-    pushTerminal(busy ? `[queued] ${prompt.slice(0, 100)}` : `[prompt] ${prompt.slice(0, 100)}`);
+    // The transcript poll is the single source of truth for messages; the user
+    // message will appear there as soon as the daemon records it. We do NOT
+    // optimistically append here — that produced the "hello hello" duplicate
+    // when the poll (or SSE) surfaced the same message a second time.
+    setLiveStatus(busy ? 'queued — will run after the current turn' : 'starting…');
 
     try {
       const dsid = await ensureDaemonSession();
       if (!dsid) {
-        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, ack: 'error' } : m));
+        setError('Failed to start daemon session');
         return;
       }
       const res = await fetch(`/api/coder/session/${dsid}/prompt`, {
@@ -312,113 +655,279 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       if (!res.ok || !data.promptId) {
         throw new Error(typeof data.error === 'string' ? data.error : 'Prompt rejected');
       }
-      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, ack: 'accepted' } : m));
-      pushTerminal(`[accepted] ${data.promptId.slice(0, 8)}…`);
-      // Persist the user message immediately (title from first message).
-      await persistMessages(sessionId, prompt.slice(0, 30), [...messages, { ...userMsg, ack: 'accepted' }]);
-      // Refresh status.
-      const sRes = await fetch(`/api/coder/session/${dsid}/status`);
-      if (sRes.ok) setSessionStatus((await sRes.json().catch(() => ({}))) as CoderSessionStatus);
+      setLiveStatus('thinking…');
     } catch (e) {
-      setMessages(prev => prev.map(m => m.id === msgId ? { ...m, ack: 'error' } : m));
       setError(e instanceof Error ? e.message : 'Prompt failed');
-      pushTerminal(`[error] ${e instanceof Error ? e.message : 'prompt failed'}`);
+      setLiveStatus('');
     }
   };
 
-  // ---- Background poller: mirror daemon transcript → persistent store -------
-
-  React.useEffect(() => {
-    if (!activeSessionId) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    const poll = async () => {
-      if (!daemonSessionId) { timer = setTimeout(poll, 1200); return; }
-      try {
-        const tRes = await fetch(`/api/coder/session/${daemonSessionId}/transcript`);
-        if (tRes.status === 404) {
-          if (!cancelled) setSessionStatus(null);
-          timer = setTimeout(poll, 1200);
-          return;
-        }
-        if (tRes.ok) {
-          const tData = (await tRes.json().catch(() => ({}))) as { events?: CoderTranscriptEvent[] };
-          const events = Array.isArray(tData.events) ? tData.events : [];
-          const next: CoderChatMessage[] = [];
-          const activities: ToolActivity[] = [];
-          for (const event of events) {
-            const su = event.data?.sessionUpdate;
-            const content = event.data?.content;
-            const text = content && typeof content === 'object' && 'text' in content && typeof (content as { text?: unknown }).text === 'string'
-              ? (content as { text: string }).text
-              : '';
-            if (su === 'user_message_chunk' && text) {
-              next.push({ id: `u-${next.length}`, role: 'user', content: text, ack: 'accepted' });
-            } else if (su === 'agent_message_chunk' && text) {
-              next.push({ id: `a-${next.length}`, role: 'assistant', content: text, usage: event.data?.usage });
-            } else if (su === 'tool_call') {
-              activities.push({ id: event.data?.toolCallId || `t-${activities.length}`, title: event.data?.title || event.data?.toolName || 'tool', status: event.data?.status || 'in_progress', detail: typeof event.data?.content === 'string' ? event.data.content : '' });
-            } else if (su === 'tool_call_update') {
-              activities.push({ id: event.data?.toolCallId || `tu-${activities.length}`, title: event.data?.title || event.data?.toolName || 'tool', status: event.data?.status || 'update', detail: typeof event.data?.content === 'string' ? event.data.content.slice(0, 200) : '' });
-            }
-          }
-          if (!cancelled) {
-            setMessages(next);
-            setToolActivity(activities.slice(-30).reverse());
-            // Persist the transcript so history survives restarts.
-            const title = next.find(m => m.role === 'user')?.content.slice(0, 30) || 'New Coding Session';
-            void persistMessages(activeSessionId, title, next);
-          }
-        }
-        const sRes = await fetch(`/api/coder/session/${daemonSessionId}/status`);
-        if (sRes.ok && !cancelled) setSessionStatus((await sRes.json().catch(() => ({}))) as CoderSessionStatus);
-      } catch {
-        // Transient.
-      } finally {
-        if (!cancelled) timer = setTimeout(poll, 1200);
-      }
-    };
-    poll();
-    return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [activeSessionId, daemonSessionId]);
-
-  const switchModel = async (modelId: string) => {
-    setSelectedModel(modelId);
+  const cancelTurn = async () => {
     if (!daemonSessionId) return;
     try {
-      const suffixed = `${modelId}(openai)`;
-      const res = await fetch(`/api/coder/session/${daemonSessionId}/model`, {
+      await fetch(`/api/coder/session/${daemonSessionId}/cancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modelId: suffixed }),
+        body: JSON.stringify({}),
       });
-      const data = await res.json().catch(() => ({})) as { error?: string };
-      if (!res.ok) {
-        setError(`Model switch failed: ${data.error || res.status}`);
-      } else {
-        pushTerminal(`[model] switched to ${modelId}`);
-      }
-    } catch (e) {
-      pushTerminal(`[model] switch failed: ${e instanceof Error ? e.message : String(e)}`);
+      setLiveStatus('cancelling…');
+    } catch {
+      setError('Failed to cancel the turn.');
     }
   };
 
-  // ---- Derived UI state -----------------------------------------------------
+  /** Answer a permission ask / user question that is blocking the agent. */
+  const respondToInteraction = async (item: PendingInteraction, optionId?: string) => {
+    if (!daemonSessionId) return;
+    // Optimistically clear the prompt so the UI doesn't sit on a dead card
+    // while the vote is in flight; restore it if the vote is refused.
+    setPending(prev => prev.filter(p => p.requestId !== item.requestId));
+    setError('');
+    try {
+      const res = await fetch(`/api/coder/session/${daemonSessionId}/permission/${item.requestId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // ACP nests `outcome`; the daemon 400s a flat `{outcome:'selected'}`.
+        body: JSON.stringify(buildPermissionVoteBody(optionId, item.answerKey)),
+      });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({})) as { error?: string };
+        // 404 means another client (or an expiry) already resolved it — that is
+        // benign. Anything else is a real failure worth showing verbatim.
+        if (res.status === 404) {
+          setLiveStatus('request already resolved');
+        } else {
+          setError(detail.error || `Could not answer the request (HTTP ${res.status}).`);
+          setPending(prev => prev.some(p => p.requestId === item.requestId) ? prev : [...prev, item]);
+        }
+      } else {
+        setLiveStatus('answered — agent resuming…');
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to respond');
+      setPending(prev => prev.some(p => p.requestId === item.requestId) ? prev : [...prev, item]);
+    }
+  };
+
+  /** Copy the whole session — chat, thinking, tool input/output — to the clipboard. */
+  const copySession = async () => {
+    const dump = serializeConversation(transcriptRef.current, {
+      sessionId: daemonSessionId ?? activeSessionId ?? undefined,
+      model: settings?.coderModel || undefined,
+      workspace: settings?.coderWorkspace || workspace || undefined,
+      approval: settings?.coderApprovalMode || undefined,
+    });
+    try {
+      await copyToClipboard(dump);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Clipboard write failed.');
+    }
+  };
+
+  // ---- Live status + tool activity (SSE, with poll fallback) --------------
+
+  /**
+   * Subscribe to the daemon's event stream for the active session. This drives
+   * the live status line, the tool-activity feed, and the permission prompts —
+   * everything that has to appear *while* the agent works.
+   */
+  React.useEffect(() => {
+    if (!daemonSessionId) return;
+    let cancelled = false;
+    const source = new EventSource(`/api/coder/session/${daemonSessionId}/events`);
+
+    const note = (line: string) => setLiveStatus(line);
+
+    const onFrame = (evt: MessageEvent) => {
+      if (cancelled || !evt.data) return;
+      let parsed: CoderTranscriptEvent;
+      try {
+        parsed = JSON.parse(evt.data) as CoderTranscriptEvent;
+      } catch {
+        return;
+      }
+      const data = (parsed.data || {}) as Record<string, unknown>;
+      const update = typeof data.sessionUpdate === 'string' ? data.sessionUpdate : (typeof parsed.type === 'string' ? parsed.type : '');
+
+      // The chat surface is driven by the transcript poll (authoritative,
+      // survives reconnects/reloads). The SSE stream is only for instant status
+      // feedback and permission/question prompts — it does NOT write messages,
+      // so it can't race the poll into duplicates or drop the first response.
+      if (
+        update === 'agent_thought_chunk' || update === 'agent_message_chunk'
+        || update === 'tool_call' || update === 'tool_call_update'
+        || update === 'user_message_chunk'
+      ) {
+        if (update === 'agent_thought_chunk') note('thinking…');
+        else if (update === 'agent_message_chunk') note('responding…');
+        else if (update === 'tool_call' || update === 'tool_call_update') {
+          const title = typeof data.title === 'string' && data.title ? data.title : 'tool';
+          const status = typeof data.status === 'string' ? data.status : 'in_progress';
+          note(status === 'in_progress' ? `${title}…` : `${title} — ${status}`);
+        }
+        return;
+      }
+
+      if (update === 'permission_request' || update === 'user_question') {
+        const requestId = typeof data.requestId === 'string' ? data.requestId : '';
+        if (!requestId) return;
+        const rawOptions = Array.isArray(data.options) ? data.options : [];
+        const options = normalizeOptions(rawOptions);
+        const title = update === 'permission_request'
+          ? 'Permission needed'
+          : 'The agent has a question';
+        // `permission_request` nests the action under `toolCall`; a user_question
+        // carries `title`/`question` at the top level. Without unwrapping, the
+        // card renders with no detail and the user cannot see what they are
+        // approving.
+        const toolCall = (data.toolCall || {}) as Record<string, unknown>;
+        const detail = contentText(toolCall.content)
+          || (typeof toolCall.title === 'string' ? toolCall.title : '')
+          || contentText(toolCall.rawInput)
+          || (typeof data.title === 'string' ? data.title : '')
+          || contentText(data.question)
+          || (typeof data.question === 'string' ? data.question : '');
+        setPending(prev => prev.some(p => p.requestId === requestId) ? prev : [...prev, {
+          requestId,
+          kind: update === 'permission_request' ? 'permission' : 'user_question',
+          title,
+          detail,
+          options,
+          ...(typeof data.answerKey === 'string' ? { answerKey: data.answerKey } : {}),
+        }]);
+        note('waiting for you');
+      } else if (update === 'permission_resolved' || update === 'permission_already_resolved') {
+        const requestId = typeof data.requestId === 'string' ? data.requestId : '';
+        if (requestId) setPending(prev => prev.filter(p => p.requestId !== requestId));
+      } else if (update === 'model_switched' && typeof data.modelId === 'string') {
+        note(`model → ${data.modelId}`);
+      } else if (update === 'approval_mode_changed' && typeof data.mode === 'string') {
+        note(`approval → ${data.mode}`);
+      } else if (parsed.type === 'turn_complete' || update === 'turn_complete') {
+        note('idle');
+        setPending([]);
+      }
+    };
+
+    // The daemon names each frame; listen for our own type plus the generic
+    // `message` channel so a schema rename can't silently mute the UI.
+    const named = ['session_update', 'permission_request', 'turn_complete', 'agent_message_chunk', 'tool_call'];
+    for (const name of named) source.addEventListener(name, onFrame as EventListener);
+    source.onmessage = onFrame;
+    source.onerror = () => {
+      // EventSource auto-reconnects; surface it so the user isn't staring at a
+      // frozen "working…" indicator.
+      if (!cancelled) note('reconnecting to agent stream…');
+    };
+
+    return () => {
+      cancelled = true;
+      source.close();
+    };
+  }, [daemonSessionId]);
+
+  /**
+   * Status poll. Kept as a low-frequency safety net behind the SSE stream:
+   * it reconciles `busy`/idle and permission counts if a frame was missed.
+   */
+  React.useEffect(() => {
+    if (!daemonSessionId) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/coder/session/${daemonSessionId}/status`);
+        if (res.ok && !cancelled) {
+          const status = await res.json().catch(() => ({})) as CoderSessionStatus;
+          setSessionStatus(status);
+          // Reconcile the prompt cards from the authoritative status payload.
+          // Without this, a permission ask raised while the SSE stream was
+          // reconnecting (or before a page reload) left the status pill saying
+          // "Needs approval" with no card to click — the agent blocked forever
+          // with no way to answer it.
+          setPending(prev => reconcilePending(prev, status.pendingInteractions));
+        }
+      } catch {
+        // Transient.
+      }
+    };
+    void tick();
+    const timer = setInterval(tick, 4000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [daemonSessionId]);
+
+  /**
+   * Transcript poll — the authoritative source for the chat surface.
+   *
+   * The SSE stream only delivers frames emitted AFTER the subscription opens,
+   * so the first message's response can be missed and reconnects/reloads lose
+   * everything the agent already said. Polling `/transcript` and rebuilding the
+   * conversation from it means the chat is always a deterministic projection of
+   * the daemon's real history — nothing vanishes, and the copy button dumps the
+   * same events.
+   */
+  React.useEffect(() => {
+    if (!daemonSessionId) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/coder/session/${daemonSessionId}/transcript`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json().catch(() => ({}));
+        const events = Array.isArray(data.events) ? (data.events as CoderTranscriptEvent[]) : [];
+        if (cancelled) return;
+        transcriptRef.current = events;
+        setTranscriptEvents(events);
+        const built = buildConversation(events);
+        // Merge the loaded history (turns from before this page's daemon
+        // session) ahead of the live transcript. They are disjoint: the daemon
+        // transcript only covers the current runtime handle's turns.
+        const merged = baselineRef.current.length
+          ? [...baselineRef.current, ...built.messages]
+          : built.messages;
+        setMessages(merged);
+        setToolActivity(built.activity);
+      } catch {
+        // Transient.
+      }
+    };
+    void tick();
+    const timer = setInterval(tick, 1500);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [daemonSessionId]);
+
+  // Persist the transcript + tool activity after each turn settles.
+  React.useEffect(() => {
+    if (!activeSessionId || busy || messages.length === 0) return;
+    const title = messages.find(m => m.role === 'user')?.content.slice(0, 30) || 'New Coding Session';
+    void persistMessages(activeSessionId, title, messages.filter(m => m.content.trim()), toolActivity);
+  }, [busy, activeSessionId, messages, toolActivity, persistMessages]);
+
+  // ---- Derived UI state ----------------------------------------------------
 
   const statusLabel = sessionStatus?.isWaitingForUserQuestion ? 'Awaiting your answer'
     : sessionStatus?.isWaitingForPermission ? 'Needs approval'
     : sessionStatus?.hasActivePrompt ? 'Working…'
     : sessionStatus?.hasTurnError ? 'Turn error'
-    : sessionStatus?.activeWorkState === 'idle' || sessionStatus === null ? 'Idle'
-    : 'Working…';
+    : 'Idle';
   const statusColor = sessionStatus?.isWaitingForUserQuestion || sessionStatus?.isWaitingForPermission ? '#f59e0b'
     : sessionStatus?.hasTurnError ? '#ef4444'
     : sessionStatus?.hasActivePrompt ? '#22d3ee'
     : '#34d399';
 
-  const accent = '#22d3ee';
-  const magenta = '#e879f9';
+  const runningTool = toolActivity.find(t => t.status === 'in_progress' || t.status === 'running');
+  const statusBanner = busy
+    ? (liveStatus || runningTool?.title || 'Working…')
+    : '';
+
+  const activityGlyph = (status: string) => status === 'in_progress' || status === 'running' ? '▸'
+    : status === 'failed' || status === 'error' ? '✗'
+    : status === 'completed' || status === 'success' ? '✓'
+    : '·';
+  const activityColor = (status: string) => status === 'failed' || status === 'error' ? '#ef4444'
+    : status === 'completed' || status === 'success' ? '#34d399'
+    : '#22d3ee';
 
   return (
     <div style={{
@@ -428,7 +937,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       color: '#d1d5db', fontFamily: 'ui-sans-serif, system-ui, sans-serif',
     }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', backdropFilter: 'blur(6px)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', backdropFilter: 'blur(6px)', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, letterSpacing: '0.06em', color: accent }}>
           <Terminal size={18} />
           <span style={{ textTransform: 'uppercase', fontSize: '0.8rem' }}>Coding</span>
@@ -451,54 +960,120 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
             {statusLabel}
           </span>
         )}
-        <input
-          value={workspace}
-          onChange={e => setWorkspace(e.target.value)}
-          placeholder="/workspace"
-          title="Project directory (workspace cwd)"
-          style={{ width: 160, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '5px 8px', fontSize: '0.7rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
-        />
         <div style={{ flex: 1 }} />
         <select
-          value={selectedModel}
+          value={settings?.coderApprovalMode || 'yolo'}
+          onChange={e => void switchApprovalMode(e.target.value)}
+          title="How freely the agent may act"
+          style={{ background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
+        >
+          {APPROVAL_MODES.map(m => (<option key={m.id} value={m.id} style={{ color: '#111' }} title={m.hint}>{m.label}</option>))}
+        </select>
+        <select
+          value={settings?.coderModel || ''}
           onChange={e => void switchModel(e.target.value)}
           disabled={modelLoading || models.length === 0}
-          title="Model for the coding brain (Ollama)"
-          style={{ maxWidth: 220, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
+          title="Model for the coding brain"
+          style={{ maxWidth: 230, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
         >
           <option value="">{modelLoading ? 'loading models…' : 'select model'}</option>
-          {models.map(m => (<option key={m.id} value={m.id} style={{ color: '#111' }}>{m.name}</option>))}
+          {models.map(m => (
+            <option key={m.id} value={m.id} style={{ color: '#111' }}>
+              {m.name}{m.toolsCapable ? '' : '  ⚠ no tools'}
+            </option>
+          ))}
         </select>
+        <button onClick={() => void copySession()} disabled={transcriptEvents.length === 0} style={ghostBtnStyle()} title="Copy the full session (chat + thinking + tool activity) to the clipboard">
+          {copied ? <CheckCircle2 size={14} /> : <ClipboardCopy size={14} />} {copied ? 'Copied' : 'Copy'}
+        </button>
+        <button onClick={() => setSettingsOpen(o => !o)} style={ghostBtnStyle()}><Wrench size={14} /> Settings</button>
         <button onClick={() => setPreviewOpen(o => !o)} style={ghostBtnStyle()}><Globe size={14} /> Preview</button>
-        <button onClick={() => void newSession()} style={btnStyle(accent)}><Plus size={14} /> New session</button>
+        <button onClick={() => void newSession()} style={btnStyle(accent)}><Plus size={14} /> New</button>
         {onExit && (<button onClick={onExit} style={ghostBtnStyle()}><X size={14} /> Exit</button>)}
       </div>
+
+      {/* Coder settings drawer */}
+      {settingsOpen && settings && (
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.25)', display: 'flex', flexWrap: 'wrap', gap: '18px', alignItems: 'flex-start' }}>
+          <SettingField label="Workspace (session cwd)" hint="Absolute path inside the coder container">
+            <input
+              value={workspace}
+              onChange={e => setWorkspace(e.target.value)}
+              onBlur={() => { if (workspace !== settings.coderWorkspace) void saveSettings({ coderWorkspace: workspace }); }}
+              placeholder="/workspace"
+              style={inputStyle()}
+            />
+          </SettingField>
+          <SettingField label="Context window" hint="0 = the model's own window. Raise for long jobs.">
+            <input
+              type="number"
+              value={settings.coderContextLength || 0}
+              disabled
+              title="Reported by the model; edit on the daemon side"
+              style={{ ...inputStyle(), width: 110, opacity: 0.6 }}
+            />
+          </SettingField>
+          <SettingField label="Tool-search budget (%)" hint="How much of the context window is spent declaring tool schemas upfront. Raise toward 100 for small models that never call tool_search.">
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={settings.coderToolSearchThreshold || 0}
+              onChange={e => {
+                const v = Number(e.target.value) || 0;
+                setSettings(prev => (prev ? { ...prev, coderToolSearchThreshold: v } : prev));
+              }}
+              onBlur={() => void saveSettings({ coderToolSearchThreshold: settings.coderToolSearchThreshold })}
+              style={{ ...inputStyle(), width: 110 }}
+            />
+          </SettingField>
+          <div style={{ alignSelf: 'flex-end', fontSize: '0.68rem', color: 'rgba(209,213,219,0.45)', fontFamily: 'ui-monospace, monospace', paddingBottom: 6 }}>
+            {settingsSaving ? 'saving…' : 'saved'}
+          </div>
+        </div>
+      )}
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Chat / main */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
           <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
             {messages.length === 0 && !connecting && (
-              <div style={{ margin: 'auto', textAlign: 'center', color: 'rgba(209,213,219,0.4)', maxWidth: '420px' }}>
+              <div style={{ margin: 'auto', textAlign: 'center', color: 'rgba(209,213,219,0.4)', maxWidth: '460px' }}>
                 <Bot size={36} style={{ margin: '0 auto 12px', color: accent }} />
                 <div style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '6px' }}>Your coding agent is ready.</div>
                 <div style={{ fontSize: '0.84rem' }}>
                   {daemonOnline ? 'Start a session and describe what to build.' : 'Start the coder container to bring the brain online.'}
                 </div>
+                {!settings?.coderModel && daemonOnline && (
+                  <div style={{ marginTop: '10px', fontSize: '0.78rem', color: '#fbbf24' }}>
+                    Pick a model above — agents need a tools-capable one (models marked ⚠ cannot call tools).
+                  </div>
+                )}
               </div>
             )}
+
             {messages.map(msg => (
               <div key={msg.id} style={{ display: 'flex', gap: '10px', flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }}>
                 <div style={{ width: 28, height: 28, borderRadius: '8px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: msg.role === 'user' ? 'rgba(232,121,249,0.15)' : 'rgba(34,211,238,0.12)', color: msg.role === 'user' ? magenta : accent }}>
                   {msg.role === 'user' ? <MessageSquare size={15} /> : <Bot size={16} />}
                 </div>
-                <div style={{ maxWidth: '72%', padding: '10px 14px', borderRadius: '12px', background: msg.role === 'user' ? 'rgba(232,121,249,0.08)' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', fontFamily: msg.role === 'assistant' ? 'ui-monospace, monospace' : undefined, fontSize: '0.88rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                  {msg.content}
-                  {msg.role === 'user' && msg.ack && (
+                <div style={{ maxWidth: '74%', minWidth: 0, padding: '10px 14px', borderRadius: '12px', background: msg.role === 'user' ? 'rgba(232,121,249,0.08)' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', fontSize: '0.88rem', wordBreak: 'break-word', lineHeight: '1.7', color: '#d1d5db' }}>
+                  {msg.thinking !== undefined && msg.thinking.trim() && (
+                    <ThinkingBlock content={msg.thinking.trim()} isStreaming={false} />
+                  )}
+                  {msg.role === 'assistant' ? (
+                    <AssistantContent content={msg.content} />
+                  ) : (
+                    <span style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</span>
+                  )}
+                  {msg.role === 'user' && msg.ack === 'sending' && (
                     <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.66rem', fontFamily: 'ui-monospace, monospace' }}>
-                      {msg.ack === 'sending' && <><Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} color="#9ca3af" /> <span style={{ color: '#9ca3af' }}>sending…</span></>}
-                      {msg.ack === 'accepted' && <><CheckCircle2 size={11} color="#34d399" /> <span style={{ color: '#34d399' }}>accepted</span></>}
-                      {msg.ack === 'error' && <><AlertCircle size={11} color="#ef4444" /> <span style={{ color: '#ef4444' }}>failed</span></>}
+                      <Loader2 size={10} style={{ animation: 'spin 1s linear infinite' }} color="#9ca3af" /> <span style={{ color: '#9ca3af' }}>sending…</span>
+                    </div>
+                  )}
+                  {msg.role === 'user' && msg.ack === 'error' && (
+                    <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.66rem', fontFamily: 'ui-monospace, monospace' }}>
+                      <AlertCircle size={11} color="#ef4444" /> <span style={{ color: '#ef4444' }}>failed</span>
                     </div>
                   )}
                   {msg.usage && msg.role === 'assistant' && (
@@ -507,6 +1082,47 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                 </div>
               </div>
             ))}
+
+            {/* Live status banner — what the agent is doing right now */}
+            {statusBanner && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', alignSelf: 'flex-start', maxWidth: '80%', padding: '7px 12px', borderRadius: '10px', background: 'rgba(34,211,238,0.07)', border: '1px solid rgba(34,211,238,0.25)', color: '#a5f3fc', fontSize: '0.78rem', fontFamily: 'ui-monospace, monospace' }}>
+                <Loader2 size={13} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{statusBanner}</span>
+                <button onClick={() => void cancelTurn()} title="Stop the agent" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(239,68,68,0.12)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.35)', borderRadius: '6px', padding: '2px 8px', fontSize: '0.7rem', cursor: 'pointer', flexShrink: 0 }}>
+                  <Square size={10} /> Stop
+                </button>
+              </div>
+            )}
+
+            {/* Permission / question prompts — the agent is blocked on you */}
+            {pending.map(item => (
+              <div key={item.requestId} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 14px', borderRadius: '10px', background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.35)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fbbf24', fontSize: '0.82rem', fontWeight: 600 }}>
+                  <ShieldAlert size={15} /> {item.title}
+                </div>
+                {item.detail && (
+                  <div style={{ fontSize: '0.78rem', color: 'rgba(209,213,219,0.75)', fontFamily: 'ui-monospace, monospace', whiteSpace: 'pre-wrap', maxHeight: 320, overflowY: 'auto' }}>
+                    {item.detail}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {item.options.length > 0
+                    ? item.options.map(opt => (
+                        <button key={opt.optionId} onClick={() => void respondToInteraction(item, opt.optionId)} style={btnStyle(accent)}>
+                          {opt.label}
+                        </button>
+                      ))
+                    : (
+                      <>
+                        <button onClick={() => void respondToInteraction(item, 'proceed_once')} style={btnStyle(accent)}>Allow</button>
+                        <button onClick={() => void respondToInteraction(item, 'proceed_always')} style={ghostBtnStyle()}>Always allow</button>
+                      </>
+                    )}
+                  <button onClick={() => void respondToInteraction(item)} style={{ ...ghostBtnStyle(), color: '#fca5a5', borderColor: 'rgba(239,68,68,0.35)' }}>Deny</button>
+                </div>
+              </div>
+            ))}
+
             {error && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 12px', borderRadius: '8px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#fca5a5', fontSize: '0.82rem' }}>
                 <AlertCircle size={14} /> {error}
@@ -515,40 +1131,53 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           </div>
 
           {/* Composer */}
-          <div style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', gap: '10px' }}>
-            <textarea
-              value={composer}
-              onChange={e => setComposer(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
-              placeholder={activeSessionId ? (busy ? 'Agent is working — type to queue the next command…' : 'Tell the agent what to build…') : 'Create a session first'}
-              disabled={!activeSessionId}
-              rows={2}
-              style={{ flex: 1, resize: 'none', background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '10px 12px', fontSize: '0.88rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
-            />
-            <button onClick={() => void send()} disabled={!activeSessionId || !composer.trim()} style={{ ...btnStyle(accent), alignSelf: 'flex-end' }}>
-              <Send size={14} /> {busy ? 'Queue' : 'Run'}
-            </button>
+          <div style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <textarea
+                value={composer}
+                onChange={e => setComposer(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
+                placeholder={activeSessionId ? (busy ? 'Agent is working — type to queue the next command…' : 'Tell the agent what to build…') : 'Create a session first'}
+                disabled={!activeSessionId}
+                rows={2}
+                style={{ flex: 1, resize: 'none', background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '10px 12px', fontSize: '0.88rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
+              />
+              <button onClick={() => void send()} disabled={!activeSessionId || !composer.trim()} style={{ ...btnStyle(accent), alignSelf: 'flex-end' }}>
+                <Send size={14} /> {busy ? 'Queue' : 'Run'}
+              </button>
+            </div>
           </div>
 
-          {/* Terminal pane */}
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-            <button onClick={() => setTerminalOpen(o => !o)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 20px', background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.7)', cursor: 'pointer', fontFamily: 'ui-monospace, monospace', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              <Terminal size={13} /> agent activity {terminalOpen ? '▾' : '▸'}
-            </button>
-            {terminalOpen && (
-              <div style={{ height: 150, overflowY: 'auto', padding: '8px 20px', background: 'rgba(0,0,0,0.4)', fontFamily: 'ui-monospace, monospace', fontSize: '0.76rem', color: 'rgba(209,213,219,0.65)' }}>
-                {terminalLines.map((line, idx) => <div key={`l-${idx}`} style={{ whiteSpace: 'pre-wrap', color: 'rgba(209,213,219,0.55)' }}>{line}</div>)}
-                {toolActivity.length === 0 && terminalLines.length === 0 && <div style={{ color: 'rgba(209,213,219,0.3)' }}>— no activity yet —</div>}
-                {toolActivity.map(t => (
-                  <div key={t.id} style={{ display: 'flex', gap: '8px', whiteSpace: 'pre-wrap' }}>
-                    <span style={{ color: t.status === 'failed' || t.status === 'error' ? '#ef4444' : t.status === 'completed' || t.status === 'success' ? '#34d399' : '#22d3ee', flexShrink: 0 }}>
-                      {t.status === 'in_progress' || t.status === 'running' ? '▸' : t.status === 'failed' || t.status === 'error' ? '✗' : t.status === 'completed' || t.status === 'success' ? '✓' : '·'}
-                    </span>
-                    <span><strong style={{ color: '#e5e7eb' }}>{t.title}</strong>{t.detail ? <span style={{ color: 'rgba(209,213,219,0.5)' }}> — {t.detail.slice(0, 160)}</span> : null}</span>
+          {/* Tool activity — inline record of what the agent did */}
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', maxHeight: 220, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 20px', color: 'rgba(209,213,219,0.7)', fontFamily: 'ui-monospace, monospace', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+              <Wrench size={13} /> tool activity
+              <span style={{ color: 'rgba(209,213,219,0.35)', textTransform: 'none', letterSpacing: 0 }}>
+                {toolActivity.length > 0 ? `(${toolActivity.length})` : ''}
+              </span>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 10px', background: 'rgba(0,0,0,0.3)', fontFamily: 'ui-monospace, monospace', fontSize: '0.76rem' }}>
+              {toolActivity.length === 0 && <div style={{ color: 'rgba(209,213,219,0.3)', padding: '6px 0' }}>— no tool activity yet —</div>}
+              {[...toolActivity].reverse().map(t => (
+                <div key={t.id} style={{ padding: '3px 0', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                  <div
+                    onClick={() => setExpandedTool(expandedTool === t.id ? null : t.id)}
+                    style={{ display: 'flex', gap: '8px', cursor: t.detail || t.rawInput ? 'pointer' : 'default', alignItems: 'baseline' }}
+                  >
+                    <span style={{ color: activityColor(t.status), flexShrink: 0 }}>{activityGlyph(t.status)}</span>
+                    <span style={{ color: '#e5e7eb', flexShrink: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
+                    {t.toolName && <span style={{ color: 'rgba(209,213,219,0.35)', fontSize: '0.68rem' }}>{t.toolName}</span>}
+                    <span style={{ marginLeft: 'auto', color: activityColor(t.status), fontSize: '0.68rem', flexShrink: 0 }}>{t.status}</span>
                   </div>
-                ))}
-              </div>
-            )}
+                  {expandedTool === t.id && (
+                    <pre style={{ margin: '5px 0 8px 20px', padding: '7px 9px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, color: 'rgba(209,213,219,0.75)', fontFamily: 'ui-monospace, monospace', fontSize: '0.72rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 200, overflowY: 'auto' }}>
+                      {t.rawInput !== undefined ? `input: ${JSON.stringify(t.rawInput, null, 2)}\n\n` : ''}
+                      {t.detail || '(no output yet)'}
+                    </pre>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -590,6 +1219,20 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
+}
+
+function SettingField({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, minWidth: 200 }}>
+      <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(209,213,219,0.55)' }}>{label}</span>
+      {children}
+      {hint && <span style={{ fontSize: '0.68rem', color: 'rgba(209,213,219,0.35)', maxWidth: 300 }}>{hint}</span>}
+    </div>
+  );
+}
+
+function inputStyle(): React.CSSProperties {
+  return { background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '6px 9px', fontSize: '0.75rem', fontFamily: 'ui-monospace, monospace', outline: 'none', width: 200 };
 }
 
 function btnStyle(accent: string): React.CSSProperties {

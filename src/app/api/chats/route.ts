@@ -114,20 +114,33 @@ export async function DELETE(req: Request) {
       : [];
     const surface = body.surface === 'workspace-tool' ? 'workspace-tool' : body.surface === 'coder' ? 'coder' : body.surface === 'chat' ? 'chat' : undefined;
 
-    if (ids.length > 0 || surface) {
-      const result = await deleteChatSessions(userId, { ids, surface });
+    // A specific id (or list of ids) is always the precise intent and MUST win
+    // over a `surface` that happens to ride along. The Coding view sends both
+    // `{ id, surface: 'coder' }` when deleting a single session, and the old
+    // ordering interpreted that as "delete every coder session" — one click
+    // wiped the whole surface, and the transcript poll then re-persisted the
+    // still-open sessions as zombies that "kept popping back".
+    if (ids.length > 0) {
+      const result = await deleteChatSessions(userId, { ids });
       return NextResponse.json({ success: true, count: result.count });
     }
 
     const id = typeof body.id === 'string' ? body.id.trim() : '';
-    if (!id) return NextResponse.json({ error: 'Session ID required' }, { status: 400 });
-
-    const deleted = await deleteChatSession(userId, id);
-    if (!deleted) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (id) {
+      const deleted = await deleteChatSession(userId, id);
+      if (!deleted) {
+        return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      }
+      return NextResponse.json({ success: true, count: 1 });
     }
 
-    return NextResponse.json({ success: true });
+    // Only a bare surface (no id at all) means "clear the whole surface".
+    if (surface) {
+      const result = await deleteChatSessions(userId, { surface });
+      return NextResponse.json({ success: true, count: result.count });
+    }
+
+    return NextResponse.json({ error: 'Session ID required' }, { status: 400 });
   } catch (error) {
     console.error('Failed to delete chat:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

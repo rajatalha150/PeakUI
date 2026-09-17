@@ -39,6 +39,10 @@ import {
   normalizeShellHostMaxOutputBytes,
   normalizeTemperature,
   normalizeString,
+  normalizeCoderApprovalMode,
+  normalizeCoderContextLength,
+  normalizeCoderToolSearchThreshold,
+  normalizeCoderWorkspace,
   LEGACY_DEFAULT_SYSTEM_PROMPT,
 } from '@/lib/settings';
 import {
@@ -127,6 +131,14 @@ interface SettingsBody {
   imageGenVaeName?: unknown;
   hfToken?: unknown;
   workspaceToolFavoriteModels?: unknown;
+  coderModel?: unknown;
+  coderBaseUrl?: unknown;
+  coderApiKey?: unknown;
+  coderApprovalMode?: unknown;
+  coderContextLength?: unknown;
+  coderToolSearchThreshold?: unknown;
+  coderWorkspace?: unknown;
+  coderToolsEnabled?: unknown;
 }
 
 // GET: Return user settings (create defaults if none exist)
@@ -148,6 +160,7 @@ export async function GET() {
       ...normalized,
       ollamaApiKey: '',
       firecrawlApiKey: '',
+      coderApiKey: '', // scrubbed
       hfToken: '',
       permissions: auth.permissions,
       effectiveToolAccess: buildEffectiveWorkspaceToolAccess(normalized, auth.permissions),
@@ -310,6 +323,18 @@ export async function POST(req: Request) {
         data.ragTopK = 8;
       }
     }
+    if (body.coderModel !== undefined) data.coderModel = String(body.coderModel).trim();
+    if (body.coderBaseUrl !== undefined) data.coderBaseUrl = String(body.coderBaseUrl).trim();
+    if (body.coderApiKey !== undefined) data.coderApiKey = String(body.coderApiKey).trim();
+    if (body.coderApprovalMode !== undefined) data.coderApprovalMode = normalizeCoderApprovalMode(body.coderApprovalMode);
+    if (body.coderContextLength !== undefined) data.coderContextLength = normalizeCoderContextLength(body.coderContextLength);
+    if (body.coderToolSearchThreshold !== undefined) {
+      data.coderToolSearchThreshold = normalizeCoderToolSearchThreshold(body.coderToolSearchThreshold);
+    }
+    if (body.coderWorkspace !== undefined) data.coderWorkspace = normalizeCoderWorkspace(body.coderWorkspace);
+    if (Object.prototype.hasOwnProperty.call(body, 'coderToolsEnabled')) {
+      data.coderToolsEnabled = normalizeBoolean(body.coderToolsEnabled, DEFAULT_SETTINGS.coderToolsEnabled);
+    }
     if (body.workspaceToolFavoriteModels !== undefined) {
       // Stored as a JSON-encoded string in the column; normalized (deduped,
       // capped, control-char-stripped) on the way in and out.
@@ -338,6 +363,7 @@ export async function POST(req: Request) {
       ...normalized,
       ollamaApiKey: '', // scrubbed
       firecrawlApiKey: '', // scrubbed
+      coderApiKey: '', // scrubbed
       hfToken: '', // scrubbed
       permissions: auth.permissions,
       effectiveToolAccess: buildEffectiveWorkspaceToolAccess(normalized, auth.permissions),

@@ -7,6 +7,12 @@
  * points at Ollama's OpenAI-compatible /v1 endpoint), so every model the user
  * can pick in the UI is actually routable by the daemon.
  *
+ * Tools capability is recorded, not filtered: /api/tags reports each model's
+ * `capabilities`, and the agent only works with models that include `tools`.
+ * We annotate the description so the daemon's model picker can show why a
+ * completion-only model will not drive the agent — silently offering them is
+ * what produced an agent that claimed it had no tools.
+ *
  * Runs at coder-container startup, before the daemon. Idempotent.
  */
 
@@ -24,7 +30,44 @@ async function fetchOllamaModels() {
   if (!res.ok) throw new Error(`Ollama /api/tags returned ${res.status}`);
   const data = await res.json();
   const models = Array.isArray(data.models) ? data.models : [];
-  return models.map(m => (typeof m.name === 'string' ? m.name : '')).filter(Boolean);
+  return models
+    .map(m => ({
+      name: typeof m?.name === 'string' ? m.name : '',
+      tools: Array.isArray(m?.capabilities) ? m.capabilities.includes('tools') : false,
+    }))
+    .filter(m => m.name);
+}
+
+/**
+ * Pick the model the daemon should start on.
+ *
+ * Order: the configured CODER_MODEL (if it exists here) → the first
+ * tools-capable model → the first model at all. Landing on a tools-capable
+ * model by default matters: a completion-only default makes the agent answer
+ * "I have no tools" and hallucinate results, which reads as "tools are broken"
+ * rather than "wrong model selected".
+ */
+function pickDefault(models) {
+  if (DEFAULT_MODEL && models.some(m => m.name === DEFAULT_MODEL)) {
+    const chosen = models.find(m => m.name === DEFAULT_MODEL);
+    if (!chosen.tools) {
+      console.warn(
+        `[coder-sync] CODER_MODEL="${DEFAULT_MODEL}" is not tools-capable; ` +
+          `the coding agent needs native function calling. Prefer: ` +
+          models.filter(m => m.tools).map(m => m.name).join(', ') || '(none found)',
+      );
+    }
+    return DEFAULT_MODEL;
+  }
+  if (DEFAULT_MODEL) {
+    console.warn(
+      `[coder-sync] CODER_MODEL="${DEFAULT_MODEL}" is not present in Ollama; falling back.`,
+    );
+  }
+  const capable = models.find(m => m.tools);
+  if (capable) return capable.name;
+  console.warn('[coder-sync] no tools-capable model found; the agent will not be able to act.');
+  return models[0].name;
 }
 
 async function main() {
@@ -35,10 +78,25 @@ async function main() {
       return;
     }
 
+    const defaultModel = pickDefault(models);
+    const toolsCapable = models.filter(m => m.tools).length;
+
+    // Preserve anything the app/daemon owns in this file (security, tools
+    // knobs the user set through the Coding settings drawer) instead of
+    // clobbering it on every container start.
+    let existing = {};
+    try {
+      existing = JSON.parse(await fs.readFile(SETTINGS_PATH, 'utf-8'));
+    } catch {
+      existing = {};
+    }
+
     const settings = {
+      ...existing,
       modelProviders: {
-        openai: models.map(id => ({
-          id,
+        ...(existing.modelProviders || {}),
+        openai: models.map(m => ({
+          id: m.name,
           // Explicit envKey so the daemon resolves credentials from
           // OPENAI_API_KEY (set to a dummy "local" for Ollama). Without an
           // envKey the daemon refuses the switch with "Missing credentials".
@@ -47,13 +105,18 @@ async function main() {
         })),
       },
       model: {
-        name: DEFAULT_MODEL && models.includes(DEFAULT_MODEL) ? DEFAULT_MODEL : models[0],
+        ...(existing.model || {}),
+        name: defaultModel,
+        baseUrl: OLLAMA_BASE_URL,
       },
     };
 
     await fs.mkdir(path.dirname(SETTINGS_PATH), { recursive: true });
     await fs.writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
-    console.log(`[coder-sync] wrote ${models.length} models to ${SETTINGS_PATH}`);
+    console.log(
+      `[coder-sync] wrote ${models.length} models to ${SETTINGS_PATH} ` +
+        `(${toolsCapable} tools-capable); default=${defaultModel}`,
+    );
   } catch (error) {
     console.error('[coder-sync] failed:', error instanceof Error ? error.message : String(error));
     // Non-fatal: the daemon will start with whatever settings.json exists.

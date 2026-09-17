@@ -115,6 +115,20 @@ model UserSettings {
   imageGenClipName                                String   @default("")
   imageGenVaeName                                 String   @default("")
   hfToken                                         String   @default("")
+  // ---------------------------------------------------------------------------
+  // Coding environment (Qwen Code daemon). These drive the "Coding" surface:
+  // which model the agent brain uses, how much context it gets, and how
+  // freely it may act. The daemon itself is shared, so model selection is
+  // applied per session; context/tool-search knobs are workspace-level.
+  // ---------------------------------------------------------------------------
+  coderModel               String   @default("")
+  coderBaseUrl             String   @default("")
+  coderApiKey              String   @default("")
+  coderApprovalMode        String   @default("yolo")
+  coderContextLength       Int      @default(0)
+  coderToolSearchThreshold Int      @default(0)
+  coderWorkspace           String   @default("/workspace")
+  coderToolsEnabled        Boolean  @default(true)
   user                                            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 

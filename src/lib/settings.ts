@@ -66,6 +66,25 @@ export type WorkspaceToolAutomationExecutionProvider = 'ollama'
  * detection.
  */
 export type WorkspaceToolPromptTier = 'auto' | 'minimal' | 'compact' | 'standard' | 'full'
+/**
+ * Approval modes the Coding surface exposes.
+ *
+ * The daemon itself accepts a richer set (`plan` / `default` / `auto-edit` /
+ * `auto` / `yolo`), but the Coding surface runs inside an isolated, disposable
+ * container, so the user only wants two choices:
+ *
+ * - `yolo`  — no tool-approval prompts at all. The agent edits files and runs
+ *             shell commands freely. (The model can still call `ask_user_question`
+ *             when it genuinely needs an opinion, advice, or a decision — that is
+ *             a separate tool, not an approval gate, so it survives yolo.)
+ * - `auto`  — the daemon's classifier gates the risky tools (shell/edit/write),
+ *             approving the safe ones automatically.
+ *
+ * The more restrictive modes (`plan`, `default`, `auto-edit`) are deliberately
+ * not offered: they gate ordinary tool use, which reads as "it kept asking me
+ * for permissions" instead of letting the isolated agent just do the work.
+ */
+export type CoderApprovalMode = 'auto' | 'yolo'
 
 export const MIN_CONTEXT_LENGTH = 512
 export const MAX_CONTEXT_LENGTH = 131072
@@ -148,6 +167,27 @@ export interface AppSettings {
   imageGenClipName: string
   imageGenVaeName: string
   hfToken: string
+  /**
+   * Coding environment (Qwen Code daemon) — the "Coding" surface's brain.
+   * Empty `coderModel` means "use the daemon's configured default".
+   */
+  coderModel: string
+  coderBaseUrl: string
+  /** Provider key for the coding brain. Never returned from the settings API. */
+  coderApiKey: string
+  coderApprovalMode: CoderApprovalMode
+  /** 0 = leave the daemon's per-model auto-detected context window alone. */
+  coderContextLength: number
+  /**
+   * `tools.toolSearch.threshold` — percent of the context window used as the
+   * session-start budget for preloading deferred tool schemas. 0 = daemon
+   * default (10%). Raising this is what makes the agent's full tool surface
+   * reach weak/local models that never call `tool_search`.
+   */
+  coderToolSearchThreshold: number
+  coderWorkspace: string
+  /** Master switch for surfacing the daemon's tools (approval mode aside). */
+  coderToolsEnabled: boolean
   /**
    * Native tool-calling mode. 'on' passes the tool schemas via the API's
    * `tools` parameter and parses structured tool_calls frames (no XML wrapper,
@@ -240,6 +280,14 @@ export const DEFAULT_SETTINGS: AppSettings = {
   imageGenClipName: '',
   imageGenVaeName: '',
   hfToken: '',
+  coderModel: '',
+  coderBaseUrl: '',
+  coderApiKey: '',
+  coderApprovalMode: 'yolo',
+  coderContextLength: 0,
+  coderToolSearchThreshold: 0,
+  coderWorkspace: '/workspace',
+  coderToolsEnabled: true,
   workspaceToolNativeToolCalls: 'off',
   workspaceToolFavoriteModels: '[]',
 }
@@ -495,6 +543,55 @@ export function normalizeWorkspaceToolFavoriteModels(value: unknown): string[] {
   return out
 }
 
+/**
+ * The two approval modes the Coding surface exposes (see `CoderApprovalMode`).
+ * `auto` and `yolo` are the only choices; any other value — including the
+ * legacy `plan` / `default` / `auto-edit` modes that used to be offered — is
+ * treated as unknown and normalizes to the default (`yolo`).
+ */
+export const CODER_APPROVAL_MODES: CoderApprovalMode[] = ['auto', 'yolo']
+
+export function normalizeCoderApprovalMode(value: unknown): CoderApprovalMode {
+  return CODER_APPROVAL_MODES.includes(value as CoderApprovalMode)
+    ? (value as CoderApprovalMode)
+    : DEFAULT_SETTINGS.coderApprovalMode
+}
+
+/**
+ * 0 means "leave the daemon's auto-detected per-model window alone" — it is a
+ * deliberate sentinel, not a clamp fallback, so it must survive normalization.
+ * Any other value is clamped to the same bounds the WorkSpaces context slider
+ * uses, rounded to CONTEXT_STEP.
+ */
+export function normalizeCoderContextLength(value: unknown): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0
+  const clamped = clampNumber(parsed, MIN_CONTEXT_LENGTH, MAX_CONTEXT_LENGTH, DEFAULT_SETTINGS.coderContextLength)
+  return Math.round(clamped / CONTEXT_STEP) * CONTEXT_STEP
+}
+
+/**
+ * `tools.toolSearch.threshold`, in percent of the context window. 0 means
+ * "leave the daemon default (10%) alone". Anything above 100 is a typo (the
+ * daemon itself clamps there), so cap it — the whole point of raising this is
+ * to get the full tool surface in front of models that never call tool_search.
+ */
+export function normalizeCoderToolSearchThreshold(value: unknown): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0
+  return Math.min(100, Math.round(parsed))
+}
+
+/** Workspace cwd for coding sessions. Must be an absolute path the daemon owns. */
+export function normalizeCoderWorkspace(value: unknown): string {
+  if (typeof value !== 'string') return DEFAULT_SETTINGS.coderWorkspace
+  const trimmed = value.trim()
+  if (!trimmed || !trimmed.startsWith('/')) return DEFAULT_SETTINGS.coderWorkspace
+  // Collapse a trailing slash (except the root itself) so two spellings of the
+  // same cwd don't create two workspaces in the daemon's registry.
+  return trimmed.length > 1 ? trimmed.replace(/\/+$/, '') || '/' : trimmed
+}
+
 export function normalizeWorkspaceToolAutomationExecutionMaxRunsPerHour(value: unknown): number {
   return Math.round(clampNumber(value, 1, 60, DEFAULT_SETTINGS.workspaceToolAutomationExecutionMaxRunsPerHour))
 }
@@ -641,6 +738,14 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     ragEnabled: normalizeBoolean(settings?.ragEnabled, DEFAULT_SETTINGS.ragEnabled),
     ragTopK: normalizeRagTopK(settings?.ragTopK),
     workspaceToolFavoriteModels: JSON.stringify(normalizeWorkspaceToolFavoriteModels(settings?.workspaceToolFavoriteModels)),
+    coderModel: typeof settings?.coderModel === 'string' ? settings.coderModel.trim() : DEFAULT_SETTINGS.coderModel,
+    coderBaseUrl: typeof settings?.coderBaseUrl === 'string' ? settings.coderBaseUrl.trim() : DEFAULT_SETTINGS.coderBaseUrl,
+    coderApiKey: typeof settings?.coderApiKey === 'string' ? settings.coderApiKey.trim() : DEFAULT_SETTINGS.coderApiKey,
+    coderApprovalMode: normalizeCoderApprovalMode(settings?.coderApprovalMode),
+    coderContextLength: normalizeCoderContextLength(settings?.coderContextLength),
+    coderToolSearchThreshold: normalizeCoderToolSearchThreshold(settings?.coderToolSearchThreshold),
+    coderWorkspace: normalizeCoderWorkspace(settings?.coderWorkspace),
+    coderToolsEnabled: normalizeBoolean(settings?.coderToolsEnabled, DEFAULT_SETTINGS.coderToolsEnabled),
   }
 }
 

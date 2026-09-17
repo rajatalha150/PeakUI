@@ -6,7 +6,12 @@ FROM node:22-bookworm-slim
 
 # --- Dev toolchain ----------------------------------------------------------
 # Keep this lean-but-complete: the agent shells out for builds/tests/git, and
-# the user can install more from the UI (Phase 4).
+# the user can install more from the UI.
+# `procps` is REQUIRED, not cosmetic: during shutdown the daemon snapshots the
+# ACP child's process tree with /bin/ps and logs
+#   "ACP child pid=N process-tree snapshot failed: spawn /bin/ps ENOENT"
+# then fails to reap the child ("daemon shutdown incomplete"). Without it a
+# container restart can leave an orphaned ACP process holding the workspace.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
       curl \
@@ -15,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 \
       python3-pip \
       python3-venv \
+      procps \
       jq \
       ripgrep \
       unzip \
@@ -22,8 +28,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Go + Rust are optional-heavy; install via toolchain managers so versions stay
-# current and installs are opt-in. (Phase 4 exposes "install a tool" from the UI.)
-# We include Go for a useful out-of-the-box experience.
+# current and installs are opt-in. We include Go for a useful out-of-the-box
+# experience.
 ARG GO_VERSION=1.22.5
 RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz \
     && tar -C /usr/local -xzf /tmp/go.tgz && rm /tmp/go.tgz
@@ -47,12 +53,10 @@ RUN mkdir -p /workspace
 WORKDIR /workspace
 
 # --- Runtime ----------------------------------------------------------------
-# The daemon binds 0.0.0.0 so the app container can reach it over the Docker
-# network. A bearer token is required on non-loopback binds; QWEN_SERVER_TOKEN
-# is injected by compose from an env var (see docker-compose.yml).
+# The daemon binds loopback; host networking exposes it to the app. A bearer
+# token is required on non-loopback binds (QWEN_SERVER_TOKEN).
 ENV QWEN_SERVER_TOKEN=""
 
-# Default to API-only (no Web Shell); the PeakUI Coding surface is the UI.
 EXPOSE 4170
 
 # Model-list sync: mirror Ollama's live models into ~/.qwen/settings.json so the

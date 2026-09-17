@@ -238,3 +238,127 @@ positive for this heavy agentic CLI — so we build from pinned Git source).
 Phase 1 → Phase 5 (see §4). The spike removed the two big unknowns (Ollama
 auth + the prompt/transcript wire shape), so Phase 1 can go straight to the
 container + gateway.
+
+---
+
+## 9. Post-delivery audit and fixes (verified)
+
+An audit of the shipped Coding surface found that the container, gateway and UI
+each had a class of bug that made the feature look broken. Findings and fixes:
+
+### 9.1 "The tools aren't available" — actually a model-selection bug
+
+Captured the literal wire payload the daemon sends to Ollama with a logging
+proxy (`POST /v1/chat/completions`):
+
+```
+TOOL_COUNT=33
+TOOL_NAMES=agent,artifact,ask_user_question,...,read_file,...,run_shell_command,
+           ...,write_file,zoom_image
+```
+
+**All 33 tools are declared.** The daemon was never withholding them. The real
+fault: `gemma4:latest` (the old `CODER_MODEL` default) *received* 33 tool
+schemas and reported only 4 (`update_goal, web_fetch, write_file, zoom_image`),
+then **hallucinated tool output** — asked to run `echo PEAKUI_TOOL_TEST` via the
+shell it emitted the text `PEAKUI\_TOOL\_TEST` with no `tool_call` event in the
+transcript at all. Switching to a capable model produced a genuine
+`run_shell_command` call and a real result.
+
+Fixes:
+- `scripts/sync-coder-models.mjs` now reads each model's `capabilities` from
+  Ollama, logs how many are tools-capable, warns when `CODER_MODEL` is not, and
+  defaults to the first tools-capable model instead of `models[0]`.
+- `.env` / `.env.example` set `CODER_MODEL=deepseek-v4.1-flash:cloud` and
+  document how to verify tools capability (`capabilities` containing `tools`).
+  The previous comment recommended `gemma4, ornith, nemotron-3.5-lightning,
+  muse-glimmer`, which are not real public model names.
+- The UI dropdown is driven by the daemon's `/workspace/models` (authoritative,
+  routable models with real context windows) rather than raw `/api/tags`, and
+  annotates entries that lack tool support with `⚠ no tools`.
+
+### 9.2 `.env` never reached the container
+
+`.env` had **zero** `CODER_*` keys, while `docker-compose.yml` reads five of
+them. Compose silently substituted its own defaults, so the Coding surface
+ignored the file entirely. Added `CODER_SERVER_TOKEN`, `CODER_MODEL`,
+`CODER_OPENAI_BASE_URL`, `CODER_OPENAI_API_KEY`, `CODER_PORT`,
+`CODER_DAEMON_URL` to `.env` (and uncommented them in `.env.example`).
+
+### 9.3 The gateway was a hand-maintained whitelist
+
+`src/app/api/coder/[...path]/route.ts` proxied 8 of the daemon's 39 routes.
+Missing were the ones the UI actually needs:
+
+| Missing route | Consequence |
+|---|---|
+| `GET /session/:id/status` | Polled every 1.2s → 404. Live status never worked. |
+| `POST /session/:id/cancel` | No way to stop a running turn. |
+| `POST /session/:id/approval-mode` | No approval control (daemon accepts `plan/default/auto-edit/auto/yolo`; the UI exposes only `auto`/`yolo`, default `yolo`). |
+| `POST /session/:id/permission/:id` | Any tool needing approval stalled forever — the UI said "Needs approval" with no way to approve. |
+| `workspace/settings`, `set-tool-enabled`, `workspace/tools` | No tool inspection or toggles. |
+| `file/list/glob/stat/write/edit`, `stats`, `context`, `lsp`, `tasks`, `agents`, `supported-commands`, … | No file tree, stats, LSP, subagents, or slash commands. |
+
+Replaced with a genuine pass-through that allow-lists the daemon's API
+*prefixes* (so a crafted path cannot walk the gateway into an unrelated route)
+and relays `GET /session/:id/events` as a raw SSE stream. `x-qwen-client-id` is
+forwarded so a browser tab keeps a stable identity for permission votes.
+
+### 9.4 Coding settings were not persisted at all
+
+`src/lib/settings.ts` had no coder fields, so the model choice lived only in
+transient daemon + React state and reset on every new session or reload. Added
+`coderModel`, `coderBaseUrl`, `coderApiKey`, `coderApprovalMode`,
+`coderContextLength`, `coderToolSearchThreshold`, `coderWorkspace`,
+`coderToolsEnabled` to `AppSettings` / `DEFAULT_SETTINGS` / `normalizeAppSettings`
+and to the `/api/settings` whitelist, plus a Prisma migration. The API key is
+scrubbed from responses like the other provider keys.
+
+### 9.5 Container: `procps` was genuinely required
+
+The daemon snapshots the ACP child's process tree on shutdown via `/bin/ps`:
+
+```
+error="ACP child pid=45 process-tree snapshot failed: spawn /bin/ps ENOENT"
+ACP process registry shutdown error → daemon shutdown incomplete
+```
+
+without which it cannot reap the child, leaving an orphaned ACP process holding
+the workspace across restarts. `procps` is now installed and the reason is
+documented in the Dockerfile.
+
+### 9.6 The UI now renders status + activity on the chat surface
+
+The previous UI parsed `agent_thought_chunk` and threw it away, never rendered
+tool activity, never surfaced permission prompts, never wired "stop", and
+rendered everything as raw `pre-wrap` text. It also polled the (404-ing) status
+route every 1.2s and persisted only `{role, content, usage}` — so reopening a
+session lost all tool history.
+
+The rewritten `CodingView`:
+- Subscribes to the daemon's SSE event stream for live updates (low-frequency
+  status poll retained purely as a reconciliation safety net).
+- Renders an inline **live status banner** on the chat surface ("thinking…",
+  the running tool's title, "waiting for you") with an inline **Stop** button.
+- Renders **permission / user-question prompts inline** with Allow /
+  Always-allow / Deny, wired to the daemon's permission-vote route.
+- Renders a **tool-activity feed** with per-row expand showing `rawInput` and
+  output, status glyphs, and the daemon tool name.
+- Renders **thinking** in a collapsible block.
+- Persists tool activity and thinking into the message `meta` so reopened
+  sessions restore what the agent did, not just its prose.
+- Exposes a **Settings drawer** for workspace cwd and the tool-search budget,
+  and header controls for model + approval mode.
+
+### 9.7 Known remaining gaps
+
+- **Workspace isolation mismatch.** The coder container uses its own
+  `coder_workspace` volume at `/workspace`; the app mounts
+  `WORKSPACE_TOOL_HOST_WORKSPACE_DIR` at `/mnt/workspace-tool/workspace`. The
+  coding agent therefore edits a different tree than WorkSpaces. Reconciling
+  these is a deliberate follow-up (it changes what the agent can see).
+- **`coderContextLength` is read-only in the UI.** The daemon owns per-model
+  context windows; overriding one requires the model-management route.
+- The preview browser is still a plain iframe; the security envelope in §5
+  (restricting it to the coder container's dev-server ports) is not enforced.
+
