@@ -31,10 +31,14 @@ async function fetchOllamaModels() {
   const data = await res.json();
   const models = Array.isArray(data.models) ? data.models : [];
   return models
-    .map(m => ({
-      name: typeof m?.name === 'string' ? m.name : '',
-      tools: Array.isArray(m?.capabilities) ? m.capabilities.includes('tools') : false,
-    }))
+    .map(m => {
+      const caps = Array.isArray(m?.capabilities) ? m.capabilities : [];
+      return {
+        name: typeof m?.name === 'string' ? m.name : '',
+        tools: caps.includes('tools'),
+        vision: caps.includes('vision'),
+      };
+    })
     .filter(m => m.name);
 }
 
@@ -70,6 +74,26 @@ function pickDefault(models) {
   return models[0].name;
 }
 
+/**
+ * Pick a vision-capable model for the daemon's `visionModel` setting.
+ *
+ * The vision bridge is what lets a text-only main model "see" screenshots and
+ * images: the daemon transcribes them with this model first. Without it,
+ * `read_file` on an image / PDF and any screenshot-driven verification silently
+ * fail — the agent audits the codebase but cannot visually confirm a UI.
+ */
+function pickVisionModel(models, defaultModel) {
+  // The vision bridge only matters when the main model is text-only. If the
+  // main model already has vision, a separate bridge is unnecessary.
+  const main = models.find(m => m.name === defaultModel);
+  if (main?.vision) return '';
+  const visionCapable = models.filter(m => m.vision);
+  if (visionCapable.length === 0) return '';
+  // Prefer a vision model that is ALSO tools-capable so it can drive the agent
+  // if the main model is ever swapped; otherwise the first vision model.
+  return (visionCapable.find(m => m.tools) || visionCapable[0]).name;
+}
+
 async function main() {
   try {
     const models = await fetchOllamaModels();
@@ -80,6 +104,7 @@ async function main() {
 
     const defaultModel = pickDefault(models);
     const toolsCapable = models.filter(m => m.tools).length;
+    const visionModel = pickVisionModel(models, defaultModel);
 
     // Preserve anything the app/daemon owns in this file (security, tools
     // knobs the user set through the Coding settings drawer) instead of
@@ -109,6 +134,9 @@ async function main() {
         name: defaultModel,
         baseUrl: OLLAMA_BASE_URL,
       },
+      // Vision bridge: lets the (text-only) main model "see" screenshots and
+      // images. Empty when no vision-capable model exists in Ollama.
+      ...(visionModel ? { visionModel } : {}),
     };
 
     await fs.mkdir(path.dirname(SETTINGS_PATH), { recursive: true });

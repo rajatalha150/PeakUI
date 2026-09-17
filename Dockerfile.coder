@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ripgrep \
       unzip \
       openssh-client \
+      sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Go + Rust are optional-heavy; install via toolchain managers so versions stay
@@ -53,12 +54,17 @@ RUN mkdir -p /workspace
 WORKDIR /workspace
 
 # Git identity for the agent's commits. The container runs as root and git is
-# installed, but `git commit` fails without user.name/user.email. Env-driven so
+# installed, but `git commit` fails without user.name/user.email. Set both the
+# env vars (used at commit time) and `git config --global` (so it shows up in
+# `git config --list` and tools that read config rather than env). Env-driven so
 # operators can override the author per deployment without a rebuild.
 ENV GIT_AUTHOR_NAME="PeakUI Coding Agent" \
     GIT_AUTHOR_EMAIL="agent@peakui.local" \
     GIT_COMMITTER_NAME="PeakUI Coding Agent" \
     GIT_COMMITTER_EMAIL="agent@peakui.local"
+RUN git config --global user.name "PeakUI Coding Agent" \
+    && git config --global user.email "agent@peakui.local" \
+    && git config --global init.defaultBranch "main"
 
 # --- Runtime ----------------------------------------------------------------
 # The daemon binds loopback; host networking exposes it to the app. A bearer
@@ -71,9 +77,15 @@ EXPOSE 4170
 # daemon can route to every model (local + cloud) the UI offers.
 COPY scripts/sync-coder-models.mjs /opt/qwen-code/sync-coder-models.mjs
 
-# Entrypoint: sync models, then run the daemon. Binds loopback (secure, no
-# token); host networking + the loopback port map expose it to the app.
-# `--enable-session-shell` exposes POST /session/:id/shell so the UI can offer
-# an on-demand terminal pop-up; it is permitted on trusted loopback (no bearer
-# token) which is exactly this container's bind.
-CMD ["sh", "-c", "node /opt/qwen-code/sync-coder-models.mjs && exec node /opt/qwen-code/scripts/cli-entry.js serve --hostname 127.0.0.1 --port 4170 --workspace /workspace --no-web --enable-session-shell"]
+# Workspace context file (QWEN.md): the daemon auto-loads this into every
+# session so the agent doesn't re-derive the project layout + verify commands.
+# Copied to /workspace at build time; a fresh /workspace volume gets it seeded.
+COPY scripts/coder-workspace/QWEN.md /opt/qwen-code/workspace-qwen.md
+
+# Entrypoint: seed the workspace context file (if missing), sync models, then
+# run the daemon. Binds loopback (secure, no token); host networking + the
+# loopback port map expose it to the app. `--enable-session-shell` exposes
+# POST /session/:id/shell so the UI can offer an on-demand terminal pop-up; it
+# is permitted on trusted loopback (no bearer token) which is exactly this
+# container's bind.
+CMD ["sh", "-c", "cp -n /opt/qwen-code/workspace-qwen.md /workspace/QWEN.md 2>/dev/null; node /opt/qwen-code/sync-coder-models.mjs && exec node /opt/qwen-code/scripts/cli-entry.js serve --hostname 127.0.0.1 --port 4170 --workspace /workspace --no-web --enable-session-shell"]
