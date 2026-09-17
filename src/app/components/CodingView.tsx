@@ -594,12 +594,32 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const ensureDaemonSession = async (): Promise<string | null> => {
     if (daemonSessionId) return daemonSessionId;
     try {
-      const res = await fetch('/api/coder/session', {
+      let res = await fetch('/api/coder/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cwd: workspace }),
       });
-      const data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string };
+      let data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string; code?: string };
+
+      // The daemon is bound to a primary workspace and rejects a session for any
+      // other path with `workspace_mismatch` until that path is registered.
+      // Registering is idempotent (an already-registered path returns
+      // `workspace_exists`, which is fine). This is what makes changing the
+      // workspace cwd take effect without a daemon restart.
+      if (!res.ok && data.code === 'workspace_mismatch') {
+        await fetch('/api/coder/workspaces', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cwd: workspace }),
+        }).catch(() => {});
+        res = await fetch('/api/coder/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cwd: workspace }),
+        });
+        data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string; code?: string };
+      }
+
       if (!res.ok || !data.sessionId) {
         setError(typeof data.error === 'string' ? data.error : 'Failed to start daemon session');
         return null;
@@ -677,6 +697,9 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
   const saveSettings = async (patch: Partial<CoderSettings>) => {
     setSettingsSaving(true);
+    // Reflect the change locally so the UI (and subsequent reads) see the new
+    // value immediately, not just after a reload.
+    setSettings(prev => (prev ? { ...prev, ...patch } : prev));
     try {
       await fetch('/api/settings', {
         method: 'POST',
@@ -688,6 +711,20 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     } finally {
       setSettingsSaving(false);
     }
+  };
+
+  /**
+   * Change the workspace cwd. Persists the setting AND tears down the current
+   * daemon session so the next send re-creates it against the new directory.
+   * Without the teardown, the old session (bound to the previous cwd) is
+   * reused and the change silently never takes effect.
+   */
+  const changeWorkspace = async (next: string) => {
+    const clean = next.trim();
+    setWorkspace(clean);
+    if (clean === (settings?.coderWorkspace ?? '/workspace')) return;
+    void closeDaemonSession();
+    await saveSettings({ coderWorkspace: clean || '/workspace' });
   };
 
   // ---- Send / stop ---------------------------------------------------------
@@ -1133,7 +1170,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
             <input
               value={workspace}
               onChange={e => setWorkspace(e.target.value)}
-              onBlur={() => { if (workspace !== settings.coderWorkspace) void saveSettings({ coderWorkspace: workspace }); }}
+              onBlur={() => { if (workspace.trim() !== (settings.coderWorkspace ?? '/workspace')) void changeWorkspace(workspace); }}
+              onKeyDown={e => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); void changeWorkspace(workspace); } }}
               placeholder="/workspace"
               style={inputStyle()}
             />
