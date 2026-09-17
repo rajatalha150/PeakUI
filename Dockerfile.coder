@@ -52,6 +52,14 @@ RUN git clone --depth 1 --branch "v${QWEN_CODE_VERSION}" \
 RUN mkdir -p /workspace
 WORKDIR /workspace
 
+# Git identity for the agent's commits. The container runs as root and git is
+# installed, but `git commit` fails without user.name/user.email. Env-driven so
+# operators can override the author per deployment without a rebuild.
+ENV GIT_AUTHOR_NAME="PeakUI Coding Agent" \
+    GIT_AUTHOR_EMAIL="agent@peakui.local" \
+    GIT_COMMITTER_NAME="PeakUI Coding Agent" \
+    GIT_COMMITTER_EMAIL="agent@peakui.local"
+
 # --- Runtime ----------------------------------------------------------------
 # The daemon binds loopback; host networking exposes it to the app. A bearer
 # token is required on non-loopback binds (QWEN_SERVER_TOKEN).
@@ -65,4 +73,7 @@ COPY scripts/sync-coder-models.mjs /opt/qwen-code/sync-coder-models.mjs
 
 # Entrypoint: sync models, then run the daemon. Binds loopback (secure, no
 # token); host networking + the loopback port map expose it to the app.
-CMD ["sh", "-c", "node /opt/qwen-code/sync-coder-models.mjs && exec node /opt/qwen-code/scripts/cli-entry.js serve --hostname 127.0.0.1 --port 4170 --workspace /workspace --no-web"]
+# `--enable-session-shell` exposes POST /session/:id/shell so the UI can offer
+# an on-demand terminal pop-up; it is permitted on trusted loopback (no bearer
+# token) which is exactly this container's bind.
+CMD ["sh", "-c", "node /opt/qwen-code/sync-coder-models.mjs && exec node /opt/qwen-code/scripts/cli-entry.js serve --hostname 127.0.0.1 --port 4170 --workspace /workspace --no-web --enable-session-shell"]

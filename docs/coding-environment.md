@@ -1,6 +1,6 @@
 # Coding Environment — Design & Delivery Plan (Qwen Code as the brain)
 
-**Status:** Phase 0 spike COMPLETE (verified against local Ollama)
+**Status:** SHIPPED + hardening rounds complete (verified against the live daemon)
 **Owner:** Platform
 **Scope:** A "Coding" surface launched from Settings. A dedicated dev container
 runs the **Qwen Code** agent (the coding brain, pointed at our local Ollama
@@ -233,11 +233,13 @@ positive for this heavy agentic CLI — so we build from pinned Git source).
 - `prompt` body is a **content-blocks array** (`[{type:"text",text:"…"}]`), not
   a bare string.
 
-## 8. Next: build order
+## 8. Delivery status
 
-Phase 1 → Phase 5 (see §4). The spike removed the two big unknowns (Ollama
-auth + the prompt/transcript wire shape), so Phase 1 can go straight to the
-container + gateway.
+All phases (0–4) shipped. The sections below record what the post-delivery
+audit and the subsequent hardening rounds found and fixed. The spike removed
+the two big unknowns (Ollama auth + the prompt/transcript wire shape) early;
+the container, gateway and UI followed, and were then repeatedly hardened
+against real usage.
 
 ---
 
@@ -358,7 +360,245 @@ The rewritten `CodingView`:
   coding agent therefore edits a different tree than WorkSpaces. Reconciling
   these is a deliberate follow-up (it changes what the agent can see).
 - **`coderContextLength` is read-only in the UI.** The daemon owns per-model
-  context windows; overriding one requires the model-management route.
+  context windows; overriding one requires the model-management route, which is
+  not yet wired to a control.
 - The preview browser is still a plain iframe; the security envelope in §5
   (restricting it to the coder container's dev-server ports) is not enforced.
+
+---
+
+## 10. Hardening round — chat rendering, permission votes, isolation
+
+The first audit fixed the *brain* and *plumbing*; a second round of real use
+exposed three further classes of bug in the UI layer and the session lifecycle.
+
+### 10.1 The chat dropped the first message and cross-wired turns
+
+The chat was built by **incrementally appending** SSE frames under a shared
+`live-` id. Because the SSE subscription opened *after* `send()` fired, the
+first message's response was emitted before the listener attached — it
+vanished. Turn boundaries also collided, so thinking and messages from
+different turns merged, then were wiped when `idle` fired.
+
+**Fix:** the chat is now a deterministic projection of the daemon's
+**transcript endpoint** (`GET /session/:id/transcript`), polled on a 1.5s
+cadence. The SSE stream only drives the live status line and permission
+prompts; it no longer writes messages, so it cannot race, drop, or duplicate.
+A `coder-transcript.ts` module folds raw events into ordered
+messages + tool activity (`buildConversation`) and serialises the whole
+session to text (`serializeConversation`), the same source that powers the
+copy button. Optimistic user-message appends were removed — they were the
+source of the literal `hello hello` duplicate.
+
+### 10.2 Assistant replies rendered as raw text
+
+The assistant bubble rendered `{msg.content}` in a monospace font with no
+markdown. Switched to PeakUI's own `AssistantContent` (the Hermes markdown
+renderer: headings, code blocks with copy, lists, tables, inline code,
+bold/italic) and `ThinkingBlock` (the collapsible "Thought process" panel) for
+thinking. The noisy per-message "accepted" badge was removed; only a
+"sending…" / "failed" status remains, and only while meaningful.
+
+### 10.3 Permission votes were malformed (ACP nests `outcome`)
+
+The vote body was a **flat** `{ outcome: 'selected', optionId }`, but ACP's
+`RequestPermissionResponse` nests `outcome` as a discriminated union. The
+daemon 400'd every vote, which the UI collapsed into a misleading "That request
+is no longer pending." message while the agent stayed blocked forever.
+
+**Fix:** `src/lib/coder-permission-vote.ts` builds the nested shape
+(`{ outcome: { outcome: 'selected', optionId } }` / `{ outcome: { outcome:
+'cancelled' } }`). `answers` is a top-level sibling for `ask_user_question`.
+Covered by `coder-permission-vote.test.ts`, which asserts the flat shape is
+never emitted.
+
+### 10.4 `ask_user_question` rendered as an empty card
+
+The biggest UX gap. The agent's `ask_user_question` tool asks the user real
+questions (e.g. "there are no deploy credentials — how should I deploy?"), but
+the content lives in a `questions[]` array
+(`{ answerKey, header, question, options: [{ label, description }] }`) that the
+parser ignored. The card showed a generic "The agent has a question" with dead
+`Submit/Cancel/Deny` buttons, and — because the user could not answer — the agent
+silently fell back to "safe defaults" and proceeded anyway.
+
+**Fix:** `CodingView` now parses `questions[]`, renders each question with its
+header, full text, and clickable options (descriptions as tooltips), and sends
+all answers at once via `answers: { answerKey → option label }` — matching the
+daemon's own TUI (`AskUserQuestionDialog.tsx`, which uses `option.label` as the
+answer value). A "Submit answers" button is disabled until every question has a
+choice.
+
+### 10.5 Session delete nuked the whole surface
+
+`DELETE /api/chats` with `{ id, surface: 'coder' }` — exactly what the Coding
+view sends — was ordered so that *any* present `surface` meant "delete every
+session on that surface". One click deleted all coder sessions, then the
+transcript poll re-persisted the still-open ones as zombies that "kept popping
+back".
+
+**Fix:** a specific `id` (or `ids`) now always wins over a `surface` that
+rides along; only a *bare* `surface` (no id) triggers surface-wide deletion.
+Covered by `src/app/api/chats/route.test.ts`, which fails against the old
+ordering.
+
+### 10.6 Daemon sessions were never closed (memory / state leak)
+
+The daemon session is where the agent's conversation memory and working context
+live. It was never torn down on delete / switch / new-session, so memory could
+bleed across sessions and an abandoned tab kept the ACP child alive.
+
+**Fix:** `closeDaemonSession()` calls `DELETE /api/coder/session/:id` on
+delete, switch-to, new-session, and (via the handle being nulled first) any
+stale poll in flight. The minted `clientId` is cleared alongside.
+
+---
+
+## 11. Hardening round — approval model, git identity, on-demand shell
+
+### 11.1 Approval reduced to `auto` | `yolo`, default `yolo`
+
+The daemon supports `plan / default / auto-edit / auto / yolo`, but the Coding
+surface runs inside an isolated, disposable container, so gating ordinary tool
+use reads as "it kept asking me for permissions". `CoderApprovalMode` is now
+`'auto' | 'yolo'` with a `'yolo'` default; the legacy restrictive modes
+normalise down to the default instead of leaking back in. **Verified:** under
+`yolo` a shell tool ran with `isWaitingForPermission=false` and no prompt,
+while `ask_user_question` (a *separate* tool, not an approval gate) still
+pauses the agent when it genuinely needs an opinion/advice/clarity.
+
+### 11.2 Git identity for the agent's commits
+
+The container runs as `root` and has `git`, but `git commit` failed with no
+`user.name`/`user.email`. The Dockerfile now sets `GIT_AUTHOR_*` /
+`GIT_COMMITTER_*` env vars (env-driven so operators can override the author per
+deployment). **Verified:** a real `git init` + `add` + `commit` through the
+shell endpoint produced a commit.
+
+### 11.3 On-demand terminal pop-up
+
+The daemon has `POST /session/:id/shell`, but it was (a) gated behind
+`--enable-session-shell` (now passed in the Dockerfile CMD, permitted on trusted
+loopback) and (b) blocked by a client-id handshake — the daemon **mints** its own
+`clientId` on session create and rejects any caller-invented id.
+
+**Fix:** the Dockerfile adds `--enable-session-shell`; `ensureDaemonSession`
+captures the daemon-minted `clientId` and echoes it; a **Terminal** button opens
+a pop-up with a command input + scrollable output running as root in the
+container. **Verified:** `id -u` → `0` / `whoami` → `root` through the endpoint.
+
+### 11.4 Client-id handshake (the shell unblocker)
+
+`POST /session` returns `{ sessionId, clientId, … }` where `clientId` is the
+daemon's *minted* identity (`client_<uuid>`). Every per-session call (shell,
+permission votes) must echo that id via `x-qwen-client-id`; the bridge rejects
+un-issued ids with "client id is not registered for session". The gateway
+forwards `x-qwen-client-id`, and `CodingView` stores the minted id in a ref,
+clearing it when the session is closed so a stale id cannot leak across
+sessions.
+
+---
+
+## 12. Wire-contract reference (verified against the live daemon)
+
+The shapes below are the ones the UI actually depends on, verified by
+interrogating the running `qwen serve` and the pinned Qwen Code source. They are
+the canonical answers to "what does the daemon really send?" — kept here so a
+future reader does not have to re-derive them.
+
+### 12.1 Session create
+
+```
+POST /session { cwd }
+→ { sessionId, workspaceCwd, attached, clientId, createdAt, hasActivePrompt }
+```
+
+`clientId` is minted by the daemon and must be echoed on later per-session
+calls.
+
+### 12.2 Prompt / transcript events
+
+`POST /session/:id/prompt { prompt: [{ type: 'text', text }] }` → `202`.
+`GET /session/:id/transcript` → `{ events: [{ type: 'session_update', data: {
+sessionUpdate, ... } }] }` with `sessionUpdate` values:
+
+- `user_message_chunk` / `agent_message_chunk` / `agent_thought_chunk` — carry
+  `content: { type: 'text', text }`; trailing empty `agent_message_chunk`
+  frames carry only `_meta.usage`.
+- `tool_call` / `tool_call_update` — carry `toolCallId`, `status`, `title`,
+  `kind`, `rawInput`, `content`, `rawOutput`, `_meta.toolName`.
+
+### 12.3 Permission vote
+
+```
+POST /session/:id/permission/:requestId
+→ { outcome: { outcome: 'selected', optionId } }            // approve action
+→ { outcome: { outcome: 'cancelled' } }                     // reject
+→ { outcome: { outcome: 'selected', optionId }, answers: { answerKey: label } }
+```
+
+`answers` is only for `ask_user_question`; values are the chosen option
+**labels**, keyed by each question's `answerKey` (a `"0"`, `"1"`, … index
+string).
+
+### 12.4 Pending interaction (status / SSE)
+
+Permission ask: `{ requestId, kind: 'permission', action: { title, content,
+input }, options: [{ optionId, name/kind }] }`.
+
+Question ask: `{ requestId, kind: 'user_question', title, questions: [{
+answerKey, header, question, options: [{ label, description }], multiSelect }],
+options: […] }`.
+
+### 12.5 Session shell
+
+`POST /session/:id/shell { command }` (with `x-qwen-client-id`) →
+`{ exitCode, output, aborted }`. Requires `--enable-session-shell` on the
+daemon.
+
+---
+
+## 13. Test coverage map
+
+| File | What it locks down |
+|---|---|
+| `src/lib/coder-transcript.test.ts` | message ordering, turn boundaries, first-message-not-dropped, usage carry-over, full serialisation (no truncation) |
+| `src/lib/coder-permission-vote.test.ts` | nested `outcome`, no flat shape, `answers` as sibling keyed by `answerKey` |
+| `src/lib/coder-gateway.test.ts` | daemon URL/token resolution, header injection, 502-on-outage, SSE identity headers |
+| `src/lib/settings-coder.test.ts` | `auto`/`yolo` enum, `yolo` default, legacy modes normalised, context/tool-search sentinels |
+| `src/app/api/coder/[...path]/route.test.ts` | 204/205/304 null-body relay, route passthrough (status/approval-mode/workspace) |
+| `src/app/api/chats/route.test.ts` | id-wins-over-surface on DELETE, surface-wide only when bare |
+
+---
+
+## 14. Operational runbook
+
+**Bring the stack up (fresh):**
+
+```sh
+docker compose up -d --build --force-recreate app coder
+```
+
+The coder container syncs Ollama's model list into `~/.qwen/settings.json` at
+startup (`sync-coder-models.mjs`), picks a tools-capable default, then starts
+`qwen serve --enable-session-shell` on loopback `127.0.0.1:4170`.
+
+**Verify health:**
+
+```sh
+curl -s http://127.0.0.1:4170/health        # {"status":"ok"}
+curl -s http://127.0.0.1:4170/capabilities  # session_shell_command: true
+```
+
+**Model selection** is driven by `CODER_MODEL` in `.env`; the daemon's
+`/workspace/models` is the authoritative list for the dropdown, and
+tools-capable models are what drive the agent.
+
+**Session isolation** relies on `closeDaemonSession()` running on delete /
+switch / new; a daemon session is a transient runtime handle, while persistent
+history lives in the `ChatSession` table under surface `'coder'`.
+
+**Approval** is `yolo` by default (no tool prompts); the only thing that pauses
+the agent is `ask_user_question`, which is rendered inline with real options.
+
 

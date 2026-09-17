@@ -31,25 +31,19 @@ describe('buildPermissionVoteBody', () => {
     expect(buildPermissionVoteBody(null)).toEqual({ outcome: { outcome: 'cancelled' } })
   })
 
-  it('adds answers as a TOP-LEVEL sibling (not nested inside outcome) for user questions', () => {
-    const body = buildPermissionVoteBody('opt-a', 'question-1')
+  it('adds answers (answerKey -> label) as a TOP-LEVEL sibling for user questions', () => {
+    const body = buildPermissionVoteBody('proceed_once', { '0': 'Open-Meteo — no API key (Recommended)' })
     expect(body).toEqual({
-      outcome: { outcome: 'selected', optionId: 'opt-a' },
-      answers: { 'question-1': 'opt-a' },
+      outcome: { outcome: 'selected', optionId: 'proceed_once' },
+      answers: { '0': 'Open-Meteo — no API key (Recommended)' },
     })
     // `answers` must be a sibling of `outcome`, never a child of it.
     expect(body.outcome).not.toHaveProperty('answers')
   })
 
-  it('omits answers when there is no answerKey (plain permission ask)', () => {
-    expect(buildPermissionVoteBody('cancel')).not.toHaveProperty('answers')
-    expect(buildPermissionVoteBody('cancel', '')).not.toHaveProperty('answers')
-  })
-
-  it('trims the optionId and answerKey it forwards', () => {
-    expect(buildPermissionVoteBody('  proceed_once  ', '  q1  ')).toEqual({
-      outcome: { outcome: 'selected', optionId: 'proceed_once' },
-      answers: { q1: 'proceed_once' },
-    })
+  it('omits answers for a plain permission ask (no answers / empty map)', () => {
+    expect(buildPermissionVoteBody('proceed_once')).not.toHaveProperty('answers')
+    expect(buildPermissionVoteBody('proceed_once', null)).not.toHaveProperty('answers')
+    expect(buildPermissionVoteBody('proceed_once', {})).not.toHaveProperty('answers')
   })
 })

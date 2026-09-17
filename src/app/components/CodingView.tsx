@@ -28,6 +28,15 @@ interface ToolActivity {
   rawInput?: unknown;
 }
 
+/** A single question inside an `ask_user_question` interaction. */
+interface PendingQuestion {
+  answerKey: string;
+  header: string;
+  question: string;
+  multiSelect?: boolean;
+  options: Array<{ label: string; description: string }>;
+}
+
 /** A pending permission ask or user question the agent is blocked on. */
 interface PendingInteraction {
   requestId: string;
@@ -36,6 +45,8 @@ interface PendingInteraction {
   detail: string;
   options: Array<{ optionId: string; label: string }>;
   answerKey?: string;
+  /** The agent's questions (ask_user_question). Empty for a plain permission ask. */
+  questions?: PendingQuestion[];
 }
 
 interface CoderSessionStatus {
@@ -143,6 +154,37 @@ function normalizeOptions(raw: unknown): Array<{ optionId: string; label: string
 }
 
 /**
+ * Normalise an `ask_user_question` interaction's `questions` array.
+ *
+ * The daemon serialises each question as `{ answerKey, header, question,
+ * options: [{label, description}] }` where `answerKey` is a "0", "1", …
+ * index string. The answer vote maps `answerKey -> chosen option label`.
+ */
+function normalizeQuestions(raw: unknown): PendingQuestion[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry, index) => {
+    const rec = (entry || {}) as unknown as Record<string, unknown>;
+    const answerKey = typeof rec.answerKey === 'string' ? rec.answerKey : String(index);
+    const header = typeof rec.header === 'string' ? rec.header : (typeof rec.title === 'string' ? rec.title : '');
+    const question = typeof rec.question === 'string' ? rec.question : '';
+    const rawOptions = Array.isArray(rec.options) ? rec.options : [];
+    const options = rawOptions.map((opt) => {
+      const o = (opt || {}) as unknown as Record<string, unknown>;
+      const label = typeof o.label === 'string' ? o.label : '';
+      const description = typeof o.description === 'string' ? o.description : '';
+      return { label, description };
+    }).filter(o => o.label);
+    return {
+      answerKey,
+      header,
+      question,
+      ...(rec.multiSelect === true ? { multiSelect: true } : {}),
+      options,
+    };
+  }).filter(q => q.question || q.options.length);
+}
+
+/**
  * Fold the daemon's authoritative `pendingInteractions` into the local prompt
  * list.
  *
@@ -175,12 +217,18 @@ function reconcilePending(
       || (typeof rec.title === 'string' ? rec.title : '')
       || contentText(rec.question)
       || (typeof rec.question === 'string' ? rec.question : '');
+    // `ask_user_question` carries the real content in `questions[]`, not in a
+    // flat `question`/`options` — parse it so the card actually shows what the
+    // agent is asking.
+    const questions = kind === 'user_question' ? normalizeQuestions(rec.questions) : undefined;
+    const firstQ = questions?.[0];
     return {
       requestId,
       kind,
-      title: kind === 'permission' ? 'Permission needed' : 'The agent has a question',
-      detail,
+      title: kind === 'permission' ? 'Permission needed' : (firstQ?.header || 'The agent has a question'),
+      detail: detail || (firstQ?.question ? firstQ.question : ''),
       options: normalizeOptions(rec.options),
+      ...(questions && questions.length ? { questions } : {}),
       ...(typeof rec.answerKey === 'string' ? { answerKey: rec.answerKey } : {}),
     };
   }).filter(p => p.requestId);
@@ -217,7 +265,15 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [sessionStatus, setSessionStatus] = React.useState<CoderSessionStatus | null>(null);
   const [toolActivity, setToolActivity] = React.useState<ToolActivity[]>([]);
   const [pending, setPending] = React.useState<PendingInteraction[]>([]);
+  // Per-interaction draft answers, keyed by requestId -> (answerKey -> label).
+  // Lets the user pick an option for each question in a multi-question
+  // `ask_user_question` before submitting them all at once.
+  const [questionDrafts, setQuestionDrafts] = React.useState<Record<string, Record<string, string>>>({});
   const [daemonSessionId, setDaemonSessionId] = React.useState<string | null>(null);
+  // The daemon MINTS its own client id on session create and returns it; every
+  // per-session call (shell, permission votes) must echo THAT id, not one we
+  // invented — the bridge rejects caller-supplied ids it never issued.
+  const clientIdRef = React.useRef<string>('');
   // Live "what is it doing right now" line shown on the chat surface.
   const [liveStatus, setLiveStatus] = React.useState('');
   // Which tool-activity row the user expanded.
@@ -241,6 +297,11 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [previewUrl, setPreviewUrl] = React.useState('http://localhost:3000');
   const [previewInput, setPreviewInput] = React.useState('http://localhost:3000');
+  // On-demand shell pop-up (manual terminal the user drives directly).
+  const [shellOpen, setShellOpen] = React.useState(false);
+  const [shellCommand, setShellCommand] = React.useState('');
+  const [shellOutput, setShellOutput] = React.useState('');
+  const [shellRunning, setShellRunning] = React.useState(false);
 
   const busy = sessionStatus?.hasActivePrompt === true
     || sessionStatus?.isWaitingForPermission === true
@@ -516,6 +577,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     // Null the handle first so a poll in flight can't resurrect state after
     // we've torn the session down.
     setDaemonSessionId(null);
+    clientIdRef.current = '';
     try {
       await fetch(`/api/coder/session/${id}`, { method: 'DELETE' });
     } catch {
@@ -537,12 +599,14 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cwd: workspace }),
       });
-      const data = await res.json().catch(() => ({})) as { sessionId?: string; error?: string };
+      const data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string };
       if (!res.ok || !data.sessionId) {
         setError(typeof data.error === 'string' ? data.error : 'Failed to start daemon session');
         return null;
       }
       setDaemonSessionId(data.sessionId);
+      // Echo the daemon-minted client id on every later per-session call.
+      if (typeof data.clientId === 'string' && data.clientId) clientIdRef.current = data.clientId;
 
       // Apply the persisted model + approval mode to the new session.
       if (settings?.coderModel) {
@@ -676,19 +740,34 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     }
   };
 
+  /** Select an option for one question in a multi-question ask (draft only). */
+  const selectQuestionAnswer = (requestId: string, answerKey: string, label: string) => {
+    setQuestionDrafts(prev => ({
+      ...prev,
+      [requestId]: { ...(prev[requestId] || {}), [answerKey]: label },
+    }));
+  };
+
   /** Answer a permission ask / user question that is blocking the agent. */
   const respondToInteraction = async (item: PendingInteraction, optionId?: string) => {
     if (!daemonSessionId) return;
     // Optimistically clear the prompt so the UI doesn't sit on a dead card
     // while the vote is in flight; restore it if the vote is refused.
     setPending(prev => prev.filter(p => p.requestId !== item.requestId));
+    setQuestionDrafts(prev => { const next = { ...prev }; delete next[item.requestId]; return next; });
     setError('');
     try {
+      // For `ask_user_question`, the answers map is the whole point: each
+      // question's `answerKey` -> chosen option label. A plain permission ask
+      // sends no `answers` at all.
+      const answers = item.questions?.length
+        ? Object.fromEntries(item.questions.map(q => [q.answerKey, questionDrafts[item.requestId]?.[q.answerKey] ?? '']))
+        : undefined;
       const res = await fetch(`/api/coder/session/${daemonSessionId}/permission/${item.requestId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // ACP nests `outcome`; the daemon 400s a flat `{outcome:'selected'}`.
-        body: JSON.stringify(buildPermissionVoteBody(optionId, item.answerKey)),
+        body: JSON.stringify(buildPermissionVoteBody(optionId, answers)),
       });
       if (!res.ok) {
         const detail = await res.json().catch(() => ({})) as { error?: string };
@@ -723,6 +802,47 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       setTimeout(() => setCopied(false), 2000);
     } catch {
       setError('Clipboard write failed.');
+    }
+  };
+
+  /**
+   * Run a single shell command in the agent's own session and append the result
+   * to the pop-up terminal. This is the user's direct, on-demand access to the
+   * isolated container — independent of the agent's own tool calls — via the
+   * daemon's `POST /session/:id/shell`.
+   */
+  const runShellCommand = async () => {
+    const command = shellCommand.trim();
+    if (!command || shellRunning) return;
+    const sessionId = daemonSessionId || (await ensureDaemonSession());
+    if (!sessionId) {
+      setShellOutput(prev => prev + '\n[error] no daemon session\n');
+      return;
+    }
+    setShellRunning(true);
+    setShellOutput(prev => prev + `\n$ ${command}\n`);
+    try {
+      const res = await fetch(`/api/coder/session/${sessionId}/shell`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-qwen-client-id': clientIdRef.current,
+        },
+        body: JSON.stringify({ command }),
+      });
+      const data = await res.json().catch(() => ({})) as { output?: string; exitCode?: number | null; error?: string };
+      if (!res.ok) {
+        setShellOutput(prev => prev + `[error ${res.status}] ${data.error || 'command failed'}\n`);
+      } else {
+        const out = typeof data.output === 'string' ? data.output : '';
+        const code = data.exitCode === null || data.exitCode === undefined ? '' : `\n[exit ${data.exitCode}]`;
+        setShellOutput(prev => prev + (out || '(no output)') + code + '\n');
+      }
+    } catch (e) {
+      setShellOutput(prev => prev + `[error] ${e instanceof Error ? e.message : String(e)}\n`);
+    } finally {
+      setShellRunning(false);
+      setShellCommand('');
     }
   };
 
@@ -986,6 +1106,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         <button onClick={() => void copySession()} disabled={transcriptEvents.length === 0} style={ghostBtnStyle()} title="Copy the full session (chat + thinking + tool activity) to the clipboard">
           {copied ? <CheckCircle2 size={14} /> : <ClipboardCopy size={14} />} {copied ? 'Copied' : 'Copy'}
         </button>
+        <button onClick={() => setShellOpen(o => !o)} style={ghostBtnStyle()} title="Open a terminal into the isolated container"><Terminal size={14} /> Terminal</button>
         <button onClick={() => setSettingsOpen(o => !o)} style={ghostBtnStyle()}><Wrench size={14} /> Settings</button>
         <button onClick={() => setPreviewOpen(o => !o)} style={ghostBtnStyle()}><Globe size={14} /> Preview</button>
         <button onClick={() => void newSession()} style={btnStyle(accent)}><Plus size={14} /> New</button>
@@ -1096,30 +1217,79 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
             {/* Permission / question prompts — the agent is blocked on you */}
             {pending.map(item => (
-              <div key={item.requestId} style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px 14px', borderRadius: '10px', background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.35)' }}>
+              <div key={item.requestId} style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '12px 14px', borderRadius: '10px', background: 'rgba(245,158,11,0.07)', border: '1px solid rgba(245,158,11,0.35)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#fbbf24', fontSize: '0.82rem', fontWeight: 600 }}>
                   <ShieldAlert size={15} /> {item.title}
                 </div>
-                {item.detail && (
-                  <div style={{ fontSize: '0.78rem', color: 'rgba(209,213,219,0.75)', fontFamily: 'ui-monospace, monospace', whiteSpace: 'pre-wrap', maxHeight: 320, overflowY: 'auto' }}>
-                    {item.detail}
+
+                {/* ask_user_question: render each question + its options, and a
+                    submit button that sends every answer at once. */}
+                {item.questions?.length ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    {item.questions.map(q => (
+                      <div key={q.answerKey} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {q.header && (
+                          <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#e5e7eb' }}>{q.header}</div>
+                        )}
+                        {q.question && (
+                          <div style={{ fontSize: '0.82rem', color: '#d1d5db', whiteSpace: 'pre-wrap' }}>{q.question}</div>
+                        )}
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                          {q.options.map(opt => {
+                            const selected = questionDrafts[item.requestId]?.[q.answerKey] === opt.label;
+                            return (
+                              <button
+                                key={opt.label}
+                                onClick={() => selectQuestionAnswer(item.requestId, q.answerKey, opt.label)}
+                                title={opt.description || undefined}
+                                style={{
+                                  ...(selected ? btnStyle(accent) : ghostBtnStyle()),
+                                  ...(selected ? {} : { background: 'rgba(255,255,255,0.04)' }),
+                                  textAlign: 'left',
+                                }}
+                              >
+                                {opt.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
+                      <button
+                        onClick={() => void respondToInteraction(item, 'proceed_once')}
+                        disabled={!item.questions.every(q => questionDrafts[item.requestId]?.[q.answerKey])}
+                        style={{ ...btnStyle(accent), ...((!item.questions.every(q => questionDrafts[item.requestId]?.[q.answerKey])) ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }}
+                      >
+                        <Send size={13} /> Submit answers
+                      </button>
+                      <button onClick={() => void respondToInteraction(item)} style={{ ...ghostBtnStyle(), color: '#fca5a5', borderColor: 'rgba(239,68,68,0.35)' }}>Cancel</button>
+                    </div>
                   </div>
-                )}
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                  {item.options.length > 0
-                    ? item.options.map(opt => (
-                        <button key={opt.optionId} onClick={() => void respondToInteraction(item, opt.optionId)} style={btnStyle(accent)}>
-                          {opt.label}
-                        </button>
-                      ))
-                    : (
-                      <>
-                        <button onClick={() => void respondToInteraction(item, 'proceed_once')} style={btnStyle(accent)}>Allow</button>
-                        <button onClick={() => void respondToInteraction(item, 'proceed_always')} style={ghostBtnStyle()}>Always allow</button>
-                      </>
+                ) : (
+                  <>
+                    {item.detail && (
+                      <div style={{ fontSize: '0.78rem', color: 'rgba(209,213,219,0.75)', fontFamily: 'ui-monospace, monospace', whiteSpace: 'pre-wrap', maxHeight: 320, overflowY: 'auto' }}>
+                        {item.detail}
+                      </div>
                     )}
-                  <button onClick={() => void respondToInteraction(item)} style={{ ...ghostBtnStyle(), color: '#fca5a5', borderColor: 'rgba(239,68,68,0.35)' }}>Deny</button>
-                </div>
+                    <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                      {item.options.length > 0
+                        ? item.options.map(opt => (
+                            <button key={opt.optionId} onClick={() => void respondToInteraction(item, opt.optionId)} style={btnStyle(accent)}>
+                              {opt.label}
+                            </button>
+                          ))
+                        : (
+                          <>
+                            <button onClick={() => void respondToInteraction(item, 'proceed_once')} style={btnStyle(accent)}>Allow</button>
+                            <button onClick={() => void respondToInteraction(item, 'proceed_always')} style={ghostBtnStyle()}>Always allow</button>
+                          </>
+                        )}
+                      <button onClick={() => void respondToInteraction(item)} style={{ ...ghostBtnStyle(), color: '#fca5a5', borderColor: 'rgba(239,68,68,0.35)' }}>Deny</button>
+                    </div>
+                  </>
+                )}
               </div>
             ))}
 
@@ -1215,6 +1385,38 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           </div>
         </div>
       </div>
+
+      {/* On-demand terminal pop-up — direct shell into the isolated container */}
+      {shellOpen && (
+        <div style={{
+          position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%, -50%)',
+          width: 'min(680px, 90vw)', maxHeight: '80vh', zIndex: 60,
+          display: 'flex', flexDirection: 'column', borderRadius: '12px', overflow: 'hidden',
+          background: '#0a0e17', border: '1px solid rgba(34,211,238,0.35)', boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(34,211,238,0.06)' }}>
+            <Terminal size={15} style={{ color: accent }} />
+            <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#a5f3fc', letterSpacing: '0.05em' }}>Terminal — {workspace}</span>
+            <span style={{ fontSize: '0.7rem', color: 'rgba(209,213,219,0.45)', fontFamily: 'ui-monospace, monospace' }}>root@coder (isolated container)</span>
+            <button onClick={() => setShellOpen(false)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.6)', cursor: 'pointer', padding: 0 }}><X size={16} /></button>
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', fontFamily: 'ui-monospace, monospace', fontSize: '0.78rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#d1d5db', minHeight: 180, maxHeight: '46vh', background: 'rgba(0,0,0,0.4)' }}>
+            {shellOutput || <span style={{ color: 'rgba(209,213,219,0.35)' }}>Run a command below — it executes as root inside the isolated coder container.</span>}
+          </div>
+          <div style={{ display: 'flex', gap: '8px', padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            <input
+              value={shellCommand}
+              onChange={e => setShellCommand(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') void runShellCommand(); }}
+              placeholder="ls -la /workspace"
+              style={{ flex: 1, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '8px 10px', fontSize: '0.8rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
+            />
+            <button onClick={() => void runShellCommand()} disabled={shellRunning || !shellCommand.trim()} style={btnStyle(accent)}>
+              {shellRunning ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={14} />} Run
+            </button>
+          </div>
+        </div>
+      )}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>

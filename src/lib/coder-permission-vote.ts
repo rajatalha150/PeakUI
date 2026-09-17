@@ -8,14 +8,15 @@
  *   { outcome: { outcome: 'selected', optionId: '<id>' } }
  *
  * Sending the flat `{ outcome: 'selected', optionId }` shape is rejected by the
- * daemon with a 400 ("`outcome` must be `{ outcome: "cancelled" }` or
- * `{ outcome: "selected", optionId: string }`"), which the Coding UI surfaced as
- * the dead-end "That request is no longer pending." message — the agent stayed
+ * daemon with a 400 (\"`outcome` must be `{ outcome: \"cancelled\" }` or
+ * `{ outcome: \"selected\", optionId: string }`\"), which the Coding UI surfaced
+ * as the dead-end \"That request is no longer pending.\" message — the agent stayed
  * blocked on its permission ask forever.
  *
- * `answers` is a separate TOP-LEVEL key (a sibling of `outcome`), keyed by the
- * interaction's `answerKey`. It carries the choice for an `ask_user_question`
- * interaction; permission asks omit it.
+ * `answers` is a separate TOP-LEVEL key (a sibling of `outcome`). It carries the
+ * user's replies to an `ask_user_question` interaction, keyed by each question's
+ * `answerKey` (a `\"0\"`, `\"1\"`, … index string), each value being the chosen
+ * option's **label**. A permission ask (plain tool approval) omits it.
  */
 export interface PermissionVoteBody {
   outcome:
@@ -27,14 +28,15 @@ export interface PermissionVoteBody {
 /**
  * Build a vote body.
  *
- * @param optionId - the chosen `optionId`. Omit (or pass an empty string) to
- *   reject/cancel the request instead of selecting an option.
- * @param answerKey - for `ask_user_question` interactions, the key the daemon
- *   expects in `answers`. Ignored for permission asks.
+ * @param optionId - the chosen action optionId (`proceed_once`, `proceed_always`,
+ *   …). Omit (or pass empty) to reject/cancel the request.
+ * @param answers - for `ask_user_question`, the user's answers keyed by each
+ *   question's `answerKey`, values are the chosen option labels. Omit for a
+ *   plain permission ask.
  */
 export function buildPermissionVoteBody(
   optionId?: string | null,
-  answerKey?: string | null,
+  answers?: Record<string, string> | null,
 ): PermissionVoteBody {
   const chosen = typeof optionId === 'string' ? optionId.trim() : ''
   if (!chosen) {
@@ -44,7 +46,6 @@ export function buildPermissionVoteBody(
   }
 
   const body: PermissionVoteBody = { outcome: { outcome: 'selected', optionId: chosen } }
-  const key = typeof answerKey === 'string' ? answerKey.trim() : ''
-  if (key) body.answers = { [key]: chosen }
+  if (answers && Object.keys(answers).length > 0) body.answers = answers
   return body
 }
