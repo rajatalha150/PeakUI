@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildConversation, serializeConversation, type CoderTranscriptEvent } from './coder-transcript'
+import { buildConversation, fetchFullTranscript, serializeConversation, type CoderTranscriptEvent } from './coder-transcript'
 
 const event = (sessionUpdate: string, data: Record<string, unknown>): CoderTranscriptEvent => ({
   type: 'session_update',
@@ -115,5 +115,45 @@ describe('serializeConversation', () => {
     expect(dump).toContain(`output:\n${longOutput}`);
     expect(dump).toContain('session: s1');
     expect(dump).toContain('model: m');
+  });
+});
+
+describe('fetchFullTranscript', () => {
+  it('returns a single page as-is when hasMore is absent/false', async () => {
+    const events = [event('user_message_chunk', { content: { type: 'text', text: 'hi' } })];
+    const result = await fetchFullTranscript(async () => ({ events, hasMore: false }));
+    expect(result).toEqual(events);
+  });
+
+  it('follows nextCursor until hasMore is false', async () => {
+    const e1 = [event('agent_message_chunk', { content: { type: 'text', text: 'one' } })];
+    const e2 = [event('agent_message_chunk', { content: { type: 'text', text: 'two' } })];
+    const e3 = [event('agent_message_chunk', { content: { type: 'text', text: 'three' } })];
+    const calls: Array<string | undefined> = [];
+    const result = await fetchFullTranscript(async (cursor) => {
+      calls.push(cursor);
+      if (cursor === undefined) return { events: e1, hasMore: true, nextCursor: 'c2' };
+      if (cursor === 'c2') return { events: e2, hasMore: true, nextCursor: 'c3' };
+      return { events: e3, hasMore: false };
+    });
+    expect(calls).toEqual([undefined, 'c2', 'c3']);
+    expect(result).toEqual([...e1, ...e2, ...e3]);
+  });
+
+  it('stops on a repeating cursor to avoid an infinite loop', async () => {
+    const e1 = [event('agent_message_chunk', { content: { type: 'text', text: 'x' } })];
+    let calls = 0;
+    const result = await fetchFullTranscript(async () => {
+      calls += 1;
+      return { events: e1, hasMore: true, nextCursor: 'stuck' };
+    });
+    expect(calls).toBe(2);
+    expect(result).toEqual([...e1, ...e1]);
+  });
+
+  it('stops when hasMore is true but nextCursor is absent', async () => {
+    const e1 = [event('agent_message_chunk', { content: { type: 'text', text: 'x' } })];
+    const result = await fetchFullTranscript(async () => ({ events: e1, hasMore: true }));
+    expect(result).toEqual(e1);
   });
 });

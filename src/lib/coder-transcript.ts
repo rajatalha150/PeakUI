@@ -39,6 +39,51 @@ export interface CoderTranscriptEvent {
   data?: Record<string, unknown>;
 }
 
+/** One page of the daemon's paginated transcript. */
+export interface CoderTranscriptPage {
+  events: CoderTranscriptEvent[];
+  hasMore?: boolean;
+  nextCursor?: string;
+}
+
+/**
+ * Walk the daemon's paginated transcript into one full event list.
+ *
+ * `qwen serve` caps `GET /session/:id/transcript` at
+ * `SESSION_TRANSCRIPT_DEFAULT_LIMIT` (100) events per page and returns
+ * `{ hasMore, nextCursor }` when there is more. Fetching a single unpaginated
+ * page was the bug that made every message after the first two turns "vanish"
+ * — the data was there, the UI just never asked for the rest.
+ *
+ * `fetchPage` is injected so this stays pure and testable; it receives the
+ * next cursor (or `undefined` for the first page) and returns the raw page.
+ * The caller is responsible for the page size (pass `limit=500`, the daemon's
+ * hard cap, so a single request almost always suffices and cursor-following is
+ * only a safety net for very long sessions).
+ */
+export async function fetchFullTranscript(
+  fetchPage: (cursor?: string) => Promise<CoderTranscriptPage>,
+): Promise<CoderTranscriptEvent[]> {
+  const events: CoderTranscriptEvent[] = [];
+  let cursor: string | undefined;
+  // Bounded so a daemon that keeps reporting `hasMore` with an unchanged
+  // cursor can't loop forever.
+  let guard = 0;
+
+  do {
+    const page = await fetchPage(cursor);
+    const pageEvents = Array.isArray(page?.events) ? page.events : [];
+    events.push(...pageEvents);
+    if (!page?.hasMore) break;
+    const next = typeof page.nextCursor === 'string' && page.nextCursor ? page.nextCursor : undefined;
+    if (!next || next === cursor) break;
+    cursor = next;
+    guard += 1;
+  } while (guard < 100);
+
+  return events;
+}
+
 /** Pull readable text out of the daemon's content-block shapes. */
 function contentText(content: unknown): string {
   if (typeof content === 'string') return content;

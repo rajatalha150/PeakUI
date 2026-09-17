@@ -3,7 +3,7 @@
 import React from 'react';
 import { AlertCircle, Bot, CheckCircle2, ChevronRight, Circle, ClipboardCopy, Globe, Loader2, MessageSquare, Plus, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
-import { buildConversation, serializeConversation, type CoderTranscriptEvent } from '@/lib/coder-transcript';
+import { buildConversation, fetchFullTranscript, serializeConversation, type CoderTranscriptEvent } from '@/lib/coder-transcript';
 import { copyToClipboard } from '@/lib/clipboard';
 import AssistantContent from './AssistantContent';
 import { ThinkingBlock } from './ChatMessageContent';
@@ -992,10 +992,23 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     let cancelled = false;
     const tick = async () => {
       try {
-        const res = await fetch(`/api/coder/session/${daemonSessionId}/transcript`);
-        if (!res.ok || cancelled) return;
-        const data = await res.json().catch(() => ({}));
-        const events = Array.isArray(data.events) ? (data.events as CoderTranscriptEvent[]) : [];
+        // `qwen serve` paginates the transcript at 100 events/page by default
+        // and returns `{ hasMore, nextCursor }`. A single unpaginated fetch
+        // silently dropped every message after the first couple of turns.
+        // Request the daemon's hard cap (500) and follow the cursor if a
+        // conversation ever grows past one page.
+        const events = await fetchFullTranscript(async (cursor) => {
+          const qs = new URLSearchParams({ limit: '500' });
+          if (cursor) qs.set('cursor', cursor);
+          const res = await fetch(`/api/coder/session/${daemonSessionId}/transcript?${qs.toString()}`);
+          if (!res.ok) throw new Error(`transcript ${res.status}`);
+          const data = await res.json().catch(() => ({}));
+          return {
+            events: Array.isArray(data.events) ? (data.events as CoderTranscriptEvent[]) : [],
+            hasMore: data.hasMore === true,
+            nextCursor: typeof data.nextCursor === 'string' ? data.nextCursor : undefined,
+          };
+        });
         if (cancelled) return;
         transcriptRef.current = events;
         setTranscriptEvents(events);
