@@ -12,6 +12,15 @@ FROM node:22-bookworm-slim
 #   "ACP child pid=N process-tree snapshot failed: spawn /bin/ps ENOENT"
 # then fails to reap the child ("daemon shutdown incomplete"). Without it a
 # container restart can leave an orphaned ACP process holding the workspace.
+#
+# The font + Chrome-runtime-libs block is REQUIRED for the agent's real-browser
+# visual verification. A bare node:*-slim image has NO fonts and NO fontconfig,
+# so Chrome's Skia backend aborts the renderer with "Fontconfig error: Cannot
+# load default config file" + "FATAL ... Not implemented", which puppeteer
+# surfaces as a misleading "Navigating frame was detached". The ~20 libs are
+# Chrome's shared-library dependencies; without them `ldd <chrome>` reports
+# "not found" for libnss3/libgbm1/libatk/... and launch fails. Baking these in
+# means a fresh VM has a working browser with zero runtime surgery.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
       curl \
@@ -26,6 +35,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       unzip \
       openssh-client \
       sqlite3 \
+      fontconfig \
+      fontconfig-config \
+      fonts-dejavu-core \
+      fonts-liberation \
+      libglib2.0-0 \
+      libnss3 \
+      libnspr4 \
+      libatk1.0-0 \
+      libatk-bridge2.0-0 \
+      libatspi2.0-0 \
+      libdbus-1-3 \
+      libgbm1 \
+      libx11-6 \
+      libxcb1 \
+      libxcomposite1 \
+      libxdamage1 \
+      libxext6 \
+      libxfixes3 \
+      libxkbcommon0 \
+      libxrandr2 \
+      libxi6 \
+      libxrender1 \
+      libdrm2 \
+      libasound2 \
+      libpango-1.0-0 \
+      libcairo2 \
+      libcups2 \
+      libfontconfig1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Go + Rust are optional-heavy; install via toolchain managers so versions stay
@@ -51,6 +88,24 @@ RUN git clone --depth 1 --branch "v${QWEN_CODE_VERSION}" \
 # --- Workspace (persistent project dir) --------------------------------------
 # Mounted as a volume so projects + qwen's ~/.qwen state survive restarts.
 RUN mkdir -p /workspace
+WORKDIR /workspace
+
+# --- Real-browser verification harness --------------------------------------
+# Bakes in puppeteer + jsdom + both Chrome builds so the agent can visually
+# verify the static sites on a fresh VM without re-downloading anything at
+# runtime (which was the failure mode after an image reset wiped /root/.cache).
+# The harness script lives at /opt/qwen-code/browser/verify-site.mjs and is
+# committed in scripts/coder-browser/.
+COPY scripts/coder-browser /opt/qwen-code/browser
+WORKDIR /opt/qwen-code/browser
+RUN npm install --no-audit --no-fund \
+    && npx puppeteer browsers install chrome-headless-shell \
+    && npx puppeteer browsers install chrome \
+    && npm cache clean --force
+# Puppeteer downloads Chrome under /root/.cache/puppeteer by default; pin it so
+# the committed verify-site.mjs (and any future harness) resolves both builds
+# deterministically.
+ENV PUPPETEER_CACHE_DIR=/root/.cache/puppeteer
 WORKDIR /workspace
 
 # Git identity for the agent's commits. The container runs as root and git is

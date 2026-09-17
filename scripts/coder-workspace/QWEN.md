@@ -27,22 +27,33 @@ specific site's purpose requires it (weather-site fetches Open-Meteo).
   - `npm run build` — `tsc -p tsconfig.build.json` → `dist/`
   - `npm test` — `node --import tsx --test "test/**/*.test.ts"`
   - `npm run dev -- Ada --shout` / `npm start -- Ada` — run the CLI
-- **site / lab-site / weather-site** (no unified runner): each has an ad-hoc
-  self-test (`node-suite.test.mjs`, `selftest.js`, `probes.js`). Run them
-  directly with `node <file>`. They deliberately avoid a real browser.
+- **lab-site**: `node node-suite.test.mjs` (2 tests). `selftest.js` and
+  `probes.js` are *library* modules exported for that suite — they print
+  nothing when run directly, so don't treat their silence as failure.
+- **weather-site**: `node lib.test.mjs` (38 tests) and `node render.test.mjs`
+  (4 tests).
+- **site**: no self-test file at all — its only verification is the browser
+  check below.
 
 ## Browser verification (real UI checks)
 
-A Puppeteer harness lives in the workspace scratch space and can drive a real
-headless Chrome (installed under `/root/.cache/puppeteer/.../chrome-headless-shell`).
+A committed harness lives at `/opt/qwen-code/browser/verify-site.mjs` (source in
+`scripts/coder-browser/`). Both Chrome builds and the runtime libs are baked
+into the image, so this works on a fresh VM with no downloads.
 
-- `ldd` on the chrome binary reports 0 missing libraries, so it is runnable.
-- Screenshots are produced by e.g. `lab-site/screenshot.mjs` and the
-  `/tmp/wx-e2e.mjs` style harness (light/dark/mobile).
-- The main model is text-only; a vision model is configured via the daemon's
-  `visionModel` setting so screenshots can actually be *read*. If visual
-  verification fails, check that `visionModel` is set (see the daemon's
-  `settings.json`) before assuming the site is broken.
+- `node /opt/qwen-code/browser/verify-site.mjs /workspace/<site>` serves the
+  site on a loopback port, drives it with headless Chrome, prints a JSON report
+  (title/h1/landmarks/errors) and writes `/tmp/verify-light.png` + dark.
+- Run it from `/opt/qwen-code/browser` (ESM resolves `puppeteer` relative to
+  the script's own location, not the cwd). Both `chrome-headless-shell` and the
+  full `chrome` build are installed under `/root/.cache/puppeteer`.
+- The sites implement dark mode via the `data-theme` attribute, NOT
+  `prefers-color-scheme`. `lab-site/screenshot.mjs` has one check that emulates
+  `prefers-color-scheme` and will always report "dark scheme changes the
+  palette" as a false failure — that is a harness bug, not a site bug.
+- The main model is text-only and `visionModel` is NOT set, so screenshots
+  cannot be *read* — verify visually via DOM/computed-style assertions
+  (title, h1, landmarks, innerText) instead of expecting image input to work.
 
 ## Conventions to respect
 

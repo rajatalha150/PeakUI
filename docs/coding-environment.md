@@ -601,4 +601,61 @@ history lives in the `ChatSession` table under surface `'coder'`.
 **Approval** is `yolo` by default (no tool prompts); the only thing that pauses
 the agent is `ask_user_question`, which is rendered inline with real options.
 
+---
+
+## 15. The container is fully self-contained (always packaged)
+
+A "system update" in the field can reset the coder container to a bare image,
+which silently removed Chrome, fonts, and ~20 runtime libs — the agent then
+reported "missing tools" for things that had merely not been baked into the
+image. This section records what is now provisioned at **build time** so a
+fresh VM needs zero runtime surgery.
+
+Everything below is baked by `Dockerfile.coder`:
+
+- **Dev toolchain**: git, curl, build-essential, python3(+venv/pip), go, jq,
+  ripgrep, unzip, openssh-client, sqlite3, `procps` (required for clean ACP
+  shutdown).
+- **Browser verification (real Chrome)**: the font stack (`fontconfig`,
+  `fonts-dejavu-core`, `fonts-liberation`) and Chrome's ~20 shared libs
+  (`libnss3`, `libgbm1`, `libatk*`, `libasound2`, `libpango`, `libcairo2`, …)
+  are apt-installed so `ldd <chrome>` reports 0 missing and Chrome launches.
+  **Without fonts, Skia aborts the renderer** (`Fontconfig error … FATAL: Not
+  implemented`) which puppeteer masks as "Navigating frame was detached" — a
+  classic false "site is broken" signal.
+- **Puppeteer + jsdom + both Chrome builds** (`chrome-headless-shell` and full
+  `chrome`) are installed under `/opt/qwen-code/browser` (source:
+  `scripts/coder-browser/`) via `npx puppeteer browsers install …` at build
+  time, and `PUPPETEER_CACHE_DIR=/root/.cache/puppeteer` is pinned.
+- **Committed browser harness**: `scripts/coder-browser/verify-site.mjs`
+  (deployed to `/opt/qwen-code/browser/verify-site.mjs`) serves a site dir and
+  reports title/h1/landmarks/errors + light/dark screenshots. It replaces the
+  hand-written `/tmp` harness the agent used to recreate every session.
+- **Workspace context**: `scripts/coder-workspace/QWEN.md` (deployed + seeded
+  idempotently into `/workspace/QWEN.md` at boot) records the project layout,
+  per-project verify commands, the browser harness, and the `data-theme` vs
+  `prefers-color-scheme` dark-mode gotcha.
+- **Git identity**: `git config --global` + `GIT_AUTHOR_*`/`GIT_COMMITTER_*`
+  env vars.
+
+**Browser verify on a fresh VM:**
+
+```sh
+docker compose up -d --build coder
+docker exec peakui-coder-1 sh -c \
+  'cd /opt/qwen-code/browser && node verify-site.mjs /workspace/weather-site'
+```
+
+Expected: a JSON report with no `errors`, `ldd` clean, and both Chrome builds
+present under `/root/.cache/puppeteer`.
+
+**Known non-issues** (do not "fix" on sight):
+
+- `lab-site/screenshot.mjs` reports one false failure — "dark scheme changes
+  the palette" — because it emulates `prefers-color-scheme` while the sites
+  implement `data-theme`. The site is fine (`data-theme="dark"` flips
+  `rgb(246,247,251)` → `rgb(14,16,21)`).
+- `visionModel` is not set, so the text-only main model cannot *read*
+  screenshots; visual checks are done via DOM/computed-style assertions.
+
 
