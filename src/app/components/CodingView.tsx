@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { AlertCircle, Bot, CheckCircle2, ChevronRight, Circle, ClipboardCopy, Globe, Loader2, MessageSquare, Plus, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
+import { AlertCircle, Bot, CheckCircle2, ChevronRight, Circle, ClipboardCopy, Globe, Loader2, MessageSquare, Pencil, Plus, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
 import { buildConversation, fetchFullTranscript, serializeConversation, type CoderTranscriptEvent } from '@/lib/coder-transcript';
 import { copyToClipboard } from '@/lib/clipboard';
@@ -302,6 +302,13 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [shellCommand, setShellCommand] = React.useState('');
   const [shellOutput, setShellOutput] = React.useState('');
   const [shellRunning, setShellRunning] = React.useState(false);
+  // Inline rename state for the session sidebar.
+  const [renamingId, setRenamingId] = React.useState<string | null>(null);
+  const [renameValue, setRenameValue] = React.useState('');
+  // Session ids the user explicitly renamed -> new title, so the auto-persist
+  // effect (which otherwise re-derives the title from the first message)
+  // doesn't clobber the rename.
+  const renamedRef = React.useRef<Map<string, string>>(new Map());
 
   const busy = sessionStatus?.hasActivePrompt === true
     || sessionStatus?.isWaitingForPermission === true
@@ -559,6 +566,26 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to delete session');
+    }
+  };
+
+  /** Persist a new title for a session (PATCH /api/chats with only `title`). */
+  const renameSession = async (sessionId: string, title: string) => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    // Remember the rename so the auto-persist effect doesn't overwrite it with
+    // a message-derived title on the next turn.
+    renamedRef.current.set(sessionId, trimmed);
+    try {
+      const res = await fetch('/api/chats', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: sessionId, title: trimmed, surface: 'coder' }),
+      });
+      if (!res.ok) setError('Failed to rename session');
+      else await refreshSessions();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to rename session');
     }
   };
 
@@ -1070,7 +1097,10 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   // Persist the transcript + tool activity after each turn settles.
   React.useEffect(() => {
     if (!activeSessionId || busy || messages.length === 0) return;
-    const title = messages.find(m => m.role === 'user')?.content.slice(0, 30) || 'New Coding Session';
+    // Respect an explicit user rename: once renamed, the title is fixed and
+    // must not be re-derived from the first message.
+    const renamed = renamedRef.current.get(activeSessionId);
+    const title = renamed || messages.find(m => m.role === 'user')?.content.slice(0, 30) || 'New Coding Session';
     void persistMessages(activeSessionId, title, messages.filter(m => m.content.trim()), toolActivity);
   }, [busy, activeSessionId, messages, toolActivity, persistMessages]);
 
@@ -1427,7 +1457,36 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
               <div key={session.id} onClick={() => void loadSession(session.id)} style={{ padding: '10px 14px', cursor: 'pointer', borderLeft: activeSessionId === session.id ? `3px solid ${accent}` : '3px solid transparent', background: activeSessionId === session.id ? 'rgba(34,211,238,0.06)' : 'transparent' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <ChevronRight size={12} style={{ color: 'rgba(209,213,219,0.4)' }} />
-                  <span style={{ fontSize: '0.8rem', color: '#e5e7eb', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{session.title || session.id.slice(0, 8)}</span>
+                  {renamingId === session.id ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      onClick={e => e.stopPropagation()}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') { e.preventDefault(); void renameSession(session.id, renameValue); setRenamingId(null); }
+                        else if (e.key === 'Escape') { setRenamingId(null); }
+                      }}
+                      onBlur={() => { void renameSession(session.id, renameValue); setRenamingId(null); }}
+                      placeholder="Session name"
+                      style={{ flex: 1, background: 'rgba(255,255,255,0.05)', color: '#e5e7eb', border: `1px solid ${accent}`, borderRadius: '6px', padding: '3px 6px', fontSize: '0.8rem', outline: 'none' }}
+                    />
+                  ) : (
+                    <span
+                      onClick={e => { e.stopPropagation(); setRenamingId(session.id); setRenameValue(session.title || ''); }}
+                      title="Rename session"
+                      style={{ fontSize: '0.8rem', color: '#e5e7eb', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                    >
+                      {session.title || session.id.slice(0, 8)}
+                    </span>
+                  )}
+                  <button
+                    onClick={e => { e.stopPropagation(); setRenamingId(session.id); setRenameValue(session.title || ''); }}
+                    title="Rename session"
+                    style={{ background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.4)', cursor: 'pointer', padding: 0 }}
+                  >
+                    <Pencil size={12} />
+                  </button>
                   <button onClick={e => { e.stopPropagation(); void deleteSession(session.id); }} style={{ background: 'transparent', border: 'none', color: 'rgba(239,68,68,0.6)', cursor: 'pointer', padding: 0 }}><Trash2 size={13} /></button>
                 </div>
                 <div style={{ fontSize: '0.68rem', color: 'rgba(209,213,219,0.4)', marginTop: '2px', fontFamily: 'ui-monospace, monospace' }}>{new Date(session.updatedAt || session.createdAt).toLocaleString()}</div>
