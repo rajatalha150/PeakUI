@@ -816,11 +816,20 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       // Echo the daemon-minted client id on every later per-session call.
       if (typeof data.clientId === 'string' && data.clientId) clientIdRef.current = data.clientId;
 
-      // Apply the persisted model + approval mode to the session.
+      // Apply the persisted model + approval mode + orchestration delegates to
+      // the session. Vision and writer are daemon-global (not per-session), but
+      // re-applying them here guarantees a reattached/old session still runs
+      // with the user's saved orchestration — not a stale daemon default.
       if (settings?.coderModel) {
         await applyModel(data.sessionId, settings.coderModel, { quiet: true });
       }
       await applyApprovalMode(data.sessionId, settings?.coderApprovalMode || 'yolo', { quiet: true });
+      if (settings?.coderVisionModel) {
+        await applyVisionModel(toDaemonModelSelector(settings.coderVisionModel));
+      }
+      if (settings?.coderWriterModel) {
+        await applyWriterModel(settings.coderWriterModel);
+      }
       return data.sessionId;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to start daemon session');
