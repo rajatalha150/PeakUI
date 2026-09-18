@@ -439,6 +439,23 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     return () => clearTimeout(t);
   }, [refreshSessions]);
 
+  // Persist + restore the active session id so a refresh (or a closed-and-
+  // reopened tab) reopens the SAME session instead of resetting to a blank one.
+  // The id is a stable ChatSession UUID that the daemon also uses as its
+  // session key, so restoring it lets the agent reattach and keep working.
+  const ACTIVE_SESSION_KEY = 'peakui-coder-active-session';
+  React.useEffect(() => {
+    if (activeSessionId) {
+      try { localStorage.setItem(ACTIVE_SESSION_KEY, activeSessionId); } catch { /* ignore */ }
+    }
+  }, [activeSessionId]);
+  React.useEffect(() => {
+    let stored: string | null = null;
+    try { stored = localStorage.getItem(ACTIVE_SESSION_KEY); } catch { /* ignore */ }
+    if (stored) void loadSession(stored);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const persistMessages = React.useCallback(async (
     sessionId: string,
     title: string,
@@ -474,10 +491,9 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     setPending([]);
     setLiveStatus('');
     setMessages([]);
-    // Stop polling the old daemon handle and clear the transient transcript; a
-    // fresh daemon session is created lazily on the next send, and its
-    // transcript repopulates the view from the daemon's own history.
-    void closeDaemonSession();
+    // Disconnect (don't delete) the current daemon session: switching away must
+    // leave the agent's in-flight work running server-side so nothing is lost.
+    disconnectDaemonSession();
     transcriptRef.current = [];
     setTranscriptEvents([]);
     baselineRef.current = [];
@@ -529,9 +545,9 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       transcriptRef.current = [];
       setTranscriptEvents([]);
       baselineRef.current = [];
-      // Close the previous daemon session so its memory doesn't leak into the
-      // brand-new one.
-      void closeDaemonSession();
+      // Disconnect the previous daemon session (keep it running) — the new
+      // session gets its own daemon session keyed by its own id on first send.
+      disconnectDaemonSession();
       await refreshSessions();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create session');
@@ -613,26 +629,52 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   };
 
   /**
-   * Create (or reuse) the daemon session and apply the user's saved model /
-   * approval mode to it. Applying settings here — rather than only when the
-   * dropdown changes — is what makes a saved model choice actually take effect
-   * on a fresh session.
+   * Disconnect from the current daemon session WITHOUT deleting it server-side.
+   *
+   * Used when switching sessions / reopening: the daemon session keeps running
+   * (so the agent's in-flight work is never lost or delayed), and we simply drop
+   * the local handle so the next `ensureDaemonSession` reattaches to the right
+   * one by its persistent id.
+   */
+  const disconnectDaemonSession = () => {
+    setDaemonSessionId(null);
+    clientIdRef.current = '';
+  };
+
+  /**
+   * Create (or reattach to) the daemon session and apply the user's saved model
+   * / approval mode.
+   *
+   * The daemon session is keyed by the PERSISTENT session id (`activeSessionId`,
+   * the same UUID stored in the ChatSession table). The daemon accepts a
+   * caller-supplied UUID and `POST /session/:id/load` reattaches to an existing
+   * one. So:
+   *   - first send  → create the daemon session with `sessionId = activeSessionId`;
+   *   - reopen      → `POST /session/:id/load` reattaches to the SAME daemon
+   *                   session, restoring the agent's conversation memory and any
+   *                   in-flight work — nothing is lost when a tab is closed.
    */
   const ensureDaemonSession = async (): Promise<string | null> => {
     if (daemonSessionId) return daemonSessionId;
+    const sessionId = activeSessionId;
+    if (!sessionId) {
+      setError('No active session.');
+      return null;
+    }
     try {
+      const mkBody = (cwd: string) => ({ sessionId, cwd });
+
       let res = await fetch('/api/coder/session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cwd: workspace }),
+        body: JSON.stringify(mkBody(workspace)),
       });
       let data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string; code?: string };
 
       // The daemon is bound to a primary workspace and rejects a session for any
       // other path with `workspace_mismatch` until that path is registered.
       // Registering is idempotent (an already-registered path returns
-      // `workspace_exists`, which is fine). This is what makes changing the
-      // workspace cwd take effect without a daemon restart.
+      // `workspace_exists`, which is fine).
       if (!res.ok && data.code === 'workspace_mismatch') {
         await fetch('/api/coder/workspaces', {
           method: 'POST',
@@ -642,7 +684,19 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         res = await fetch('/api/coder/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cwd: workspace }),
+          body: JSON.stringify(mkBody(workspace)),
+        });
+        data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string; code?: string };
+      }
+
+      // The daemon session already exists (a prior tab / reopen created it).
+      // Reattach instead of failing, so the conversation and any in-flight work
+      // continue where they left off.
+      if (!res.ok && data.code === 'session_id_conflict') {
+        res = await fetch(`/api/coder/session/${sessionId}/load`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
         });
         data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string; code?: string };
       }
@@ -655,7 +709,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       // Echo the daemon-minted client id on every later per-session call.
       if (typeof data.clientId === 'string' && data.clientId) clientIdRef.current = data.clientId;
 
-      // Apply the persisted model + approval mode to the new session.
+      // Apply the persisted model + approval mode to the session.
       if (settings?.coderModel) {
         await applyModel(data.sessionId, settings.coderModel, { quiet: true });
       }
@@ -1077,13 +1131,11 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         transcriptRef.current = events;
         setTranscriptEvents(events);
         const built = buildConversation(events);
-        // Merge the loaded history (turns from before this page's daemon
-        // session) ahead of the live transcript. They are disjoint: the daemon
-        // transcript only covers the current runtime handle's turns.
-        const merged = baselineRef.current.length
-          ? [...baselineRef.current, ...built.messages]
-          : built.messages;
-        setMessages(merged);
+        // The daemon session is now keyed by the persistent session id and
+        // reattaches on reopen, so its transcript IS the full history. Prefer it
+        // verbatim; only fall back to the DB baseline when the daemon has no
+        // events yet (a fresh session that has never sent a prompt).
+        setMessages(built.messages.length ? built.messages : baselineRef.current);
         setToolActivity(built.activity);
       } catch {
         // Transient.
@@ -1103,6 +1155,21 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     const title = renamed || messages.find(m => m.role === 'user')?.content.slice(0, 30) || 'New Coding Session';
     void persistMessages(activeSessionId, title, messages.filter(m => m.content.trim()), toolActivity);
   }, [busy, activeSessionId, messages, toolActivity, persistMessages]);
+
+  // Eagerly reattach to the daemon session for the active persistent session,
+  // so a reopened tab resumes streaming/status immediately (the transcript
+  // poll and SSE both key off `daemonSessionId`). Runs once settings have
+  // loaded and a session is active — not only on the next send.
+  React.useEffect(() => {
+    if (!activeSessionId || !settings) return;
+    let cancelled = false;
+    (async () => {
+      const id = await ensureDaemonSession();
+      if (!cancelled && id) setDaemonSessionId(id);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId, settings]);
 
   // ---- Derived UI state ----------------------------------------------------
 

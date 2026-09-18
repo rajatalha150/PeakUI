@@ -4,11 +4,10 @@ import React, { useState, useEffect } from 'react';
 import KnowledgeBase from './components/KnowledgeBase';
 import SettingsPanel from './components/SettingsPanel';
 import WorkspaceToolWorkspace from './components/WorkspaceToolWorkspace';
-import CodingView from './components/CodingView';
 
 const WORKSPACE_TOOL_VIEW_STORAGE = 'peakui-workspace-tool-view';
 
-type WorkspaceToolView = 'workspace' | 'knowledge-base' | 'settings' | 'coding';
+type WorkspaceToolView = 'workspace' | 'knowledge-base' | 'settings';
 
 function normalizeWorkspaceToolView(): WorkspaceToolView {
   return 'workspace';
@@ -27,7 +26,6 @@ export default function Home() {
 
   const [workspaceToolView, setWorkspaceToolView] = useState<WorkspaceToolView>(getStoredWorkspaceToolView);
   const [workspaceToolSettingsRevision, setWorkspaceToolSettingsRevision] = useState(0);
-  const [userSettings, setUserSettings] = useState<unknown>(null);
 
   useEffect(() => {
     try {
@@ -58,7 +56,9 @@ export default function Home() {
 
   const openCoding = () => {
     closeMobileChrome();
-    setWorkspaceToolView('coding');
+    // Coding lives on its own route; open it in a new tab so it doesn't replace
+    // the main interface and a refresh stays on the coding surface.
+    window.open('/coder', '_blank', 'noopener,noreferrer');
   };
 
   const handleLogout = async () => {
@@ -69,29 +69,24 @@ export default function Home() {
   return (
     <div className="app-container">
       <main className="main-content">
-        {workspaceToolView === 'coding' ? (
-          <CodingView onExit={openWorkspaceToolWorkspace} />
-        ) : (
-          <WorkspaceToolWorkspace
-            view={workspaceToolView}
-            settingsRevision={workspaceToolSettingsRevision}
-            knowledgeBaseContent={<KnowledgeBase />}
-            settingsContent={(
-              <SettingsPanel
-                onLogout={handleLogout}
-                onOpenCoding={openCoding}
-                onSettingsChange={(s) => {
-                  setUserSettings(s);
-                  setWorkspaceToolSettingsRevision(value => value + 1);
-                }}
-              />
-            )}
-            onNavigateToKnowledgeBase={openWorkspaceToolKnowledgeBase}
-            onNavigateToWorkspace={openWorkspaceToolWorkspace}
-            onNavigateToSettings={openSettings}
-            onNavigateToCoding={openCoding}
-          />
-        )}
+        <WorkspaceToolWorkspace
+          view={workspaceToolView}
+          settingsRevision={workspaceToolSettingsRevision}
+          knowledgeBaseContent={<KnowledgeBase />}
+          settingsContent={(
+            <SettingsPanel
+              onLogout={handleLogout}
+              onOpenCoding={openCoding}
+              onSettingsChange={() => {
+                setWorkspaceToolSettingsRevision(value => value + 1);
+              }}
+            />
+          )}
+          onNavigateToKnowledgeBase={openWorkspaceToolKnowledgeBase}
+          onNavigateToWorkspace={openWorkspaceToolWorkspace}
+          onNavigateToSettings={openSettings}
+          onNavigateToCoding={openCoding}
+        />
       </main>
     </div>
   );
