@@ -51,9 +51,31 @@ into the image, so this works on a fresh VM with no downloads.
   `prefers-color-scheme`. `lab-site/screenshot.mjs` has one check that emulates
   `prefers-color-scheme` and will always report "dark scheme changes the
   palette" as a false failure — that is a harness bug, not a site bug.
-- The main model is text-only and `visionModel` is NOT set, so screenshots
-  cannot be *read* — verify visually via DOM/computed-style assertions
-  (title, h1, landmarks, innerText) instead of expecting image input to work.
+- The main model is text-only; a `visionModel` is configured via the daemon so
+  screenshots can be transcribed. If visual verification fails, check that the
+  vision model is set (Settings → Model orchestration → Vision) before assuming
+  the site is broken.
+
+## Model orchestration (main / vision / writer)
+
+This workspace may be configured with a three-model split, chosen in the Coding
+Settings drawer:
+
+- **Main** — you (the planning/execution model).
+- **Vision** — a separate image-capable model used automatically by the
+  daemon's vision bridge whenever you receive an image. No action needed on
+  your part.
+- **Writer** — a dedicated subagent named `peakui-writer` (via the Agent tool,
+  `subagent_type: "peakui-writer"`), pinned to a different model and restricted
+  to read/write/edit/search/shell.
+
+**When a writer subagent is available, delegate code/file authoring to it**: use
+the Agent tool with `subagent_type: "peakui-writer"` to write or edit files
+rather than calling `write_file`/`edit` yourself. Give it precise instructions
+(the exact files, paths, and content), then review its reported files and fix
+anything it got wrong yourself. If `peakui-writer` is NOT listed (no writer
+model configured), write files directly as normal. For trivial one-off snippets
+where the round-trip overhead is not worth it, writing directly is acceptable.
 
 ## Conventions to respect
 

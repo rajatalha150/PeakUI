@@ -36,6 +36,10 @@ describe('buildWriterSubagentCreateBody', () => {
     expect(body.tools).not.toContain('WebFetch')
     expect(body.tools).not.toContain('WebSearch')
     expect(body.systemPrompt).toMatch(/write or edit/i)
+    // The description must steer the MAIN model to delegate: it advertises
+    // proactive use (the agent tool auto-uses agents whose description says so).
+    expect(body.description).toMatch(/proactive/i)
+    expect(body.description).toMatch(/do not write files yourself/i)
   })
 
   it('always uses the same fixed agent name so create/update/delete agree', () => {

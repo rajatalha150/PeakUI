@@ -83,7 +83,7 @@ export function buildWriterSubagentCreateBody(modelId: string): {
   return {
     name: CODER_WRITER_AGENT_NAME,
     description:
-      'Writes code and files exactly as instructed by the main agent, then reports the files written and their paths.',
+      'Proactive code and file writing specialist. Use this agent for ALL code and file authoring (write_file / edit) — do not write files yourself. It writes exactly what you specify and reports the files it wrote and their paths for you to review.',
     systemPrompt:
       'You are the writing specialist. Write or edit code and files exactly as the main agent instructs: the files to create or modify, their paths, and the content. Make the requested changes precisely; do not plan, do not run the app, and do not browse. When done, report each file you wrote or changed and its absolute path so the main agent can review your work.',
     model: toDaemonModelSelector(modelId),

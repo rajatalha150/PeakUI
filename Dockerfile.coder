@@ -133,14 +133,17 @@ EXPOSE 4170
 COPY scripts/sync-coder-models.mjs /opt/qwen-code/sync-coder-models.mjs
 
 # Workspace context file (QWEN.md): the daemon auto-loads this into every
-# session so the agent doesn't re-derive the project layout + verify commands.
-# Copied to /workspace at build time; a fresh /workspace volume gets it seeded.
+# session so the agent doesn't re-derive the project layout + verify commands,
+# and knows to delegate writing to the `peakui-writer` subagent when one is
+# configured. Seeded to BOTH the global location (`~/.qwen/QWEN.md`, which the
+# daemon always loads regardless of the session cwd) and the primary workspace.
 COPY scripts/coder-workspace/QWEN.md /opt/qwen-code/workspace-qwen.md
 
-# Entrypoint: seed the workspace context file (if missing), sync models, then
-# run the daemon. Binds loopback (secure, no token); host networking + the
-# loopback port map expose it to the app. `--enable-session-shell` exposes
-# POST /session/:id/shell so the UI can offer an on-demand terminal pop-up; it
-# is permitted on trusted loopback (no bearer token) which is exactly this
-# container's bind.
-CMD ["sh", "-c", "cp -n /opt/qwen-code/workspace-qwen.md /workspace/QWEN.md 2>/dev/null; node /opt/qwen-code/sync-coder-models.mjs && exec node /opt/qwen-code/scripts/cli-entry.js serve --hostname 127.0.0.1 --port 4170 --workspace /workspace --no-web --enable-session-shell"]
+# Entrypoint: refresh the context file, sync models, then run the daemon. Binds
+# loopback (secure, no token); host networking + the loopback port map expose
+# it to the app. `--enable-session-shell` exposes POST /session/:id/shell so the
+# UI can offer an on-demand terminal pop-up; it is permitted on trusted loopback
+# (no bearer token) which is exactly this container's bind.
+#   - global ~/.qwen/QWEN.md is OVERWRITTEN each boot (always-loaded context);
+#   - /workspace/QWEN.md is seeded only if absent (preserve operator edits).
+CMD ["sh", "-c", "mkdir -p /root/.qwen && cp /opt/qwen-code/workspace-qwen.md /root/.qwen/QWEN.md; cp -n /opt/qwen-code/workspace-qwen.md /workspace/QWEN.md 2>/dev/null; node /opt/qwen-code/sync-coder-models.mjs && exec node /opt/qwen-code/scripts/cli-entry.js serve --hostname 127.0.0.1 --port 4170 --workspace /workspace --no-web --enable-session-shell"]
