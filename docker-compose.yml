@@ -61,6 +61,12 @@ services:
       - coder_workspace:/workspace
       - coder_apps:/apps
       - coder_qwen_state:/root/.qwen
+      # Persist the whole home dir (/root) so SSH keys, git identity, npm cache,
+      # and any dotfile the agent writes survive redeploys. Mounting /root — NOT
+      # / — keeps the image-managed tooling (/opt/qwen-code, /usr, Chrome libs)
+      # rebuildable so fixes keep flowing, while all runtime state is retained.
+      # (Nested coder_qwen_state at /root/.qwen still wins for that subtree.)
+      - coder_root_home:/root
 
   app:
     image: peakui-app
@@ -110,3 +116,4 @@ volumes:
   coder_workspace:
   coder_apps:
   coder_qwen_state:
+  coder_root_home:

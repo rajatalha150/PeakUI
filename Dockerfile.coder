@@ -96,16 +96,18 @@ WORKDIR /workspace
 # runtime (which was the failure mode after an image reset wiped /root/.cache).
 # The harness script lives at /opt/qwen-code/browser/verify-site.mjs and is
 # committed in scripts/coder-browser/.
+#
+# Chrome is cached OUTSIDE /root (at /opt/puppeteer-cache, image-managed) so
+# that /root can be mounted as a persistent volume for SSH keys/git identity
+# without shadowing the browser cache. PUPPETEER_CACHE_DIR is set BEFORE the
+# install so build-time download and runtime resolution agree.
+ENV PUPPETEER_CACHE_DIR=/opt/puppeteer-cache
 COPY scripts/coder-browser /opt/qwen-code/browser
 WORKDIR /opt/qwen-code/browser
 RUN npm install --no-audit --no-fund \
     && npx puppeteer browsers install chrome-headless-shell \
     && npx puppeteer browsers install chrome \
     && npm cache clean --force
-# Puppeteer downloads Chrome under /root/.cache/puppeteer by default; pin it so
-# the committed verify-site.mjs (and any future harness) resolves both builds
-# deterministically.
-ENV PUPPETEER_CACHE_DIR=/root/.cache/puppeteer
 WORKDIR /workspace
 
 # Git identity for the agent's commits. The container runs as root and git is
@@ -147,4 +149,8 @@ COPY scripts/coder-workspace/QWEN.md /opt/qwen-code/workspace-qwen.md
 #   - global ~/.qwen/QWEN.md is OVERWRITTEN each boot (always-loaded context);
 #   - /workspace/QWEN.md is also overwritten (it is a managed seed, not a user
 #     file — a stale copy here caused confusion when it silently diverged).
-CMD ["sh", "-c", "mkdir -p /root/.qwen && cp /opt/qwen-code/workspace-qwen.md /root/.qwen/QWEN.md; cp /opt/qwen-code/workspace-qwen.md /workspace/QWEN.md 2>/dev/null; node /opt/qwen-code/sync-coder-models.mjs && exec node /opt/qwen-code/scripts/cli-entry.js serve --hostname 127.0.0.1 --port 4170 --workspace /workspace --no-web --enable-session-shell"]
+#   - /root is a persistent volume (SSH keys, git identity, npm cache). The
+#     git identity is seeded ONLY IF UNSET (first boot of a fresh volume), so a
+#     user's custom identity persists across recreates instead of being
+#     clobbered each boot. GIT_AUTHOR_* env vars remain set regardless.
+CMD ["sh", "-c", "mkdir -p /root/.qwen && cp /opt/qwen-code/workspace-qwen.md /root/.qwen/QWEN.md; cp /opt/qwen-code/workspace-qwen.md /workspace/QWEN.md 2>/dev/null; if [ -z \"$(git config --global user.name 2>/dev/null)\" ]; then git config --global user.name \"PeakUI Coding Agent\"; fi; if [ -z \"$(git config --global user.email 2>/dev/null)\" ]; then git config --global user.email \"agent@peakui.local\"; fi; if [ -z \"$(git config --global init.defaultBranch 2>/dev/null)\" ]; then git config --global init.defaultBranch main; fi; node /opt/qwen-code/sync-coder-models.mjs && exec node /opt/qwen-code/scripts/cli-entry.js serve --hostname 127.0.0.1 --port 4170 --workspace /workspace --no-web --enable-session-shell"]

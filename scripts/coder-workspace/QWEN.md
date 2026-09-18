@@ -46,7 +46,7 @@ into the image, so this works on a fresh VM with no downloads.
   (title/h1/landmarks/errors) and writes `/tmp/verify-light.png` + dark.
 - Run it from `/opt/qwen-code/browser` (ESM resolves `puppeteer` relative to
   the script's own location, not the cwd). Both `chrome-headless-shell` and the
-  full `chrome` build are installed under `/root/.cache/puppeteer`.
+  full `chrome` build are installed under `/opt/puppeteer-cache`.
 - The sites implement dark mode via the `data-theme` attribute, NOT
   `prefers-color-scheme`. `lab-site/screenshot.mjs` has one check that emulates
   `prefers-color-scheme` and will always report "dark scheme changes the

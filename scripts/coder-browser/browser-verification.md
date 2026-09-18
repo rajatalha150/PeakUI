@@ -14,9 +14,9 @@ and survive every recreate.
   the site on a loopback port, drives it with headless Chrome, prints a JSON
   report and writes `/tmp/verify-light.png` + dark.
 - Chrome headless shell:
-  `/root/.cache/puppeteer/chrome-headless-shell/linux-153.0.8010.36/chrome-headless-shell-linux64/chrome-headless-shell`
+  `/opt/puppeteer-cache/chrome-headless-shell/linux-153.0.8010.36/chrome-headless-shell-linux64/chrome-headless-shell`
 - Full Chrome (for bare `puppeteer.launch()`):
-  `/root/.cache/puppeteer/chrome/linux-153.0.8010.36/chrome-linux64/chrome`
+  `/opt/puppeteer-cache/chrome/linux-153.0.8010.36/chrome-linux64/chrome`
 - Set `CHROME_BIN` to the full Chrome path when launching puppeteer with a
   custom `executablePath`.
 
