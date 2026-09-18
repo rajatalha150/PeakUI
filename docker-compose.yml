@@ -57,6 +57,10 @@ services:
       - OPENAI_API_KEY=${CODER_OPENAI_API_KEY:-local}
       - OPENAI_MODEL=${CODER_MODEL:-gemma4:latest}
       - OPENAI_BASE_URL=${CODER_OPENAI_BASE_URL:-http://127.0.0.1:11434/v1}
+      # Enable the daemon's debug log (session-scoped) so the vision bridge's
+      # warn/error output is observable — otherwise a silent bridge failure
+      # (e.g. "vision model returned no description") is completely invisible.
+      - QWEN_DEBUG_LOG_FILE=1
     volumes:
       - coder_workspace:/workspace
       - coder_apps:/apps

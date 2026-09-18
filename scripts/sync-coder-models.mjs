@@ -127,6 +127,18 @@ async function main() {
           // envKey the daemon refuses the switch with "Missing credentials".
           envKey: 'OPENAI_API_KEY',
           baseUrl: OLLAMA_BASE_URL,
+          // Declare capabilities EXPLICITLY. Without this the daemon falls
+          // back to name heuristics (defaultModalities) that misclassify
+          // arbitrary Ollama ids — e.g. `/^deepseek/` → text-only, so a
+          // genuinely vision-capable model is silently treated as blind and
+          // the vision bridge (or native image handling) is never enabled.
+          capabilities: {
+            ...(m.vision ? { vision: true } : {}),
+            ...(m.tools ? { agent: true } : {}),
+          },
+          generationConfig: {
+            ...(m.vision ? { modalities: { image: true } } : {}),
+          },
         })),
       },
       model: {
