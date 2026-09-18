@@ -306,6 +306,10 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [previewInput, setPreviewInput] = React.useState('');
   const [previewDevice, setPreviewDevice] = React.useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [previewError, setPreviewError] = React.useState('');
+  // Measured width of the preview viewport, so device frames scale to fit while
+  // the iframe still renders at its true pixel dimensions (media queries fire).
+  const previewStageRef = React.useRef<HTMLDivElement | null>(null);
+  const [previewStageWidth, setPreviewStageWidth] = React.useState(0);
   // On-demand shell pop-up (manual terminal the user drives directly).
   const [shellOpen, setShellOpen] = React.useState(false);
   const [shellCommand, setShellCommand] = React.useState('');
@@ -492,7 +496,12 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const tick = async () => {
       try {
-        const res = await fetch(`/api/coder/file?path=${encodeURIComponent(PREVIEW_FILE)}`);
+        // Read the agent's preview file from the SESSION's workspace, not the
+        // daemon's primary workspace. The unscoped `GET /file` resolves against
+        // the primary cwd (default /workspace), so a session in /apps could never
+        // see its own `.peakui-preview.json` — the agent's push silently 404'd.
+        // The workspace-scoped route anchors the read to `workspace`.
+        const res = await fetch(`/api/coder/workspaces/${encodeURIComponent(workspace)}/file?path=${encodeURIComponent(PREVIEW_FILE)}`);
         if (!res.ok) { timer = setTimeout(tick, 2000); return; }
         const data = await res.json().catch(() => ({}));
         const raw = typeof data.content === 'string' ? data.content : '';
@@ -513,12 +522,34 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     };
     void tick();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [previewOpen, daemonSessionId, previewUrl, applyPreview]);
+  }, [previewOpen, daemonSessionId, previewUrl, applyPreview, workspace]);
 
   const openPreview = (initialUrl?: string) => {
     if (initialUrl) applyPreview(initialUrl);
     setPreviewOpen(o => !o);
   };
+
+  // Device viewports, at their true pixel sizes. The preview iframe is rendered
+  // at these exact dimensions (so the page's own media queries actually fire)
+  // and the whole frame is then scaled down to fit the preview pane — this is
+  // what makes switching tablet/mobile visibly change the layout.
+  const PREVIEW_VIEWPORTS: Record<'desktop' | 'tablet' | 'mobile', { width: number; height: number }> = {
+    desktop: { width: 1280, height: 800 },
+    tablet: { width: 768, height: 1024 },
+    mobile: { width: 390, height: 844 },
+  };
+
+  // Measure the preview stage so the device frame scales to fit it.
+  React.useEffect(() => {
+    if (!previewOpen) return;
+    const el = previewStageRef.current;
+    if (!el) return;
+    const measure = () => setPreviewStageWidth(el.clientWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [previewOpen]);
 
   // ---- Persistent session CRUD (Hermes pattern, surface 'coder') ----------
 
@@ -1828,20 +1859,36 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
               />
               <button onClick={() => applyPreview(previewInput)} style={{ background: 'rgba(34,211,238,0.12)', color: accent, border: `1px solid ${accent}`, borderRadius: '6px', padding: '4px 10px', fontSize: '0.72rem', cursor: 'pointer' }}>Go</button>
             </div>
-            <div style={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', overflow: 'auto', background: 'rgba(0,0,0,0.2)' }}>
+            <div ref={previewStageRef} style={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', overflow: 'auto', background: 'rgba(0,0,0,0.2)' }}>
               {previewUrl ? (
-                <iframe
-                  key={previewUrl + previewDevice}
-                  src={previewUrl}
-                  title="App preview"
+                <div
                   style={{
-                    border: 'none', background: '#fff', flexShrink: 0,
-                    width: previewDevice === 'desktop' ? '100%' : previewDevice === 'tablet' ? 768 : 390,
-                    height: previewDevice === 'desktop' ? '100%' : previewDevice === 'tablet' ? 1024 : 844,
-                    maxWidth: '100%',
+                    position: 'relative',
+                    margin: '12px auto',
+                    flexShrink: 0,
+                    transformOrigin: 'top center',
+                    transform: previewStageWidth
+                      ? `scale(${Math.min(1, previewStageWidth / PREVIEW_VIEWPORTS[previewDevice].width)})`
+                      : 'none',
                   }}
-                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
-                />
+                >
+                  <iframe
+                    key={previewDevice + previewUrl}
+                    src={previewUrl}
+                    title="App preview"
+                    style={{
+                      display: 'block',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      borderRadius: previewDevice === 'mobile' ? 22 : previewDevice === 'tablet' ? 14 : 6,
+                      background: '#fff',
+                      flexShrink: 0,
+                      width: PREVIEW_VIEWPORTS[previewDevice].width,
+                      height: PREVIEW_VIEWPORTS[previewDevice].height,
+                      boxShadow: '0 12px 40px rgba(0,0,0,0.45)',
+                    }}
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                  />
+                </div>
               ) : (
                 <div style={{ margin: 'auto', textAlign: 'center', color: 'rgba(209,213,219,0.4)', fontSize: '0.8rem', padding: 20 }}>
                   <Globe size={28} style={{ margin: '0 auto 10px', color: accent, opacity: 0.5 }} />
