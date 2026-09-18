@@ -39,6 +39,54 @@ export interface CoderTranscriptEvent {
   data?: Record<string, unknown>;
 }
 
+/** A terminal background-agent (e.g. writer) completion notification. */
+export interface TrailingAgentNotification {
+  taskId: string;
+  status: string;
+  kind: string;
+}
+
+function metaOf(d: Record<string, unknown>): Record<string, unknown> {
+  const m = d._meta;
+  return m && typeof m === 'object' ? (m as Record<string, unknown>) : {};
+}
+
+/**
+ * The daemon marks a background subagent's completion as a `user_message_chunk`
+ * whose `_meta.source === 'background_notification'` (with `backgroundTask`
+ * carrying taskId/status/kind). This distinguishes it from a real user prompt.
+ */
+export function isBackgroundNotificationEvent(d: Record<string, unknown>): boolean {
+  return metaOf(d).source === 'background_notification';
+}
+
+/**
+ * The terminal background-agent notification IF it is the trailing event in the
+ * transcript (i.e. nothing — in particular no assistant turn — followed it).
+ *
+ * This is the deterministic "a writer subagent finished but the main model has
+ * not yet responded" signal. The daemon normally auto-continues the turn, but
+ * that continuation can be deferred; when the notification is still trailing,
+ * the auto-turn did not happen and the UI may nudge the main model to review
+ * the result and continue.
+ */
+export function trailingBackgroundNotification(
+  events: CoderTranscriptEvent[],
+): TrailingAgentNotification | null {
+  const last = events[events.length - 1];
+  if (!last) return null;
+  const d = (last.data || {}) as Record<string, unknown>;
+  if (d.sessionUpdate !== 'user_message_chunk') return null;
+  if (!isBackgroundNotificationEvent(d)) return null;
+  const bt = metaOf(d).backgroundTask as Record<string, unknown> | undefined;
+  if (!bt || typeof bt.taskId !== 'string' || !bt.taskId) return null;
+  return {
+    taskId: bt.taskId,
+    status: typeof bt.status === 'string' ? bt.status : '',
+    kind: typeof bt.kind === 'string' ? bt.kind : '',
+  };
+}
+
 /** One page of the daemon's paginated transcript. */
 export interface CoderTranscriptPage {
   events: CoderTranscriptEvent[];
@@ -159,6 +207,13 @@ export function buildConversation(events: CoderTranscriptEvent[]): {
     const su = typeof d.sessionUpdate === 'string' ? d.sessionUpdate : '';
 
     if (su === 'user_message_chunk') {
+      // A background-agent completion notification is daemon-internal plumbing
+      // (the model's cue to continue), NOT a user message. Rendering it as a
+      // user bubble was confusing — it looks like the user typed "Background
+      // agent … completed." — and the continuation itself appears as the
+      // following assistant turn. Skip it here; the auto-continue logic reads it
+      // from the raw transcript instead.
+      if (isBackgroundNotificationEvent(d)) continue;
       const text = contentText(d.content);
       if (text) {
         messages.push({ id: `u-${messages.length}`, role: 'user', content: text });

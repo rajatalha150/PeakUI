@@ -3,7 +3,7 @@
 import React from 'react';
 import { AlertCircle, Bot, CheckCircle2, ChevronRight, Circle, ClipboardCopy, Globe, Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
-import { buildConversation, fetchFullTranscript, serializeConversation, type CoderTranscriptEvent } from '@/lib/coder-transcript';
+import { buildConversation, fetchFullTranscript, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from '@/lib/coder-transcript';
 import { buildWriterSubagentCreateBody, buildWriterSubagentUpdateBody, CODER_WRITER_AGENT_NAME, CODER_WRITER_AGENT_SCOPE, toDaemonModelSelector } from '@/lib/coder-orchestration';
 import { copyToClipboard } from '@/lib/clipboard';
 import AssistantContent from './AssistantContent';
@@ -285,6 +285,10 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   // from (survives SSE reconnects and page reloads), and what the copy button dumps.
   const [transcriptEvents, setTranscriptEvents] = React.useState<CoderTranscriptEvent[]>([]);
   const transcriptRef = React.useRef<CoderTranscriptEvent[]>([]);
+  // The trailing background-agent notification (taskId) we already nudged the
+  // main model about — so we don't fire the continue prompt repeatedly while the
+  // main model works through its response.
+  const nudgedNotificationRef = React.useRef<string | null>(null);
   // History loaded from the persistent store (turns that happened before this
   // page's daemon session). The live daemon transcript only contains the
   // current session's turns, so the two are disjoint and merge without dedup.
@@ -1330,6 +1334,56 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     const timer = setInterval(tick, 1500);
     return () => { cancelled = true; clearInterval(timer); };
   }, [daemonSessionId]);
+
+  // ---- Auto-continue on writer completion ----------------------------------
+  //
+  // A background writer subagent finishing normally triggers the main model's
+  // next turn automatically (the daemon injects a <task-notification> and
+  // drains it into a fresh turn). But that drain can be deferred by daemon
+  // gates, leaving the completion notification as the trailing transcript event
+  // with no assistant response — which is why the user had to type "go".
+  //
+  // This effect makes the continuation deterministic from the UI side: when the
+  // transcript ends on an unanswered background-agent notification and the
+  // session is idle, we nudge the main model with a continuation prompt so it
+  // reviews the writer's result and decides the next step on its own.
+  React.useEffect(() => {
+    if (!daemonSessionId) return;
+    const trailing = trailingBackgroundNotification(transcriptEvents);
+    if (!trailing) {
+      // The notification was answered (an assistant turn followed), so clear
+      // the latch — the next notification is a new one to handle.
+      nudgedNotificationRef.current = null;
+      return;
+    }
+    // Only act when the session is genuinely idle (not mid-turn, not blocked on
+    // a permission/question) and we haven't already nudged for THIS task.
+    if (busy) return;
+    if (sessionStatus?.hasActivePrompt || sessionStatus?.isWaitingForPermission || sessionStatus?.isWaitingForUserQuestion) return;
+    if (nudgedNotificationRef.current === trailing.taskId) return;
+    nudgedNotificationRef.current = trailing.taskId;
+    setLiveStatus('writer finished — reviewing…');
+    void (async () => {
+      try {
+        // Drive a continuation turn via the daemon's dedicated endpoint. It
+        // re-arms the trusted `isContinue` flag and runs the model with an EMPTY
+        // prompt — the trailing <task-notification> is already in context, so the
+        // main model resumes from it without a visible user message showing up in
+        // the chat as if the user had typed it.
+        await fetch(`/api/coder/session/${daemonSessionId}/continue`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-qwen-client-id': clientIdRef.current,
+          },
+        });
+      } catch {
+        // Transient; the transcript poll will re-observe and retry.
+        nudgedNotificationRef.current = null;
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transcriptEvents, busy, sessionStatus, daemonSessionId]);
 
   // Persist the transcript + tool activity after each turn settles.
   React.useEffect(() => {

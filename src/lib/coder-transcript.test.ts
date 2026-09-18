@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildConversation, fetchFullTranscript, serializeConversation, type CoderTranscriptEvent } from './coder-transcript'
+import { buildConversation, fetchFullTranscript, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from './coder-transcript'
 
 const event = (sessionUpdate: string, data: Record<string, unknown>): CoderTranscriptEvent => ({
   type: 'session_update',
@@ -155,5 +155,56 @@ describe('fetchFullTranscript', () => {
     const e1 = [event('agent_message_chunk', { content: { type: 'text', text: 'x' } })];
     const result = await fetchFullTranscript(async () => ({ events: e1, hasMore: true }));
     expect(result).toEqual(e1);
+  });
+});
+
+describe('trailingBackgroundNotification', () => {
+  it('returns null for an empty transcript', () => {
+    expect(trailingBackgroundNotification([])).toBeNull();
+  });
+
+  it('returns null when the last event is not a notification', () => {
+    const events = [
+      event('user_message_chunk', { content: { type: 'text', text: 'hi' } }),
+      event('agent_message_chunk', { content: { type: 'text', text: 'done' } }),
+    ];
+    expect(trailingBackgroundNotification(events)).toBeNull();
+  });
+
+  it('detects a trailing writer-completion notification', () => {
+    const events = [
+      event('agent_message_chunk', { content: { type: 'text', text: 'launched' } }),
+      event('user_message_chunk', {
+        content: { type: 'text', text: 'Background agent "peakui-writer: Write proof file" completed.' },
+        _meta: {
+          source: 'background_notification',
+          backgroundTask: { taskId: 'peakui-writer-call_abc', status: 'completed', kind: 'agent' },
+        },
+      }),
+    ];
+    expect(trailingBackgroundNotification(events)).toEqual({
+      taskId: 'peakui-writer-call_abc',
+      status: 'completed',
+      kind: 'agent',
+    });
+  });
+
+  it('returns null when the notification was answered (an assistant turn followed)', () => {
+    const notification = event('user_message_chunk', {
+      content: { type: 'text', text: 'Background agent completed.' },
+      _meta: {
+        source: 'background_notification',
+        backgroundTask: { taskId: 't1', status: 'completed', kind: 'agent' },
+      },
+    });
+    const reply = event('agent_message_chunk', { content: { type: 'text', text: 'Reviewed and merged.' } });
+    expect(trailingBackgroundNotification([notification, reply])).toBeNull();
+  });
+
+  it('does not treat a real user message as a notification', () => {
+    const events = [
+      event('user_message_chunk', { content: { type: 'text', text: 'please continue' } }),
+    ];
+    expect(trailingBackgroundNotification(events)).toBeNull();
   });
 });
