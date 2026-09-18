@@ -59,6 +59,7 @@ services:
       - OPENAI_BASE_URL=${CODER_OPENAI_BASE_URL:-http://127.0.0.1:11434/v1}
     volumes:
       - coder_workspace:/workspace
+      - coder_apps:/apps
       - coder_qwen_state:/root/.qwen
 
   app:
@@ -107,4 +108,5 @@ volumes:
   app_runtime:
   searxng_cache:
   coder_workspace:
+  coder_apps:
   coder_qwen_state:
