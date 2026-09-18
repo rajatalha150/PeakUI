@@ -145,5 +145,6 @@ COPY scripts/coder-workspace/QWEN.md /opt/qwen-code/workspace-qwen.md
 # UI can offer an on-demand terminal pop-up; it is permitted on trusted loopback
 # (no bearer token) which is exactly this container's bind.
 #   - global ~/.qwen/QWEN.md is OVERWRITTEN each boot (always-loaded context);
-#   - /workspace/QWEN.md is seeded only if absent (preserve operator edits).
-CMD ["sh", "-c", "mkdir -p /root/.qwen && cp /opt/qwen-code/workspace-qwen.md /root/.qwen/QWEN.md; cp -n /opt/qwen-code/workspace-qwen.md /workspace/QWEN.md 2>/dev/null; node /opt/qwen-code/sync-coder-models.mjs && exec node /opt/qwen-code/scripts/cli-entry.js serve --hostname 127.0.0.1 --port 4170 --workspace /workspace --no-web --enable-session-shell"]
+#   - /workspace/QWEN.md is also overwritten (it is a managed seed, not a user
+#     file — a stale copy here caused confusion when it silently diverged).
+CMD ["sh", "-c", "mkdir -p /root/.qwen && cp /opt/qwen-code/workspace-qwen.md /root/.qwen/QWEN.md; cp /opt/qwen-code/workspace-qwen.md /workspace/QWEN.md 2>/dev/null; node /opt/qwen-code/sync-coder-models.mjs && exec node /opt/qwen-code/scripts/cli-entry.js serve --hostname 127.0.0.1 --port 4170 --workspace /workspace --no-web --enable-session-shell"]

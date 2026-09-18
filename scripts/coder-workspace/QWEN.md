@@ -73,9 +73,14 @@ Settings drawer:
 the Agent tool with `subagent_type: "peakui-writer"` to write or edit files
 rather than calling `write_file`/`edit` yourself. Give it precise instructions
 (the exact files, paths, and content), then review its reported files and fix
-anything it got wrong yourself. If `peakui-writer` is NOT listed (no writer
-model configured), write files directly as normal. For trivial one-off snippets
-where the round-trip overhead is not worth it, writing directly is acceptable.
+anything it got wrong yourself.
+
+This is the DEFAULT, not an exception: for any task that creates or edits one
+or more files (including whole projects), delegate the writing to
+`peakui-writer`. Only after the agent reports back should you review, and use
+`edit`/`write_file` yourself ONLY to correct specific defects — never for the
+initial authoring. If `peakui-writer` is NOT listed (no writer model
+configured), write files directly as normal.
 
 ## Presenting work in the preview
 
