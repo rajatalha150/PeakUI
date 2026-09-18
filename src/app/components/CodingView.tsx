@@ -739,10 +739,14 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       // Reattach instead of failing, so the conversation and any in-flight work
       // continue where they left off.
       if (!res.ok && data.code === 'session_id_conflict') {
+        // The load body must carry `cwd`: a session in a NON-primary workspace
+        // (e.g. /apps) is routed by `resolveRuntimeForSessionRestore` using the
+        // cwd; without it the daemon 404s "No session with id" even though the
+        // session exists in another runtime.
         res = await fetch(`/api/coder/session/${sessionId}/load`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ cwd: workspace }),
         });
         data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string; code?: string };
       }
