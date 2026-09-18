@@ -77,6 +77,21 @@ anything it got wrong yourself. If `peakui-writer` is NOT listed (no writer
 model configured), write files directly as normal. For trivial one-off snippets
 where the round-trip overhead is not worth it, writing directly is acceptable.
 
+## Presenting work in the preview
+
+The Coding UI has a **Preview pane** the user can open. To show your work there:
+
+1. Start a dev server (e.g. `python3 -m http.server 8000` or `npm run dev`) in
+   the background.
+2. Write the URL to the file `.peakui-preview.json` at the workspace root, as
+   JSON: `{"url":"http://localhost:8000","device":"mobile"}`.
+   - `device` is optional and one of `desktop`, `tablet`, or `mobile`; omit it
+     to leave the user's current device selection unchanged.
+
+The preview pane polls that file, so as soon as you write it the user sees your
+work there automatically — you are in control of what is presented. Update the
+file whenever the URL or the suggested device changes.
+
 ## Conventions to respect
 
 - Prefer zero-dependency solutions for the static sites; they have no build

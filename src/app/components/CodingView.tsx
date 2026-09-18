@@ -296,10 +296,12 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [settings, setSettings] = React.useState<CoderSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [settingsSaving, setSettingsSaving] = React.useState(false);
-  // Preview browser.
+  // Preview browser — a real, device-switchable preview the AI can drive.
   const [previewOpen, setPreviewOpen] = React.useState(false);
-  const [previewUrl, setPreviewUrl] = React.useState('http://localhost:3000');
-  const [previewInput, setPreviewInput] = React.useState('http://localhost:3000');
+  const [previewUrl, setPreviewUrl] = React.useState('');
+  const [previewInput, setPreviewInput] = React.useState('');
+  const [previewDevice, setPreviewDevice] = React.useState<'desktop' | 'tablet' | 'mobile'>('desktop');
+  const [previewError, setPreviewError] = React.useState('');
   // On-demand shell pop-up (manual terminal the user drives directly).
   const [shellOpen, setShellOpen] = React.useState(false);
   const [shellCommand, setShellCommand] = React.useState('');
@@ -460,6 +462,59 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
   }, [toolActivityHeight]);
+
+  // ---- AI-driven preview ----------------------------------------------------
+  //
+  // The preview is not just a manual URL box. The agent can push work to it by
+  // writing a tiny JSON file into the workspace (`.peakui-preview.json`), and we
+  // poll that file so the preview stays in lock-step with the agent: when the
+  // agent starts a dev server and writes the URL, the preview follows
+  // automatically — the AI is "fully aware of it" and can present its work.
+
+  const PREVIEW_FILE = '.peakui-preview.json';
+
+  const applyPreview = React.useCallback((url: string) => {
+    const clean = (url || '').trim();
+    setPreviewUrl(clean);
+    setPreviewInput(clean);
+    setPreviewError('');
+  }, []);
+
+  // Poll the agent's preview file whenever the preview pane is open, so the
+  // agent can (re)direct the preview without the user typing anything.
+  React.useEffect(() => {
+    if (!previewOpen || !daemonSessionId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      try {
+        const res = await fetch(`/api/coder/file?path=${encodeURIComponent(PREVIEW_FILE)}`);
+        if (!res.ok) { timer = setTimeout(tick, 2000); return; }
+        const data = await res.json().catch(() => ({}));
+        const raw = typeof data.content === 'string' ? data.content : '';
+        if (cancelled || !raw) { timer = setTimeout(tick, 2000); return; }
+        try {
+          const parsed = JSON.parse(raw);
+          const url = typeof parsed.url === 'string' ? parsed.url : (typeof parsed === 'string' ? parsed : '');
+          if (url && url !== previewUrl) applyPreview(url);
+          if (typeof parsed.device === 'string' && ['desktop','tablet','mobile'].includes(parsed.device)) {
+            setPreviewDevice(parsed.device as 'desktop' | 'tablet' | 'mobile');
+          }
+        } catch { /* not JSON yet; keep polling */ }
+      } catch {
+        // Transient; the file may not exist yet.
+      } finally {
+        if (!cancelled) timer = setTimeout(tick, 2000);
+      }
+    };
+    void tick();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [previewOpen, daemonSessionId, previewUrl, applyPreview]);
+
+  const openPreview = (initialUrl?: string) => {
+    if (initialUrl) applyPreview(initialUrl);
+    setPreviewOpen(o => !o);
+  };
 
   // ---- Persistent session CRUD (Hermes pattern, surface 'coder') ----------
 
@@ -1379,7 +1434,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         </button>
         <button onClick={() => setShellOpen(o => !o)} style={ghostBtnStyle()} title="Open a terminal into the isolated container"><Terminal size={14} /> Terminal</button>
         <button onClick={() => setSettingsOpen(o => !o)} style={ghostBtnStyle()}><Wrench size={14} /> Settings</button>
-        <button onClick={() => setPreviewOpen(o => !o)} style={ghostBtnStyle()}><Globe size={14} /> Preview</button>
+        <button onClick={() => openPreview()} style={ghostBtnStyle()}><Globe size={14} /> Preview</button>
         <button onClick={() => void newSession()} style={btnStyle(accent)}><Plus size={14} /> New</button>
         {onExit && (<button onClick={onExit} style={ghostBtnStyle()}><X size={14} /> Exit</button>)}
       </div>
@@ -1676,19 +1731,64 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           </div>
         </div>
 
-        {/* Preview browser */}
+        {/* Preview browser — device-switchable, AI-driven. */}
         {previewOpen && (
-          <div style={{ width: 380, borderLeft: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div style={{ width: 380, maxWidth: '92vw', borderLeft: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', minHeight: 0, flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
               <Globe size={13} style={{ color: accent }} />
               <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(209,213,219,0.5)' }}>Preview</span>
+              <div style={{ display: 'flex', gap: '2px', marginLeft: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 6, padding: 2 }}>
+                {(['desktop', 'tablet', 'mobile'] as const).map(d => (
+                  <button
+                    key={d}
+                    onClick={() => setPreviewDevice(d)}
+                    title={`${d} viewport`}
+                    style={{
+                      background: previewDevice === d ? 'rgba(34,211,238,0.15)' : 'transparent',
+                      color: previewDevice === d ? accent : 'rgba(209,213,219,0.6)',
+                      border: 'none', borderRadius: 4, padding: '3px 7px', fontSize: '0.66rem', cursor: 'pointer', textTransform: 'capitalize',
+                    }}
+                  >
+                    {d}
+                  </button>
+                ))}
+              </div>
               <button onClick={() => setPreviewOpen(false)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.5)', cursor: 'pointer', padding: 0 }}><X size={13} /></button>
             </div>
             <div style={{ display: 'flex', gap: '6px', padding: '8px 10px' }}>
-              <input value={previewInput} onChange={e => setPreviewInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') setPreviewUrl(previewInput.trim() || 'http://localhost:3000'); }} placeholder="http://localhost:3000" style={{ flex: 1, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }} />
-              <button onClick={() => setPreviewUrl(previewInput.trim() || 'http://localhost:3000')} style={{ background: 'rgba(34,211,238,0.12)', color: accent, border: `1px solid ${accent}`, borderRadius: '6px', padding: '4px 10px', fontSize: '0.72rem', cursor: 'pointer' }}>Go</button>
+              <input
+                value={previewInput}
+                onChange={e => setPreviewInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') applyPreview(previewInput); }}
+                placeholder="http://localhost:3000 — the agent can set this too"
+                style={{ flex: 1, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
+              />
+              <button onClick={() => applyPreview(previewInput)} style={{ background: 'rgba(34,211,238,0.12)', color: accent, border: `1px solid ${accent}`, borderRadius: '6px', padding: '4px 10px', fontSize: '0.72rem', cursor: 'pointer' }}>Go</button>
             </div>
-            <iframe src={previewUrl} title="App preview" style={{ flex: 1, border: 'none', background: '#fff' }} sandbox="allow-scripts allow-same-origin allow-forms allow-popups" />
+            <div style={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', overflow: 'auto', background: 'rgba(0,0,0,0.2)' }}>
+              {previewUrl ? (
+                <iframe
+                  key={previewUrl + previewDevice}
+                  src={previewUrl}
+                  title="App preview"
+                  style={{
+                    border: 'none', background: '#fff', flexShrink: 0,
+                    width: previewDevice === 'desktop' ? '100%' : previewDevice === 'tablet' ? 768 : 390,
+                    height: previewDevice === 'desktop' ? '100%' : previewDevice === 'tablet' ? 1024 : 844,
+                    maxWidth: '100%',
+                  }}
+                  sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                />
+              ) : (
+                <div style={{ margin: 'auto', textAlign: 'center', color: 'rgba(209,213,219,0.4)', fontSize: '0.8rem', padding: 20 }}>
+                  <Globe size={28} style={{ margin: '0 auto 10px', color: accent, opacity: 0.5 }} />
+                  No URL yet.
+                  <br />
+                  <span style={{ fontSize: '0.72rem' }}>Enter one, or let the agent start a dev server — it will appear here automatically.</span>
+                </div>
+              )}
+            </div>
+            {previewError && <div style={{ padding: '6px 12px', fontSize: '0.72rem', color: '#fca5a5', borderTop: '1px solid rgba(239,68,68,0.2)' }}>{previewError}</div>}
           </div>
         )}
 
