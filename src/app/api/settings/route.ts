@@ -41,6 +41,7 @@ import {
   normalizeString,
   normalizeCoderApprovalMode,
   normalizeCoderContextLength,
+  normalizeCoderDelegateModel,
   normalizeCoderToolSearchThreshold,
   normalizeCoderWorkspace,
   LEGACY_DEFAULT_SYSTEM_PROMPT,
@@ -139,6 +140,8 @@ interface SettingsBody {
   coderToolSearchThreshold?: unknown;
   coderWorkspace?: unknown;
   coderToolsEnabled?: unknown;
+  coderVisionModel?: unknown;
+  coderWriterModel?: unknown;
 }
 
 // GET: Return user settings (create defaults if none exist)
@@ -335,6 +338,8 @@ export async function POST(req: Request) {
     if (Object.prototype.hasOwnProperty.call(body, 'coderToolsEnabled')) {
       data.coderToolsEnabled = normalizeBoolean(body.coderToolsEnabled, DEFAULT_SETTINGS.coderToolsEnabled);
     }
+    if (body.coderVisionModel !== undefined) data.coderVisionModel = normalizeCoderDelegateModel(body.coderVisionModel);
+    if (body.coderWriterModel !== undefined) data.coderWriterModel = normalizeCoderDelegateModel(body.coderWriterModel);
     if (body.workspaceToolFavoriteModels !== undefined) {
       // Stored as a JSON-encoded string in the column; normalized (deduped,
       // capped, control-char-stripped) on the way in and out.

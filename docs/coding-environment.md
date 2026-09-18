@@ -723,4 +723,56 @@ is lost (persistent transcript/history in the DB still survives). Making
 in-flight work survive container restarts would require daemon-session
 persistence — a separate, larger effort.
 
+---
+
+## 17. Multi-model orchestration (main / vision / writer)
+
+The Coding brain can split work across three specialised models, configured in
+the Settings drawer as a triangle — **Main** on top, **Vision** (bottom-left)
+and **Writer** (bottom-right) below.
+
+The daemon (Qwen Code) natively supports both delegation mechanisms, so this is
+thin wiring over existing capability, not a new orchestrator:
+
+- **Main** (`coderModel`) — the planner/executor. It receives the user request
+  and drives everything.
+- **Vision** (`coderVisionModel`) — the daemon's *vision bridge*. When a
+  text-only main model receives an image, the daemon transcribes it through
+  this model and feeds the text back to the main model. Applied live via the
+  daemon's `visionModel` setting (`POST /workspace/settings`, user scope,
+  `requiresRestart: false`). Empty = auto-pick a same-provider vision model.
+- **Writer** (`coderWriterModel`) — a dedicated subagent pinned to a different
+  model, materialized at `~/.qwen/agents/peakui-writer.md` (user scope) via the
+  daemon's `POST /workspace/agents`. The main model delegates code/file writing
+  to it (`agent` tool with `subagent_type: "peakui-writer"`), then reviews and
+  fixes the result. The subagent's toolset is restricted to read/write/edit/
+  search/shell. Empty = no delegation (the main model writes directly).
+
+### 17.1 Settings + persistence
+
+Two new `UserSettings` columns (`coderVisionModel`, `coderWriterModel`),
+normalized via `normalizeCoderDelegateModel` and exposed through
+`/api/settings`. Model-selector syntax is `authType:model-id`
+(`src/lib/coder-orchestration.ts` → `toDaemonModelSelector`), which correctly
+distinguishes Ollama `name:tag` ids (e.g. `deepseek-v4.1-flash:cloud`) from an
+explicit `openai:model` selector.
+
+### 17.2 Triangle UI
+
+`CodingView` renders the three dropdowns in the Settings drawer, populated from
+the daemon's authoritative `/workspace/models` and annotated with capability
+hints (`⚠ no vision` for the vision slot, `⚠ no tools` for main/writer).
+
+---
+
+## 18. Responsive layout (phone + resize)
+
+- **Retractable sessions sidebar**: a header toggle collapses/shows it. On a
+  phone/narrow viewport (`max-width: 720px`) it overlays the chat as a dismissible
+  drawer (auto-closes on session select); on desktop it sits inline and collapses
+  to nothing when hidden.
+- **Resizable tool-activity pane**: a drag handle above it adjusts its height
+  (pointer events, so both mouse and touch work). Range clamped 80–560px.
+
+
 

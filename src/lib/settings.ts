@@ -189,6 +189,18 @@ export interface AppSettings {
   /** Master switch for surfacing the daemon's tools (approval mode aside). */
   coderToolsEnabled: boolean
   /**
+   * Vision delegate: the image-capable model the daemon's vision bridge uses
+   * to transcribe images for a text-only main model. Empty = auto-pick a
+   * same-provider vision model (daemon default).
+   */
+  coderVisionModel: string
+  /**
+   * Writer delegate: the model a dedicated writer subagent is pinned to. The
+   * main model delegates code/file writing to this subagent and reviews its
+   * output. Empty = no writer delegation (the main model writes directly).
+   */
+  coderWriterModel: string
+  /**
    * Native tool-calling mode. 'on' passes the tool schemas via the API's
    * `tools` parameter and parses structured tool_calls frames (no XML wrapper,
    * no regex recovery). 'off' uses the legacy <workspace_tool> wrapper. 'auto'
@@ -288,6 +300,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   coderToolSearchThreshold: 0,
   coderWorkspace: '/workspace',
   coderToolsEnabled: true,
+  coderVisionModel: '',
+  coderWriterModel: '',
   workspaceToolNativeToolCalls: 'off',
   workspaceToolFavoriteModels: '[]',
 }
@@ -558,6 +572,23 @@ export function normalizeCoderApprovalMode(value: unknown): CoderApprovalMode {
 }
 
 /**
+ * Normalize a delegate-model selector (vision / writer). A bare model id, or
+ * an `authType:model-id` selector, is accepted verbatim (trimmed); anything else
+ * falls back to empty ("no delegation"). We do NOT validate the id against the
+ * daemon here — the daemon resolves/validates at apply time and reports a
+ * clean error, and the model list can change between saves.
+ */
+export function normalizeCoderDelegateModel(value: unknown): string {
+  if (typeof value !== 'string') return ''
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  // Reject embedded control chars that would corrupt the daemon's YAML
+  // frontmatter when the writer subagent is materialized.
+  if (/[\u0000-\u001F\u007F]/.test(trimmed)) return ''
+  return trimmed
+}
+
+/**
  * 0 means "leave the daemon's auto-detected per-model window alone" — it is a
  * deliberate sentinel, not a clamp fallback, so it must survive normalization.
  * Any other value is clamped to the same bounds the WorkSpaces context slider
@@ -746,6 +777,8 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     coderToolSearchThreshold: normalizeCoderToolSearchThreshold(settings?.coderToolSearchThreshold),
     coderWorkspace: normalizeCoderWorkspace(settings?.coderWorkspace),
     coderToolsEnabled: normalizeBoolean(settings?.coderToolsEnabled, DEFAULT_SETTINGS.coderToolsEnabled),
+    coderVisionModel: normalizeCoderDelegateModel(settings?.coderVisionModel),
+    coderWriterModel: normalizeCoderDelegateModel(settings?.coderWriterModel),
   }
 }
 

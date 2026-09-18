@@ -1,9 +1,10 @@
 "use client";
 
 import React from 'react';
-import { AlertCircle, Bot, CheckCircle2, ChevronRight, Circle, ClipboardCopy, Globe, Loader2, MessageSquare, Pencil, Plus, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
+import { AlertCircle, Bot, CheckCircle2, ChevronRight, Circle, ClipboardCopy, Globe, Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
 import { buildConversation, fetchFullTranscript, serializeConversation, type CoderTranscriptEvent } from '@/lib/coder-transcript';
+import { buildWriterSubagentCreateBody, buildWriterSubagentUpdateBody, CODER_WRITER_AGENT_NAME, CODER_WRITER_AGENT_SCOPE, toDaemonModelSelector } from '@/lib/coder-orchestration';
 import { copyToClipboard } from '@/lib/clipboard';
 import AssistantContent from './AssistantContent';
 import { ThinkingBlock } from './ChatMessageContent';
@@ -84,6 +85,8 @@ interface CoderSettings {
   coderToolSearchThreshold: number;
   coderWorkspace: string;
   coderToolsEnabled: boolean;
+  coderVisionModel: string;
+  coderWriterModel: string;
 }
 
 const APPROVAL_MODES: Array<{ id: string; label: string; hint: string }> = [
@@ -288,7 +291,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const baselineRef = React.useRef<CoderChatMessage[]>([]);
   const [copied, setCopied] = React.useState(false);
   // Model + coder settings (server-persisted).
-  const [models, setModels] = React.useState<Array<{ id: string; name: string; toolsCapable: boolean }>>([]);
+  const [models, setModels] = React.useState<Array<{ id: string; name: string; toolsCapable: boolean; visionCapable: boolean }>>([]);
   const [modelLoading, setModelLoading] = React.useState(false);
   const [settings, setSettings] = React.useState<CoderSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
@@ -309,6 +312,10 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   // effect (which otherwise re-derives the title from the first message)
   // doesn't clobber the rename.
   const renamedRef = React.useRef<Map<string, string>>(new Map());
+  // Responsive layout: sidebar retractability + resizable tool-activity pane.
+  const [sidebarOpen, setSidebarOpen] = React.useState(true);
+  const [toolActivityHeight, setToolActivityHeight] = React.useState(220);
+  const [isPhone, setIsPhone] = React.useState(false);
 
   const busy = sessionStatus?.hasActivePrompt === true
     || sessionStatus?.isWaitingForPermission === true
@@ -334,6 +341,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           coderToolSearchThreshold: Number(data.coderToolSearchThreshold) || 0,
           coderWorkspace: typeof data.coderWorkspace === 'string' && data.coderWorkspace ? data.coderWorkspace : '/workspace',
           coderToolsEnabled: data.coderToolsEnabled !== false,
+          coderVisionModel: typeof data.coderVisionModel === 'string' ? data.coderVisionModel : '',
+          coderWriterModel: typeof data.coderWriterModel === 'string' ? data.coderWriterModel : '',
         };
         setSettings(next);
         setWorkspace(next.coderWorkspace);
@@ -362,17 +371,18 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         const data = await res.json().catch(() => ({}));
         const list = Array.isArray(data.models) ? data.models : [];
         if (cancelled) return;
-        // Tool capability isn't reported per-model by the daemon, so probe
-        // Ollama once and annotate — this lets the UI warn instead of letting
-        // the user pick a completion-only model and wonder why nothing happens.
-        const caps = new Map<string, boolean>();
+        // Tool + vision capability aren't reported per-model by the daemon, so
+        // probe Ollama once and annotate — this lets the UI warn instead of
+        // letting the user pick a completion-only or text-only model and wonder
+        // why the agent can't act / can't see images.
+        const caps = new Map<string, { tools: boolean; vision: boolean }>();
         try {
           const tagRes = await fetch('/api/tags');
           const tagData = await tagRes.json();
           for (const m of (Array.isArray(tagData.models) ? tagData.models : [])) {
             const name = typeof m?.name === 'string' ? m.name : '';
             const capabilities = Array.isArray(m?.capabilities) ? m.capabilities : [];
-            if (name) caps.set(name, capabilities.includes('tools'));
+            if (name) caps.set(name, { tools: capabilities.includes('tools'), vision: capabilities.includes('vision') });
           }
         } catch {
           // Leave capability unknown; treated as capable so nothing is hidden.
@@ -380,7 +390,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         setModels(list.map((m: { modelId?: string; name?: string }) => {
           const id = typeof m?.modelId === 'string' ? m.modelId.replace(/\([^)]*\)$/, '') : '';
           const label = typeof m?.name === 'string' && m.name ? m.name : id;
-          return { id, name: label, toolsCapable: caps.get(id) ?? true };
+          const c = caps.get(id);
+          return { id, name: label, toolsCapable: c?.tools ?? true, visionCapable: c?.vision ?? true };
         }).filter((m: { id: string }) => Boolean(m.id)));
       } catch {
         // Non-fatal.
@@ -414,6 +425,41 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Responsive: detect a phone/narrow viewport so the sidebar starts collapsed
+  // and the header wraps, without any per-feature special-casing.
+  React.useEffect(() => {
+    const mq = window.matchMedia('(max-width: 720px)');
+    const apply = () => {
+      const phone = mq.matches;
+      setIsPhone(phone);
+      // Collapse the sidebar by default on phones (it overlays instead of
+      // squashing the chat), keep it open on desktop.
+      if (phone) setSidebarOpen(false);
+    };
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
+  // Drag-to-resize the tool-activity pane (pointer events work for both mouse
+  // and touch, so this covers web and phone in one path).
+  const beginToolActivityResize = React.useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = toolActivityHeight;
+    const onMove = (ev: PointerEvent) => {
+      const delta = startY - ev.clientY; // drag up = taller
+      const next = Math.max(80, Math.min(560, startH + delta));
+      setToolActivityHeight(next);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }, [toolActivityHeight]);
 
   // ---- Persistent session CRUD (Hermes pattern, surface 'coder') ----------
 
@@ -774,6 +820,75 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     void saveSettings({ coderApprovalMode: mode });
     if (!daemonSessionId) return;
     await applyApprovalMode(daemonSessionId, mode);
+  };
+
+  /**
+   * Apply the vision delegate to the daemon's vision bridge. Empty clears it
+   * (the daemon auto-picks a same-provider vision model); otherwise the model
+   * selector is written via the daemon's `visionModel` setting (user scope,
+   * no restart).
+   */
+  const applyVisionModel = async (selector: string) => {
+    try {
+      const res = await fetch(`/api/coder/workspace/settings?workspace=${encodeURIComponent(workspace)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: 'user', key: 'visionModel', value: selector }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        setError(`Vision model failed: ${data.error || res.status}`);
+      }
+    } catch (e) {
+      setError(`Vision model failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const switchVisionModel = async (modelId: string) => {
+    setSettings(prev => (prev ? { ...prev, coderVisionModel: modelId } : prev));
+    void saveSettings({ coderVisionModel: modelId });
+    await applyVisionModel(modelId ? toDaemonModelSelector(modelId) : '');
+  };
+
+  /**
+   * Materialize (create or update) the writer subagent pinned to the chosen
+   * model, or delete it when the writer model is cleared (no delegation).
+   */
+  const applyWriterModel = async (modelId: string) => {
+    try {
+      let res: Response;
+      if (!modelId) {
+        res = await fetch(`/api/coder/workspace/agents/${CODER_WRITER_AGENT_NAME}?scope=${CODER_WRITER_AGENT_SCOPE}`, { method: 'DELETE' });
+        if (res.status === 404) return; // already absent — nothing to do
+      } else {
+        // Try update first (idempotent, hot-reloads the daemon's agent list);
+        // fall back to create if it does not exist yet.
+        res = await fetch(`/api/coder/workspace/agents/${CODER_WRITER_AGENT_NAME}?scope=${CODER_WRITER_AGENT_SCOPE}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildWriterSubagentUpdateBody(modelId)),
+        });
+        if (res.status === 404) {
+          res = await fetch('/api/coder/workspace/agents', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(buildWriterSubagentCreateBody(modelId)),
+          });
+        }
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        setError(`Writer model failed: ${data.error || res.status}`);
+      }
+    } catch (e) {
+      setError(`Writer model failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const switchWriterModel = async (modelId: string) => {
+    setSettings(prev => (prev ? { ...prev, coderWriterModel: modelId } : prev));
+    void saveSettings({ coderWriterModel: modelId });
+    await applyWriterModel(modelId);
   };
 
   const saveSettings = async (patch: Partial<CoderSettings>) => {
@@ -1253,6 +1368,9 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         <button onClick={() => void copySession()} disabled={transcriptEvents.length === 0} style={ghostBtnStyle()} title="Copy the full session (chat + thinking + tool activity) to the clipboard">
           {copied ? <CheckCircle2 size={14} /> : <ClipboardCopy size={14} />} {copied ? 'Copied' : 'Copy'}
         </button>
+        <button onClick={() => setSidebarOpen(o => !o)} style={ghostBtnStyle()} title={sidebarOpen ? 'Hide the sessions sidebar' : 'Show the sessions sidebar'}>
+          {sidebarOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />} {isPhone ? '' : 'Sessions'}
+        </button>
         <button onClick={() => setShellOpen(o => !o)} style={ghostBtnStyle()} title="Open a terminal into the isolated container"><Terminal size={14} /> Terminal</button>
         <button onClick={() => setSettingsOpen(o => !o)} style={ghostBtnStyle()}><Wrench size={14} /> Settings</button>
         <button onClick={() => setPreviewOpen(o => !o)} style={ghostBtnStyle()}><Globe size={14} /> Preview</button>
@@ -1296,6 +1414,51 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
               style={{ ...inputStyle(), width: 110 }}
             />
           </SettingField>
+
+          {/* Multi-model orchestration — triangle: main on top, vision (left) and
+              writer (right) below. */}
+          <div style={{ flexBasis: '100%', marginTop: '6px' }}>
+            <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(209,213,219,0.55)', marginBottom: '10px' }}>
+              Model orchestration
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', maxWidth: 460 }}>
+              {/* Main (top) */}
+              <ModelSlot
+                label="Main"
+                hint="Plans, executes, and reviews all work"
+                value={settings.coderModel}
+                models={models}
+                loading={modelLoading}
+                onChange={id => void switchModel(id)}
+              />
+              {/* Triangle connector lines */}
+              <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', padding: '0 40px' }}>
+                <div style={{ width: 1, height: 14, background: 'rgba(34,211,238,0.35)', transform: 'rotate(30deg)' }} />
+                <div style={{ width: 1, height: 14, background: 'rgba(34,211,238,0.35)', transform: 'rotate(-30deg)' }} />
+              </div>
+              {/* Bottom row: vision (left), writer (right) */}
+              <div style={{ display: 'flex', gap: '16px', width: '100%' }}>
+                <ModelSlot
+                  label="Vision"
+                  hint="Sees images; transcribes for the main model"
+                  value={settings.coderVisionModel}
+                  models={models}
+                  loading={modelLoading}
+                  onChange={id => void switchVisionModel(id)}
+                  requireVision
+                />
+                <ModelSlot
+                  label="Writer"
+                  hint="Writes code and files; main reviews + fixes"
+                  value={settings.coderWriterModel}
+                  models={models}
+                  loading={modelLoading}
+                  onChange={id => void switchWriterModel(id)}
+                />
+              </div>
+            </div>
+          </div>
+
           <div style={{ alignSelf: 'flex-end', fontSize: '0.68rem', color: 'rgba(209,213,219,0.45)', fontFamily: 'ui-monospace, monospace', paddingBottom: 6 }}>
             {settingsSaving ? 'saving…' : 'saved'}
           </div>
@@ -1466,8 +1629,16 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
             </div>
           </div>
 
-          {/* Tool activity — inline record of what the agent did */}
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', maxHeight: 220, display: 'flex', flexDirection: 'column' }}>
+          {/* Tool activity — inline record of what the agent did. Height is
+              drag-resizable (grab the divider and pull up/down). */}
+          <div
+            onPointerDown={beginToolActivityResize}
+            style={{ height: 8, cursor: 'ns-resize', borderTop: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)', display: 'flex', alignItems: 'center', justifyContent: 'center', touchAction: 'none' }}
+            title="Drag up/down to resize tool activity"
+          >
+            <div style={{ width: 40, height: 3, borderRadius: 2, background: 'rgba(209,213,219,0.3)' }} />
+          </div>
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', height: toolActivityHeight, flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 20px', color: 'rgba(209,213,219,0.7)', fontFamily: 'ui-monospace, monospace', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
               <Wrench size={13} /> tool activity
               <span style={{ color: 'rgba(209,213,219,0.35)', textTransform: 'none', letterSpacing: 0 }}>
@@ -1515,13 +1686,21 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           </div>
         )}
 
-        {/* Session sidebar (persistent, Hermes pattern) */}
-        <div style={{ width: 260, borderLeft: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-          <div style={{ padding: '12px 14px', fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(209,213,219,0.5)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>Sessions</div>
-          <div style={{ flex: 1, overflowY: 'auto' }}>
+        {/* Session sidebar — retractable. On phone it overlays the chat; on
+            desktop it sits inline and collapses to nothing when hidden. */}
+        {sidebarOpen && (
+          <div style={isPhone
+            ? { position: 'fixed', top: 0, right: 0, bottom: 0, width: 280, maxWidth: '86vw', zIndex: 70, borderLeft: '1px solid rgba(255,255,255,0.08)', background: '#0a0e17', display: 'flex', flexDirection: 'column', boxShadow: '-12px 0 40px rgba(0,0,0,0.5)' }
+            : { width: 260, borderLeft: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', minHeight: 0, flexShrink: 0 }
+          }>
+            <div style={{ display: 'flex', alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(209,213,219,0.5)', flex: 1 }}>Sessions</span>
+              <button onClick={() => setSidebarOpen(false)} title="Close sessions" style={{ background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.5)', cursor: 'pointer', padding: 0 }}><X size={14} /></button>
+            </div>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
             {sessions.length === 0 && <div style={{ padding: '14px', fontSize: '0.78rem', color: 'rgba(209,213,219,0.4)' }}>No sessions yet.</div>}
             {sessions.map(session => (
-              <div key={session.id} onClick={() => void loadSession(session.id)} style={{ padding: '10px 14px', cursor: 'pointer', borderLeft: activeSessionId === session.id ? `3px solid ${accent}` : '3px solid transparent', background: activeSessionId === session.id ? 'rgba(34,211,238,0.06)' : 'transparent' }}>
+              <div key={session.id} onClick={() => { void loadSession(session.id); if (isPhone) setSidebarOpen(false); }} style={{ padding: '10px 14px', cursor: 'pointer', borderLeft: activeSessionId === session.id ? `3px solid ${accent}` : '3px solid transparent', background: activeSessionId === session.id ? 'rgba(34,211,238,0.06)' : 'transparent' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <ChevronRight size={12} style={{ color: 'rgba(209,213,219,0.4)' }} />
                   {renamingId === session.id ? (
@@ -1561,6 +1740,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
             ))}
           </div>
         </div>
+        )}
       </div>
 
       {/* On-demand terminal pop-up — direct shell into the isolated container */}
@@ -1606,6 +1786,48 @@ function SettingField({ label, hint, children }: { label: string; hint?: string;
       <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(209,213,219,0.55)' }}>{label}</span>
       {children}
       {hint && <span style={{ fontSize: '0.68rem', color: 'rgba(209,213,219,0.35)', maxWidth: 300 }}>{hint}</span>}
+    </div>
+  );
+}
+
+/** A labelled model dropdown for one orchestration role (main / vision / writer). */
+function ModelSlot({
+  label,
+  hint,
+  value,
+  models,
+  loading,
+  onChange,
+  requireVision = false,
+}: {
+  label: string;
+  hint: string;
+  value: string;
+  models: Array<{ id: string; name: string; toolsCapable: boolean; visionCapable: boolean }>;
+  loading: boolean;
+  onChange: (id: string) => void;
+  requireVision?: boolean;
+}) {
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
+      <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#a5f3fc', letterSpacing: '0.04em' }}>{label}</span>
+      <select
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        disabled={loading || models.length === 0}
+        title={hint}
+        style={{ width: '100%', background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', padding: '6px 8px', fontSize: '0.74rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
+      >
+        <option value="">{loading ? 'loading…' : requireVision ? 'auto (same provider)' : 'same as main'}</option>
+        {models.map(m => (
+          <option key={m.id} value={m.id} style={{ color: '#111' }}>
+            {m.name}
+            {requireVision && !m.visionCapable ? '  ⚠ no vision' : ''}
+            {!requireVision && !m.toolsCapable ? '  ⚠ no tools' : ''}
+          </option>
+        ))}
+      </select>
+      <span style={{ fontSize: '0.66rem', color: 'rgba(209,213,219,0.35)' }}>{hint}</span>
     </div>
   );
 }

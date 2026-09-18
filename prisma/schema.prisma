@@ -129,6 +129,11 @@ model UserSettings {
   coderToolSearchThreshold Int      @default(0)
   coderWorkspace           String   @default("/workspace")
   coderToolsEnabled        Boolean  @default(true)
+  // Multi-model orchestration: the Coding brain splits work across three
+  // specialised models. `coderModel` is the planner/executor (the "main"
+  // model); these two add dedicated delegates.
+  coderVisionModel         String   @default("")
+  coderWriterModel         String   @default("")
   user                                            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
