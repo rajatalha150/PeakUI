@@ -720,12 +720,14 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       // The daemon is bound to a primary workspace and rejects a session for any
       // other path with `workspace_mismatch` until that path is registered.
       // Registering is idempotent (an already-registered path returns
-      // `workspace_exists`, which is fine).
+      // `workspace_exists`, which is fine). `persist: true` writes the
+      // registration to ~/.qwen/daemon/workspaces/*.json (a persistent volume),
+      // so the workspace survives daemon restarts — not just this session.
       if (!res.ok && data.code === 'workspace_mismatch') {
         await fetch('/api/coder/workspaces', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cwd: workspace }),
+          body: JSON.stringify({ cwd: workspace, persist: true }),
         }).catch(() => {});
         res = await fetch('/api/coder/session', {
           method: 'POST',
