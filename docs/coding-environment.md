@@ -594,9 +594,16 @@ curl -s http://127.0.0.1:4170/capabilities  # session_shell_command: true
 `/workspace/models` is the authoritative list for the dropdown, and
 tools-capable models are what drive the agent.
 
-**Session isolation** relies on `closeDaemonSession()` running on delete /
-switch / new; a daemon session is a transient runtime handle, while persistent
-history lives in the `ChatSession` table under surface `'coder'`.
+**Sessions** can be renamed inline in the sidebar (click the title or its
+pencil icon); the rename is a `PATCH /api/chats {id, title}` and survives the
+auto-title derivation.
+
+**Session lifecycle** — a persistent `ChatSession` (surface `'coder'`) maps 1:1 to
+a daemon session keyed by the **same UUID**. `POST /session {sessionId, cwd}`
+creates it with a caller-supplied id; `POST /session/:id/load` reattaches on
+reopen. Switching sessions **disconnects** the local handle (leaving the daemon
+session running so in-flight work survives); only `delete` tears the daemon
+session down. See §16.
 
 **Approval** is `yolo` by default (no tool prompts); the only thing that pauses
 the agent is `ask_user_question`, which is rendered inline with real options.
@@ -657,5 +664,63 @@ present under `/root/.cache/puppeteer`.
   `rgb(246,247,251)` → `rgb(14,16,21)`).
 - `visionModel` is not set, so the text-only main model cannot *read*
   screenshots; visual checks are done via DOM/computed-style assertions.
+
+---
+
+## 16. New-tab opening, refresh persistence, and agent reattachment
+
+Three UX behaviours were broken: Coding replaced the main interface in the same
+tab, a refresh bounced back to PeakUI, and closing the tab meant the agent's
+in-flight work could not be rejoined. All three are fixed.
+
+### 16.1 Dedicated `/coder` route (new tab + stable refresh)
+
+Coding no longer lives behind an in-page view toggle in `src/app/page.tsx`. It
+now has its own route, `src/app/coder/page.tsx`, and the nav opens it with
+`window.open('/coder', '_blank')`. Because the URL is stable:
+
+- the nav opens it in a **new tab** (the main interface stays put);
+- a **refresh** re-renders `/coder` (no more falling back to the main page);
+- browser **back** exits to the main PeakUI interface.
+
+### 16.2 Daemon session keyed by the persistent session id
+
+The critical primitive is that the daemon accepts a **caller-supplied UUID** as
+the session id (`session_id_override`), and `POST /session/:id/load` reattaches
+to an existing session (returning a fresh minted `clientId` plus the full
+state). So each persistent `ChatSession` (surface `'coder'`) uses its own UUID
+as the daemon session key:
+
+- first send → `POST /session {sessionId: <chatId>, cwd}` creates the daemon
+  session;
+- reopen → `POST /session/:id/load` reattaches to the **same** agent session,
+  restoring conversation memory and any in-flight turn.
+
+`ensureDaemonSession()` handles the two retry cases: `workspace_mismatch`
+(register the cwd then retry) and `session_id_conflict` (reattach via `/load`).
+
+### 16.3 Disconnect vs. close
+
+- `disconnectDaemonSession()` drops the local handle **without** deleting the
+  server session — used on session switch / new-session / reopen, so the agent
+  keeps running and nothing is lost or delayed.
+- `closeDaemonSession()` still deletes the server session — used only on
+  explicit delete and workspace-cwd change (which must rebind the session).
+
+### 16.4 Active-session restore
+
+The active session id is persisted to `localStorage`
+(`peakui-coder-active-session`) and restored on mount, and an eager reattach
+effect (`ensureDaemonSession` once settings load) reopens the daemon session
+immediately — so a reopened tab resumes streaming/status right away, not only
+on the next send.
+
+### 16.5 Known boundary
+
+Reattachment survives **tab** close/refresh. It does not survive a full coder
+**container** restart: the daemon reaps its live sessions, so an in-flight turn
+is lost (persistent transcript/history in the DB still survives). Making
+in-flight work survive container restarts would require daemon-session
+persistence — a separate, larger effort.
 
 
