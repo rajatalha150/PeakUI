@@ -51,10 +51,11 @@ into the image, so this works on a fresh VM with no downloads.
   `prefers-color-scheme`. `lab-site/screenshot.mjs` has one check that emulates
   `prefers-color-scheme` and will always report "dark scheme changes the
   palette" as a false failure — that is a harness bug, not a site bug.
-- The main model is text-only; a `visionModel` is configured via the daemon so
-  screenshots can be transcribed. If visual verification fails, check that the
-  vision model is set (Settings → Model orchestration → Vision) before assuming
-  the site is broken.
+- The main model IS vision-capable (it carries the `vision` capability), and a
+  separate `visionModel` is also configured via the daemon for image
+  transcription. Screenshots CAN be seen: write one to `/tmp/*.png` and read it
+  with `read_file`, or rely on the daemon's vision bridge. Do NOT claim "no
+  vision model" or "no browser" — both are present and working on this image.
 
 ## Model orchestration (main / vision / writer)
 
