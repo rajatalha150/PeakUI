@@ -35,6 +35,16 @@ interface ToolActivity {
   rawInput?: unknown;
 }
 
+/** An open file in the project explorer, with its own buffer + save state. */
+interface EditorTab {
+  path: string;
+  content: string;
+  hash: string | null;
+  dirty: boolean;
+  saving: boolean;
+  error: string;
+}
+
 /** A single question inside an `ask_user_question` interaction. */
 interface PendingQuestion {
   answerKey: string;
@@ -363,12 +373,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [fileEntries, setFileEntries] = React.useState<FileEntry[] | null>(null);
   const [fileLoading, setFileLoading] = React.useState(false);
   const [fileError, setFileError] = React.useState('');
-  const [openPath, setOpenPath] = React.useState<string | null>(null);
-  const [fileContent, setFileContent] = React.useState('');
-  const [fileHash, setFileHash] = React.useState<string | null>(null);
-  const [fileDirty, setFileDirty] = React.useState(false);
-  const [fileSaving, setFileSaving] = React.useState(false);
-  const [fileSaveError, setFileSaveError] = React.useState('');
+  const [openTabs, setOpenTabs] = React.useState<EditorTab[]>([]);
+  const [activePath, setActivePath] = React.useState<string | null>(null);
   // Named project tasks (install/build/test/run) state.
   const [tasksOpen, setTasksOpen] = React.useState(false);
   const [tasks, setTasks] = React.useState<Task[]>([]);
@@ -1184,10 +1190,19 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     }
   };
 
+  /** Patch one tab in place; `path` keys the tab (workspace paths are unique). */
+  const updateTab = (path: string, patch: Partial<EditorTab>) => {
+    setOpenTabs(prev => prev.map(t => (t.path === path ? { ...t, ...patch } : t)));
+  };
+
   const openFile = async (path: string) => {
+    // Re-activate an already-open buffer without re-reading (keeps unsaved edits).
+    if (openTabs.some(t => t.path === path)) {
+      setActivePath(path);
+      return;
+    }
     setFileLoading(true);
     setFileError('');
-    setFileSaveError('');
     try {
       const res = await fetch(`/api/coder/file?path=${encodeURIComponent(path)}&maxBytes=262144`);
       const data = await res.json().catch(() => ({})) as unknown;
@@ -1200,10 +1215,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         setFileError(parsed.error);
         return;
       }
-      setOpenPath(path);
-      setFileContent(parsed.file.content);
-      setFileHash(parsed.file.hash);
-      setFileDirty(false);
+      setOpenTabs(prev => [...prev, { path, content: parsed.file.content, hash: parsed.file.hash, dirty: false, saving: false, error: '' }]);
+      setActivePath(path);
     } catch (e) {
       setFileError(e instanceof Error ? e.message : 'Failed to read file');
     } finally {
@@ -1211,44 +1224,54 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     }
   };
 
+  const closeTab = (path: string) => {
+    setOpenTabs(prev => {
+      const next = prev.filter(t => t.path !== path);
+      if (activePath === path) setActivePath(next.length ? next[next.length - 1].path : null);
+      return next;
+    });
+  };
+
   const saveFile = async () => {
-    if (!openPath) return;
+    const tab = openTabs.find(t => t.path === activePath);
+    if (!tab) return;
     // The daemon's replace write is compare-and-swap on the content hash; a
     // truncated read (no hash) cannot be safely saved without clobbering a
     // concurrent agent edit, so refuse rather than guess.
-    if (!fileHash) {
-      setFileSaveError('File was read truncated (no hash) — reload it fully before saving.');
+    if (!tab.hash) {
+      updateTab(tab.path, { error: 'File was read truncated (no hash) — reload it fully before saving.' });
       return;
     }
-    setFileSaving(true);
-    setFileSaveError('');
+    updateTab(tab.path, { saving: true, error: '' });
     try {
       const res = await fetch('/api/coder/file/write', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path: openPath, content: fileContent, mode: 'replace', expectedHash: fileHash }),
+        body: JSON.stringify({ path: tab.path, content: tab.content, mode: 'replace', expectedHash: tab.hash }),
       });
       const data = await res.json().catch(() => ({})) as unknown;
       if (!res.ok) {
-        setFileSaveError(`Save failed: ${(data as { error?: string }).error || res.status}`);
+        updateTab(tab.path, { error: `Save failed: ${(data as { error?: string }).error || res.status}` });
         return;
       }
       const parsed = parseFileWriteResult(data);
       if ('error' in parsed) {
-        setFileSaveError(parsed.error);
+        updateTab(tab.path, { error: parsed.error });
         return;
       }
-      setFileHash(parsed.result.hash);
-      setFileDirty(false);
+      updateTab(tab.path, { hash: parsed.result.hash, dirty: false });
     } catch (e) {
-      setFileSaveError(e instanceof Error ? e.message : 'Save failed');
+      updateTab(tab.path, { error: e instanceof Error ? e.message : 'Save failed' });
     } finally {
-      setFileSaving(false);
+      updateTab(tab.path, { saving: false });
     }
   };
 
   /** Join a directory and entry name into a daemon absolute path. */
   const childPath = (dir: string, name: string) => `${dir.replace(/\/+$/, '')}/${name}`;
+
+  /** The tab currently in focus (if any). */
+  const activeTab = openTabs.find(t => t.path === activePath) ?? null;
 
   // ---- Named project tasks ------------------------------------------------
 
@@ -2223,7 +2246,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           <div style={{ display: 'flex', gap: '12px', alignItems: 'stretch', flexWrap: 'wrap' }}>
             {/* Directory listing */}
             <div style={{ flex: '0 0 260px', maxHeight: 280, overflowY: 'auto', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', background: 'rgba(255,255,255,0.02)' }}>
-              {fileLoading && !openPath && (
+              {fileLoading && (
                 <div style={{ padding: '10px', fontSize: '0.7rem', color: '#9ca3af', fontFamily: 'ui-monospace, monospace' }}>loading…</div>
               )}
               {!fileLoading && fileError && (
@@ -2254,28 +2277,59 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
             {/* Editor */}
             <div style={{ flex: 1, minWidth: 260, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {openPath && (
+              {openTabs.length > 0 && (
+                <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', paddingBottom: '2px' }}>
+                  {openTabs.map(t => (
+                    <button
+                      key={t.path}
+                      onClick={() => setActivePath(t.path)}
+                      title={t.path}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, maxWidth: 180,
+                        background: t.path === activePath ? 'rgba(34,211,238,0.12)' : 'rgba(255,255,255,0.03)',
+                        color: t.path === activePath ? '#e5e7eb' : 'rgba(209,213,219,0.6)',
+                        border: `1px solid ${t.path === activePath ? 'rgba(34,211,238,0.4)' : 'rgba(255,255,255,0.07)'}`,
+                        borderRadius: '6px', padding: '3px 8px', cursor: 'pointer',
+                        fontSize: '0.68rem', fontFamily: 'ui-monospace, monospace', whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <FileText size={11} color={t.path === activePath ? '#22d3ee' : 'rgba(209,213,219,0.5)'} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {t.path.split('/').pop()}{t.dirty ? ' •' : ''}
+                      </span>
+                      <span
+                        onClick={e => { e.stopPropagation(); closeTab(t.path); }}
+                        title="Close tab"
+                        style={{ color: 'rgba(209,213,219,0.4)', cursor: 'pointer', display: 'inline-flex' }}
+                      >
+                        <X size={11} />
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {activeTab && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <span style={{ fontSize: '0.7rem', fontFamily: 'ui-monospace, monospace', color: 'rgba(209,213,219,0.7)', overflowWrap: 'anywhere', flex: 1 }}>
-                    {openPath}{fileDirty ? ' •' : ''}
+                    {activeTab.path}{activeTab.dirty ? ' •' : ''}
                   </span>
                   <button
                     onClick={() => void saveFile()}
-                    disabled={fileSaving || !fileDirty}
-                    style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(34,211,238,0.1)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.3)', borderRadius: '8px', padding: '3px 9px', fontSize: '0.7rem', cursor: fileDirty && !fileSaving ? 'pointer' : 'default', fontFamily: 'ui-monospace, monospace', opacity: fileDirty && !fileSaving ? 1 : 0.5 }}
+                    disabled={activeTab.saving || !activeTab.dirty}
+                    style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(34,211,238,0.1)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.3)', borderRadius: '8px', padding: '3px 9px', fontSize: '0.7rem', cursor: activeTab.dirty && !activeTab.saving ? 'pointer' : 'default', fontFamily: 'ui-monospace, monospace', opacity: activeTab.dirty && !activeTab.saving ? 1 : 0.5 }}
                     title="Save (compare-and-swap on the file hash)"
                   >
-                    <Save size={12} /> {fileSaving ? 'saving…' : 'Save'}
+                    <Save size={12} /> {activeTab.saving ? 'saving…' : 'Save'}
                   </button>
                 </div>
               )}
-              {fileSaveError && (
-                <div style={{ fontSize: '0.7rem', color: '#ef4444', fontFamily: 'ui-monospace, monospace' }}>{fileSaveError}</div>
+              {activeTab?.error && (
+                <div style={{ fontSize: '0.7rem', color: '#ef4444', fontFamily: 'ui-monospace, monospace' }}>{activeTab.error}</div>
               )}
-              {openPath ? (
+              {activeTab ? (
                 <textarea
-                  value={fileContent}
-                  onChange={e => { setFileContent(e.target.value); setFileDirty(true); }}
+                  value={activeTab.content}
+                  onChange={e => updateTab(activeTab.path, { content: e.target.value, dirty: true })}
                   spellCheck={false}
                   style={{
                     width: '100%', height: 220, resize: 'vertical',
@@ -2286,7 +2340,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                 />
               ) : (
                 <div style={{ padding: '10px', fontSize: '0.7rem', color: 'rgba(209,213,219,0.45)', fontFamily: 'ui-monospace, monospace' }}>
-                  Select a file to view/edit it. Save is compare-and-swap on the file hash, so it won't clobber a concurrent agent edit.
+                  Select a file to view/edit it. Files stay open as tabs; save is compare-and-swap on the file hash, so it won't clobber a concurrent agent edit.
                 </div>
               )}
             </div>

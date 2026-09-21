@@ -654,9 +654,12 @@ containment). The gateway rejects a relative/traversal `path` before forwarding
   clobber a concurrent agent edit.
 
 `src/lib/coder-files.ts` owns the pure parsing/validation; `CodingView`'s Files
-panel drives list → open → edit → save through these routes. The shapes were read
-from the pinned daemon source and confirmed live (list + read returned the
-documented shape).
+panel drives list → open → edit → save through these routes. Opened files stay
+resident as tabs, each with its own buffer, dirty flag, hash, and save state —
+re-opening a path re-activates its buffer (preserving unsaved edits) rather than
+re-reading, and each tab's save is compare-and-swap on that tab's own hash. The
+shapes were read from the pinned daemon source and confirmed live (list + read
+returned the documented shape).
 
 ### 12.9 Workspace text search
 

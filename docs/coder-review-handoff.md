@@ -10,11 +10,12 @@ done and tested (file-route authorization is now also closed). **Reversible work
 (Phase 5)** is partially done: rewind is exposed end-to-end and live-verified. A
 **project-explorer + tasks + search slice of the IDE workbench (Phase 6)** is
 landed: browse, read, edit and save workspace files through the daemon's file
-routes; run named tasks over the daemon shell; and search workspace files via the
-glob→read→grep composition. The **managed-previews proxy (Phase 4), verification
-records (Phase 5), the rest of the IDE workbench (Monaco/open tabs/PTY/debugger,
-Phase 6)** and the **operations migration (Phase 7)** remain **not done** —
-documented as gaps. This is a deliberate honest-partial handoff, per the spec.
+routes (as multi-tab buffers); run named tasks over the daemon shell; and search
+workspace files via the glob→read→grep composition. The **managed-previews proxy
+(Phase 4), verification records (Phase 5), the rest of the IDE workbench
+(Monaco/PTY/debugger, Phase 6)** and the **operations migration (Phase 7)**
+remain **not done** — documented as gaps. This is a deliberate honest-partial
+handoff, per the spec.
 
 - Tests: **969 passing / 88 files** (`npx vitest run`), `npx tsc --noEmit` clean.
 - Daemon: Qwen Code `v0.23.4` live at `127.0.0.1:4170`; key wire contracts
@@ -93,20 +94,23 @@ documented as gaps. This is a deliberate honest-partial handoff, per the spec.
   per-file diff *content* (the file-history service is daemon-internal and has no
   HTTP route); structured verification records; marking results stale after edits.
 
-### Phase 6 — IDE workbench (project-explorer slice only)
+### Phase 6 — IDE workbench (explorer + tasks + search slice only)
 
-- **Project explorer landed.** New `src/lib/coder-files.ts` parses/validates the
-  daemon's file payloads — `GET /list` → `{ path, entries[{name,kind,ignored}],
-  truncated }`, `GET /file` → `{ content, hash, sizeBytes, truncated }`,
-  `POST /file/write` → `{ created, hash, sizeBytes }` — rejecting malformed
-  responses. `CodingView` gained a **Files** panel: browse directories
-  (`/api/coder/list`), open/read files (`/api/coder/file`), edit in a textarea,
-  and save via `POST /file/write` with `mode:"replace"` + the `expectedHash` from
-  the read (compare-and-swap, so a save cannot clobber a concurrent agent edit).
-  A truncated (hash-less) read refuses save rather than guessing. The wire shapes
-  were read from the pinned daemon source and confirmed live against
-  `127.0.0.1:4170` (list + read returned the documented shape). Tests:
-  `src/lib/coder-files.test.ts` + route tests.
+- **Project explorer landed (multi-tab).** New `src/lib/coder-files.ts`
+  parses/validates the daemon's file payloads — `GET /list` →
+  `{ path, entries[{name,kind,ignored}], truncated }`, `GET /file` →
+  `{ content, hash, sizeBytes, truncated }`, `POST /file/write` →
+  `{ created, hash, sizeBytes }` — rejecting malformed responses. `CodingView`
+  gained a **Files** panel: browse directories (`/api/coder/list`), open/read
+  files (`/api/coder/file`), edit in a textarea, and save via `POST /file/write`
+  with `mode:"replace"` + the `expectedHash` from the read (compare-and-swap, so
+  a save cannot clobber a concurrent agent edit). A truncated (hash-less) read
+  refuses save rather than guessing. Opened files stay resident as **tabs** (each
+  with its own buffer, dirty flag, hash, and save state); re-opening a file
+  re-activates its buffer instead of re-reading, and closing a tab keeps unsaved
+  buffers isolated. The wire shapes were read from the pinned daemon source and
+  confirmed live against `127.0.0.1:4170` (list + read returned the documented
+  shape). Tests: `src/lib/coder-files.test.ts` + route tests.
 - **Named project tasks landed.** `src/lib/coder-tasks.ts` detects the package
   manager from the workspace-root lockfile (`package-lock.json`/`yarn.lock`/
   `pnpm-lock.yaml`/`bun.lockb`) and builds the four default tasks
@@ -123,9 +127,9 @@ documented as gaps. This is a deliberate honest-partial handoff, per the spec.
   root entry. `CodingView` gained a **Search** panel: query input, per-file
   results with 1-based line numbers, bounded candidate count (200) and file size
   (256 KiB). Tests: `src/lib/coder-search.test.ts`.
-- **Not built:** Monaco editor, open-file tabs, persistent PTY, Node/TS debug
-  adapter, and the unified human-takeover UX. The on-demand shell (already
-  present) remains the only terminal.
+- **Not built:** Monaco editor, persistent PTY, Node/TS debug adapter, and the
+  unified human-takeover UX. The on-demand shell (already present) remains the
+  only terminal.
 
 ## What is NOT done (honest gaps)
 
@@ -136,7 +140,7 @@ documented as gaps. This is a deliberate honest-partial handoff, per the spec.
 | 3 | Writer/vision per-runtime scope | needs workspace trust + per-workspace agents — §17.1 |
 | 4 | Managed previews (auth proxy, SSRF guard) | raw iframe + `.peakui-preview.json` poll remain |
 | 5 | Verification records + stale-marking | not built; worktree-reset + per-file diff not exposed (see above) |
-| 6 | IDE workbench (Monaco/tabs/PTY/debugger) | project-explorer + named-tasks + search slices only (see above) |
+| 6 | IDE workbench (Monaco/PTY/debugger) | project-explorer (multi-tab) + named-tasks + search slices only (see above) |
 | 7 | `db push --accept-data-loss` → reviewed migrations | Dockerfile still uses `db push` |
 | 7 | Readiness beyond process health, redacted logs, backup/restore, non-root, Windows | not done |
 
