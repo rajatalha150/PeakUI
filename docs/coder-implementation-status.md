@@ -82,9 +82,9 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 ## Phase 6 — Complete IDE workbench
 
 - [ ] Editor (Monaco) + project explorer + open tabs + search — **partial**: project explorer (list + read + edit + save via daemon `/list`/`/file`/`/file/write`, multi-tab buffers with per-tab compare-and-swap saves) and text search (glob → read → in-memory grep via `/glob` + `/file`) landed; Monaco editor not built
-- [ ] Persistent PTY terminal (xterm.js + server PTY) — on-demand shell exists; persistent PTY not built
+- [ ] Persistent PTY terminal (xterm.js + server PTY) — **verified hard**: the pinned daemon exposes no PTY transport (only on-demand `POST /session/:id/shell`); a persistent PTY needs a server-side broker (§12.11). On-demand shell exists
 - [x] Named project tasks (install/build/test/run) — package-manager detection (lockfile) + editable commands, run via the daemon shell
-- [ ] Node/TS debug adapter (breakpoints/stack/vars/step)
+- [ ] Node/TS debug adapter (breakpoints/stack/vars/step) — **verified hard**: no debug-adapter route on the daemon HTTP surface; needs a separate DAP server (§12.11)
 - [ ] Human-takeover UX (inspect/edit/run/stop/return results) — partial: inspect/edit (explorer), run (shell + tasks), rewind, preview exist; not unified
 
 ## Phase 7 — Operations, migration, deployment

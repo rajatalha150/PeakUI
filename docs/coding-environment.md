@@ -702,6 +702,29 @@ status. Failed runs stay visible and are never restyled as success. Records are
 in-session only (reset on session switch) — a DB-backed ledger is a documented
 gap, as is a true content-level fingerprint.
 
+### 12.11 Verified absence of PTY / debug transports
+
+The spec gates the persistent terminal and the debugger on *verifying* whether
+the pinned runtime exposes a suitable transport first. It does **not**, on the
+HTTP surface:
+
+- **No PTY transport.** The only shell route is `POST /session/:id/shell`
+  (on-demand, request → completed output). There is no `pty`, `terminal`,
+  `stream`, `resize`, or `tty` route. A persistent PTY therefore needs a
+  server-side PTY broker (spawn `node-pty` in the app container and multiplex
+  stdin/stdout/resize over a WebSocket/SSE) — which the gateway architecture
+  deliberately avoids ("the only backend code", §3.2). On-demand shell remains
+  the only terminal.
+- **No debug-adapter surface.** No `debug` / `dap` / `breakpoint` / `inspector`
+  route; the `debug`/`debugger` strings in the pinned source are logging flags,
+  not a debug server. A Node/TS debugger needs a separate DAP server with the
+  inspector port scoped to the owning session.
+- **LSP exists** (`/session/:id/lsp`) but its contract for interactive editing
+  (diagnostics, definition, rename over HTTP) is not yet verified.
+
+These are *hard* gaps, not merely unbuilt features: closing them is an
+architecture decision (a PTY/DAP broker in the app server), not a thin UI slice.
+
 ---
 
 ## 13. Test coverage map

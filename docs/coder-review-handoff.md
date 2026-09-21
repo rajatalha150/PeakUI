@@ -142,8 +142,11 @@ This is a deliberate honest-partial handoff, per the spec.
   results with 1-based line numbers, bounded candidate count (200) and file size
   (256 KiB). Tests: `src/lib/coder-search.test.ts`.
 - **Not built:** Monaco editor, persistent PTY, Node/TS debug adapter, and the
-  unified human-takeover UX. The on-demand shell (already present) remains the
-  only terminal.
+  unified human-takeover UX. PTY and the debugger are **verified hard** against
+  the pinned daemon's HTTP surface: there is no PTY transport (only the
+  on-demand `POST /session/:id/shell`) and no debug-adapter route — see
+  `docs/coding-environment.md` §12.11. The on-demand shell remains the only
+  terminal.
 
 ## What is NOT done (honest gaps)
 
@@ -154,7 +157,7 @@ This is a deliberate honest-partial handoff, per the spec.
 | 3 | Writer/vision per-runtime scope | needs workspace trust + per-workspace agents — §17.1 |
 | 4 | Managed previews (auth proxy, SSRF guard) | raw iframe + `.peakui-preview.json` poll remain |
 | 5 | Content fingerprint + persisted records | mutation counter is a proxy (not a content hash); records are in-session only; worktree-reset + per-file diff not exposed (see above) |
-| 6 | IDE workbench (Monaco/PTY/debugger) | project-explorer (multi-tab) + named-tasks + search slices only (see above) |
+| 6 | IDE workbench (Monaco/PTY/debugger) | Monaco open; PTY + debugger verified hard — no daemon transport (§12.11); explorer + tasks + search landed |
 | 7 | `db push --accept-data-loss` → reviewed migrations | Dockerfile still uses `db push` |
 | 7 | Readiness beyond process health, redacted logs, backup/restore, non-root, Windows | not done |
 
