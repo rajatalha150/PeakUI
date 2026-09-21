@@ -1,9 +1,13 @@
 "use client";
 
 import React from 'react';
-import { AlertCircle, Bot, CheckCircle2, ChevronRight, Circle, ClipboardCopy, Globe, Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
+import { AlertCircle, Bot, CheckCircle2, ChevronRight, Circle, ClipboardCopy, FileText, Folder, Globe, History, Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Save, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
 import { buildConversation, fetchFullTranscript, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from '@/lib/coder-transcript';
+import { streamSessionEvents } from '@/lib/coder-sse';
+import { parsePreviewUrl } from '@/lib/coder-preview';
+import { parseRewindResult, parseRewindSnapshots, type RewindResult, type RewindSnapshot } from '@/lib/coder-rewind';
+import { parseFileContent, parseFileList, parseFileWriteResult, type FileEntry } from '@/lib/coder-files';
 import { buildWriterSubagentCreateBody, buildWriterSubagentUpdateBody, CODER_WRITER_AGENT_NAME, CODER_WRITER_AGENT_SCOPE, toDaemonModelSelector } from '@/lib/coder-orchestration';
 import { copyToClipboard } from '@/lib/clipboard';
 import AssistantContent from './AssistantContent';
@@ -259,6 +263,10 @@ function reconcilePending(
 export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [sessions, setSessions] = React.useState<CoderSession[]>([]);
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null);
+  // True once the active session's bound workspace has been resolved (from the
+  // persisted session row, or "none yet" for a brand-new session). Gates the
+  // eager daemon reattach so it never reattaches with a stale default workspace.
+  const [sessionResolved, setSessionResolved] = React.useState(false);
   const [messages, setMessages] = React.useState<CoderChatMessage[]>([]);
   const [composer, setComposer] = React.useState('');
   const [connecting, setConnecting] = React.useState(true);
@@ -289,6 +297,21 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   // main model about — so we don't fire the continue prompt repeatedly while the
   // main model works through its response.
   const nudgedNotificationRef = React.useRef<string | null>(null);
+  // Single-flight guard for `ensureDaemonSession`: concurrent callers (eager
+  // reattach + a fast send) share one create/load promise instead of racing two
+  // daemon sessions.
+  const ensurePromiseRef = React.useRef<Promise<string | null> | null>(null);
+  // Mirrors `activeSessionId` for the async session path, so a create/load that
+  // resolves AFTER the user switched sessions cannot bind the wrong session.
+  const activeSessionIdRef = React.useRef<string | null>(null);
+  // Last persisted transcript signature, so an idle poll (which rebuilds
+  // identical arrays every tick) does not rewrite the full history to the DB.
+  const lastPersistSignatureRef = React.useRef<string>('');
+  // The active session's BOUND workspace (from its persisted ChatSession row),
+  // or null when the session has not yet been bound. `ensureDaemonSession`
+  // prefers this over the user's current default `workspace` state, so a
+  // reattach restores the ORIGINAL project even after the default changed.
+  const sessionWorkspaceRef = React.useRef<string | null>(null);
   // History loaded from the persistent store (turns that happened before this
   // page's daemon session). The live daemon transcript only contains the
   // current session's turns, so the two are disjoint and merge without dedup.
@@ -326,6 +349,24 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [toolActivityHeight, setToolActivityHeight] = React.useState(220);
   const [isPhone, setIsPhone] = React.useState(false);
+  // Reversible-work (rewind) state.
+  const [rewindOpen, setRewindOpen] = React.useState(false);
+  const [rewindSnapshots, setRewindSnapshots] = React.useState<RewindSnapshot[] | null>(null);
+  const [rewindLoading, setRewindLoading] = React.useState(false);
+  const [rewindError, setRewindError] = React.useState('');
+  const [rewindResult, setRewindResult] = React.useState<RewindResult | null>(null);
+  // Project explorer (file browser + editor) state.
+  const [filesOpen, setFilesOpen] = React.useState(false);
+  const [fileDir, setFileDir] = React.useState('/workspace');
+  const [fileEntries, setFileEntries] = React.useState<FileEntry[] | null>(null);
+  const [fileLoading, setFileLoading] = React.useState(false);
+  const [fileError, setFileError] = React.useState('');
+  const [openPath, setOpenPath] = React.useState<string | null>(null);
+  const [fileContent, setFileContent] = React.useState('');
+  const [fileHash, setFileHash] = React.useState<string | null>(null);
+  const [fileDirty, setFileDirty] = React.useState(false);
+  const [fileSaving, setFileSaving] = React.useState(false);
+  const [fileSaveError, setFileSaveError] = React.useState('');
 
   const busy = sessionStatus?.hasActivePrompt === true
     || sessionStatus?.isWaitingForPermission === true
@@ -483,8 +524,23 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
   const applyPreview = React.useCallback((url: string) => {
     const clean = (url || '').trim();
-    setPreviewUrl(clean);
     setPreviewInput(clean);
+    if (!clean) {
+      setPreviewUrl('');
+      setPreviewError('');
+      return;
+    }
+    // Reject anything that is not a loopback dev-server URL before it can be
+    // framed. The agent writes this file, so the guard is the only thing
+    // standing between a crafted `.peakui-preview.json` and an internal service
+    // (the app/daemon/DB/SearXNG/tor) being loaded into the preview pane.
+    const parsed = parsePreviewUrl(clean);
+    if ('error' in parsed) {
+      setPreviewUrl('');
+      setPreviewError(parsed.error);
+      return;
+    }
+    setPreviewUrl(clean);
     setPreviewError('');
   }, []);
 
@@ -592,6 +648,15 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Keep the active-session mirror in sync so the async daemon-session path can
+  // tell "the session the user still has open" from "the session that was open
+  // when this create/load started". A session change also resets the persist
+  // signature, so the newly selected session always persists its first settle.
+  React.useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+    lastPersistSignatureRef.current = '';
+  }, [activeSessionId]);
+
   const persistMessages = React.useCallback(async (
     sessionId: string,
     title: string,
@@ -599,16 +664,23 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     activity: ToolActivity[],
   ) => {
     try {
-      // Tool activity + thinking are folded into `meta` so reopening a session
-      // restores what the agent did, not just its prose.
-      const stored = msgs.map(m => ({
+      // Thinking is folded into `meta` per message. Tool activity is folded in
+      // ONCE, on the last assistant message — storing the whole activity list on
+      // every assistant message is what duplicated it on save and restore.
+      const stored: StoredMsg[] = msgs.map(m => ({
         role: m.role,
         content: m.content,
         ...(m.usage ? { usage: m.usage } : {}),
-        ...(m.thinking || (m.role === 'assistant' && activity.length)
-          ? { meta: { ...(m.thinking ? { thinking: m.thinking } : {}), ...(m.role === 'assistant' ? { toolActivity: activity } : {}) } }
-          : {}),
+        ...(m.thinking ? { meta: { thinking: m.thinking } } : {}),
       }));
+      if (activity.length) {
+        for (let i = stored.length - 1; i >= 0; i--) {
+          if (stored[i].role === 'assistant') {
+            stored[i].meta = { ...(stored[i].meta || {}), toolActivity: activity };
+            break;
+          }
+        }
+      }
       await fetch('/api/chats', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -621,6 +693,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
   const loadSession = async (sessionId: string) => {
     setActiveSessionId(sessionId);
+    setSessionResolved(false);
+    sessionWorkspaceRef.current = null;
     setError('');
     setToolActivity([]);
     setSessionStatus(null);
@@ -638,6 +712,14 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       if (res.ok) {
         const data = await res.json();
         const stored = (Array.isArray(data.messages) ? data.messages : []) as StoredMsg[];
+        // Restore the session's BOUND workspace (the project it was created
+        // against) so a reattach uses the original directory, not the current
+        // default preference — which may have moved on since this session began.
+        const bound = typeof data.coderWorkspace === 'string' && data.coderWorkspace.trim()
+          ? data.coderWorkspace.trim()
+          : null;
+        sessionWorkspaceRef.current = bound;
+        if (bound) setWorkspace(bound);
         const loaded = stored
           .filter(m => m.role === 'user' || m.role === 'assistant')
           .map(m => ({
@@ -656,6 +738,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load session');
+    } finally {
+      setSessionResolved(true);
     }
   };
 
@@ -673,6 +757,9 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         throw new Error(typeof data.error === 'string' ? data.error : 'Failed to create session');
       }
       setActiveSessionId(id);
+      setSessionResolved(true);
+      sessionWorkspaceRef.current = null;
+      setWorkspace(settings?.coderWorkspace || '/workspace');
       setMessages([]);
       setToolActivity([]);
       setPending([]);
@@ -700,6 +787,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       if (res.ok) {
         if (activeSessionId === sessionId) {
           setActiveSessionId(null);
+          setSessionResolved(false);
+          sessionWorkspaceRef.current = null;
           setMessages([]);
           setToolActivity([]);
           setSessionStatus(null);
@@ -792,84 +881,122 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
    */
   const ensureDaemonSession = async (): Promise<string | null> => {
     if (daemonSessionId) return daemonSessionId;
+    // Single-flight: concurrent callers (the eager reattach effect + a fast
+    // send/shell) share one create/load instead of racing two daemon sessions.
+    if (ensurePromiseRef.current) return ensurePromiseRef.current;
     const sessionId = activeSessionId;
     if (!sessionId) {
       setError('No active session.');
       return null;
     }
-    try {
-      const mkBody = (cwd: string) => ({ sessionId, cwd });
 
-      let res = await fetch('/api/coder/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(mkBody(workspace)),
-      });
-      let data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string; code?: string };
+    let promise: Promise<string | null>;
+    const run = async (): Promise<string | null> => {
+      try {
+        // A Coding session is bound to the workspace it was created against. On a
+        // reopen, `sessionWorkspaceRef` carries the ORIGINAL binding (loaded from
+        // the DB), so reattaching restores the original project even if the user's
+        // default coder workspace preference has since changed. It only falls back
+        // to the live `workspace` state for a brand-new, never-created session.
+        const cwd = sessionWorkspaceRef.current || workspace;
+        const mkBody = (cwd: string) => ({ sessionId, cwd });
 
-      // The daemon is bound to a primary workspace and rejects a session for any
-      // other path with `workspace_mismatch` until that path is registered.
-      // Registering is idempotent (an already-registered path returns
-      // `workspace_exists`, which is fine). `persist: true` writes the
-      // registration to ~/.qwen/daemon/workspaces/*.json (a persistent volume),
-      // so the workspace survives daemon restarts — not just this session.
-      if (!res.ok && data.code === 'workspace_mismatch') {
-        await fetch('/api/coder/workspaces', {
+        let res = await fetch('/api/coder/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cwd: workspace, persist: true }),
+          body: JSON.stringify(mkBody(cwd)),
+        });
+        let data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string; code?: string };
+
+        // The daemon is bound to a primary workspace and rejects a session for any
+        // other path with `workspace_mismatch` until that path is registered.
+        // Registering is idempotent (an already-registered path returns
+        // `workspace_exists`, which is fine). `persist: true` writes the
+        // registration to ~/.qwen/daemon/workspaces/*.json (a persistent volume),
+        // so the workspace survives daemon restarts — not just this session.
+        if (!res.ok && data.code === 'workspace_mismatch') {
+          await fetch('/api/coder/workspaces', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cwd, persist: true }),
+          }).catch(() => {});
+          res = await fetch('/api/coder/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(mkBody(cwd)),
+          });
+          data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string; code?: string };
+        }
+
+        // The daemon session already exists (a prior tab / reopen created it).
+        // Reattach instead of failing, so the conversation and any in-flight work
+        // continue where they left off.
+        if (!res.ok && data.code === 'session_id_conflict') {
+          // The load body must carry `cwd`: a session in a NON-primary workspace
+          // (e.g. /apps) is routed by `resolveRuntimeForSessionRestore` using the
+          // cwd; without it the daemon 404s "No session with id" even though the
+          // session exists in another runtime.
+          res = await fetch(`/api/coder/session/${sessionId}/load`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cwd }),
+          });
+          data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string; code?: string };
+        }
+
+        if (!res.ok || !data.sessionId) {
+          setError(typeof data.error === 'string' ? data.error : 'Failed to start daemon session');
+          return null;
+        }
+        // A create/load that resolves AFTER the user switched sessions must not
+        // bind the wrong session: abandon the stale handle instead of mutating
+        // the daemonSessionId/clientId for a session the user no longer has open.
+        if (activeSessionIdRef.current !== sessionId) return null;
+
+        setDaemonSessionId(data.sessionId);
+        // Echo the daemon-minted client id on every later per-session call.
+        if (typeof data.clientId === 'string' && data.clientId) clientIdRef.current = data.clientId;
+
+        // Bind the session to the workspace it was actually created against so a
+        // later reopen reattaches to the SAME project. Persist it via /api/chats
+        // (best-effort: a failure here never blocks the session from working; the
+        // next create/load simply falls back to the current default).
+        sessionWorkspaceRef.current = cwd;
+        fetch('/api/chats', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: sessionId, surface: 'coder', coderWorkspace: cwd }),
         }).catch(() => {});
-        res = await fetch('/api/coder/session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(mkBody(workspace)),
-        });
-        data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string; code?: string };
-      }
 
-      // The daemon session already exists (a prior tab / reopen created it).
-      // Reattach instead of failing, so the conversation and any in-flight work
-      // continue where they left off.
-      if (!res.ok && data.code === 'session_id_conflict') {
-        // The load body must carry `cwd`: a session in a NON-primary workspace
-        // (e.g. /apps) is routed by `resolveRuntimeForSessionRestore` using the
-        // cwd; without it the daemon 404s "No session with id" even though the
-        // session exists in another runtime.
-        res = await fetch(`/api/coder/session/${sessionId}/load`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cwd: workspace }),
-        });
-        data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string; code?: string };
-      }
-
-      if (!res.ok || !data.sessionId) {
-        setError(typeof data.error === 'string' ? data.error : 'Failed to start daemon session');
+        // Apply the persisted model + approval mode + orchestration delegates to
+        // the session. Vision and writer are daemon-global (not per-session), but
+        // re-applying them here guarantees a reattached/old session still runs
+        // with the user's saved orchestration — not a stale daemon default.
+        if (settings?.coderModel) {
+          await applyModel(data.sessionId, settings.coderModel, { quiet: true });
+        }
+        await applyApprovalMode(data.sessionId, settings?.coderApprovalMode || 'yolo', { quiet: true });
+        if (settings?.coderVisionModel) {
+          await applyVisionModel(toDaemonModelSelector(settings.coderVisionModel));
+        }
+        if (settings?.coderWriterModel) {
+          await applyWriterModel(settings.coderWriterModel);
+        }
+        if (settings?.coderToolSearchThreshold) {
+          await applyToolSearchThreshold(settings.coderToolSearchThreshold);
+        }
+        return data.sessionId;
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to start daemon session');
         return null;
+      } finally {
+        if (ensurePromiseRef.current === promise) ensurePromiseRef.current = null;
       }
-      setDaemonSessionId(data.sessionId);
-      // Echo the daemon-minted client id on every later per-session call.
-      if (typeof data.clientId === 'string' && data.clientId) clientIdRef.current = data.clientId;
+    };
 
-      // Apply the persisted model + approval mode + orchestration delegates to
-      // the session. Vision and writer are daemon-global (not per-session), but
-      // re-applying them here guarantees a reattached/old session still runs
-      // with the user's saved orchestration — not a stale daemon default.
-      if (settings?.coderModel) {
-        await applyModel(data.sessionId, settings.coderModel, { quiet: true });
-      }
-      await applyApprovalMode(data.sessionId, settings?.coderApprovalMode || 'yolo', { quiet: true });
-      if (settings?.coderVisionModel) {
-        await applyVisionModel(toDaemonModelSelector(settings.coderVisionModel));
-      }
-      if (settings?.coderWriterModel) {
-        await applyWriterModel(settings.coderWriterModel);
-      }
-      return data.sessionId;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to start daemon session');
-      return null;
-    }
+    promise = run();
+    ensurePromiseRef.current = promise;
+    return promise;
   };
 
   // ---- Model + approval-mode control --------------------------------------
@@ -926,6 +1053,187 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     if (!daemonSessionId) return;
     await applyApprovalMode(daemonSessionId, mode);
   };
+
+  // ---- Reversible work (rewind) --------------------------------------------
+
+  /** Open the rewind panel and load the list of rewindable user turns. */
+  const openRewind = async () => {
+    setRewindOpen(o => !o);
+    setRewindResult(null);
+    if (!daemonSessionId) {
+      setRewindError('Start a session first — there is nothing to rewind yet.');
+      return;
+    }
+    await loadRewindSnapshots();
+  };
+
+  const loadRewindSnapshots = async () => {
+    if (!daemonSessionId) return;
+    setRewindLoading(true);
+    setRewindError('');
+    try {
+      const res = await fetch(`/api/coder/session/${daemonSessionId}/rewind/snapshots`);
+      const data = await res.json().catch(() => ({})) as unknown;
+      if (!res.ok) {
+        setRewindError(`Could not list rewind points: ${(data as { error?: string }).error || res.status}`);
+        setRewindSnapshots(null);
+        return;
+      }
+      const parsed = parseRewindSnapshots(data);
+      if ('error' in parsed) {
+        setRewindError(parsed.error);
+        setRewindSnapshots(null);
+        return;
+      }
+      setRewindSnapshots(parsed.snapshots);
+    } catch (e) {
+      setRewindError(e instanceof Error ? e.message : 'Failed to list rewind points');
+      setRewindSnapshots(null);
+    } finally {
+      setRewindLoading(false);
+    }
+  };
+
+  /**
+   * Rewind the daemon session to a snapshot. With `rewindFiles: true` (the
+   * daemon default, made explicit here) the workspace files are restored to
+   * that snapshot too, so this is the "selective restore" action: pick a turn,
+   * and both the conversation and the files it had changed are rolled back.
+   */
+  const doRewind = async (promptId: string) => {
+    if (!daemonSessionId) return;
+    setRewindLoading(true);
+    setRewindError('');
+    setRewindResult(null);
+    try {
+      const res = await fetch(`/api/coder/session/${daemonSessionId}/rewind`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ promptId, rewindFiles: true }),
+      });
+      const data = await res.json().catch(() => ({})) as unknown;
+      if (!res.ok) {
+        setRewindError(`Rewind failed: ${(data as { error?: string }).error || res.status}`);
+        return;
+      }
+      const parsed = parseRewindResult(data);
+      if ('error' in parsed) {
+        setRewindError(parsed.error);
+        return;
+      }
+      setRewindResult(parsed.result);
+      // The transcript poll reconciles the now-truncated conversation; refresh
+      // the snapshot list so the restored point reflects the new state.
+      await loadRewindSnapshots();
+    } catch (e) {
+      setRewindError(e instanceof Error ? e.message : 'Rewind failed');
+    } finally {
+      setRewindLoading(false);
+    }
+  };
+
+  // ---- Project explorer (file browser + editor) ----------------------------
+
+  const openFiles = async () => {
+    const opening = !filesOpen;
+    setFilesOpen(opening);
+    if (!opening) return;
+    if (fileDir !== workspace) setFileDir(workspace);
+    await loadDir(workspace);
+  };
+
+  const loadDir = async (dir: string) => {
+    setFileLoading(true);
+    setFileError('');
+    try {
+      const res = await fetch(`/api/coder/list?path=${encodeURIComponent(dir)}`);
+      const data = await res.json().catch(() => ({})) as unknown;
+      if (!res.ok) {
+        setFileError(`Could not list ${dir}: ${(data as { error?: string }).error || res.status}`);
+        setFileEntries(null);
+        return;
+      }
+      const parsed = parseFileList(data);
+      if ('error' in parsed) {
+        setFileError(parsed.error);
+        setFileEntries(null);
+        return;
+      }
+      setFileDir(dir);
+      setFileEntries(parsed.list.entries);
+    } catch (e) {
+      setFileError(e instanceof Error ? e.message : 'Failed to list directory');
+      setFileEntries(null);
+    } finally {
+      setFileLoading(false);
+    }
+  };
+
+  const openFile = async (path: string) => {
+    setFileLoading(true);
+    setFileError('');
+    setFileSaveError('');
+    try {
+      const res = await fetch(`/api/coder/file?path=${encodeURIComponent(path)}&maxBytes=262144`);
+      const data = await res.json().catch(() => ({})) as unknown;
+      if (!res.ok) {
+        setFileError(`Could not read ${path}: ${(data as { error?: string }).error || res.status}`);
+        return;
+      }
+      const parsed = parseFileContent(data);
+      if ('error' in parsed) {
+        setFileError(parsed.error);
+        return;
+      }
+      setOpenPath(path);
+      setFileContent(parsed.file.content);
+      setFileHash(parsed.file.hash);
+      setFileDirty(false);
+    } catch (e) {
+      setFileError(e instanceof Error ? e.message : 'Failed to read file');
+    } finally {
+      setFileLoading(false);
+    }
+  };
+
+  const saveFile = async () => {
+    if (!openPath) return;
+    // The daemon's replace write is compare-and-swap on the content hash; a
+    // truncated read (no hash) cannot be safely saved without clobbering a
+    // concurrent agent edit, so refuse rather than guess.
+    if (!fileHash) {
+      setFileSaveError('File was read truncated (no hash) — reload it fully before saving.');
+      return;
+    }
+    setFileSaving(true);
+    setFileSaveError('');
+    try {
+      const res = await fetch('/api/coder/file/write', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: openPath, content: fileContent, mode: 'replace', expectedHash: fileHash }),
+      });
+      const data = await res.json().catch(() => ({})) as unknown;
+      if (!res.ok) {
+        setFileSaveError(`Save failed: ${(data as { error?: string }).error || res.status}`);
+        return;
+      }
+      const parsed = parseFileWriteResult(data);
+      if ('error' in parsed) {
+        setFileSaveError(parsed.error);
+        return;
+      }
+      setFileHash(parsed.result.hash);
+      setFileDirty(false);
+    } catch (e) {
+      setFileSaveError(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setFileSaving(false);
+    }
+  };
+
+  /** Join a directory and entry name into a daemon absolute path. */
+  const childPath = (dir: string, name: string) => `${dir.replace(/\/+$/, '')}/${name}`;
 
   /**
    * Apply the vision delegate to the daemon's vision bridge. Empty clears it
@@ -996,18 +1304,51 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     await applyWriterModel(modelId);
   };
 
+  /**
+   * Push the tool-search budget to the daemon's `tools.toolSearch.threshold`
+   * (user scope). It is the deferred-tool preload budget, expressed as a
+   * percentage of the context window. It is `requiresRestart: true` on the
+   * daemon, so the write persists to ~/.qwen config and takes effect on the
+   * daemon's next restart — the app cannot restart the shared daemon process,
+   * and it does not pretend the change is live.
+   */
+  const applyToolSearchThreshold = async (threshold: number) => {
+    try {
+      const res = await fetch(`/api/coder/workspace/settings?workspace=${encodeURIComponent(workspace)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: 'user', key: 'tools.toolSearch.threshold', value: threshold }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        setError(`Tool-search budget failed: ${data.error || res.status}`);
+      }
+    } catch (e) {
+      setError(`Tool-search budget failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
   const saveSettings = async (patch: Partial<CoderSettings>) => {
     setSettingsSaving(true);
     // Reflect the change locally so the UI (and subsequent reads) see the new
     // value immediately, not just after a reload.
+    const previous = settings;
     setSettings(prev => (prev ? { ...prev, ...patch } : prev));
     try {
-      await fetch('/api/settings', {
+      const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(patch),
       });
+      if (!res.ok) {
+        // Revert the optimistic update so the UI does not show a value the
+        // server refused; a "saved" indicator over an unsaved change is a lie.
+        setSettings(previous);
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        setError(typeof data.error === 'string' ? data.error : `Failed to save coding settings (HTTP ${res.status}).`);
+      }
     } catch {
+      setSettings(previous);
       setError('Failed to save coding settings.');
     } finally {
       setSettingsSaving(false);
@@ -1067,11 +1408,18 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const cancelTurn = async () => {
     if (!daemonSessionId) return;
     try {
-      await fetch(`/api/coder/session/${daemonSessionId}/cancel`, {
+      const res = await fetch(`/api/coder/session/${daemonSessionId}/cancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
+      if (!res.ok) {
+        // A failed cancel must not read as "cancelling…" / successful: the turn
+        // is still running and the user needs to know the stop did not land.
+        const data = await res.json().catch(() => ({})) as { error?: string };
+        setError(typeof data.error === 'string' ? data.error : `Failed to cancel (HTTP ${res.status}).`);
+        return;
+      }
       setLiveStatus('cancelling…');
     } catch {
       setError('Failed to cancel the turn.');
@@ -1194,15 +1542,13 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   React.useEffect(() => {
     if (!daemonSessionId) return;
     let cancelled = false;
-    const source = new EventSource(`/api/coder/session/${daemonSessionId}/events`);
-
     const note = (line: string) => setLiveStatus(line);
 
-    const onFrame = (evt: MessageEvent) => {
-      if (cancelled || !evt.data) return;
+    const onFrame = (raw: string) => {
+      if (cancelled || !raw) return;
       let parsed: CoderTranscriptEvent;
       try {
-        parsed = JSON.parse(evt.data) as CoderTranscriptEvent;
+        parsed = JSON.parse(raw) as CoderTranscriptEvent;
       } catch {
         return;
       }
@@ -1269,20 +1615,20 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       }
     };
 
-    // The daemon names each frame; listen for our own type plus the generic
-    // `message` channel so a schema rename can't silently mute the UI.
-    const named = ['session_update', 'permission_request', 'turn_complete', 'agent_message_chunk', 'tool_call'];
-    for (const name of named) source.addEventListener(name, onFrame as EventListener);
-    source.onmessage = onFrame;
-    source.onerror = () => {
-      // EventSource auto-reconnects; surface it so the user isn't staring at a
-      // frozen "working…" indicator.
-      if (!cancelled) note('reconnecting to agent stream…');
-    };
+    // Fetch-based client (not EventSource) so a reconnect can send the
+    // `Last-Event-ID` / `X-Qwen-Event-Epoch` resume headers — EventSource cannot
+    // set custom headers, so its auto-reconnect always started a fresh stream
+    // and replayed nothing. The resume lets a drop mid-turn continue from the
+    // cursor instead of only seeing frames emitted after the resubscribe.
+    const close = streamSessionEvents(
+      `/api/coder/session/${daemonSessionId}/events`,
+      frame => onFrame(frame.data),
+      { onReconnecting: () => { if (!cancelled) note('reconnecting to agent stream…'); } },
+    );
 
     return () => {
       cancelled = true;
-      source.close();
+      close();
     };
   }, [daemonSessionId]);
 
@@ -1293,7 +1639,12 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   React.useEffect(() => {
     if (!daemonSessionId) return;
     let cancelled = false;
+    // Reentrancy guard (same rationale as the transcript poll): a slow /status
+    // fetch must not overlap the next tick.
+    let running = false;
     const tick = async () => {
+      if (running) return;
+      running = true;
       try {
         const res = await fetch(`/api/coder/session/${daemonSessionId}/status`);
         if (res.ok && !cancelled) {
@@ -1308,6 +1659,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         }
       } catch {
         // Transient.
+      } finally {
+        running = false;
       }
     };
     void tick();
@@ -1328,7 +1681,14 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   React.useEffect(() => {
     if (!daemonSessionId) return;
     let cancelled = false;
+    // Reentrancy guard: `setInterval` keeps firing regardless of whether the
+    // previous tick finished, so a slow transcript fetch (long local model,
+    // multi-page history) could overlap the next tick and reorder/duplicate
+    // state writes. Skip a tick when one is already in flight instead.
+    let running = false;
     const tick = async () => {
+      if (running) return;
+      running = true;
       try {
         // `qwen serve` paginates the transcript at 100 events/page by default
         // and returns `{ hasMore, nextCursor }`. A single unpaginated fetch
@@ -1359,6 +1719,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         setToolActivity(built.activity);
       } catch {
         // Transient.
+      } finally {
+        running = false;
       }
     };
     void tick();
@@ -1401,13 +1763,20 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         // prompt — the trailing <task-notification> is already in context, so the
         // main model resumes from it without a visible user message showing up in
         // the chat as if the user had typed it.
-        await fetch(`/api/coder/session/${daemonSessionId}/continue`, {
+        const res = await fetch(`/api/coder/session/${daemonSessionId}/continue`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'x-qwen-client-id': clientIdRef.current,
           },
         });
+        if (!res.ok) {
+          // `fetch` resolves on non-2xx, so an HTTP error would otherwise leave
+          // the retry latch set forever and the notification would never nudge
+          // again. Clear it so the next poll retries; the poll cadence bounds it.
+          nudgedNotificationRef.current = null;
+          setLiveStatus('writer review failed — retrying…');
+        }
       } catch {
         // Transient; the transcript poll will re-observe and retry.
         nudgedNotificationRef.current = null;
@@ -1423,7 +1792,14 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     // must not be re-derived from the first message.
     const renamed = renamedRef.current.get(activeSessionId);
     const title = renamed || messages.find(m => m.role === 'user')?.content.slice(0, 30) || 'New Coding Session';
-    void persistMessages(activeSessionId, title, messages.filter(m => m.content.trim()), toolActivity);
+    const content = messages.filter(m => m.content.trim());
+    // The transcript poll rebuilds identical arrays every tick, so this effect
+    // re-runs on idle. Persist only when the actual content changed — an idle
+    // session must not rewrite its full history continuously.
+    const signature = JSON.stringify({ title, content, toolActivity });
+    if (signature === lastPersistSignatureRef.current) return;
+    lastPersistSignatureRef.current = signature;
+    void persistMessages(activeSessionId, title, content, toolActivity);
   }, [busy, activeSessionId, messages, toolActivity, persistMessages]);
 
   // Eagerly reattach to the daemon session for the active persistent session,
@@ -1431,7 +1807,10 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   // poll and SSE both key off `daemonSessionId`). Runs once settings have
   // loaded and a session is active — not only on the next send.
   React.useEffect(() => {
-    if (!activeSessionId || !settings) return;
+    // Wait until the session's saved workspace binding has been resolved before
+    // reattaching — otherwise a reopened session could reattach with the current
+    // default workspace instead of the ORIGINAL project it was created against.
+    if (!activeSessionId || !settings || !sessionResolved) return;
     let cancelled = false;
     (async () => {
       const id = await ensureDaemonSession();
@@ -1439,7 +1818,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSessionId, settings]);
+  }, [activeSessionId, settings, sessionResolved]);
 
   // ---- Derived UI state ----------------------------------------------------
 
@@ -1529,6 +1908,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         <button onClick={() => setShellOpen(o => !o)} style={ghostBtnStyle()} title="Open a terminal into the isolated container"><Terminal size={14} /> Terminal</button>
         <button onClick={() => setSettingsOpen(o => !o)} style={ghostBtnStyle()}><Wrench size={14} /> Settings</button>
         <button onClick={() => openPreview()} style={ghostBtnStyle()}><Globe size={14} /> Preview</button>
+        <button onClick={() => void openRewind()} disabled={!activeSessionId} style={ghostBtnStyle()} title="Rewind the session to an earlier turn (restores conversation + files)"><History size={14} /> Rewind</button>
+        <button onClick={() => void openFiles()} style={ghostBtnStyle()} title="Browse and edit workspace files"><Folder size={14} /> Files</button>
         <button onClick={() => void newSession()} style={btnStyle(accent)}><Plus size={14} /> New</button>
         {onExit && (<button onClick={onExit} style={ghostBtnStyle()}><X size={14} /> Exit</button>)}
       </div>
@@ -1555,7 +1936,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
               style={{ ...inputStyle(), width: 110, opacity: 0.6 }}
             />
           </SettingField>
-          <SettingField label="Tool-search budget (%)" hint="How much of the context window is spent declaring tool schemas upfront. Raise toward 100 for small models that never call tool_search.">
+          <SettingField label="Tool-search budget (%)" hint="How much of the context window is spent declaring tool schemas upfront. Raise toward 100 for small models that never call tool_search. Takes effect after the daemon restarts.">
             <input
               type="number"
               min={0}
@@ -1565,7 +1946,10 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                 const v = Number(e.target.value) || 0;
                 setSettings(prev => (prev ? { ...prev, coderToolSearchThreshold: v } : prev));
               }}
-              onBlur={() => void saveSettings({ coderToolSearchThreshold: settings.coderToolSearchThreshold })}
+              onBlur={() => {
+                void saveSettings({ coderToolSearchThreshold: settings.coderToolSearchThreshold });
+                void applyToolSearchThreshold(settings.coderToolSearchThreshold);
+              }}
               style={{ ...inputStyle(), width: 110 }}
             />
           </SettingField>
@@ -1616,6 +2000,171 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
           <div style={{ alignSelf: 'flex-end', fontSize: '0.68rem', color: 'rgba(209,213,219,0.45)', fontFamily: 'ui-monospace, monospace', paddingBottom: 6 }}>
             {settingsSaving ? 'saving…' : 'saved'}
+          </div>
+        </div>
+      )}
+
+      {/* Rewind panel */}
+      {rewindOpen && (
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.25)', maxHeight: 320, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+            <History size={14} color={accent} />
+            <span style={{ fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#d1d5db' }}>Rewind session</span>
+            <span style={{ fontSize: '0.68rem', color: 'rgba(209,213,219,0.5)' }}>roll back conversation + workspace files to an earlier turn</span>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => setRewindOpen(false)} style={ghostBtnStyle()}><X size={13} /></button>
+          </div>
+
+          {rewindLoading && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.72rem', color: '#9ca3af', fontFamily: 'ui-monospace, monospace' }}>
+              <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> loading rewind points…
+            </div>
+          )}
+          {!rewindLoading && rewindError && (
+            <div style={{ fontSize: '0.72rem', color: '#ef4444', fontFamily: 'ui-monospace, monospace' }}>{rewindError}</div>
+          )}
+
+          {!rewindLoading && !rewindError && rewindResult && (
+            <div style={{ marginBottom: '10px', padding: '10px 12px', borderRadius: '8px', border: `1px solid ${rewindResult.rewound ? 'rgba(52,211,153,0.3)' : 'rgba(245,158,11,0.35)'}`, background: 'rgba(255,255,255,0.03)', fontSize: '0.74rem' }}>
+              <div style={{ fontFamily: 'ui-monospace, monospace', color: rewindResult.rewound ? '#34d399' : '#f59e0b', marginBottom: '6px' }}>
+                {rewindResult.rewound ? '✓ rewound' : '⚠ rewound with file failures'} → turn {rewindResult.targetTurnIndex}
+              </div>
+              {rewindResult.filesChanged.length > 0 && (
+                <div style={{ color: '#d1d5db' }}>
+                  <span style={{ color: 'rgba(209,213,219,0.6)' }}>restored {rewindResult.filesChanged.length} file{rewindResult.filesChanged.length === 1 ? '' : 's'}:</span>
+                  <ul style={{ margin: '4px 0 0 16px', fontFamily: 'ui-monospace, monospace', fontSize: '0.7rem', color: '#9ca3af', overflowWrap: 'anywhere' }}>
+                    {rewindResult.filesChanged.map(f => (<li key={f}>{f}</li>))}
+                  </ul>
+                </div>
+              )}
+              {rewindResult.filesFailed.length > 0 && (
+                <div style={{ color: '#f59e0b', marginTop: '4px' }}>
+                  <span>failed to restore:</span>
+                  <ul style={{ margin: '4px 0 0 16px', fontFamily: 'ui-monospace, monospace', fontSize: '0.7rem', overflowWrap: 'anywhere' }}>
+                    {rewindResult.filesFailed.map(f => (<li key={f}>{f}</li>))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {!rewindLoading && !rewindError && rewindSnapshots !== null && rewindSnapshots.length === 0 && (
+            <div style={{ fontSize: '0.72rem', color: 'rgba(209,213,219,0.5)' }}>No rewindable turns yet — send a prompt and let the agent do something first.</div>
+          )}
+
+          {!rewindLoading && !rewindError && rewindSnapshots !== null && rewindSnapshots.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {rewindSnapshots.map(s => (
+                <div key={s.promptId} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
+                  <span style={{ fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', color: '#d1d5db' }}>turn {s.turnIndex}</span>
+                  <span style={{ fontSize: '0.68rem', color: 'rgba(209,213,219,0.55)', fontFamily: 'ui-monospace, monospace' }}>
+                    {new Date(s.timestamp).toLocaleTimeString()} · {s.diffStats.filesChanged} file{s.diffStats.filesChanged === 1 ? '' : 's'} (+{s.diffStats.insertions}/-{s.diffStats.deletions})
+                  </span>
+                  <div style={{ flex: 1 }} />
+                  <button
+                    onClick={() => void doRewind(s.promptId)}
+                    disabled={rewindLoading}
+                    style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(239,68,68,0.08)', color: '#f87171', border: '1px solid rgba(239,68,68,0.25)', borderRadius: '8px', padding: '3px 9px', fontSize: '0.7rem', cursor: 'pointer', fontFamily: 'ui-monospace, monospace' }}
+                    title="Roll the conversation and workspace files back to this turn"
+                  >
+                    <RotateCcw size={12} /> rewind
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Project explorer panel */}
+      {filesOpen && (
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.25)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+            <Folder size={14} color={accent} />
+            <span style={{ fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#d1d5db' }}>Files</span>
+            <button
+              onClick={() => void loadDir(fileDir === '/' ? '/' : fileDir.split('/').slice(0, -1).join('/') || '/')}
+              disabled={fileDir === '/'}
+              style={{ ...ghostBtnStyle(), fontSize: '0.7rem', padding: '2px 8px' }}
+              title="Up one directory"
+            >
+              ↑ Up
+            </button>
+            <span style={{ fontSize: '0.7rem', fontFamily: 'ui-monospace, monospace', color: 'rgba(209,213,219,0.6)', overflowWrap: 'anywhere' }}>{fileDir}</span>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => setFilesOpen(false)} style={ghostBtnStyle()}><X size={13} /></button>
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'stretch', flexWrap: 'wrap' }}>
+            {/* Directory listing */}
+            <div style={{ flex: '0 0 260px', maxHeight: 280, overflowY: 'auto', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', background: 'rgba(255,255,255,0.02)' }}>
+              {fileLoading && !openPath && (
+                <div style={{ padding: '10px', fontSize: '0.7rem', color: '#9ca3af', fontFamily: 'ui-monospace, monospace' }}>loading…</div>
+              )}
+              {!fileLoading && fileError && (
+                <div style={{ padding: '10px', fontSize: '0.7rem', color: '#ef4444', fontFamily: 'ui-monospace, monospace' }}>{fileError}</div>
+              )}
+              {!fileLoading && !fileError && fileEntries !== null && fileEntries.length === 0 && (
+                <div style={{ padding: '10px', fontSize: '0.7rem', color: 'rgba(209,213,219,0.5)' }}>empty directory</div>
+              )}
+              {!fileLoading && !fileError && fileEntries !== null && [...fileEntries]
+                .sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'directory' ? -1 : 1))
+                .map(e => (
+                  <button
+                    key={e.name}
+                    onClick={() => { if (e.kind === 'directory') void loadDir(childPath(fileDir, e.name)); else void openFile(childPath(fileDir, e.name)); }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '7px', width: '100%', textAlign: 'left',
+                      background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                      padding: '6px 10px', cursor: 'pointer', fontSize: '0.74rem',
+                      color: e.kind === 'directory' ? '#e5e7eb' : 'rgba(209,213,219,0.8)',
+                      fontFamily: 'ui-monospace, monospace', overflow: 'hidden',
+                    }}
+                  >
+                    {e.kind === 'directory' ? <Folder size={13} color="#22d3ee" /> : <FileText size={13} color="rgba(209,213,219,0.5)" />}
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.name}</span>
+                  </button>
+                ))}
+            </div>
+
+            {/* Editor */}
+            <div style={{ flex: 1, minWidth: 260, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {openPath && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '0.7rem', fontFamily: 'ui-monospace, monospace', color: 'rgba(209,213,219,0.7)', overflowWrap: 'anywhere', flex: 1 }}>
+                    {openPath}{fileDirty ? ' •' : ''}
+                  </span>
+                  <button
+                    onClick={() => void saveFile()}
+                    disabled={fileSaving || !fileDirty}
+                    style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(34,211,238,0.1)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.3)', borderRadius: '8px', padding: '3px 9px', fontSize: '0.7rem', cursor: fileDirty && !fileSaving ? 'pointer' : 'default', fontFamily: 'ui-monospace, monospace', opacity: fileDirty && !fileSaving ? 1 : 0.5 }}
+                    title="Save (compare-and-swap on the file hash)"
+                  >
+                    <Save size={12} /> {fileSaving ? 'saving…' : 'Save'}
+                  </button>
+                </div>
+              )}
+              {fileSaveError && (
+                <div style={{ fontSize: '0.7rem', color: '#ef4444', fontFamily: 'ui-monospace, monospace' }}>{fileSaveError}</div>
+              )}
+              {openPath ? (
+                <textarea
+                  value={fileContent}
+                  onChange={e => { setFileContent(e.target.value); setFileDirty(true); }}
+                  spellCheck={false}
+                  style={{
+                    width: '100%', height: 220, resize: 'vertical',
+                    background: 'rgba(0,0,0,0.3)', color: '#d1d5db', border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '8px', padding: '8px 10px', fontSize: '0.74rem', fontFamily: 'ui-monospace, monospace',
+                    lineHeight: '1.6', outline: 'none', whiteSpace: 'pre',
+                  }}
+                />
+              ) : (
+                <div style={{ padding: '10px', fontSize: '0.7rem', color: 'rgba(209,213,219,0.45)', fontFamily: 'ui-monospace, monospace' }}>
+                  Select a file to view/edit it. Save is compare-and-swap on the file hash, so it won't clobber a concurrent agent edit.
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

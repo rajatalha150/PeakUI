@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
+import { authorizeCoderSession } from '@/lib/coder-authorization'
 
 /**
  * Regression cover for the gateway route's response relay.
@@ -25,6 +26,13 @@ vi.mock('@/lib/request-auth', () => ({
   requireCurrentAuthWithPermissions: mocks.requireCurrentAuthWithPermissions,
 }))
 
+// `authorizeCoderSession` hits Prisma; keep the pure helpers real and stub only
+// the DB lookup so ownership checks pass without a database.
+vi.mock('@/lib/coder-authorization', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/coder-authorization')>()
+  return { ...actual, authorizeCoderSession: vi.fn().mockResolvedValue(true) }
+})
+
 async function loadRoute() {
   return await import('./route')
 }
@@ -37,7 +45,10 @@ beforeEach(() => {
   delete process.env.CODER_DAEMON_URL
   delete process.env.CODER_SERVER_TOKEN
   mocks.requireCurrentAuthWithPermissions.mockReset()
-  mocks.requireCurrentAuthWithPermissions.mockResolvedValue({ userId: 'user-1', permissions: [] })
+  mocks.requireCurrentAuthWithPermissions.mockResolvedValue({
+    userId: 'user-1',
+    auth: { user: { role: 'USER' } },
+  })
 })
 
 afterEach(() => {
@@ -112,5 +123,74 @@ describe('coder gateway route — response relay', () => {
       '/workspace/tools?workspace=%2Fworkspace',
       '/workspace/models?workspace=%2Fworkspace',
     ])
+  })
+
+  it('proxies the reversible-work (rewind) routes the UI depends on', async () => {
+    // Guards the Phase 5 rewind exposure: list snapshots (GET) and rewind to a
+    // snapshot (POST) must reach the daemon through the pass-through, with the
+    // rewind body forwarded intact.
+    const seen: Array<{ url: string; body?: unknown }> = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      seen.push({ url: String(url).replace('http://127.0.0.1:4170', ''), body: init?.body })
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }))
+    const { GET, POST } = await loadRoute()
+
+    await GET(makeRequest('/session/abc/rewind/snapshots') as never)
+    await POST(makeRequest('/session/abc/rewind', {
+      method: 'POST',
+      body: JSON.stringify({ promptId: 'abc########1', rewindFiles: true }),
+    }) as never)
+
+    expect(seen.map(s => s.url)).toEqual([
+      '/session/abc/rewind/snapshots',
+      '/session/abc/rewind',
+    ])
+    // The rewind body is forwarded so `promptId` reaches the daemon verbatim.
+    expect(JSON.parse(seen[1].body as string)).toEqual({ promptId: 'abc########1', rewindFiles: true })
+  })
+
+  it('denies a rewind against a session the caller does not own', async () => {
+    vi.mocked(authorizeCoderSession).mockResolvedValue(false)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 200 })))
+    const { GET } = await loadRoute()
+
+    const res = await GET(makeRequest('/session/foreign/rewind/snapshots') as never)
+    expect(res.status).toBe(404)
+  })
+
+  it('proxies a workspace file read with a canonical path', async () => {
+    let proxied = ''
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      proxied = String(url).replace('http://127.0.0.1:4170', '')
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }))
+    const { GET } = await loadRoute()
+
+    await GET(makeRequest('/file?path=%2Fworkspace%2Fsrc%2Fa.ts') as never)
+    expect(proxied).toBe('/file?path=%2Fworkspace%2Fsrc%2Fa.ts')
+  })
+
+  it('rejects a file operation with a traversal path before forwarding', async () => {
+    let called = false
+    vi.stubGlobal('fetch', vi.fn(async () => { called = true; return new Response('{}', { status: 200 }) }))
+    const { GET, POST } = await loadRoute()
+
+    const read = await GET(makeRequest('/file?path=..%2F..%2Fetc%2Fpasswd') as never)
+    expect(read.status).toBe(400)
+
+    const write = await POST(makeRequest('/file/write', {
+      method: 'POST',
+      body: JSON.stringify({ path: '../../etc/passwd', content: 'x', mode: 'replace' }),
+    }) as never)
+    expect(write.status).toBe(400)
+
+    const missing = await POST(makeRequest('/file/write', {
+      method: 'POST',
+      body: JSON.stringify({ content: 'x', mode: 'replace' }),
+    }) as never)
+    expect(missing.status).toBe(400)
+
+    expect(called).toBe(false)
   })
 })

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getCoderDaemonBaseUrl, getCoderDaemonToken, proxyToCoderDaemon } from './coder-gateway'
+import { forwardableRequestHeaders, getCoderDaemonBaseUrl, getCoderDaemonToken, proxyToCoderDaemon } from './coder-gateway'
 
 /**
  * The gateway is the only path from the browser to the coding brain, and the
@@ -45,6 +45,25 @@ describe('getCoderDaemonToken', () => {
   it('trims a configured token', () => {
     process.env.CODER_SERVER_TOKEN = '  secret-token  '
     expect(getCoderDaemonToken()).toBe('secret-token')
+  })
+})
+
+describe('forwardableRequestHeaders', () => {
+  it('forwards the SSE resume cursor so the daemon can replay from it', () => {
+    const headers = new Headers({
+      'x-qwen-client-id': 'client-9',
+      'last-event-id': '42',
+      'x-qwen-event-epoch': '7',
+    })
+    expect(forwardableRequestHeaders(headers)).toEqual({
+      'x-qwen-client-id': 'client-9',
+      'last-event-id': '42',
+      'x-qwen-event-epoch': '7',
+    })
+  })
+
+  it('omits resume headers the browser did not send', () => {
+    expect(forwardableRequestHeaders(new Headers())).toEqual({})
   })
 })
 

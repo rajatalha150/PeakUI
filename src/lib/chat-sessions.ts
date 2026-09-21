@@ -38,6 +38,7 @@ export interface ChatSessionDto {
   title: string;
   pinned: boolean;
   surface: ChatSessionSurface;
+  coderWorkspace: string | null;
   messages: StoredChatMessage[];
   createdAt: Date;
   updatedAt: Date;
@@ -66,6 +67,7 @@ export interface SaveChatSessionInput {
   messages?: unknown;
   pinned?: boolean;
   surface?: ChatSessionSurface;
+  coderWorkspace?: unknown;
   folderId?: string | null;
   autoContinueMode?: unknown;
   autoContinueMaxSteps?: unknown;
@@ -301,6 +303,7 @@ type SessionRecord = {
   branchLabel: string | null;
   pinned: boolean;
   surface: string;
+  coderWorkspace?: string | null;
   createdAt: Date;
   updatedAt: Date;
   folderId: string | null;
@@ -351,6 +354,7 @@ function toClientSession(
     title: session.title,
     pinned: session.pinned,
     surface: normalizeSurface(session.surface),
+    coderWorkspace: session.coderWorkspace ?? null,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
     // Reuse an already-normalized transcript when the caller has it in memory
@@ -430,6 +434,7 @@ async function buildSessionData(
     autoContinueMode: string;
     autoContinueMaxSteps: number;
     branchLabel: string | null;
+    coderWorkspace?: string | null;
     createdAt: Date;
     updatedAt: Date;
     ragEnabled?: boolean;
@@ -458,12 +463,18 @@ async function buildSessionData(
   const nextRagSources = Array.isArray(input.ragSources)
     ? normalizeMessageSources(input.ragSources)
     : (existing ? parseStoredMessageSources(existing.ragSourcesJson) : []);
+  const nextCoderWorkspace = typeof input.coderWorkspace === 'string'
+    ? (input.coderWorkspace.trim() || null)
+    : input.coderWorkspace === null
+      ? null
+      : (existing?.coderWorkspace ?? null);
 
   return {
     title,
     messages: normalizedMessages,
     pinned: Boolean(input.pinned ?? existing?.pinned),
     surface: normalizeSurface(input.surface ?? existing?.surface),
+    coderWorkspace: nextCoderWorkspace,
     folderId: input.folderId !== undefined ? input.folderId : existing?.folderId ?? null,
     autoContinueMode: normalizeSessionAutoContinueMode(input.autoContinueMode ?? existing?.autoContinueMode),
     autoContinueMaxSteps: normalizeSessionAutoContinueMaxSteps(
@@ -532,6 +543,7 @@ function mapSessionRows(rows: Array<{
   branchLabel: string | null;
   pinned: boolean;
   surface: string;
+  coderWorkspace?: string | null;
   createdAt: Date;
   updatedAt: Date;
   folderId: string | null;
@@ -572,6 +584,7 @@ export async function listChatSessions(userId: string, surface: ChatSessionSurfa
       title: true,
       pinned: true,
       surface: true,
+      coderWorkspace: true,
       createdAt: true,
       updatedAt: true,
       folderId: true,
@@ -632,6 +645,7 @@ export async function upsertChatSession(userId: string, input: SaveChatSessionIn
         autoContinueMode: input.autoContinueMode ?? existing.autoContinueMode,
         autoContinueMaxSteps: input.autoContinueMaxSteps ?? existing.autoContinueMaxSteps,
         branchLabel: input.branchLabel ?? existing.branchLabel,
+        coderWorkspace: input.coderWorkspace,
         lastAutoContinueAt: input.lastAutoContinueAt,
         ragEnabled: input.ragEnabled ?? existing.ragEnabled,
         ragQuery: input.ragQuery !== undefined ? input.ragQuery : (existing.ragQuery ?? null),
@@ -645,6 +659,7 @@ export async function upsertChatSession(userId: string, input: SaveChatSessionIn
           messages: serializeStoredChatMessages(payload.messages),
           pinned: payload.pinned,
           surface: payload.surface,
+          coderWorkspace: payload.coderWorkspace,
           folderId: payload.folderId,
           autoContinueMode: payload.autoContinueMode,
           autoContinueMaxSteps: payload.autoContinueMaxSteps,
@@ -677,6 +692,7 @@ export async function upsertChatSession(userId: string, input: SaveChatSessionIn
       messages: serializeStoredChatMessages(payload.messages),
       pinned: payload.pinned,
       surface: payload.surface,
+      coderWorkspace: payload.coderWorkspace,
       folderId: payload.folderId,
       autoContinueMode: payload.autoContinueMode,
       autoContinueMaxSteps: payload.autoContinueMaxSteps,
@@ -716,6 +732,7 @@ export async function updateChatSession(
     autoContinueMode: input.autoContinueMode ?? existing.autoContinueMode,
     autoContinueMaxSteps: input.autoContinueMaxSteps ?? existing.autoContinueMaxSteps,
     branchLabel: input.branchLabel ?? existing.branchLabel,
+    coderWorkspace: input.coderWorkspace,
     lastAutoContinueAt: input.lastAutoContinueAt,
     ragEnabled: input.ragEnabled ?? existing.ragEnabled,
     ragQuery: input.ragQuery !== undefined ? input.ragQuery : (existing.ragQuery ?? null),
@@ -740,6 +757,7 @@ export async function updateChatSession(
       messages: serializeStoredChatMessages(payload.messages),
       pinned: payload.pinned,
       surface: payload.surface,
+      coderWorkspace: payload.coderWorkspace,
       folderId: payload.folderId,
       autoContinueMode: payload.autoContinueMode,
       autoContinueMaxSteps: payload.autoContinueMaxSteps,
@@ -968,6 +986,7 @@ export async function branchChatSession(
       branchFromMessageId: input.messageId || branchMessages[branchMessages.length - 1]?.id || null,
       branchLabel,
       surface: normalizeSurface(existing.surface),
+      coderWorkspace: existing.coderWorkspace,
       folderId: existing.folderId,
       ragEnabled: existing.ragEnabled,
       ragQuery: existing.ragQuery,

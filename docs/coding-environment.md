@@ -361,7 +361,37 @@ The rewritten `CodingView`:
   these is a deliberate follow-up (it changes what the agent can see).
 - **`coderContextLength` is read-only in the UI.** The daemon owns per-model
   context windows; overriding one requires the model-management route, which is
-  not yet wired to a control.
+  not yet wired to a control. (Audited: no direct daemon settings key exists for
+  a per-model context window — confirmed against `GET /workspace/settings`.)
+- **`coderToolSearchThreshold` → `tools.toolSearch.threshold`.** Wired and
+  verified against the live daemon: `POST /workspace/settings` with
+  `{ scope: 'user', key: 'tools.toolSearch.threshold', value }` persists the
+  budget. It is `requiresRestart: true`, so the write survives to ~/.qwen config
+  but takes effect on the daemon's next restart — the UI hint states this
+  instead of pretending it is live.
+- **`coderToolsEnabled` has no single daemon key.** The daemon exposes
+  per-tool toggles (`tools.toolSearch.enabled`, `tools.webSearch.enabled`,
+  `tools.listDirectory.enabled`, `tools.todoWrite.enabled`, …), each
+  `requiresRestart: true`. A master on/off is therefore not a faithful mapping;
+  `coderToolsEnabled` remains persisted but unapplied until a per-tool policy is
+  chosen.
+- **`coderBaseUrl` / `coderApiKey` are persisted but unused by the pass-through.**
+  The daemon derives its model providers from its own `~/.qwen` config, not from
+  PeakUI settings; these two fields do not reach the daemon and are scrubbed on
+  read (`coderApiKey` returns `''`).
+- **§5 envelope vs. reality (runtime isolation).** The coder container now has
+  `pids_limit`, `mem_limit`, `no-new-privileges`, and drops the host-dangerous
+  capabilities (`NET_ADMIN`, `SYS_ADMIN`, `SYS_MODULE`, `SYS_RAWIO`, …), but it
+  still runs **as root** and uses **host networking** so it can reach the host's
+  Ollama at `127.0.0.1:11434`. Consequence: the container can still reach the
+  DB (`:5432`), searxng (`:8080`) and tor-proxy (`:9050`) — the §5 "no access to
+  DB/searxng/tor-proxy" egress rule is **not enforced**. Enforcing it (and going
+  non-root) requires the Phase 7 bridge-network migration so Ollama stays
+  reachable without the host network stack.
+- **No coder WebSocket today.** The daemon ships an `/acp` WS transport but the
+  app uses SSE exclusively; the gateway does not relay WS. If WS is ever enabled,
+  an `Origin` allow-list must be enforced at the gateway (same-origin only),
+  because WS has no equivalent of the SSE resume headers to scope it.
 - The preview browser is still a plain iframe; the security envelope in §5
   (restricting it to the coder container's dev-server ports) is not enforced.
 
@@ -556,6 +586,78 @@ options: […] }`.
 `{ exitCode, output, aborted }`. Requires `--enable-session-shell` on the
 daemon.
 
+### 12.6 Event-stream resume (cursor + epoch)
+
+`GET /session/:id/events` frames each bus event as `id: <decimal>\n` followed by
+`data: <json>\n\n` (no `event:` line — the caller reads `type` / `sessionUpdate`
+from the JSON). The daemon replays the ring buffer after the client's cursor on
+reconnect, keyed by two request headers:
+
+- `Last-Event-ID: <decimal>` — the last `id:` the client saw (the standard SSE
+  resume cursor).
+- `X-Qwen-Event-Epoch: <n>` — the session's event-bus epoch. The daemon returns
+  the current epoch on the **`X-Qwen-Event-Epoch` response header**; the client
+  echoes it back so a stale `Last-Event-ID` from a *replaced* bus (session
+  recreated) is refused rather than replayed wrongly.
+
+`EventSource` cannot set custom headers, so `CodingView` uses a fetch-based
+client (`src/lib/coder-sse.ts`) that tracks the last `id` + the epoch header and
+sends both on every reconnect. The gateway (`forwardableRequestHeaders`) forwards
+the two resume headers and passes `X-Qwen-Event-Epoch` back on the response. The
+transcript poll remains the reconciliation backstop regardless.
+
+### 12.7 Reversible work (rewind)
+
+The daemon keeps a per-session file-history service and exposes two reversible-
+work routes, both under the existing `/session/:id/...` pass-through (so they are
+session-ownership checked by `authorizeCoderRequest` like every other session
+route):
+
+- `GET /session/:id/rewind/snapshots` → `{ snapshots: [{ promptId, turnIndex,
+  timestamp, diffStats: { filesChanged, insertions, deletions } }] }`. One entry
+  per rewindable user turn; `promptId` is the opaque rewind target.
+- `POST /session/:id/rewind` with `{ promptId, rewindFiles }` → `{ rewound,
+  targetTurnIndex, filesChanged, filesFailed }`. `rewindFiles` defaults to true
+  when omitted; when true the workspace files are restored to that snapshot and
+  the changed/failed paths are returned. `rewound` is `filesFailed.length === 0`.
+
+These shapes were read from the pinned daemon source and confirmed live
+(snapshots return `{"snapshots":[]}` for a session with no rewindable turns; a
+bogus id returns the `session_not_found` envelope). `src/lib/coder-rewind.ts`
+owns the *pure* parsing/validation so a malformed daemon payload is rejected
+before the UI renders it or echoes a `promptId` back as a target.
+
+**Not exposed:** `POST /session/:id/worktree-reset` (it supersedes the session id
+with a replacement, which breaks the persistent `ChatSession`↔daemon-session
+binding) and per-file diff *content* (the file-history service is daemon-internal
+with no HTTP route — only the aggregate `diffStats` and the rewind result's
+`filesChanged`/`filesFailed` lists are available).
+
+### 12.8 Workspace files (project explorer)
+
+Workspace-scoped file routes, all keyed by an absolute `path` that the daemon
+resolves against its registered/trusted workspaces (final authority on
+containment). The gateway rejects a relative/traversal `path` before forwarding
+(defense in depth — see §9.7):
+
+- `GET /list?path=<dir>` → `{ kind:"list", path, entries[{name, kind:"file"|"directory",
+  ignored}], truncated, matchedIgnore }`.
+- `GET /file?path=<file>&maxBytes=…` → `{ kind:"file", path, content, encoding, bom,
+  lineEnding, sizeBytes, returnedBytes, truncated, hash, matchedIgnore,
+  originalLineCount, nextCursor, hasMore }`. `hash` is present when the file was
+  read in full (not truncated) — it is the compare-and-swap precondition for a
+  replace write.
+- `POST /file/write` `{ path, content, mode:"create"|"replace", expectedHash?,
+  bom?, encoding?, lineEnding? }` → 200/201 `{ kind:"file_write", path, mode,
+  created, sizeBytes, hash, encoding, bom, lineEnding, matchedIgnore }`.
+  `mode:"replace"` requires `expectedHash`, so a stale editor buffer cannot
+  clobber a concurrent agent edit.
+
+`src/lib/coder-files.ts` owns the pure parsing/validation; `CodingView`'s Files
+panel drives list → open → edit → save through these routes. The shapes were read
+from the pinned daemon source and confirmed live (list + read returned the
+documented shape).
+
 ---
 
 ## 13. Test coverage map
@@ -564,9 +666,14 @@ daemon.
 |---|---|
 | `src/lib/coder-transcript.test.ts` | message ordering, turn boundaries, first-message-not-dropped, usage carry-over, full serialisation (no truncation) |
 | `src/lib/coder-permission-vote.test.ts` | nested `outcome`, no flat shape, `answers` as sibling keyed by `answerKey` |
-| `src/lib/coder-gateway.test.ts` | daemon URL/token resolution, header injection, 502-on-outage, SSE identity headers |
+| `src/lib/coder-gateway.test.ts` | daemon URL/token resolution, header injection, 502-on-outage, SSE identity + resume headers |
+| `src/lib/coder-sse.test.ts` | SSE frame parsing (id/data, chunk splits, heartbeats, multi-line data) |
+| `src/lib/coder-authorization.test.ts` | privileged-path deny, session-path extraction, workspace/file-path canonicalisation, owner check |
+| `src/lib/coder-preview.test.ts` | preview-URL loopback/reserved-port validation |
+| `src/lib/coder-rewind.test.ts` | rewind snapshot-list + result parsing, malformed-payload rejection |
+| `src/lib/coder-files.test.ts` | directory-listing / file-content / write-result parsing, malformed-payload rejection |
 | `src/lib/settings-coder.test.ts` | `auto`/`yolo` enum, `yolo` default, legacy modes normalised, context/tool-search sentinels |
-| `src/app/api/coder/[...path]/route.test.ts` | 204/205/304 null-body relay, route passthrough (status/approval-mode/workspace) |
+| `src/app/api/coder/[...path]/route.test.ts` | 204/205/304 null-body relay, route passthrough (status/approval-mode/workspace/rewind), unowned-session deny |
 | `src/app/api/chats/route.test.ts` | id-wins-over-surface on DELETE, surface-wide only when bare |
 
 ---
@@ -639,9 +746,10 @@ Everything below is baked by `Dockerfile.coder`:
   reports title/h1/landmarks/errors + light/dark screenshots. It replaces the
   hand-written `/tmp` harness the agent used to recreate every session.
 - **Workspace context**: `scripts/coder-workspace/QWEN.md` (deployed + seeded
-  idempotently into `/workspace/QWEN.md` at boot) records the project layout,
-  per-project verify commands, the browser harness, and the `data-theme` vs
-  `prefers-color-scheme` dark-mode gotcha.
+  idempotently into `~/.qwen/QWEN.md` and `/workspace/QWEN.md` at boot) tells the
+  agent to *discover* the project layout rather than assume one: read each
+  project's own manifest/README, run its own verify commands, and delegate file
+  authoring to the `peakui-writer` subagent when configured.
 - **Git identity**: `git config --global` + `GIT_AUTHOR_*`/`GIT_COMMITTER_*`
   env vars.
 
@@ -650,20 +758,19 @@ Everything below is baked by `Dockerfile.coder`:
 ```sh
 docker compose up -d --build coder
 docker exec peakui-coder-1 sh -c \
-  'cd /opt/qwen-code/browser && node verify-site.mjs /workspace/weather-site'
+  'cd /opt/qwen-code/browser && node verify-site.mjs /workspace/<site-dir>'
 ```
 
 Expected: a JSON report with no `errors`, `ldd` clean, and both Chrome builds
-present under `/root/.cache/puppeteer`.
+present under `/opt/puppeteer-cache`.
 
 **Known non-issues** (do not "fix" on sight):
 
-- `lab-site/screenshot.mjs` reports one false failure — "dark scheme changes
-  the palette" — because it emulates `prefers-color-scheme` while the sites
-  implement `data-theme`. The site is fine (`data-theme="dark"` flips
-  `rgb(246,247,251)` → `rgb(14,16,21)`).
-- `visionModel` is not set, so the text-only main model cannot *read*
-  screenshots; visual checks are done via DOM/computed-style assertions.
+- The harness toggles `data-theme="dark"` for the dark screenshot; a site that
+  uses `prefers-color-scheme` instead simply shows the light palette in the dark
+  shot — that is a site convention, not a harness bug.
+- `visionModel` defaults to empty (auto-pick a same-provider vision model); set
+  it in the Coding Settings drawer to pin an explicit image-transcription model.
 
 ---
 
@@ -756,6 +863,17 @@ normalized via `normalizeCoderDelegateModel` and exposed through
 (`src/lib/coder-orchestration.ts` → `toDaemonModelSelector`), which correctly
 distinguishes Ollama `name:tag` ids (e.g. `deepseek-v4.1-flash:cloud`) from an
 explicit `openai:model` selector.
+
+**Scope note (deferred).** Vision and writer are applied at the daemon's *user*
+scope (`visionModel` via `POST /workspace/settings` `{ scope: 'user' }`; the
+writer via `POST /workspace/agents` `{ scope: 'global' }`), so they are
+daemon-global — the last writer to save wins across all workspaces. The daemon
+does offer `scope: 'workspace'` (settings) and `scope: 'workspace'`/`'project'`
+(agents), which would scope each to its runtime, but that requires the workspace
+to be **trusted** (untrusted workspaces are 403'd) and per-workspace writer-agent
+materialization, plus a re-derivation of the `agent`-tool `subagent_type`
+resolution. Deliberately left global until that trust/agent-resolution work
+lands.
 
 ### 17.2 Triangle UI
 

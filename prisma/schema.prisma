@@ -153,6 +153,7 @@ model ChatSession {
   branchLabel             String?
   pinned                  Boolean          @default(false)
   surface                 String           @default("chat")
+  coderWorkspace          String?
   ragEnabled              Boolean          @default(false)
   ragQuery                String?
   ragSourcesJson          String?

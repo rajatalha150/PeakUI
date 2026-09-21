@@ -50,6 +50,33 @@ services:
     # Host networking (like the app) so it binds loopback directly and reaches
     # the host's Ollama at 127.0.0.1:11434 — no token, no host.docker.internal.
     network_mode: host
+    # Runtime isolation (Phase 1). Host networking is deliberate, so the daemon
+    # still gets bounded even while sharing the host's network stack:
+    #   - pids_limit: a runaway agent can't fork-bomb the process table
+    #   - mem_limit: a runaway tool can't exhaust the host's RAM
+    #   - no-new-privileges: setuid/setgid can't escalate inside the container
+    #   - cap_drop: drop the host-dangerous capabilities — with host networking,
+    #     NET_ADMIN can rewrite the host's interfaces, and SYS_ADMIN/SYS_MODULE/
+    #     SYS_RAWIO are root-escalation footguns the dev toolchain never needs.
+    # Full non-root + dropping host networking is a Phase 7 migration (it needs a
+    # bridge network to reach Ollama), not a one-line config flip.
+    pids_limit: 4096
+    mem_limit: 8g
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - SYS_MODULE
+      - SYS_RAWIO
+      - SYS_BOOT
+      - SYS_TIME
+      - SYSLOG
+      - AUDIT_CONTROL
+      - AUDIT_READ
+      - MAC_ADMIN
+      - MAC_OVERRIDE
+      - SETFCAP
     environment:
       - QWEN_SERVER_TOKEN=${CODER_SERVER_TOKEN:-}
       # Model/provider, driven by the Coding settings UI (Phase 5). Defaults to

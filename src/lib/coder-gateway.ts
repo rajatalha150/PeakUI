@@ -59,7 +59,7 @@ function buildHeaders(token: string, extra?: Record<string, string>): Record<str
   }
 }
 
-/** Forward an inbound header set the daemon understands (client identity). */
+/** Forward an inbound header set the daemon understands (client identity + SSE resume). */
 export function forwardableRequestHeaders(inbound: Headers): Record<string, string> {
   const out: Record<string, string> = {}
   // The daemon uses `x-qwen-client-id` for cross-client UI updates (and for
@@ -67,6 +67,14 @@ export function forwardableRequestHeaders(inbound: Headers): Record<string, stri
   // identity across the gateway hop.
   const clientId = inbound.get('x-qwen-client-id')
   if (clientId) out['x-qwen-client-id'] = clientId
+  // SSE resume cursor: the browser sends `Last-Event-ID` (the last `id:` frame
+  // it saw) and `X-Qwen-Event-Epoch` (the daemon's event-bus epoch) on
+  // reconnect so the daemon replays only the events the client missed. Drop
+  // them here and the daemon treats every reconnect as a fresh subscription.
+  const lastEventId = inbound.get('last-event-id')
+  if (lastEventId) out['last-event-id'] = lastEventId
+  const eventEpoch = inbound.get('x-qwen-event-epoch')
+  if (eventEpoch) out['x-qwen-event-epoch'] = eventEpoch
   return out
 }
 
