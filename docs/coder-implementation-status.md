@@ -28,7 +28,7 @@ runtime and has evidence, not that a mock or a subset works.
 | 3 Effective settings & project context | 🔶 partial | toolSearch threshold applied (restart-gated); context/tools audited & documented |
 | 4 Managed previews & dev processes | 🔶 partial | SSRF guard + origin isolation landed; proxy + registration deferred |
 | 5 Reversible work & verification evidence | 🔶 partial | rewind (snapshots + restore) exposed & live-verified; verification records + stale-marking deferred |
-| 6 Complete IDE workbench | 🔶 partial | project explorer (list/read/edit/save) landed; Monaco/tabs/search/PTY/debugger/tasks not built |
+| 6 Complete IDE workbench | 🔶 partial | project explorer, named tasks, and text search landed; Monaco/open tabs/PTY/debugger not built |
 | 7 Operations, migration, deployment | ⬜ not started | `db push --accept-data-loss` still in image |
 
 Legend: ✅ done · 🔶 partial · ⬜ not started
@@ -81,11 +81,11 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 
 ## Phase 6 — Complete IDE workbench
 
-- [ ] Editor (Monaco) + project explorer + open tabs + search — **partial**: project explorer (list + read + edit + save via daemon `/list`/`/file`/`/file/write`) landed; Monaco, open tabs, and text search not built
+- [ ] Editor (Monaco) + project explorer + open tabs + search — **partial**: project explorer (list + read + edit + save via daemon `/list`/`/file`/`/file/write`) and text search (glob → read → in-memory grep via `/glob` + `/file`) landed; Monaco and open tabs not built
 - [ ] Persistent PTY terminal (xterm.js + server PTY) — on-demand shell exists; persistent PTY not built
-- [ ] Named project tasks (install/build/test/run)
+- [x] Named project tasks (install/build/test/run) — package-manager detection (lockfile) + editable commands, run via the daemon shell
 - [ ] Node/TS debug adapter (breakpoints/stack/vars/step)
-- [ ] Human-takeover UX (inspect/edit/run/stop/return results) — partial: inspect/edit (explorer), run (shell), rewind, preview exist; not unified
+- [ ] Human-takeover UX (inspect/edit/run/stop/return results) — partial: inspect/edit (explorer), run (shell + tasks), rewind, preview exist; not unified
 
 ## Phase 7 — Operations, migration, deployment
 
@@ -102,4 +102,4 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 - Browser harness: `scripts/coder-browser/verify-site.mjs`
 - Runbook: `docs/coder-deployment-runbook.md`
 - Handoff: `docs/coder-review-handoff.md`
-- Current suite: **955 passing / 86 files** (`npx vitest run`)
+- Current suite: **969 passing / 88 files** (`npx vitest run`)

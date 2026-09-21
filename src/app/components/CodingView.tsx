@@ -1,13 +1,15 @@
 "use client";
 
 import React from 'react';
-import { AlertCircle, Bot, CheckCircle2, ChevronRight, Circle, ClipboardCopy, FileText, Folder, Globe, History, Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Save, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
+import { AlertCircle, Bot, CheckCircle2, ChevronRight, Circle, ClipboardCopy, FileText, Folder, Globe, History, Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
 import { buildConversation, fetchFullTranscript, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from '@/lib/coder-transcript';
 import { streamSessionEvents } from '@/lib/coder-sse';
 import { parsePreviewUrl } from '@/lib/coder-preview';
 import { parseRewindResult, parseRewindSnapshots, type RewindResult, type RewindSnapshot } from '@/lib/coder-rewind';
 import { parseFileContent, parseFileList, parseFileWriteResult, type FileEntry } from '@/lib/coder-files';
+import { buildDefaultTasks, detectPackageManager, parseShellResult, type PackageManager, type Task } from '@/lib/coder-tasks';
+import { absoluteWorkspacePath, parseGlobResult, searchLines, type SearchHit } from '@/lib/coder-search';
 import { buildWriterSubagentCreateBody, buildWriterSubagentUpdateBody, CODER_WRITER_AGENT_NAME, CODER_WRITER_AGENT_SCOPE, toDaemonModelSelector } from '@/lib/coder-orchestration';
 import { copyToClipboard } from '@/lib/clipboard';
 import AssistantContent from './AssistantContent';
@@ -367,6 +369,19 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [fileDirty, setFileDirty] = React.useState(false);
   const [fileSaving, setFileSaving] = React.useState(false);
   const [fileSaveError, setFileSaveError] = React.useState('');
+  // Named project tasks (install/build/test/run) state.
+  const [tasksOpen, setTasksOpen] = React.useState(false);
+  const [tasks, setTasks] = React.useState<Task[]>([]);
+  const [taskCommands, setTaskCommands] = React.useState<Record<string, string>>({});
+  const [taskOutputs, setTaskOutputs] = React.useState<Record<string, string>>({});
+  const [taskRunning, setTaskRunning] = React.useState<string | null>(null);
+  const [taskError, setTaskError] = React.useState('');
+  // Workspace text search state.
+  const [searchOpen, setSearchOpen] = React.useState(false);
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [searchLoading, setSearchLoading] = React.useState(false);
+  const [searchResults, setSearchResults] = React.useState<Array<{ file: string; hits: SearchHit[] }> | null>(null);
+  const [searchError, setSearchError] = React.useState('');
 
   const busy = sessionStatus?.hasActivePrompt === true
     || sessionStatus?.isWaitingForPermission === true
@@ -1235,6 +1250,114 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   /** Join a directory and entry name into a daemon absolute path. */
   const childPath = (dir: string, name: string) => `${dir.replace(/\/+$/, '')}/${name}`;
 
+  // ---- Named project tasks ------------------------------------------------
+
+  /** Open the tasks panel; seed the four default tasks on first open. */
+  const openTasks = async () => {
+    const opening = !tasksOpen;
+    setTasksOpen(opening);
+    if (!opening || tasks.length > 0) return;
+    // Detect the package manager from the workspace-root lockfile so a pnpm
+    // project is not handed `npm install`; fall back to npm on any failure.
+    let pm: PackageManager = 'npm';
+    try {
+      const res = await fetch(`/api/coder/list?path=${encodeURIComponent(workspace)}`);
+      const data = await res.json().catch(() => ({})) as unknown;
+      if (res.ok) {
+        const parsed = parseFileList(data);
+        if (!('error' in parsed)) pm = detectPackageManager(parsed.list.entries.map(e => e.name));
+      }
+    } catch {
+      // Fall through to npm defaults.
+    }
+    const defaults = buildDefaultTasks(pm);
+    setTasks(defaults);
+    setTaskCommands(Object.fromEntries(defaults.map(t => [t.id, t.command])));
+  };
+
+  /** Run a named task through the daemon's on-demand shell and capture output. */
+  const runTask = async (task: Task) => {
+    if (taskRunning) return;
+    const command = (taskCommands[task.id] ?? task.command).trim();
+    if (!command) return;
+    const sessionId = daemonSessionId || (await ensureDaemonSession());
+    if (!sessionId) {
+      setTaskError('Start a session first — tasks run inside the agent session.');
+      return;
+    }
+    setTaskRunning(task.id);
+    setTaskError('');
+    setTaskOutputs(prev => ({ ...prev, [task.id]: (prev[task.id] || '') + `$ ${command}\n` }));
+    try {
+      const res = await fetch(`/api/coder/session/${sessionId}/shell`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-qwen-client-id': clientIdRef.current },
+        body: JSON.stringify({ command }),
+      });
+      const data = await res.json().catch(() => ({})) as unknown;
+      if (!res.ok) {
+        setTaskOutputs(prev => ({ ...prev, [task.id]: (prev[task.id] || '') + `[error ${res.status}] ${(data as { error?: string }).error || 'command failed'}\n` }));
+      } else {
+        const parsed = parseShellResult(data);
+        if ('error' in parsed) {
+          setTaskOutputs(prev => ({ ...prev, [task.id]: (prev[task.id] || '') + `[error] ${parsed.error}\n` }));
+        } else {
+          const code = parsed.result.exitCode === null ? '' : `\n[exit ${parsed.result.exitCode}]`;
+          setTaskOutputs(prev => ({ ...prev, [task.id]: (prev[task.id] || '') + (parsed.result.output || '(no output)') + code + '\n' }));
+        }
+      }
+    } catch (e) {
+      setTaskOutputs(prev => ({ ...prev, [task.id]: (prev[task.id] || '') + `[error] ${e instanceof Error ? e.message : String(e)}\n` }));
+    } finally {
+      setTaskRunning(null);
+    }
+  };
+
+  // ---- Workspace text search ----------------------------------------------
+
+  const runSearch = async () => {
+    const query = searchQuery.trim();
+    if (!query || searchLoading) return;
+    setSearchLoading(true);
+    setSearchError('');
+    setSearchResults(null);
+    try {
+      const globRes = await fetch(`/api/coder/glob?pattern=${encodeURIComponent('**/*')}&workspace=${encodeURIComponent(workspace)}`);
+      const globData = await globRes.json().catch(() => ({})) as unknown;
+      if (!globRes.ok) {
+        setSearchError(`Search failed: ${(globData as { error?: string }).error || globRes.status}`);
+        return;
+      }
+      const globParsed = parseGlobResult(globData);
+      if ('error' in globParsed) {
+        setSearchError(globParsed.error);
+        return;
+      }
+      // Bound the search: the workbench search is a convenience, not the agent's
+      // ripgrep. Cap candidates so one huge tree cannot wedge the browser.
+      const candidates = globParsed.result.matches
+        .map(m => absoluteWorkspacePath(workspace, m))
+        .filter((p): p is string => p !== null)
+        .slice(0, 200);
+
+      const results: Array<{ file: string; hits: SearchHit[] }> = [];
+      for (const path of candidates) {
+        const fileRes = await fetch(`/api/coder/file?path=${encodeURIComponent(path)}&maxBytes=262144`);
+        if (!fileRes.ok) continue; // directories / unreadable files are skipped
+        const fileData = await fileRes.json().catch(() => ({})) as unknown;
+        const fileParsed = parseFileContent(fileData);
+        if ('error' in fileParsed) continue;
+        const hits = searchLines(fileParsed.file.content, query);
+        if (hits.length > 0) results.push({ file: path, hits });
+      }
+      setSearchResults(results);
+    } catch (e) {
+      setSearchError(e instanceof Error ? e.message : 'Search failed');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
   /**
    * Apply the vision delegate to the daemon's vision bridge. Empty clears it
    * (the daemon auto-picks a same-provider vision model); otherwise the model
@@ -1910,6 +2033,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         <button onClick={() => openPreview()} style={ghostBtnStyle()}><Globe size={14} /> Preview</button>
         <button onClick={() => void openRewind()} disabled={!activeSessionId} style={ghostBtnStyle()} title="Rewind the session to an earlier turn (restores conversation + files)"><History size={14} /> Rewind</button>
         <button onClick={() => void openFiles()} style={ghostBtnStyle()} title="Browse and edit workspace files"><Folder size={14} /> Files</button>
+        <button onClick={() => void openTasks()} style={ghostBtnStyle()} title="Run named project tasks (install/build/test/run)"><Terminal size={14} /> Tasks</button>
+        <button onClick={() => setSearchOpen(o => !o)} style={ghostBtnStyle()} title="Search workspace files"><Search size={14} /> Search</button>
         <button onClick={() => void newSession()} style={btnStyle(accent)}><Plus size={14} /> New</button>
         {onExit && (<button onClick={onExit} style={ghostBtnStyle()}><X size={14} /> Exit</button>)}
       </div>
@@ -2166,6 +2291,111 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Named project tasks panel */}
+      {tasksOpen && (
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.25)', maxHeight: 340, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+            <Terminal size={14} color={accent} />
+            <span style={{ fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#d1d5db' }}>Project tasks</span>
+            <span style={{ fontSize: '0.68rem', color: 'rgba(209,213,219,0.5)' }}>install / build / test / run — executed in the agent session</span>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => setTasksOpen(false)} style={ghostBtnStyle()}><X size={13} /></button>
+          </div>
+
+          {taskError && <div style={{ fontSize: '0.72rem', color: '#ef4444', fontFamily: 'ui-monospace, monospace', marginBottom: '6px' }}>{taskError}</div>}
+
+          {tasks.length === 0 ? (
+            <div style={{ fontSize: '0.72rem', color: 'rgba(209,213,219,0.5)' }}>Loading default tasks…</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {tasks.map(task => (
+                <div key={task.id} style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', background: 'rgba(255,255,255,0.02)', padding: '8px 10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', color: '#e5e7eb', width: 56, flexShrink: 0 }}>{task.label}</span>
+                    <input
+                      value={taskCommands[task.id] ?? task.command}
+                      onChange={e => setTaskCommands(prev => ({ ...prev, [task.id]: e.target.value }))}
+                      spellCheck={false}
+                      style={{ flex: 1, minWidth: 0, background: 'rgba(0,0,0,0.3)', color: '#d1d5db', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', padding: '4px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
+                    />
+                    <button
+                      onClick={() => void runTask(task)}
+                      disabled={taskRunning !== null}
+                      style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(34,211,238,0.1)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.3)', borderRadius: '6px', padding: '3px 10px', fontSize: '0.7rem', cursor: taskRunning === null ? 'pointer' : 'default', fontFamily: 'ui-monospace, monospace', opacity: taskRunning === null ? 1 : 0.5 }}
+                    >
+                      {taskRunning === task.id ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Square size={10} fill="currentColor" />}
+                      {taskRunning === task.id ? 'running…' : 'Run'}
+                    </button>
+                  </div>
+                  {taskOutputs[task.id] !== undefined && (
+                    <pre style={{ margin: '6px 0 0', padding: '6px 8px', background: 'rgba(0,0,0,0.3)', borderRadius: '6px', fontSize: '0.68rem', fontFamily: 'ui-monospace, monospace', color: '#9ca3af', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 140, overflowY: 'auto' }}>
+                      {taskOutputs[task.id]}
+                    </pre>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{ marginTop: '8px', fontSize: '0.66rem', color: 'rgba(209,213,219,0.4)', fontFamily: 'ui-monospace, monospace' }}>
+            Tasks run to completion in the agent session. Long-lived servers (e.g. `npm run dev`) should be started by the agent or the Preview instead.
+          </div>
+        </div>
+      )}
+
+      {/* Workspace text search panel */}
+      {searchOpen && (
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.25)', maxHeight: 340, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+            <Search size={14} color={accent} />
+            <span style={{ fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#d1d5db' }}>Search workspace</span>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => setSearchOpen(false)} style={ghostBtnStyle()}><X size={13} /></button>
+          </div>
+
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
+            <input
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') void runSearch(); }}
+              placeholder="case-insensitive substring"
+              spellCheck={false}
+              style={{ flex: 1, background: 'rgba(0,0,0,0.3)', color: '#d1d5db', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '6px', padding: '5px 10px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
+            />
+            <button
+              onClick={() => void runSearch()}
+              disabled={searchLoading || !searchQuery.trim()}
+              style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(34,211,238,0.1)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.3)', borderRadius: '6px', padding: '4px 12px', fontSize: '0.7rem', cursor: searchLoading || !searchQuery.trim() ? 'default' : 'pointer', fontFamily: 'ui-monospace, monospace', opacity: searchLoading || !searchQuery.trim() ? 0.5 : 1 }}
+            >
+              {searchLoading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Search size={12} />}
+              {searchLoading ? 'searching…' : 'Search'}
+            </button>
+          </div>
+
+          {searchError && <div style={{ fontSize: '0.72rem', color: '#ef4444', fontFamily: 'ui-monospace, monospace', marginBottom: '6px' }}>{searchError}</div>}
+
+          {searchResults !== null && searchResults.length === 0 && (
+            <div style={{ fontSize: '0.72rem', color: 'rgba(209,213,219,0.5)' }}>No matches.</div>
+          )}
+
+          {searchResults !== null && searchResults.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {searchResults.map(r => (
+                <div key={r.file} style={{ border: '1px solid rgba(255,255,255,0.07)', borderRadius: '8px', background: 'rgba(255,255,255,0.02)', padding: '6px 10px' }}>
+                  <div style={{ fontSize: '0.7rem', fontFamily: 'ui-monospace, monospace', color: '#e5e7eb', marginBottom: '4px', overflowWrap: 'anywhere' }}>{r.file}</div>
+                  {r.hits.map((h, i) => (
+                    <div key={i} style={{ display: 'flex', gap: '8px', fontSize: '0.68rem', fontFamily: 'ui-monospace, monospace', color: '#9ca3af', lineHeight: '1.5' }}>
+                      <span style={{ color: 'rgba(34,211,238,0.6)', flexShrink: 0, width: 32, textAlign: 'right' }}>{h.line}</span>
+                      <span style={{ overflowWrap: 'anywhere' }}>{h.text}</span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

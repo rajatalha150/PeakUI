@@ -8,14 +8,15 @@ An unfinished item is marked unfinished; nothing here is dressed up as complete.
 The **ownership + session + settings hardening (Phases 1–3)** is substantially
 done and tested (file-route authorization is now also closed). **Reversible work
 (Phase 5)** is partially done: rewind is exposed end-to-end and live-verified. A
-**project-explorer slice of the IDE workbench (Phase 6)** is landed: browse, read,
-edit and save workspace files through the daemon's file routes. The **managed-
-previews proxy (Phase 4), verification records (Phase 5), the rest of the IDE
-workbench (Monaco/tabs/search/PTY/debugger/tasks, Phase 6)** and the **operations
-migration (Phase 7)** remain **not done** — documented as gaps. This is a
-deliberate honest-partial handoff, per the spec.
+**project-explorer + tasks + search slice of the IDE workbench (Phase 6)** is
+landed: browse, read, edit and save workspace files through the daemon's file
+routes; run named tasks over the daemon shell; and search workspace files via the
+glob→read→grep composition. The **managed-previews proxy (Phase 4), verification
+records (Phase 5), the rest of the IDE workbench (Monaco/open tabs/PTY/debugger,
+Phase 6)** and the **operations migration (Phase 7)** remain **not done** —
+documented as gaps. This is a deliberate honest-partial handoff, per the spec.
 
-- Tests: **955 passing / 86 files** (`npx vitest run`), `npx tsc --noEmit` clean.
+- Tests: **969 passing / 88 files** (`npx vitest run`), `npx tsc --noEmit` clean.
 - Daemon: Qwen Code `v0.23.4` live at `127.0.0.1:4170`; key wire contracts
   re-verified against the running daemon and its pinned source under
   `/opt/qwen-code/dist`.
@@ -106,9 +107,25 @@ deliberate honest-partial handoff, per the spec.
   were read from the pinned daemon source and confirmed live against
   `127.0.0.1:4170` (list + read returned the documented shape). Tests:
   `src/lib/coder-files.test.ts` + route tests.
-- **Not built:** Monaco editor, open-file tabs, text search, persistent PTY,
-  named tasks, Node/TS debug adapter, and the unified human-takeover UX. The
-  on-demand shell (already present) remains the only terminal.
+- **Named project tasks landed.** `src/lib/coder-tasks.ts` detects the package
+  manager from the workspace-root lockfile (`package-lock.json`/`yarn.lock`/
+  `pnpm-lock.yaml`/`bun.lockb`) and builds the four default tasks
+  (install/build/test/run) for it; `parseShellResult` validates the daemon shell
+  response. `CodingView` gained a **Tasks** panel: editable per-task commands,
+  run via `POST /session/:id/shell`, per-task output + exit code. Tests:
+  `src/lib/coder-tasks.test.ts`.
+- **Workspace text search landed.** New `src/lib/coder-search.ts` composes the
+  two client routes — `GET /glob` to enumerate candidates, then `GET /file` per
+  candidate with a bounded in-memory case-insensitive line search — since the
+  daemon's ripgrep search is an agent tool, not an HTTP endpoint. `parseGlobResult`
+  validates the glob payload and `searchLines` never fabricates a match;
+  `absoluteWorkspacePath` joins a match to its workspace root and skips the `.`
+  root entry. `CodingView` gained a **Search** panel: query input, per-file
+  results with 1-based line numbers, bounded candidate count (200) and file size
+  (256 KiB). Tests: `src/lib/coder-search.test.ts`.
+- **Not built:** Monaco editor, open-file tabs, persistent PTY, Node/TS debug
+  adapter, and the unified human-takeover UX. The on-demand shell (already
+  present) remains the only terminal.
 
 ## What is NOT done (honest gaps)
 
@@ -119,7 +136,7 @@ deliberate honest-partial handoff, per the spec.
 | 3 | Writer/vision per-runtime scope | needs workspace trust + per-workspace agents — §17.1 |
 | 4 | Managed previews (auth proxy, SSRF guard) | raw iframe + `.peakui-preview.json` poll remain |
 | 5 | Verification records + stale-marking | not built; worktree-reset + per-file diff not exposed (see above) |
-| 6 | IDE workbench (Monaco/tabs/search/PTY/debugger/tasks) | project-explorer slice only (see above) |
+| 6 | IDE workbench (Monaco/tabs/PTY/debugger) | project-explorer + named-tasks + search slices only (see above) |
 | 7 | `db push --accept-data-loss` → reviewed migrations | Dockerfile still uses `db push` |
 | 7 | Readiness beyond process health, redacted logs, backup/restore, non-root, Windows | not done |
 
@@ -152,3 +169,7 @@ deliberate honest-partial handoff, per the spec.
    is reached (covered by route tests). Also confirm the explorer's save path
    (`saveFile`) refuses a truncated read (null hash) rather than writing without
    a compare-and-swap precondition.
+7. The search composition in `CodingView.tsx` `runSearch` — confirm the candidate
+   count (`.slice(0, 200)`) and per-file read cap (`maxBytes=262144`) bound the
+   request fan-out, and that a non-OK `/file` read is skipped rather than
+   erroring the whole search.

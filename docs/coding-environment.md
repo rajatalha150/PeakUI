@@ -658,6 +658,25 @@ panel drives list → open → edit → save through these routes. The shapes we
 from the pinned daemon source and confirmed live (list + read returned the
 documented shape).
 
+### 12.9 Workspace text search
+
+The daemon has **no HTTP grep route** — its ripgrep-based search is an agent
+tool, not a client endpoint. The workbench search therefore composes two client
+routes: `GET /glob?pattern=…` to enumerate candidate files, then `GET /file` per
+candidate to grep its content in memory. It is deliberately bounded because it is
+a convenience, not the agent's search:
+
+- `GET /glob?pattern=<glob>&workspace=<cwd>` → `{ matches[], count, truncated }`.
+- Candidates are capped at 200 and each read is capped at 256 KiB
+  (`maxBytes=262144`), so a pathological glob cannot flood the gateway.
+- Matching is a case-insensitive substring scan over each file's lines, returning
+  1-based line numbers and trimmed snippets, bounded to 50 hits per file.
+
+`src/lib/coder-search.ts` owns the pure logic — `parseGlobResult` (untrusted-input
+boundary: glob matches become `/file` paths), `searchLines` (never fabricates a
+match), and `absoluteWorkspacePath` (joins a match to its workspace root, skips
+the `.` root entry). `CodingView`'s Search panel drives glob → read → grep.
+
 ---
 
 ## 13. Test coverage map
@@ -672,6 +691,8 @@ documented shape).
 | `src/lib/coder-preview.test.ts` | preview-URL loopback/reserved-port validation |
 | `src/lib/coder-rewind.test.ts` | rewind snapshot-list + result parsing, malformed-payload rejection |
 | `src/lib/coder-files.test.ts` | directory-listing / file-content / write-result parsing, malformed-payload rejection |
+| `src/lib/coder-tasks.test.ts` | lockfile→package-manager detection, default task commands, shell-result parsing |
+| `src/lib/coder-search.test.ts` | glob-response parsing, bounded case-insensitive line search, workspace-relative→absolute path join |
 | `src/lib/settings-coder.test.ts` | `auto`/`yolo` enum, `yolo` default, legacy modes normalised, context/tool-search sentinels |
 | `src/app/api/coder/[...path]/route.test.ts` | 204/205/304 null-body relay, route passthrough (status/approval-mode/workspace/rewind), unowned-session deny |
 | `src/app/api/chats/route.test.ts` | id-wins-over-surface on DELETE, surface-wide only when bare |
