@@ -7,17 +7,17 @@ An unfinished item is marked unfinished; nothing here is dressed up as complete.
 
 The **ownership + session + settings hardening (Phases 1–3)** is substantially
 done and tested (file-route authorization is now also closed). **Reversible work
-(Phase 5)** is partially done: rewind is exposed end-to-end and live-verified. A
-**project-explorer + tasks + search slice of the IDE workbench (Phase 6)** is
+(Phase 5)** is partially done: rewind is exposed end-to-end and live-verified,
+and verification results are recorded structurally and marked stale after edits.
+A **project-explorer + tasks + search slice of the IDE workbench (Phase 6)** is
 landed: browse, read, edit and save workspace files through the daemon's file
 routes (as multi-tab buffers); run named tasks over the daemon shell; and search
 workspace files via the glob→read→grep composition. The **managed-previews proxy
-(Phase 4), verification records (Phase 5), the rest of the IDE workbench
-(Monaco/PTY/debugger, Phase 6)** and the **operations migration (Phase 7)**
-remain **not done** — documented as gaps. This is a deliberate honest-partial
-handoff, per the spec.
+(Phase 4), the rest of the IDE workbench (Monaco/PTY/debugger, Phase 6)** and
+the **operations migration (Phase 7)** remain **not done** — documented as gaps.
+This is a deliberate honest-partial handoff, per the spec.
 
-- Tests: **969 passing / 88 files** (`npx vitest run`), `npx tsc --noEmit` clean.
+- Tests: **975 passing / 89 files** (`npx vitest run`), `npx tsc --noEmit` clean.
 - Daemon: Qwen Code `v0.23.4` live at `127.0.0.1:4170`; key wire contracts
   re-verified against the running daemon and its pinned source under
   `/opt/qwen-code/dist`.
@@ -89,10 +89,24 @@ handoff, per the spec.
   `127.0.0.1:4170` (snapshots return `{"snapshots":[]}` for a fresh session;
   a bogus id returns the daemon's `session_not_found` envelope — the shape the
   parser is written against).
+- **Verification records landed.** New `src/lib/coder-verification.ts` turns each
+  completed task run into a structured record (run id, command, cwd, exit code,
+  start/finish timestamps, output, and the workspace mutation counter captured at
+  run start). Because the daemon exposes per-file hashes but no workspace tree
+  hash, the fingerprint is a conservative *mutation counter* — advanced by every
+  human save (explorer) and every agent tool call that is not a known read-only
+  tool (`isMutatingTool` is default-deny, so stale-marking over-approximates and
+  never under-approximates). `isVerificationStale` marks a record stale once the
+  counter moves past its captured value. `CodingView`'s Tasks panel shows a
+  **Verification runs** list with `passed`/`failed`/`error`/`stale` status; a
+  failed run stays visible and is never silently restyled as success. Tests:
+  `src/lib/coder-verification.test.ts`.
 - **Not exposed / not done:** `POST /session/:id/worktree-reset` (supersedes the
   session id, breaking the persistent `ChatSession`↔daemon-session binding);
   per-file diff *content* (the file-history service is daemon-internal and has no
-  HTTP route); structured verification records; marking results stale after edits.
+  HTTP route); a content-level fingerprint (the mutation counter is a
+  conservative proxy, not a content hash); persisted/DB-backed verification
+  records (they live in-session and reset on session switch).
 
 ### Phase 6 — IDE workbench (explorer + tasks + search slice only)
 
@@ -139,7 +153,7 @@ handoff, per the spec.
 | 3 | Persisted vs effective value UI | partial (restart hint only) |
 | 3 | Writer/vision per-runtime scope | needs workspace trust + per-workspace agents — §17.1 |
 | 4 | Managed previews (auth proxy, SSRF guard) | raw iframe + `.peakui-preview.json` poll remain |
-| 5 | Verification records + stale-marking | not built; worktree-reset + per-file diff not exposed (see above) |
+| 5 | Content fingerprint + persisted records | mutation counter is a proxy (not a content hash); records are in-session only; worktree-reset + per-file diff not exposed (see above) |
 | 6 | IDE workbench (Monaco/PTY/debugger) | project-explorer (multi-tab) + named-tasks + search slices only (see above) |
 | 7 | `db push --accept-data-loss` → reviewed migrations | Dockerfile still uses `db push` |
 | 7 | Readiness beyond process health, redacted logs, backup/restore, non-root, Windows | not done |
@@ -177,3 +191,8 @@ handoff, per the spec.
    count (`.slice(0, 200)`) and per-file read cap (`maxBytes=262144`) bound the
    request fan-out, and that a non-OK `/file` read is skipped rather than
    erroring the whole search.
+8. The verification staleness wiring in `CodingView.tsx` — confirm `workspaceMutation`
+   is `humanSaveCount + <mutating tool count>`, that `isMutatingTool` is
+   default-deny (unknown tool name ⇒ mutating, so stale-marking can't under-mark),
+   and that `verificationRecords`/`humanSaveCount` reset on every session switch
+   (load/create/delete) so records never leak across sessions.

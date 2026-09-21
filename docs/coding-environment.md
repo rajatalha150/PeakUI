@@ -680,6 +680,28 @@ boundary: glob matches become `/file` paths), `searchLines` (never fabricates a
 match), and `absoluteWorkspacePath` (joins a match to its workspace root, skips
 the `.` root entry). `CodingView`'s Search panel drives glob → read → grep.
 
+### 12.10 Verification records (evidence + staleness)
+
+Each completed task run is captured as a structured verification record — run id,
+command, cwd, exit code, start/finish timestamps, output, and the workspace
+fingerprint it was measured against. The daemon exposes per-file content hashes
+but **no workspace tree hash**, so the fingerprint is a conservative *workspace
+mutation counter*:
+
+- Advanced by every human save (explorer) and every agent tool call that is not a
+  known read-only tool (`read_file` / `list_directory` / `glob` / `grep` /
+  `web_search` / …). `isMutatingTool` is **default-deny** — an unknown or absent
+  tool name counts as mutating — so stale-marking can only over-approximate and
+  never leave an edit's prior evidence looking fresh.
+- A record is stale iff the counter has moved past the value captured at run
+  start (`isVerificationStale`).
+
+`src/lib/coder-verification.ts` owns the pure logic; `CodingView`'s Tasks panel
+renders a **Verification runs** list with `passed` / `failed` / `error` / `stale`
+status. Failed runs stay visible and are never restyled as success. Records are
+in-session only (reset on session switch) — a DB-backed ledger is a documented
+gap, as is a true content-level fingerprint.
+
 ---
 
 ## 13. Test coverage map
@@ -696,6 +718,7 @@ the `.` root entry). `CodingView`'s Search panel drives glob → read → grep.
 | `src/lib/coder-files.test.ts` | directory-listing / file-content / write-result parsing, malformed-payload rejection |
 | `src/lib/coder-tasks.test.ts` | lockfile→package-manager detection, default task commands, shell-result parsing |
 | `src/lib/coder-search.test.ts` | glob-response parsing, bounded case-insensitive line search, workspace-relative→absolute path join |
+| `src/lib/coder-verification.test.ts` | mutating-vs-read-only tool classification (default-deny), staleness from the mutation counter, record construction |
 | `src/lib/settings-coder.test.ts` | `auto`/`yolo` enum, `yolo` default, legacy modes normalised, context/tool-search sentinels |
 | `src/app/api/coder/[...path]/route.test.ts` | 204/205/304 null-body relay, route passthrough (status/approval-mode/workspace/rewind), unowned-session deny |
 | `src/app/api/chats/route.test.ts` | id-wins-over-surface on DELETE, surface-wide only when bare |

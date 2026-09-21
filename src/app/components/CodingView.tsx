@@ -10,6 +10,7 @@ import { parseRewindResult, parseRewindSnapshots, type RewindResult, type Rewind
 import { parseFileContent, parseFileList, parseFileWriteResult, type FileEntry } from '@/lib/coder-files';
 import { buildDefaultTasks, detectPackageManager, parseShellResult, type PackageManager, type Task } from '@/lib/coder-tasks';
 import { absoluteWorkspacePath, parseGlobResult, searchLines, type SearchHit } from '@/lib/coder-search';
+import { buildVerificationRecord, isMutatingTool, isVerificationStale, type VerificationRecord } from '@/lib/coder-verification';
 import { buildWriterSubagentCreateBody, buildWriterSubagentUpdateBody, CODER_WRITER_AGENT_NAME, CODER_WRITER_AGENT_SCOPE, toDaemonModelSelector } from '@/lib/coder-orchestration';
 import { copyToClipboard } from '@/lib/clipboard';
 import AssistantContent from './AssistantContent';
@@ -382,6 +383,11 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [taskOutputs, setTaskOutputs] = React.useState<Record<string, string>>({});
   const [taskRunning, setTaskRunning] = React.useState<string | null>(null);
   const [taskError, setTaskError] = React.useState('');
+  // Verification evidence: structured records of completed task runs, plus the
+  // human-save half of the workspace mutation counter (the agent half is the
+  // mutating-tool count derived from the transcript's tool activity).
+  const [verificationRecords, setVerificationRecords] = React.useState<VerificationRecord[]>([]);
+  const [humanSaveCount, setHumanSaveCount] = React.useState(0);
   // Workspace text search state.
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -718,6 +724,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     sessionWorkspaceRef.current = null;
     setError('');
     setToolActivity([]);
+    setVerificationRecords([]);
+    setHumanSaveCount(0);
     setSessionStatus(null);
     setPending([]);
     setLiveStatus('');
@@ -783,6 +791,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       setWorkspace(settings?.coderWorkspace || '/workspace');
       setMessages([]);
       setToolActivity([]);
+      setVerificationRecords([]);
+      setHumanSaveCount(0);
       setPending([]);
       setSessionStatus(null);
       setLiveStatus('');
@@ -812,6 +822,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           sessionWorkspaceRef.current = null;
           setMessages([]);
           setToolActivity([]);
+          setVerificationRecords([]);
+          setHumanSaveCount(0);
           setSessionStatus(null);
           setPending([]);
           setLiveStatus('');
@@ -1260,6 +1272,9 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         return;
       }
       updateTab(tab.path, { hash: parsed.result.hash, dirty: false });
+      // A successful save mutates the workspace, so prior verification evidence
+      // (run against the pre-save content) is now stale.
+      setHumanSaveCount(c => c + 1);
     } catch (e) {
       updateTab(tab.path, { error: e instanceof Error ? e.message : 'Save failed' });
     } finally {
@@ -1272,6 +1287,14 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
   /** The tab currently in focus (if any). */
   const activeTab = openTabs.find(t => t.path === activePath) ?? null;
+
+  /**
+   * Workspace mutation counter: the conservative fingerprint against which
+   * verification records are checked for staleness. It is the sum of human
+   * saves (explorer) and agent tool calls that may have mutated the workspace
+   * (default-deny — anything not a known read-only tool counts).
+   */
+  const workspaceMutation = humanSaveCount + toolActivity.filter(a => isMutatingTool(a.toolName)).length;
 
   // ---- Named project tasks ------------------------------------------------
 
@@ -1308,6 +1331,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       setTaskError('Start a session first — tasks run inside the agent session.');
       return;
     }
+    const startedAt = Date.now();
+    const mutation = workspaceMutation;
     setTaskRunning(task.id);
     setTaskError('');
     setTaskOutputs(prev => ({ ...prev, [task.id]: (prev[task.id] || '') + `$ ${command}\n` }));
@@ -1319,18 +1344,25 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       });
       const data = await res.json().catch(() => ({})) as unknown;
       if (!res.ok) {
-        setTaskOutputs(prev => ({ ...prev, [task.id]: (prev[task.id] || '') + `[error ${res.status}] ${(data as { error?: string }).error || 'command failed'}\n` }));
+        const message = `[error ${res.status}] ${(data as { error?: string }).error || 'command failed'}`;
+        setTaskOutputs(prev => ({ ...prev, [task.id]: (prev[task.id] || '') + message + '\n' }));
+        setVerificationRecords(prev => [...prev, buildVerificationRecord({ id: `run-${Date.now()}`, command, cwd: workspace, exitCode: null, startedAt, output: message, mutation })]);
       } else {
         const parsed = parseShellResult(data);
         if ('error' in parsed) {
-          setTaskOutputs(prev => ({ ...prev, [task.id]: (prev[task.id] || '') + `[error] ${parsed.error}\n` }));
+          const message = `[error] ${parsed.error}`;
+          setTaskOutputs(prev => ({ ...prev, [task.id]: (prev[task.id] || '') + message + '\n' }));
+          setVerificationRecords(prev => [...prev, buildVerificationRecord({ id: `run-${Date.now()}`, command, cwd: workspace, exitCode: null, startedAt, output: message, mutation })]);
         } else {
           const code = parsed.result.exitCode === null ? '' : `\n[exit ${parsed.result.exitCode}]`;
           setTaskOutputs(prev => ({ ...prev, [task.id]: (prev[task.id] || '') + (parsed.result.output || '(no output)') + code + '\n' }));
+          setVerificationRecords(prev => [...prev, buildVerificationRecord({ id: `run-${Date.now()}`, command, cwd: workspace, exitCode: parsed.result.exitCode, startedAt, output: parsed.result.output || '', mutation })]);
         }
       }
     } catch (e) {
-      setTaskOutputs(prev => ({ ...prev, [task.id]: (prev[task.id] || '') + `[error] ${e instanceof Error ? e.message : String(e)}\n` }));
+      const message = `[error] ${e instanceof Error ? e.message : String(e)}`;
+      setTaskOutputs(prev => ({ ...prev, [task.id]: (prev[task.id] || '') + message + '\n' }));
+      setVerificationRecords(prev => [...prev, buildVerificationRecord({ id: `run-${Date.now()}`, command, cwd: workspace, exitCode: null, startedAt, output: message, mutation })]);
     } finally {
       setTaskRunning(null);
     }
@@ -2391,6 +2423,27 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                   )}
                 </div>
               ))}
+            </div>
+          )}
+
+          {verificationRecords.length > 0 && (
+            <div style={{ marginTop: '10px' }}>
+              <div style={{ fontSize: '0.68rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: '#9ca3af', marginBottom: '6px' }}>Verification runs</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                {[...verificationRecords].reverse().map(r => {
+                  const stale = isVerificationStale(r, workspaceMutation);
+                  const failed = r.exitCode === null || r.exitCode !== 0;
+                  const statusColor = stale ? '#f59e0b' : failed ? '#ef4444' : '#22c55e';
+                  const statusLabel = stale ? 'stale' : failed ? (r.exitCode === null ? 'error' : 'failed') : 'passed';
+                  return (
+                    <div key={r.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '0.68rem', fontFamily: 'ui-monospace, monospace', color: '#9ca3af' }} title={stale ? 'The workspace changed since this ran — results may no longer apply.' : undefined}>
+                      <span style={{ color: statusColor, flexShrink: 0, width: 50 }}>{statusLabel}</span>
+                      <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{r.command}</span>
+                      {r.exitCode !== null && <span style={{ flexShrink: 0, color: 'rgba(209,213,219,0.4)' }}>exit {r.exitCode}</span>}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 

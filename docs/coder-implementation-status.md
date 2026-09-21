@@ -27,7 +27,7 @@ runtime and has evidence, not that a mock or a subset works.
 | 2 Sessions, recovery, event persistence | ✅ | all 8 landed; SSE resume + no-overlap polling complete |
 | 3 Effective settings & project context | 🔶 partial | toolSearch threshold applied (restart-gated); context/tools audited & documented |
 | 4 Managed previews & dev processes | 🔶 partial | SSRF guard + origin isolation landed; proxy + registration deferred |
-| 5 Reversible work & verification evidence | 🔶 partial | rewind (snapshots + restore) exposed & live-verified; verification records + stale-marking deferred |
+| 5 Reversible work & verification evidence | 🔶 partial | rewind exposed & live-verified; verification records + stale-marking landed (mutation-counter fingerprint) |
 | 6 Complete IDE workbench | 🔶 partial | project explorer (multi-tab), named tasks, and text search landed; Monaco/PTY/debugger not built |
 | 7 Operations, migration, deployment | ⬜ not started | `db push --accept-data-loss` still in image |
 
@@ -76,8 +76,8 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 
 - [x] Expose daemon rewind/checkpoint/worktree (verify semantics first) — rewind exposed end-to-end; worktree-reset verified but NOT exposed (supersedes the session id, breaking the persistent ChatSession↔daemon-session binding)
 - [x] Changed-file list + diffs + selective restore — snapshots list diff stats (`filesChanged/insertions/deletions`); rewind to a chosen snapshot restores files and returns the changed/failed file list. Per-file diff *content* is not exposed by the daemon HTTP surface (file-history service is daemon-internal) — documented
-- [ ] Structured verification records (run/command/exit/fingerprint/artifacts) — not built (daemon exposes command/exit/output in tool activity, but no per-command file fingerprint or diff over HTTP; a DB-backed ledger needs product requirements to avoid building the wrong shape)
-- [ ] Mark results stale after edits — not built (depends on the verification ledger + file-fingerprint tracking above)
+- [x] Structured verification records (run/command/exit/fingerprint) — `src/lib/coder-verification.ts` records each task run (id/command/cwd/exit/timestamps/output + mutation counter). The fingerprint is a conservative mutation counter (no daemon tree hash), not a content hash — documented; records are in-session (not DB-backed) — documented
+- [x] Mark results stale after edits — a record is stale once the mutation counter advances past its captured value (human save or any non-read-only agent tool call). `isMutatingTool` is default-deny so stale-marking over-approximates and never under-approximates
 
 ## Phase 6 — Complete IDE workbench
 
@@ -102,4 +102,4 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 - Browser harness: `scripts/coder-browser/verify-site.mjs`
 - Runbook: `docs/coder-deployment-runbook.md`
 - Handoff: `docs/coder-review-handoff.md`
-- Current suite: **969 passing / 88 files** (`npx vitest run`)
+- Current suite: **975 passing / 89 files** (`npx vitest run`)
