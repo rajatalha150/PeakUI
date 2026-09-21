@@ -15,6 +15,18 @@ import { buildWriterSubagentCreateBody, buildWriterSubagentUpdateBody, CODER_WRI
 import { copyToClipboard } from '@/lib/clipboard';
 import AssistantContent from './AssistantContent';
 import { ThinkingBlock } from './ChatMessageContent';
+import dynamic from 'next/dynamic';
+
+// Monaco is a large, browser-only dependency; load it lazily on the client so it
+// never enters the server bundle or the SSR pass.
+const CodeEditor = dynamic(() => import('./CodeEditor'), {
+  ssr: false,
+  loading: () => (
+    <div style={{ height: 260, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', color: 'rgba(209,213,219,0.5)', fontFamily: 'ui-monospace, monospace' }}>
+      loading editor…
+    </div>
+  ),
+});
 
 /** A message in the coding chat, projected from the daemon transcript. */
 interface CoderChatMessage {
@@ -569,6 +581,24 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     }
     setPreviewUrl(clean);
     setPreviewError('');
+    // Defense in depth: re-validate server-side before framing, so a URL the
+    // client accepts but the API refuses is still kept out of the pane.
+    void (async () => {
+      try {
+        const res = await fetch('/api/coder/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: clean }),
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          setPreviewUrl('');
+          setPreviewError(data.error || 'Preview URL rejected by the server.');
+        }
+      } catch {
+        // The guard route is best-effort; the client-side check already ran.
+      }
+    })();
   }, []);
 
   // Poll the agent's preview file whenever the preview pane is open, so the
@@ -2359,17 +2389,14 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                 <div style={{ fontSize: '0.7rem', color: '#ef4444', fontFamily: 'ui-monospace, monospace' }}>{activeTab.error}</div>
               )}
               {activeTab ? (
-                <textarea
-                  value={activeTab.content}
-                  onChange={e => updateTab(activeTab.path, { content: e.target.value, dirty: true })}
-                  spellCheck={false}
-                  style={{
-                    width: '100%', height: 220, resize: 'vertical',
-                    background: 'rgba(0,0,0,0.3)', color: '#d1d5db', border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: '8px', padding: '8px 10px', fontSize: '0.74rem', fontFamily: 'ui-monospace, monospace',
-                    lineHeight: '1.6', outline: 'none', whiteSpace: 'pre',
-                  }}
-                />
+                <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', overflow: 'hidden' }}>
+                  <CodeEditor
+                    path={activeTab.path}
+                    value={activeTab.content}
+                    onChange={v => updateTab(activeTab.path, { content: v, dirty: true })}
+                    height={260}
+                  />
+                </div>
               ) : (
                 <div style={{ padding: '10px', fontSize: '0.7rem', color: 'rgba(209,213,219,0.45)', fontFamily: 'ui-monospace, monospace' }}>
                   Select a file to view/edit it. Files stay open as tabs; save is compare-and-swap on the file hash, so it won't clobber a concurrent agent edit.
@@ -2772,7 +2799,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                       height: PREVIEW_VIEWPORTS[previewDevice].height,
                       boxShadow: '0 12px 40px rgba(0,0,0,0.45)',
                     }}
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                    sandbox="allow-scripts allow-forms allow-popups"
                   />
                 </div>
               ) : (

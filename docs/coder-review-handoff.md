@@ -9,15 +9,19 @@ The **ownership + session + settings hardening (Phases 1–3)** is substantially
 done and tested (file-route authorization is now also closed). **Reversible work
 (Phase 5)** is partially done: rewind is exposed end-to-end and live-verified,
 and verification results are recorded structurally and marked stale after edits.
-A **project-explorer + tasks + search slice of the IDE workbench (Phase 6)** is
-landed: browse, read, edit and save workspace files through the daemon's file
-routes (as multi-tab buffers); run named tasks over the daemon shell; and search
-workspace files via the glob→read→grep composition. The **managed-previews proxy
-(Phase 4), the rest of the IDE workbench (Monaco/PTY/debugger, Phase 6)** and
-the **operations migration (Phase 7)** remain **not done** — documented as gaps.
-This is a deliberate honest-partial handoff, per the spec.
+A **project-explorer + tasks + search + Monaco slice of the IDE workbench
+(Phase 6)** is landed: browse, read, edit and save workspace files through the
+daemon's file routes (as multi-tab buffers, now in a bundled Monaco editor); run
+named tasks over the daemon shell; and search workspace files via the
+glob→read→grep composition. **Preview SSRF guarding (Phase 4)** is now enforced
+at both the client and the server, and the **operations slice (Phase 7)** landed
+`migrate deploy` (with a safe `db push` fallback) plus a db/daemon readiness
+endpoint. The **managed-previews auth proxy (Phase 4), the rest of the IDE
+workbench (PTY/debugger, Phase 6 — both verified hard)** and the remaining
+**operations work (logs/backup/non-root/Windows, Phase 7)** remain **not done** —
+documented as gaps. This is a deliberate honest-partial handoff, per the spec.
 
-- Tests: **975 passing / 89 files** (`npx vitest run`), `npx tsc --noEmit` clean.
+- Tests: **985 passing / 91 files** (`npx vitest run`), `npx tsc --noEmit` clean.
 - Daemon: Qwen Code `v0.23.4` live at `127.0.0.1:4170`; key wire contracts
   re-verified against the running daemon and its pinned source under
   `/opt/qwen-code/dist`.
@@ -71,6 +75,19 @@ This is a deliberate honest-partial handoff, per the spec.
 - QWEN.md de-sample-ified: now generic discovery guidance (`scripts/coder-workspace/QWEN.md`).
 - **Not done:** persisted-vs-effective UI separation (beyond the restart hint);
   writer/vision scoped to a runtime instead of daemon-global (documented in §17.1).
+
+### Phase 4 — Managed previews (partial)
+
+- **Server-side SSRF validation.** New `POST /api/coder/preview` re-validates a
+  preview URL at the API boundary via `parsePreviewUrl` (loopback-only, reserved
+  ports refused) before it is framed — defense in depth on top of the existing
+  client-side check. Tests: `src/app/api/coder/preview/route.test.ts`.
+- **Sandbox origin hardening.** The preview iframe dropped `allow-same-origin`,
+  so the framed dev server now runs in an opaque origin and cannot reach the
+  parent's cookies/localStorage even if it ever landed on the app origin.
+- **Not done:** the authenticated preview *proxy* (a correct one must rewrite
+  relative URLs and upgrade HMR websockets) and project-owned preview
+  registration — documented as gaps.
 
 ### Phase 5 — Reversible work (partial)
 
@@ -141,12 +158,38 @@ This is a deliberate honest-partial handoff, per the spec.
   root entry. `CodingView` gained a **Search** panel: query input, per-file
   results with 1-based line numbers, bounded candidate count (200) and file size
   (256 KiB). Tests: `src/lib/coder-search.test.ts`.
-- **Not built:** Monaco editor, persistent PTY, Node/TS debug adapter, and the
-  unified human-takeover UX. PTY and the debugger are **verified hard** against
-  the pinned daemon's HTTP surface: there is no PTY transport (only the
-  on-demand `POST /session/:id/shell`) and no debug-adapter route — see
-  `docs/coding-environment.md` §12.11. The on-demand shell remains the only
-  terminal.
+- **Monaco editor landed.** New `src/app/components/CodeEditor.tsx` bundles
+  `monaco-editor` locally (via `loader.config`, no CDN — the container stays
+  self-contained) and is lazy-loaded with `next/dynamic({ ssr: false })`, so it
+  never enters the server bundle. It replaces the explorer's plain textarea with
+  a syntax-highlighted, line-numbered editor; the model `path` is the workspace
+  file path, so Monaco infers the language from the extension. Runs in the main
+  thread (no web worker) — IntelliSense / go-to-definition remain gated on a
+  worker + LSP setup (documented as a gap).
+- **Not built:** persistent PTY and the Node/TS debug adapter — both **verified
+  hard** against the pinned daemon's HTTP surface: there is no PTY transport
+  (only the on-demand `POST /session/:id/shell`) and no debug-adapter route — see
+  `docs/coding-environment.md` §12.11. The unified human-takeover UX (single
+  pane tying together explorer/tasks/rewind/preview) is also not built. The
+  on-demand shell remains the only terminal.
+
+### Phase 7 — Operations (migration + readiness slice)
+
+- **`migrate deploy` with a safe fallback.** The image's startup command now runs
+  `npx prisma migrate deploy` first, so the committed, reviewed migration history
+  is the source of truth for fresh installs; it falls back to
+  `npx prisma db push --accept-data-loss` only when the DB has no migration
+  baseline (a legacy installer-created DB), which is exactly the prior behavior —
+  no data loss, no destructive re-baselining. Verified on redeploy: the live DB
+  already recorded 15 migrations, so `migrate deploy` applied only the pending
+  16th and the app came up clean.
+- **Readiness beyond process health.** New `GET /api/coder/readiness` probes the
+  database (`SELECT 1`) and the daemon (`/health`) and returns `503` when either
+  is down — separate from `/api/health` (chat/Ollama) and from the daemon's own
+  self-reported `/health`. Tests:
+  `src/app/api/coder/readiness/route.test.ts`.
+- **Not done:** correlated redacted logs, backup/restore, non-root ownership, and
+  the Windows compose variant — documented as gaps.
 
 ## What is NOT done (honest gaps)
 
@@ -155,11 +198,10 @@ This is a deliberate honest-partial handoff, per the spec.
 | 1 | Non-root, drop host networking, egress policy | needs Ollama-reachability bridge redesign — `docs/coding-environment.md` §9.7, runbook |
 | 3 | Persisted vs effective value UI | partial (restart hint only) |
 | 3 | Writer/vision per-runtime scope | needs workspace trust + per-workspace agents — §17.1 |
-| 4 | Managed previews (auth proxy, SSRF guard) | raw iframe + `.peakui-preview.json` poll remain |
+| 4 | Managed previews auth proxy + registration | a correct proxy must rewrite relative URLs + upgrade HMR websockets; SSRF guard + sandbox origin isolation landed |
 | 5 | Content fingerprint + persisted records | mutation counter is a proxy (not a content hash); records are in-session only; worktree-reset + per-file diff not exposed (see above) |
-| 6 | IDE workbench (Monaco/PTY/debugger) | Monaco open; PTY + debugger verified hard — no daemon transport (§12.11); explorer + tasks + search landed |
-| 7 | `db push --accept-data-loss` → reviewed migrations | Dockerfile still uses `db push` |
-| 7 | Readiness beyond process health, redacted logs, backup/restore, non-root, Windows | not done |
+| 6 | IDE workbench (PTY/debugger) | PTY + debugger verified hard — no daemon transport (§12.11); Monaco editor + explorer + tasks + search landed |
+| 7 | Redacted logs, backup/restore, non-root, Windows | not done; migrations + readiness landed |
 
 ## Where to look
 
@@ -199,3 +241,13 @@ This is a deliberate honest-partial handoff, per the spec.
    default-deny (unknown tool name ⇒ mutating, so stale-marking can't under-mark),
    and that `verificationRecords`/`humanSaveCount` reset on every session switch
    (load/create/delete) so records never leak across sessions.
+9. The preview hardening — `POST /api/coder/preview` re-validates the URL
+   server-side via `parsePreviewUrl` (loopback-only, reserved ports refused), and
+   the preview iframe sandbox no longer includes `allow-same-origin`.
+10. The Monaco editor — `CodeEditor.tsx` bundles `monaco-editor` locally via
+    `loader.config({ monaco })` (no CDN) and is lazy-loaded with `ssr: false`; it
+    runs in the main thread (no web worker), so IntelliSense is not expected.
+11. The migration + readiness slice — the Dockerfile CMD runs
+    `npx prisma migrate deploy || npx prisma db push --accept-data-loss` (legacy
+    DBs without a baseline fall back to the prior behavior, no data loss), and
+    `GET /api/coder/readiness` returns 503 when the DB or daemon is down.

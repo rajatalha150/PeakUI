@@ -26,10 +26,10 @@ runtime and has evidence, not that a mock or a subset works.
 | 1 Ownership & runtime boundaries | 🔶 partial | authz + workspace binding + resource limits landed; non-root/bridge deferred to Phase 7 |
 | 2 Sessions, recovery, event persistence | ✅ | all 8 landed; SSE resume + no-overlap polling complete |
 | 3 Effective settings & project context | 🔶 partial | toolSearch threshold applied (restart-gated); context/tools audited & documented |
-| 4 Managed previews & dev processes | 🔶 partial | SSRF guard + origin isolation landed; proxy + registration deferred |
+| 4 Managed previews & dev processes | 🔶 partial | SSRF guard (client + server) + sandbox origin isolation landed; auth proxy + registration deferred |
 | 5 Reversible work & verification evidence | 🔶 partial | rewind exposed & live-verified; verification records + stale-marking landed (mutation-counter fingerprint) |
-| 6 Complete IDE workbench | 🔶 partial | project explorer (multi-tab), named tasks, and text search landed; Monaco/PTY/debugger not built |
-| 7 Operations, migration, deployment | ⬜ not started | `db push --accept-data-loss` still in image |
+| 6 Complete IDE workbench | 🔶 partial | project explorer (multi-tab), named tasks, text search, and Monaco editor landed; PTY/debugger verified-hard |
+| 7 Operations, migration, deployment | 🔶 partial | `migrate deploy` (with `db push` fallback) + readiness (db/daemon) landed; logs/backup/non-root/Windows remain |
 
 Legend: ✅ done · 🔶 partial · ⬜ not started
 
@@ -68,8 +68,8 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 
 - [ ] Project-owned preview registration (command/cwd/port/owner/readiness/logs)
 - [ ] Authenticated, browser-reachable preview proxy (no raw iframe URLs) — deferred: a correct proxy needs HTML/CSS/JS URL rewriting + WS/HMR upgrade; documented
-- [x] Isolate preview origin from PeakUI auth origin/cookies — reserved-port guard keeps the preview off the app origin
-- [x] Restrict preview to approved destinations/ports (no SSRF/traversal) — `parsePreviewUrl` loopback + reserved-port validation
+- [x] Isolate preview origin from PeakUI auth origin/cookies — reserved-port guard keeps the preview off the app origin; iframe sandbox hardened to drop `allow-same-origin` (preview runs in an opaque origin)
+- [x] Restrict preview to approved destinations/ports (no SSRF/traversal) — `parsePreviewUrl` loopback + reserved-port validation, now enforced at **both** boundaries: the client before framing, and the server via `POST /api/coder/preview` (defense in depth)
 - [x] Single-instance cancellable preview polling — `setTimeout` chaining (already single-flight)
 
 ## Phase 5 — Reversible work & verification evidence
@@ -81,7 +81,7 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 
 ## Phase 6 — Complete IDE workbench
 
-- [ ] Editor (Monaco) + project explorer + open tabs + search — **partial**: project explorer (list + read + edit + save via daemon `/list`/`/file`/`/file/write`, multi-tab buffers with per-tab compare-and-swap saves) and text search (glob → read → in-memory grep via `/glob` + `/file`) landed; Monaco editor not built
+- [x] Editor (Monaco) + project explorer + open tabs + search — project explorer (list + read + edit + save via daemon `/list`/`/file`/`/file/write`, multi-tab buffers with per-tab compare-and-swap saves), text search (glob → read → in-memory grep via `/glob` + `/file`), and a **Monaco editor** (bundled locally, lazy-loaded, syntax highlighting + line numbers via the model `path`) landed. IntelliSense/go-to-definition remain gated on a worker + LSP setup (documented)
 - [ ] Persistent PTY terminal (xterm.js + server PTY) — **verified hard**: the pinned daemon exposes no PTY transport (only on-demand `POST /session/:id/shell`); a persistent PTY needs a server-side broker (§12.11). On-demand shell exists
 - [x] Named project tasks (install/build/test/run) — package-manager detection (lockfile) + editable commands, run via the daemon shell
 - [ ] Node/TS debug adapter (breakpoints/stack/vars/step) — **verified hard**: no debug-adapter route on the daemon HTTP surface; needs a separate DAP server (§12.11)
@@ -89,8 +89,8 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 
 ## Phase 7 — Operations, migration, deployment
 
-- [ ] Replace `prisma db push --accept-data-loss` with reviewed migrations
-- [ ] Readiness beyond process health (db/daemon/workspace/provider)
+- [x] Replace `prisma db push --accept-data-loss` with reviewed migrations — startup now runs `migrate deploy` (committed migration history is the source of truth for fresh installs) and falls back to `db push --accept-data-loss` only for legacy DBs without a migration baseline (no data loss, no re-baselining). Verified on redeploy: the live DB already had 15 recorded migrations, so `migrate deploy` applied only the pending 16th
+- [x] Readiness beyond process health — `GET /api/coder/readiness` probes DB (`SELECT 1`) and daemon (`/health`) and returns 503 when either is down
 - [ ] Correlated redacted logs + actionable error codes
 - [ ] Backup/restore of Postgres + coder volumes
 - [ ] Non-root ownership migration
@@ -102,4 +102,4 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 - Browser harness: `scripts/coder-browser/verify-site.mjs`
 - Runbook: `docs/coder-deployment-runbook.md`
 - Handoff: `docs/coder-review-handoff.md`
-- Current suite: **975 passing / 89 files** (`npx vitest run`)
+- Current suite: **985 passing / 91 files** (`npx vitest run`)

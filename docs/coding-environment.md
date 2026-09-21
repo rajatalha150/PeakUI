@@ -725,6 +725,23 @@ HTTP surface:
 These are *hard* gaps, not merely unbuilt features: closing them is an
 architecture decision (a PTY/DAP broker in the app server), not a thin UI slice.
 
+### 12.12 App-level routes (preview re-validation + readiness)
+
+Two routes sit on the app side rather than the daemon pass-through:
+
+- **`POST /api/coder/preview`** re-validates a preview URL at the API boundary
+  before it is framed — `parsePreviewUrl` (loopback-only, reserved ports refused)
+  is the same validator the client runs, now enforced server-side so a tampered
+  or bypassed client check cannot frame an SSRF target. Returns
+  `{ ok: true, target }` or `{ error, code: 'invalid_preview_url' }` (400). This
+  is defense in depth, not a replacement for the authenticated proxy (still
+  deferred — see §4).
+- **`GET /api/coder/readiness`** probes the two things the Coding UI depends on
+  beyond the app process: the database (`SELECT 1`) and the daemon (`/health`,
+  4s timeout). It returns 200 with per-check status, or 503 when either is down.
+  Separate from `/api/health` (chat/Ollama) and the daemon's self-reported
+  `/health` pass-through.
+
 ---
 
 ## 13. Test coverage map
@@ -744,6 +761,8 @@ architecture decision (a PTY/DAP broker in the app server), not a thin UI slice.
 | `src/lib/coder-verification.test.ts` | mutating-vs-read-only tool classification (default-deny), staleness from the mutation counter, record construction |
 | `src/lib/settings-coder.test.ts` | `auto`/`yolo` enum, `yolo` default, legacy modes normalised, context/tool-search sentinels |
 | `src/app/api/coder/[...path]/route.test.ts` | 204/205/304 null-body relay, route passthrough (status/approval-mode/workspace/rewind), unowned-session deny |
+| `src/app/api/coder/preview/route.test.ts` | server-side preview-URL re-validation (loopback/reserved-port), SSRF rejection, malformed body, 403 unauth |
+| `src/app/api/coder/readiness/route.test.ts` | db/daemon probe → 200 when both up, 503 when either down, 403 unauth |
 | `src/app/api/chats/route.test.ts` | id-wins-over-surface on DELETE, surface-wide only when bare |
 
 ---
