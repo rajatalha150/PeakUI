@@ -16,6 +16,15 @@
 /** Hostnames a preview target may bind to (the daemon binds loopback). */
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
 
+export type PreviewDevice = 'desktop' | 'tablet' | 'mobile'
+
+/** True CSS viewport sizes used by the preview and its server-side capture. */
+export const PREVIEW_VIEWPORTS: Record<PreviewDevice, { width: number; height: number }> = {
+  desktop: { width: 1280, height: 800 },
+  tablet: { width: 768, height: 1024 },
+  mobile: { width: 390, height: 844 },
+}
+
 /**
  * Ports already owned by other services on the host's loopback. The daemon runs
  * with host networking, so the agent's dev server CANNOT actually bind these

@@ -28,9 +28,10 @@ implementation is committed on branch `trimmer` at `b14886b` and deployed with
 session/workspace binding, coder gateway authorization, SSE resume, multi-tab
 Monaco editing, file CAS saves, workspace search, named tasks, rewind and
 verification records, preview SSRF validation, readiness checks, resource limits,
-and fail-closed Prisma migrations. The production smoke test is
+fail-closed Prisma migrations, and isolated preview screenshots sent to the
+vision-capable coding agent. The production smoke test is
 `node scripts/coder-review-smoke.mjs http://127.0.0.1:3000`; the current suite is
-1001 tests across 91 files. Remaining gaps are documented in
+1004 tests across 92 files. Remaining gaps are documented in
 `docs/coder-review-handoff.md`: per-user runtimes, non-root/bridge isolation,
 managed preview proxy, persistent PTY, debugger, backups, redacted operations
 logs, and Windows coder deployment.

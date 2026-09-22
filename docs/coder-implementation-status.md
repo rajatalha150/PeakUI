@@ -27,7 +27,7 @@ runtime and has evidence, not that a mock or a subset works.
 | 1 Ownership & runtime boundaries | 🔶 partial | authz + workspace binding + resource limits landed; non-root/bridge deferred to Phase 7 |
 | 2 Sessions, recovery, event persistence | ✅ | all 8 landed; SSE resume + no-overlap polling complete |
 | 3 Effective settings & project context | 🔶 partial | toolSearch threshold applied (restart-gated); context/tools audited & documented |
-| 4 Managed previews & dev processes | 🔶 partial | SSRF guard (client + server) + sandbox origin isolation landed; auth proxy + registration deferred |
+| 4 Managed previews & dev processes | 🔶 partial | SSRF guard, sandbox origin isolation, manual device/URL control, and isolated vision screenshot review landed; auth proxy + registration deferred |
 | 5 Reversible work & verification evidence | 🔶 partial | rewind exposed & live-verified; verification records + stale-marking landed (mutation-counter fingerprint) |
 | 6 Complete IDE workbench | 🔶 partial | project explorer (multi-tab), named tasks, text search, and Monaco editor landed; PTY/debugger verified-hard |
 | 7 Operations, migration, deployment | 🔶 partial | fail-closed `migrate deploy` + readiness (db/daemon) + healthcheck/resource limits landed; logs/backup/non-root/Windows remain |
@@ -71,6 +71,7 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 - [ ] Authenticated, browser-reachable preview proxy (no raw iframe URLs) — deferred: a correct proxy needs HTML/CSS/JS URL rewriting + WS/HMR upgrade; documented
 - [x] Isolate preview origin from PeakUI auth origin/cookies — reserved-port guard keeps the preview off the app origin; iframe sandbox hardened to drop `allow-same-origin` (preview runs in an opaque origin)
 - [x] Restrict preview to approved destinations/ports (no SSRF/traversal) — `parsePreviewUrl` loopback + reserved-port validation, now enforced at **both** boundaries: the client before framing, and the server via `POST /api/coder/preview` (defense in depth)
+- [x] Capture selected preview viewport for vision review — `POST /api/coder/preview/screenshot` renders the approved loopback origin only in isolated Chromium, blocks other network origins, caps JPEG bytes, and sends the selected Desktop/Tablet/Mobile image as a native Qwen image prompt
 - [x] Single-instance cancellable preview polling — `setTimeout` chaining (already single-flight)
 
 ## Phase 5 — Reversible work & verification evidence
@@ -103,4 +104,4 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 - Browser harness: `scripts/coder-browser/verify-site.mjs`
 - Runbook: `docs/coder-deployment-runbook.md`
 - Handoff: `docs/coder-review-handoff.md`
-- Current suite: **1001 passing / 91 files** (`npm test`); production smoke: `scripts/coder-review-smoke.mjs`
+- Current suite: **1004 passing / 92 files** (`npm test`); production smoke: `scripts/coder-review-smoke.mjs`

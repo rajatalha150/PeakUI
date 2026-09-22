@@ -89,6 +89,15 @@ documented as gaps. This is a deliberate honest-partial handoff, per the spec.
 - **Sandbox origin hardening.** The preview iframe dropped `allow-same-origin`,
   so the framed dev server now runs in an opaque origin and cannot reach the
   parent's cookies/localStorage even if it ever landed on the app origin.
+- **Manual preview control + vision review.** A manual URL/device selection wins
+  over the agent's `.peakui-preview.json` until the user chooses to follow the
+  agent again. The preview shows the real active viewport dimensions and scales
+  its frame without changing the iframe's CSS viewport. **Vision** captures that
+  selected viewport through `POST /api/coder/preview/screenshot`, then sends the
+  isolated JPEG as a native Qwen image prompt with instructions to inspect, fix,
+  and verify the project. Capture allows only the already-approved loopback
+  origin, blocks subrequests to every other origin, caps output at 3 MiB, and is
+  concurrency-limited. Tests: screenshot route + production smoke.
 - **Not done:** the authenticated preview *proxy* (a correct one must rewrite
   relative URLs and upgrade HMR websockets) and project-owned preview
   registration — documented as gaps.

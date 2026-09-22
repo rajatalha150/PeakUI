@@ -1,11 +1,11 @@
 "use client";
 
 import React from 'react';
-import { AlertCircle, Bot, CheckCircle2, ChevronRight, Circle, ClipboardCopy, FileText, Folder, Globe, History, Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
+import { AlertCircle, Bot, Camera, CheckCircle2, ChevronRight, Circle, ClipboardCopy, FileText, Folder, Globe, History, Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
 import { buildConversation, fetchFullTranscript, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from '@/lib/coder-transcript';
 import { streamSessionEvents } from '@/lib/coder-sse';
-import { parsePreviewUrl } from '@/lib/coder-preview';
+import { parsePreviewUrl, PREVIEW_VIEWPORTS, type PreviewDevice } from '@/lib/coder-preview';
 import { parseRewindResult, parseRewindSnapshots, type RewindResult, type RewindSnapshot } from '@/lib/coder-rewind';
 import { parseFileContent, parseFileList, parseFileWriteResult, reconcileFileSave, type FileEntry } from '@/lib/coder-files';
 import { buildDefaultTasks, detectPackageManager, parseShellResult, type PackageManager, type Task } from '@/lib/coder-tasks';
@@ -355,10 +355,14 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [previewUrl, setPreviewUrl] = React.useState('');
   const [previewInput, setPreviewInput] = React.useState('');
-  const [previewDevice, setPreviewDevice] = React.useState<'desktop' | 'tablet' | 'mobile'>('desktop');
+  const [previewDevice, setPreviewDevice] = React.useState<PreviewDevice>('desktop');
   // A user's device selection wins over the last device written by the agent.
   // The override is cleared when the agent points the preview at a new URL.
   const previewDeviceManualRef = React.useRef(false);
+  const previewUrlManualRef = React.useRef(false);
+  const agentPreviewRef = React.useRef<{ url: string; device?: PreviewDevice } | null>(null);
+  const [previewReloadKey, setPreviewReloadKey] = React.useState(0);
+  const [previewCapturing, setPreviewCapturing] = React.useState(false);
   const [previewError, setPreviewError] = React.useState('');
   // Measured width of the preview viewport, so device frames scale to fit while
   // the iframe still renders at its true pixel dimensions (media queries fire).
@@ -596,12 +600,15 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
   const PREVIEW_FILE = '.peakui-preview.json';
 
-  const applyPreview = React.useCallback((url: string) => {
+  const applyPreview = React.useCallback((url: string, source: 'agent' | 'manual' = 'manual') => {
     const clean = (url || '').trim();
     setPreviewInput(clean);
     if (!clean) {
-      setPreviewUrl('');
-      setPreviewError('');
+      if (source === 'manual') {
+        previewUrlManualRef.current = true;
+        setPreviewUrl('');
+        setPreviewError('');
+      }
       return;
     }
     // Reject anything that is not a loopback dev-server URL before it can be
@@ -610,11 +617,12 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     // (the app/daemon/DB/SearXNG/tor) being loaded into the preview pane.
     const parsed = parsePreviewUrl(clean);
     if ('error' in parsed) {
-      setPreviewUrl('');
-      setPreviewError(parsed.error);
+      setPreviewError(`${parsed.error} Preview only loads a local development server, for example http://127.0.0.1:5173.`);
       return;
     }
+    if (source === 'manual') previewUrlManualRef.current = true;
     setPreviewUrl(clean);
+    setPreviewReloadKey(key => key + 1);
     setPreviewError('');
     // Defense in depth: re-validate server-side before framing, so a URL the
     // client accepts but the API refuses is still kept out of the pane.
@@ -627,7 +635,6 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         });
         if (!res.ok) {
           const data = (await res.json().catch(() => ({}))) as { error?: string };
-          setPreviewUrl('');
           setPreviewError(data.error || 'Preview URL rejected by the server.');
         }
       } catch {
@@ -657,12 +664,16 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         try {
           const parsed = JSON.parse(raw);
           const url = typeof parsed.url === 'string' ? parsed.url : (typeof parsed === 'string' ? parsed : '');
-          if (url && url !== previewUrl) {
+          const device = typeof parsed.device === 'string' && ['desktop', 'tablet', 'mobile'].includes(parsed.device)
+            ? parsed.device as PreviewDevice
+            : undefined;
+          if (url) agentPreviewRef.current = { url, device };
+          if (url && url !== previewUrl && !previewUrlManualRef.current) {
             previewDeviceManualRef.current = false;
-            applyPreview(url);
+            applyPreview(url, 'agent');
           }
-          if (!previewDeviceManualRef.current && typeof parsed.device === 'string' && ['desktop','tablet','mobile'].includes(parsed.device)) {
-            setPreviewDevice(parsed.device as 'desktop' | 'tablet' | 'mobile');
+          if (!previewUrlManualRef.current && !previewDeviceManualRef.current && device) {
+            setPreviewDevice(device);
           }
         } catch { /* not JSON yet; keep polling */ }
       } catch {
@@ -676,18 +687,58 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   }, [previewOpen, daemonSessionId, previewUrl, applyPreview, workspace]);
 
   const openPreview = (initialUrl?: string) => {
-    if (initialUrl) applyPreview(initialUrl);
+    if (initialUrl) applyPreview(initialUrl, 'manual');
     setPreviewOpen(o => !o);
   };
 
-  // Device viewports, at their true pixel sizes. The preview iframe is rendered
-  // at these exact dimensions (so the page's own media queries actually fire)
-  // and the whole frame is then scaled down to fit the preview pane — this is
-  // what makes switching tablet/mobile visibly change the layout.
-  const PREVIEW_VIEWPORTS: Record<'desktop' | 'tablet' | 'mobile', { width: number; height: number }> = {
-    desktop: { width: 1280, height: 800 },
-    tablet: { width: 768, height: 1024 },
-    mobile: { width: 390, height: 844 },
+  const followAgentPreview = () => {
+    previewUrlManualRef.current = false;
+    previewDeviceManualRef.current = false;
+    const agentPreview = agentPreviewRef.current;
+    if (!agentPreview) {
+      setPreviewError('The agent has not published a preview URL yet.');
+      return;
+    }
+    if (agentPreview.device) setPreviewDevice(agentPreview.device);
+    applyPreview(agentPreview.url, 'agent');
+  };
+
+  const sendPreviewToVision = async () => {
+    if (!activeSessionId || !previewUrl || previewCapturing) return;
+    const current = captureSession();
+    setPreviewCapturing(true);
+    setError('');
+    setLiveStatus('capturing preview for vision…');
+    try {
+      const dsid = await ensureDaemonSession();
+      if (!dsid) throw new Error('Failed to start daemon session');
+      const capture = await fetch('/api/coder/preview/screenshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: previewUrl, device: previewDevice }),
+      });
+      const image = await capture.json().catch(() => ({})) as { data?: unknown; mimeType?: unknown; width?: unknown; height?: unknown; error?: unknown };
+      if (!capture.ok || typeof image.data !== 'string' || typeof image.mimeType !== 'string') {
+        throw new Error(typeof image.error === 'string' ? image.error : 'Preview capture failed');
+      }
+      const width = typeof image.width === 'number' ? image.width : PREVIEW_VIEWPORTS[previewDevice].width;
+      const height = typeof image.height === 'number' ? image.height : PREVIEW_VIEWPORTS[previewDevice].height;
+      const prompt = `Inspect the attached ${previewDevice} (${width}x${height}) screenshot of the running local preview at ${previewUrl}. Identify visual, responsive, usability, and functional defects. Then inspect the project, implement the fixes you find, and verify the result in the same viewport. Do not only describe issues: carry the work through to tested code changes.`;
+      const response = await fetch(`/api/coder/session/${dsid}/prompt`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: [{ type: 'text', text: prompt }, { type: 'image', data: image.data, mimeType: image.mimeType }] }),
+      });
+      const result = await response.json().catch(() => ({})) as { promptId?: string; error?: string };
+      if (!response.ok || !result.promptId) throw new Error(result.error || 'Vision prompt rejected');
+      if (current()) setLiveStatus('vision review running…');
+    } catch (error) {
+      if (!current()) return;
+      setError(error instanceof Error ? error.message : 'Preview vision review failed');
+      setLiveStatus('');
+    } finally {
+      setPreviewCapturing(false);
+    }
   };
 
   // Measure the preview stage so the device frame scales to fit it.
@@ -2149,6 +2200,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const activityColor = (status: string) => status === 'failed' || status === 'error' ? '#ef4444'
     : status === 'completed' || status === 'success' ? '#34d399'
     : '#22d3ee';
+  const previewViewport = PREVIEW_VIEWPORTS[previewDevice];
+  const previewScale = previewStageWidth ? Math.min(1, previewStageWidth / previewViewport.width) : 1;
 
   return (
     <div style={{
@@ -2838,7 +2891,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         {/* Preview browser — device-switchable, AI-driven. */}
         {previewOpen && (
           <div style={{ width: 380, maxWidth: '92vw', borderLeft: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', minHeight: 0, flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap' }}>
               <Globe size={13} style={{ color: accent }} />
               <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(209,213,219,0.5)' }}>Preview</span>
               <div style={{ display: 'flex', gap: '2px', marginLeft: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 6, padding: 2 }}>
@@ -2850,6 +2903,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                       setPreviewDevice(d);
                     }}
                     title={`${d} viewport`}
+                    aria-pressed={previewDevice === d}
                     style={{
                       background: previewDevice === d ? 'rgba(34,211,238,0.15)' : 'transparent',
                       color: previewDevice === d ? accent : 'rgba(209,213,219,0.6)',
@@ -2860,44 +2914,56 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                   </button>
                 ))}
               </div>
+              <span style={{ fontSize: '0.64rem', color: 'rgba(209,213,219,0.45)', fontFamily: 'ui-monospace, monospace', whiteSpace: 'nowrap' }}>
+                {previewViewport.width}x{previewViewport.height}
+              </span>
+              {previewUrlManualRef.current && (
+                <button onClick={followAgentPreview} title="Use the URL and device requested by the agent" style={{ display: 'inline-flex', alignItems: 'center', background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.6)', cursor: 'pointer', padding: 2 }}>
+                  <RefreshCw size={13} />
+                </button>
+              )}
+              <button onClick={() => void sendPreviewToVision()} disabled={!previewUrl || !activeSessionId || previewCapturing} title="Capture this viewport and ask the coding agent to inspect and fix it" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(34,211,238,0.1)', color: accent, border: '1px solid rgba(34,211,238,0.3)', borderRadius: 5, padding: '3px 6px', fontSize: '0.66rem', cursor: previewUrl && activeSessionId && !previewCapturing ? 'pointer' : 'default', opacity: previewUrl && activeSessionId && !previewCapturing ? 1 : 0.45 }}>
+                {previewCapturing ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Camera size={12} />} Vision
+              </button>
               <button onClick={() => setPreviewOpen(false)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.5)', cursor: 'pointer', padding: 0 }}><X size={13} /></button>
             </div>
             <div style={{ display: 'flex', gap: '6px', padding: '8px 10px' }}>
               <input
                 value={previewInput}
                 onChange={e => setPreviewInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') applyPreview(previewInput); }}
-                placeholder="http://localhost:3000 — the agent can set this too"
+                onKeyDown={e => { if (e.key === 'Enter') applyPreview(previewInput, 'manual'); }}
+                placeholder="http://127.0.0.1:5173"
                 style={{ flex: 1, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
               />
-              <button onClick={() => applyPreview(previewInput)} style={{ background: 'rgba(34,211,238,0.12)', color: accent, border: `1px solid ${accent}`, borderRadius: '6px', padding: '4px 10px', fontSize: '0.72rem', cursor: 'pointer' }}>Go</button>
+              <button onClick={() => applyPreview(previewInput, 'manual')} style={{ background: 'rgba(34,211,238,0.12)', color: accent, border: `1px solid ${accent}`, borderRadius: '6px', padding: '4px 10px', fontSize: '0.72rem', cursor: 'pointer' }}>Go</button>
             </div>
+            {previewError && <div role="alert" style={{ margin: '0 10px 8px', padding: '6px 8px', fontSize: '0.7rem', color: '#fca5a5', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5 }}>{previewError}</div>}
             <div ref={previewStageRef} style={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', overflow: 'auto', background: 'rgba(0,0,0,0.2)' }}>
               {previewUrl ? (
                 <div
                   style={{
                     position: 'relative',
-                    margin: '12px auto',
+                    margin: '12px 0',
                     flexShrink: 0,
-                    transformOrigin: 'top center',
-                    transform: previewStageWidth
-                      ? `scale(${Math.min(1, previewStageWidth / PREVIEW_VIEWPORTS[previewDevice].width)})`
-                      : 'none',
+                    width: previewViewport.width * previewScale,
+                    height: previewViewport.height * previewScale,
                   }}
                 >
                   <iframe
-                    key={previewDevice + previewUrl}
+                    key={`${previewDevice}-${previewUrl}-${previewReloadKey}`}
                     src={previewUrl}
                     title="App preview"
                     style={{
-                      display: 'block',
+                      position: 'absolute', top: 0, left: 0, display: 'block',
                       border: '1px solid rgba(255,255,255,0.12)',
                       borderRadius: previewDevice === 'mobile' ? 22 : previewDevice === 'tablet' ? 14 : 6,
                       background: '#fff',
                       flexShrink: 0,
-                      width: PREVIEW_VIEWPORTS[previewDevice].width,
-                      height: PREVIEW_VIEWPORTS[previewDevice].height,
+                      width: previewViewport.width,
+                      height: previewViewport.height,
                       boxShadow: '0 12px 40px rgba(0,0,0,0.45)',
+                      transform: `scale(${previewScale})`,
+                      transformOrigin: 'top left',
                     }}
                     sandbox="allow-scripts allow-forms allow-popups"
                   />
@@ -2907,11 +2973,10 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                   <Globe size={28} style={{ margin: '0 auto 10px', color: accent, opacity: 0.5 }} />
                   No URL yet.
                   <br />
-                  <span style={{ fontSize: '0.72rem' }}>Enter one, or let the agent start a dev server — it will appear here automatically.</span>
+                  <span style={{ fontSize: '0.72rem' }}>Enter a local dev-server URL, or let the agent start one - it will appear here automatically.</span>
                 </div>
               )}
             </div>
-            {previewError && <div style={{ padding: '6px 12px', fontSize: '0.72rem', color: '#fca5a5', borderTop: '1px solid rgba(239,68,68,0.2)' }}>{previewError}</div>}
           </div>
         )}
 

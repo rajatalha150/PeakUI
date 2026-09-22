@@ -85,6 +85,15 @@ docker inspect peakui-coder-1 \
    daemon restart.
 4. Kill the SSE stream (e.g. stop/start the daemon) and confirm the transcript
    poll re-renders the full history with no gap.
+5. Open **Preview** with a local dev-server URL such as
+   `http://127.0.0.1:5173`. External URLs are intentionally rejected. Switch
+   Desktop / Tablet / Mobile, then select **Vision** to capture the selected
+   viewport and send it to the coding agent for visual review and fixes.
+
+Preview capture uses an isolated Chromium page in the app container. It permits
+only requests back to the approved preview origin, caps the JPEG at 3 MiB, and
+passes the capture to Qwen as a native image block; it does not expose a general
+server-side browser or external URL fetcher.
 
 ## Rollback
 

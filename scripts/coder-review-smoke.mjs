@@ -3,6 +3,8 @@ import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { Client } from 'pg';
 import { SignJWT } from 'jose';
 import { chromium } from 'playwright-core';
@@ -21,6 +23,7 @@ let browser;
 let admin;
 let daemon;
 let fixtureCreated = false;
+let previewFixtureServer;
 
 async function request(user, route, method = 'GET', body, extraHeaders = {}) {
   const response = await fetch(new URL(route, base), {
@@ -50,6 +53,14 @@ async function account(role) {
 try {
   await db.connect();
   await mkdir(artifacts, { recursive: true, mode: 0o700 });
+  previewFixtureServer = createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end('<!doctype html><title>PeakUI preview fixture</title><main style="color: green">preview capture fixture</main>');
+  });
+  previewFixtureServer.listen(0, '127.0.0.1');
+  await once(previewFixtureServer, 'listening');
+  const previewPort = previewFixtureServer.address().port;
+  const previewFixtureUrl = `http://127.0.0.1:${previewPort}`;
   admin = await account('ADMIN');
   const peer = await account('ADMIN');
   const standard = await account('USER');
@@ -73,6 +84,14 @@ try {
   await request(admin, '/api/chats', 'PATCH', { id: sid, surface: 'coder', coderWorkspace: '/apps' });
   assert.equal((await request(admin, `/api/chats/${sid}`)).data.coderWorkspace, '/workspace');
   checks.push('session ownership, origin validation and immutable workspace binding');
+
+  const screenshot = await request(admin, '/api/coder/preview/screenshot', 'POST', { url: previewFixtureUrl, device: 'tablet' });
+  assert.equal(screenshot.status, 200, JSON.stringify(screenshot));
+  assert.equal(screenshot.data.mimeType, 'image/jpeg');
+  assert.equal(screenshot.data.width, 768);
+  assert.equal(screenshot.data.height, 1024);
+  assert(typeof screenshot.data.data === 'string' && screenshot.data.data.length > 1000, 'Preview screenshot must include JPEG bytes');
+  checks.push('isolated server-side preview screenshot at selected viewport');
 
   const root = '/api/coder/workspaces/%2Fworkspace';
   const write = await request(admin, `${root}/file/write`, 'POST', { path, mode: 'create', content: 'review fixture alpha\n' });
@@ -135,12 +154,7 @@ try {
   await page.route(/\/api\/coder\/workspaces\/[^/]+\/file\?path=.*peakui-preview\.json/, route => route.fulfill({
     status: 200,
     contentType: 'application/json',
-    body: JSON.stringify({ content: JSON.stringify({ url: 'http://127.0.0.1:5173', device: 'mobile' }) }),
-  }));
-  await page.route('http://127.0.0.1:5173/**', route => route.fulfill({
-    status: 200,
-    contentType: 'text/html',
-    body: '<!doctype html><title>Preview fixture</title><main>Preview fixture</main>',
+    body: JSON.stringify({ content: JSON.stringify({ url: previewFixtureUrl, device: 'mobile' }) }),
   }));
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('iframe[title="App preview"]')?.getAttribute('style')?.includes('width: 390px'));
@@ -148,14 +162,22 @@ try {
   await page.waitForFunction(() => document.querySelector('iframe[title="App preview"]')?.getAttribute('style')?.includes('width: 1280px'));
   await page.waitForTimeout(2_300);
   assert.equal(await page.locator('iframe[title="App preview"]').evaluate(el => el.getAttribute('style')?.includes('width: 1280px')), true);
-  const desktopFrame = page.frames().find(frame => frame.url().startsWith('http://127.0.0.1:5173'));
+  const desktopFrame = page.frames().find(frame => frame.url().startsWith(previewFixtureUrl));
   assert.equal(await desktopFrame?.evaluate(() => window.innerWidth), 1278);
   await page.getByRole('button', { name: 'tablet', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('iframe[title="App preview"]')?.getAttribute('style')?.includes('width: 768px'));
   await page.waitForTimeout(100);
-  const tabletFrame = page.frames().find(frame => frame.url().startsWith('http://127.0.0.1:5173'));
+  const tabletFrame = page.frames().find(frame => frame.url().startsWith(previewFixtureUrl));
   assert.equal(await tabletFrame?.evaluate(() => window.innerWidth), 766);
   checks.push('manual preview viewport survives agent device polling');
+
+  const visionPrompt = page.waitForRequest(request => request.url().includes('/api/coder/session/') && request.url().endsWith('/prompt'));
+  await page.getByRole('button', { name: 'Vision', exact: true }).click();
+  const visionBody = JSON.parse((await visionPrompt).postData() || '{}');
+  assert.equal(visionBody.prompt?.[1]?.type, 'image');
+  assert.equal(visionBody.prompt?.[1]?.mimeType, 'image/jpeg');
+  assert(typeof visionBody.prompt?.[1]?.data === 'string' && visionBody.prompt[1].data.length > 1000, 'Vision prompt must carry the screenshot JPEG');
+  checks.push('preview screenshot attached to the coding agent vision prompt');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: `${artifacts}/mobile-editor.png`, fullPage: true });
@@ -166,6 +188,7 @@ try {
   console.log(JSON.stringify({ ok: true, checks, artifacts }, null, 2));
 } finally {
   await browser?.close();
+  await new Promise(resolve => previewFixtureServer?.close(resolve));
   if (fixtureCreated && admin && daemon?.sessionId) {
     const cleanup = await request(admin, `/api/coder/session/${daemon.sessionId}/shell`, 'POST', { command: `rm -- '${path}'` }, { 'x-qwen-client-id': daemon.clientId });
     if (cleanup.status !== 200) console.error('Fixture file cleanup failed:', cleanup.status);
