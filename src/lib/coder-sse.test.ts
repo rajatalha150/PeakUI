@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
-import { createSseParser } from './coder-sse'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createSseParser, streamSessionEvents } from './coder-sse'
+
+afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 
 function collect(...chunks: string[]) {
   const frames: Array<{ id?: string; data: string }> = []
@@ -9,6 +11,15 @@ function collect(...chunks: string[]) {
 }
 
 describe('createSseParser', () => {
+  it('handles CRLF split between chunks and bare CR terminators', () => {
+    expect(collect('id: 1\r', '\ndata: first\r', '\n\r', '\ndata: second\r\r')).toEqual([
+      { id: '1', data: 'first' }, { data: 'second' },
+    ])
+  })
+
+  it('bounds unterminated input', () => {
+    expect(() => collect('data: ' + 'x'.repeat(2 * 1024 * 1024))).toThrow('buffer limit')
+  })
   it('parses a single frame with an id and data', () => {
     expect(collect('id: 12\ndata: {"type":"x"}\n\n')).toEqual([
       { id: '12', data: '{"type":"x"}' },
@@ -50,5 +61,42 @@ describe('createSseParser', () => {
     expect(collect('id: 7 \ndata: {"type":"tool_call"}\n\n')).toEqual([
       { id: '7', data: '{"type":"tool_call"}' },
     ])
+  })
+})
+
+describe('streamSessionEvents', () => {
+  it('does not start an already-aborted subscription', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    streamSessionEvents('/events', () => {}, { signal: AbortSignal.abort() })()
+    await Promise.resolve()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('stops on expired authentication instead of retrying forever', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 401 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const onError = vi.fn()
+    const close = streamSessionEvents('/events', () => {}, { onError })
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(onError).toHaveBeenCalledWith(401)
+    close()
+  })
+
+  it('resumes with cursor/epoch and clears an old cursor when the epoch changes', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response('id: 42\ndata: first\n\n', { headers: { 'x-qwen-event-epoch': 'one' } }))
+      .mockResolvedValueOnce(new Response(': heartbeat\n\n', { headers: { 'x-qwen-event-epoch': 'two' } }))
+      .mockResolvedValue(new Response(null, { status: 401 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const close = streamSessionEvents('/events', () => {})
+    await vi.advanceTimersByTimeAsync(1600)
+    expect(fetchMock.mock.calls[1][1].headers).toMatchObject({ 'last-event-id': '42', 'x-qwen-event-epoch': 'one' })
+    expect(fetchMock.mock.calls[2][1].headers).not.toHaveProperty('last-event-id')
+    expect(fetchMock.mock.calls[2][1].headers['x-qwen-event-epoch']).toBe('two')
+    close()
   })
 })

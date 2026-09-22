@@ -18,6 +18,9 @@ features — no volume reset, no credential rotation, no `docker compose down -v
   (`tools.toolSearch.threshold`, user scope, `requiresRestart: true`).
 - **Container isolation**: `pids_limit`, `mem_limit`, `no-new-privileges`,
   and `cap_drop` of the host-dangerous capabilities on the `coder` service.
+- **Shared-runtime access boundary**: because the current daemon is one root,
+  host-network runtime, coder routes are restricted to `ADMIN` users until
+  per-user runtimes and bridge networking are implemented.
 
 ## Prerequisites (secrets — all via `.env`, never committed)
 
@@ -36,14 +39,14 @@ features — no volume reset, no credential rotation, no `docker compose down -v
 # 1. Rebuild the coder + app images and recreate the services (additive).
 docker compose up -d --build --force-recreate app coder
 
-# 2. The app entrypoint runs `prisma db push --accept-data-loss` on boot, which
-#    applies the nullable coderWorkspace column additively (no data loss). The
-#    reviewed migration file is also present for future `migrate deploy` use:
-#      prisma/migrations/20260921_bind_coder_session_workspace/migration.sql
+# 2. The app entrypoint runs `prisma migrate deploy` on boot. It applies the
+#    committed migration history and fails closed if the database is unbaselined
+#    or inconsistent. Take a backup and explicitly baseline legacy databases;
+#    do not reintroduce a `db push --accept-data-loss` startup fallback.
 ```
 
-No manual DB step is required for this round — `db push` applies the additive
-column on the existing container start.
+No manual DB step is required when the database already has the committed
+migration history.
 
 ## Verify
 
@@ -53,7 +56,13 @@ curl -s http://127.0.0.1:4170/health        # {"status":"ok"}
 curl -s http://127.0.0.1:4170/capabilities  # includes session_shell_command
 
 # App up
-curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/   # 200
+  curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/   # 200/307
+
+# DB + daemon readiness
+  curl -s http://127.0.0.1:3000/api/coder/readiness
+
+# Disposable end-to-end browser/API smoke test
+  node scripts/coder-review-smoke.mjs http://127.0.0.1:3000
 
 # Column present
 docker exec peakui-db-1 psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
@@ -92,11 +101,10 @@ No `docker compose down -v` anywhere in this process.
 
 ## Known operational gaps (Phase 7 — not yet done)
 
-- **`prisma db push --accept-data-loss` is still the boot-time migration path.**
-  The Dockerfile uses `db push` (not `migrate deploy`) because installer-created
-  DBs have no migration baseline. A reviewed-migrations workflow is a separate
-  migration; until then the migration files are advisory records, not the
-  applied path.
+- **Legacy databases without migration history require explicit remediation.**
+  Startup is intentionally fail-closed with `migrate deploy`; create a backup,
+  baseline the known schema, and then deploy. Never restore an automatic
+  `db push --accept-data-loss` fallback to production startup.
 - **Non-root + dropping host networking** is not done. Host networking is how the
   coder container reaches the host's Ollama at `127.0.0.1:11434`; going non-root
   and/or moving to a bridge network (which would also let us enforce the egress

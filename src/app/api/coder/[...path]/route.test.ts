@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
-import { authorizeCoderSession } from '@/lib/coder-authorization'
+import { authorizeCoderSession, bindCoderSessionWorkspace } from '@/lib/coder-authorization'
 
 /**
  * Regression cover for the gateway route's response relay.
@@ -30,7 +30,7 @@ vi.mock('@/lib/request-auth', () => ({
 // the DB lookup so ownership checks pass without a database.
 vi.mock('@/lib/coder-authorization', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/coder-authorization')>()
-  return { ...actual, authorizeCoderSession: vi.fn().mockResolvedValue(true) }
+  return { ...actual, authorizeCoderSession: vi.fn().mockResolvedValue(true), bindCoderSessionWorkspace: vi.fn().mockResolvedValue(true) }
 })
 
 async function loadRoute() {
@@ -47,8 +47,10 @@ beforeEach(() => {
   mocks.requireCurrentAuthWithPermissions.mockReset()
   mocks.requireCurrentAuthWithPermissions.mockResolvedValue({
     userId: 'user-1',
-    auth: { user: { role: 'USER' } },
+    auth: { user: { role: 'ADMIN' } },
   })
+  vi.mocked(authorizeCoderSession).mockResolvedValue(true)
+  vi.mocked(bindCoderSessionWorkspace).mockResolvedValue(true)
 })
 
 afterEach(() => {
@@ -58,6 +60,53 @@ afterEach(() => {
 })
 
 describe('coder gateway route — response relay', () => {
+  it('denies non-admin access to all shared runtime surfaces before forwarding', async () => {
+    mocks.requireCurrentAuthWithPermissions.mockResolvedValue({ userId: 'user-1', auth: { user: { role: 'USER' } } })
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const { GET, POST } = await loadRoute()
+    for (const path of ['/file?path=%2Fworkspace%2Fsecret', '/workspaces', '/workspaces/%2Fworkspace/sessions', '/workspace/settings', '/session/abc/status']) {
+      expect((await GET(makeRequest(path))).status).toBe(403)
+    }
+    expect((await POST(makeRequest('/session', { method: 'POST', body: '{}' }))).status).toBe(403)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects cross-origin mutations even for an administrator', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const { POST } = await loadRoute()
+    expect((await POST(makeRequest('/session/abc/shell', { method: 'POST', headers: { origin: 'https://untrusted.example' }, body: '{}' }))).status).toBe(403)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('requires an owned session and binds its workspace before daemon creation', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}'))
+    vi.stubGlobal('fetch', fetchMock)
+    const { POST } = await loadRoute()
+    for (const body of [{}, { cwd: '/workspace' }, { sessionId: null, cwd: '/workspace' }]) {
+      expect((await POST(makeRequest('/session', { method: 'POST', body: JSON.stringify(body) }))).status).toBe(400)
+    }
+    vi.mocked(bindCoderSessionWorkspace).mockResolvedValue(false)
+    expect((await POST(makeRequest('/session', { method: 'POST', body: JSON.stringify({ sessionId: 'abc', cwd: '/other' }) }))).status).toBe(409)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('allows workspace-scoped glob without a file path parameter', async () => {
+    const fetchMock = vi.fn(async () => new Response('{"matches":[]}'))
+    vi.stubGlobal('fetch', fetchMock)
+    const { GET } = await loadRoute()
+    expect((await GET(makeRequest('/workspaces/%2Fapps/glob?pattern=**%2F*&maxResults=200'))).status).toBe(200)
+    expect((await GET(makeRequest('/glob?pattern=**%2F*'))).status).toBe(200)
+  })
+
+  it('rejects an encoded session-path escape', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const { GET } = await loadRoute()
+    expect((await GET(makeRequest('/session/abc%2F..%2Fforeign/status'))).status).toBe(404)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
   it('relays a daemon 204 without throwing and without attaching a body', async () => {
     // This is exactly what `POST /session/:id/cancel` returns upstream.
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 204 })))

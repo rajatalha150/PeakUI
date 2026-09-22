@@ -7,7 +7,7 @@ import { buildConversation, fetchFullTranscript, serializeConversation, trailing
 import { streamSessionEvents } from '@/lib/coder-sse';
 import { parsePreviewUrl } from '@/lib/coder-preview';
 import { parseRewindResult, parseRewindSnapshots, type RewindResult, type RewindSnapshot } from '@/lib/coder-rewind';
-import { parseFileContent, parseFileList, parseFileWriteResult, type FileEntry } from '@/lib/coder-files';
+import { parseFileContent, parseFileList, parseFileWriteResult, reconcileFileSave, type FileEntry } from '@/lib/coder-files';
 import { buildDefaultTasks, detectPackageManager, parseShellResult, type PackageManager, type Task } from '@/lib/coder-tasks';
 import { absoluteWorkspacePath, parseGlobResult, searchLines, type SearchHit } from '@/lib/coder-search';
 import { buildVerificationRecord, isMutatingTool, isVerificationStale, type VerificationRecord } from '@/lib/coder-verification';
@@ -297,6 +297,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [connecting, setConnecting] = React.useState(true);
   const [error, setError] = React.useState('');
   const [workspace, setWorkspace] = React.useState('/workspace');
+  const [workspaceDraft, setWorkspaceDraft] = React.useState('/workspace');
   const [daemonOnline, setDaemonOnline] = React.useState(false);
   const [sessionStatus, setSessionStatus] = React.useState<CoderSessionStatus | null>(null);
   const [toolActivity, setToolActivity] = React.useState<ToolActivity[]>([]);
@@ -325,7 +326,9 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   // Single-flight guard for `ensureDaemonSession`: concurrent callers (eager
   // reattach + a fast send) share one create/load promise instead of racing two
   // daemon sessions.
-  const ensurePromiseRef = React.useRef<Promise<string | null> | null>(null);
+  const ensurePromiseRef = React.useRef<{ sessionId: string; promise: Promise<string | null> } | null>(null);
+  const sessionGenerationRef = React.useRef(0);
+  const persistInFlightRef = React.useRef(false);
   // Mirrors `activeSessionId` for the async session path, so a create/load that
   // resolves AFTER the user switched sessions cannot bind the wrong session.
   const activeSessionIdRef = React.useRef<string | null>(null);
@@ -407,6 +410,34 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [searchResults, setSearchResults] = React.useState<Array<{ file: string; hits: SearchHit[] }> | null>(null);
   const [searchError, setSearchError] = React.useState('');
 
+  // Every project operation captures this generation before crossing an await.
+  const captureSession = () => {
+    const generation = sessionGenerationRef.current;
+    return () => generation === sessionGenerationRef.current;
+  };
+  const fileApi = (route: string) => `/api/coder/workspaces/${encodeURIComponent(workspace)}${route}`;
+  const canLeaveBuffers = () => !openTabs.some(t => t.dirty || t.saving)
+    || window.confirm('Discard unsaved editor changes and switch sessions?');
+  const resetWorkbench = () => {
+    sessionGenerationRef.current += 1;
+    ensurePromiseRef.current = null;
+    setOpenTabs([]); setActivePath(null); setFileEntries(null); setFileError(''); setFileLoading(false);
+    setTasks([]); setTaskCommands({}); setTaskOutputs({}); setTaskRunning(null); setTaskError('');
+    setSearchResults(null); setSearchLoading(false); setSearchError('');
+    setRewindSnapshots(null); setRewindResult(null); setRewindLoading(false); setRewindError('');
+    setShellOutput(''); setShellRunning(false); setPreviewUrl(''); setPreviewInput('');
+    setQuestionDrafts({}); nudgedNotificationRef.current = null;
+  };
+
+  React.useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!openTabs.some(t => t.dirty || t.saving)) return;
+      event.preventDefault(); event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [openTabs]);
+
   const busy = sessionStatus?.hasActivePrompt === true
     || sessionStatus?.isWaitingForPermission === true
     || sessionStatus?.isWaitingForUserQuestion === true;
@@ -435,7 +466,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           coderWriterModel: typeof data.coderWriterModel === 'string' ? data.coderWriterModel : '',
         };
         setSettings(next);
-        setWorkspace(next.coderWorkspace);
+        setWorkspaceDraft(next.coderWorkspace);
+        if (!sessionWorkspaceRef.current) setWorkspace(next.coderWorkspace);
       } catch {
         // Non-fatal; the surface still works with daemon defaults.
       }
@@ -738,17 +770,24 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           }
         }
       }
-      await fetch('/api/chats', {
+      const response = await fetch('/api/chats', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: sessionId, title, surface: 'coder', messages: stored }),
       });
+      if (!response.ok) throw new Error(`History save failed (${response.status}).`);
+      return true;
     } catch {
-      // Non-fatal; persistence is best-effort.
+      if (activeSessionIdRef.current === sessionId) setError('History could not be saved. Retrying.');
+      return false;
     }
   }, []);
 
   const loadSession = async (sessionId: string) => {
+    if (!canLeaveBuffers()) return;
+    resetWorkbench();
+    const current = captureSession();
+    activeSessionIdRef.current = sessionId;
     setActiveSessionId(sessionId);
     setSessionResolved(false);
     sessionWorkspaceRef.current = null;
@@ -770,6 +809,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       const res = await fetch(`/api/chats/${sessionId}`);
       if (res.ok) {
         const data = await res.json();
+        if (!current()) return;
+        renamedRef.current.set(sessionId, data.title || 'New Coding Session');
         const stored = (Array.isArray(data.messages) ? data.messages : []) as StoredMsg[];
         // Restore the session's BOUND workspace (the project it was created
         // against) so a reattach uses the original directory, not the current
@@ -792,17 +833,22 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         setMessages(loaded);
         const restored = stored.flatMap(m => (m.role === 'assistant' && Array.isArray(m.meta?.toolActivity) ? m.meta.toolActivity : []));
         setToolActivity(restored);
+        setSessionResolved(true);
       } else if (res.status === 404) {
+        if (!current()) return;
         setError('Session not found.');
+        setActiveSessionId(null);
+        activeSessionIdRef.current = null;
+        localStorage.removeItem(ACTIVE_SESSION_KEY);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load session');
-    } finally {
-      setSessionResolved(true);
+      if (current()) setError(e instanceof Error ? e.message : 'Failed to load session');
     }
   };
 
   const newSession = async () => {
+    if (!canLeaveBuffers()) return;
+    const current = captureSession();
     setError('');
     try {
       const res = await fetch('/api/chats', {
@@ -815,6 +861,9 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       if (!res.ok || !id) {
         throw new Error(typeof data.error === 'string' ? data.error : 'Failed to create session');
       }
+      if (!current()) { await refreshSessions(); return; }
+      resetWorkbench();
+      activeSessionIdRef.current = id;
       setActiveSessionId(id);
       setSessionResolved(true);
       sessionWorkspaceRef.current = null;
@@ -839,14 +888,21 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   };
 
   const deleteSession = async (sessionId: string) => {
+    if (activeSessionId === sessionId && !canLeaveBuffers()) return;
     try {
+      // Ownership must still exist when the daemon checks this deletion.
+      const daemon = await fetch(`/api/coder/session/${sessionId}`, { method: 'DELETE' });
+      if (!daemon.ok && daemon.status !== 404) throw new Error('Could not stop the session. History was retained; retry deletion.');
       const res = await fetch('/api/chats', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: sessionId, surface: 'coder' }),
       });
       if (res.ok) {
-        if (activeSessionId === sessionId) {
+        if (activeSessionIdRef.current === sessionId) {
+          resetWorkbench();
+          activeSessionIdRef.current = null;
+          localStorage.removeItem(ACTIVE_SESSION_KEY);
           setActiveSessionId(null);
           setSessionResolved(false);
           sessionWorkspaceRef.current = null;
@@ -862,7 +918,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           baselineRef.current = [];
           // Tear down the daemon session so its conversation memory can't leak
           // into whatever session opens next.
-          void closeDaemonSession();
+          disconnectDaemonSession();
         }
         await refreshSessions();
       } else {
@@ -895,26 +951,6 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
   // ---- Daemon runtime handle ----------------------------------------------
 
-  /**
-   * Close the current daemon session. The daemon session is where the agent's
-   * conversation memory / working context lives; leaving it open after a delete
-   * or switch means that memory lingers and can bleed into the next session,
-   * and an abandoned tab keeps the ACP child alive. Best-effort: a stale 404 is
-   * fine (already reaped).
-   */
-  const closeDaemonSession = async () => {
-    const id = daemonSessionId;
-    if (!id) return;
-    // Null the handle first so a poll in flight can't resurrect state after
-    // we've torn the session down.
-    setDaemonSessionId(null);
-    clientIdRef.current = '';
-    try {
-      await fetch(`/api/coder/session/${id}`, { method: 'DELETE' });
-    } catch {
-      // Best-effort; the daemon reaper will collect it eventually.
-    }
-  };
 
   /**
    * Disconnect from the current daemon session WITHOUT deleting it server-side.
@@ -946,14 +982,15 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     if (daemonSessionId) return daemonSessionId;
     // Single-flight: concurrent callers (the eager reattach effect + a fast
     // send/shell) share one create/load instead of racing two daemon sessions.
-    if (ensurePromiseRef.current) return ensurePromiseRef.current;
     const sessionId = activeSessionId;
     if (!sessionId) {
       setError('No active session.');
       return null;
     }
+    if (!sessionResolved || activeSessionIdRef.current !== sessionId) return null;
+    if (ensurePromiseRef.current?.sessionId === sessionId) return ensurePromiseRef.current.promise;
+    const current = captureSession();
 
-    let promise: Promise<string | null>;
     const run = async (): Promise<string | null> => {
       try {
         // A Coding session is bound to the workspace it was created against. On a
@@ -1014,31 +1051,24 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         // A create/load that resolves AFTER the user switched sessions must not
         // bind the wrong session: abandon the stale handle instead of mutating
         // the daemonSessionId/clientId for a session the user no longer has open.
-        if (activeSessionIdRef.current !== sessionId) return null;
+        if (!current() || activeSessionIdRef.current !== sessionId) return null;
 
-        setDaemonSessionId(data.sessionId);
         // Echo the daemon-minted client id on every later per-session call.
         if (typeof data.clientId === 'string' && data.clientId) clientIdRef.current = data.clientId;
 
-        // Bind the session to the workspace it was actually created against so a
-        // later reopen reattaches to the SAME project. Persist it via /api/chats
-        // (best-effort: a failure here never blocks the session from working; the
-        // next create/load simply falls back to the current default).
+        // The gateway has already persisted this binding atomically.
         sessionWorkspaceRef.current = cwd;
-        fetch('/api/chats', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: sessionId, surface: 'coder', coderWorkspace: cwd }),
-        }).catch(() => {});
 
         // Apply the persisted model + approval mode + orchestration delegates to
         // the session. Vision and writer are daemon-global (not per-session), but
         // re-applying them here guarantees a reattached/old session still runs
         // with the user's saved orchestration — not a stale daemon default.
         if (settings?.coderModel) {
-          await applyModel(data.sessionId, settings.coderModel, { quiet: true });
+          if (!await applyModel(data.sessionId, settings.coderModel, { quiet: true })) return null;
         }
-        await applyApprovalMode(data.sessionId, settings?.coderApprovalMode || 'yolo', { quiet: true });
+        if (!current()) return null;
+        if (!await applyApprovalMode(data.sessionId, settings?.coderApprovalMode || 'yolo', { quiet: true })) return null;
+        if (!current()) return null;
         if (settings?.coderVisionModel) {
           await applyVisionModel(toDaemonModelSelector(settings.coderVisionModel));
         }
@@ -1048,17 +1078,19 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         if (settings?.coderToolSearchThreshold) {
           await applyToolSearchThreshold(settings.coderToolSearchThreshold);
         }
+        if (!current()) return null;
+        setDaemonSessionId(data.sessionId);
         return data.sessionId;
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to start daemon session');
+        if (current()) setError(e instanceof Error ? e.message : 'Failed to start daemon session');
         return null;
       } finally {
-        if (ensurePromiseRef.current === promise) ensurePromiseRef.current = null;
+        if (ensurePromiseRef.current?.promise === promise) ensurePromiseRef.current = null;
       }
     };
 
-    promise = run();
-    ensurePromiseRef.current = promise;
+    const promise = run();
+    ensurePromiseRef.current = { sessionId, promise };
     return promise;
   };
 
@@ -1077,11 +1109,14 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       const data = await res.json().catch(() => ({})) as { error?: string };
       if (!res.ok) {
         setError(`Model switch failed: ${data.error || res.status}`);
+        return false;
       } else if (!opts.quiet) {
         setLiveStatus(`model → ${modelId}`);
       }
+      return true;
     } catch (e) {
       setError(`Model switch failed: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
     }
   };
 
@@ -1094,27 +1129,26 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({})) as { error?: string };
-        if (!opts.quiet) setError(`Approval mode failed: ${data.error || res.status}`);
+        setError(`Approval mode failed: ${data.error || res.status}`);
+        return false;
       } else if (!opts.quiet) {
         setLiveStatus(`approval → ${mode}`);
       }
+      return true;
     } catch (e) {
-      if (!opts.quiet) setError(`Approval mode failed: ${e instanceof Error ? e.message : String(e)}`);
+      setError(`Approval mode failed: ${e instanceof Error ? e.message : String(e)}`);
+      return false;
     }
   };
 
   const switchModel = async (modelId: string) => {
-    setSettings(prev => (prev ? { ...prev, coderModel: modelId } : prev));
-    void saveSettings({ coderModel: modelId });
-    if (!daemonSessionId) return;
-    await applyModel(daemonSessionId, modelId);
+    if (daemonSessionId && !await applyModel(daemonSessionId, modelId)) return;
+    await saveSettings({ coderModel: modelId });
   };
 
   const switchApprovalMode = async (mode: string) => {
-    setSettings(prev => (prev ? { ...prev, coderApprovalMode: mode } : prev));
-    void saveSettings({ coderApprovalMode: mode });
-    if (!daemonSessionId) return;
-    await applyApprovalMode(daemonSessionId, mode);
+    if (daemonSessionId && !await applyApprovalMode(daemonSessionId, mode)) return;
+    await saveSettings({ coderApprovalMode: mode });
   };
 
   // ---- Reversible work (rewind) --------------------------------------------
@@ -1132,11 +1166,13 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
   const loadRewindSnapshots = async () => {
     if (!daemonSessionId) return;
+    const current = captureSession();
     setRewindLoading(true);
     setRewindError('');
     try {
       const res = await fetch(`/api/coder/session/${daemonSessionId}/rewind/snapshots`);
       const data = await res.json().catch(() => ({})) as unknown;
+      if (!current()) return;
       if (!res.ok) {
         setRewindError(`Could not list rewind points: ${(data as { error?: string }).error || res.status}`);
         setRewindSnapshots(null);
@@ -1150,10 +1186,11 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       }
       setRewindSnapshots(parsed.snapshots);
     } catch (e) {
+      if (!current()) return;
       setRewindError(e instanceof Error ? e.message : 'Failed to list rewind points');
       setRewindSnapshots(null);
     } finally {
-      setRewindLoading(false);
+      if (current()) setRewindLoading(false);
     }
   };
 
@@ -1164,7 +1201,13 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
    * and both the conversation and the files it had changed are rolled back.
    */
   const doRewind = async (promptId: string) => {
-    if (!daemonSessionId) return;
+    if (!daemonSessionId || busy || rewindLoading) return;
+    if (openTabs.some(t => t.dirty || t.saving)) {
+      setRewindError('Save or close edited files before rewinding.');
+      return;
+    }
+    if (!window.confirm('Restore files and conversation to this turn? Later file changes may be replaced.')) return;
+    const current = captureSession();
     setRewindLoading(true);
     setRewindError('');
     setRewindResult(null);
@@ -1175,6 +1218,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         body: JSON.stringify({ promptId, rewindFiles: true }),
       });
       const data = await res.json().catch(() => ({})) as unknown;
+      if (!current()) return;
       if (!res.ok) {
         setRewindError(`Rewind failed: ${(data as { error?: string }).error || res.status}`);
         return;
@@ -1185,13 +1229,16 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         return;
       }
       setRewindResult(parsed.result);
+      setHumanSaveCount(c => c + 1);
+      setOpenTabs([]); setActivePath(null);
       // The transcript poll reconciles the now-truncated conversation; refresh
       // the snapshot list so the restored point reflects the new state.
       await loadRewindSnapshots();
     } catch (e) {
+      if (!current()) return;
       setRewindError(e instanceof Error ? e.message : 'Rewind failed');
     } finally {
-      setRewindLoading(false);
+      if (current()) setRewindLoading(false);
     }
   };
 
@@ -1206,11 +1253,13 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   };
 
   const loadDir = async (dir: string) => {
+    const current = captureSession();
     setFileLoading(true);
     setFileError('');
     try {
-      const res = await fetch(`/api/coder/list?path=${encodeURIComponent(dir)}`);
+      const res = await fetch(`${fileApi('/list')}?path=${encodeURIComponent(dir)}`);
       const data = await res.json().catch(() => ({})) as unknown;
+      if (!current()) return;
       if (!res.ok) {
         setFileError(`Could not list ${dir}: ${(data as { error?: string }).error || res.status}`);
         setFileEntries(null);
@@ -1225,10 +1274,11 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       setFileDir(dir);
       setFileEntries(parsed.list.entries);
     } catch (e) {
+      if (!current()) return;
       setFileError(e instanceof Error ? e.message : 'Failed to list directory');
       setFileEntries(null);
     } finally {
-      setFileLoading(false);
+      if (current()) setFileLoading(false);
     }
   };
 
@@ -1238,6 +1288,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   };
 
   const openFile = async (path: string) => {
+    const current = captureSession();
     // Re-activate an already-open buffer without re-reading (keeps unsaved edits).
     if (openTabs.some(t => t.path === path)) {
       setActivePath(path);
@@ -1246,8 +1297,9 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     setFileLoading(true);
     setFileError('');
     try {
-      const res = await fetch(`/api/coder/file?path=${encodeURIComponent(path)}&maxBytes=262144`);
+      const res = await fetch(`${fileApi('/file')}?path=${encodeURIComponent(path)}&maxBytes=262144`);
       const data = await res.json().catch(() => ({})) as unknown;
+      if (!current()) return;
       if (!res.ok) {
         setFileError(`Could not read ${path}: ${(data as { error?: string }).error || res.status}`);
         return;
@@ -1257,16 +1309,20 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         setFileError(parsed.error);
         return;
       }
-      setOpenTabs(prev => [...prev, { path, content: parsed.file.content, hash: parsed.file.hash, dirty: false, saving: false, error: '' }]);
+      setOpenTabs(prev => prev.some(t => t.path === path) ? prev : [...prev, { path, content: parsed.file.content, hash: parsed.file.truncated ? null : parsed.file.hash, dirty: false, saving: false, error: '' }]);
       setActivePath(path);
     } catch (e) {
+      if (!current()) return;
       setFileError(e instanceof Error ? e.message : 'Failed to read file');
     } finally {
-      setFileLoading(false);
+      if (current()) setFileLoading(false);
     }
   };
 
   const closeTab = (path: string) => {
+    const tab = openTabs.find(t => t.path === path);
+    if (tab?.saving) return;
+    if (tab?.dirty && !window.confirm('Discard unsaved changes to this file?')) return;
     setOpenTabs(prev => {
       const next = prev.filter(t => t.path !== path);
       if (activePath === path) setActivePath(next.length ? next[next.length - 1].path : null);
@@ -1276,7 +1332,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
   const saveFile = async () => {
     const tab = openTabs.find(t => t.path === activePath);
-    if (!tab) return;
+    if (!tab || tab.saving) return;
+    const current = captureSession();
     // The daemon's replace write is compare-and-swap on the content hash; a
     // truncated read (no hash) cannot be safely saved without clobbering a
     // concurrent agent edit, so refuse rather than guess.
@@ -1286,12 +1343,13 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     }
     updateTab(tab.path, { saving: true, error: '' });
     try {
-      const res = await fetch('/api/coder/file/write', {
+      const res = await fetch(fileApi('/file/write'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path: tab.path, content: tab.content, mode: 'replace', expectedHash: tab.hash }),
       });
       const data = await res.json().catch(() => ({})) as unknown;
+      if (!current()) return;
       if (!res.ok) {
         updateTab(tab.path, { error: `Save failed: ${(data as { error?: string }).error || res.status}` });
         return;
@@ -1301,14 +1359,15 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         updateTab(tab.path, { error: parsed.error });
         return;
       }
-      updateTab(tab.path, { hash: parsed.result.hash, dirty: false });
+      setOpenTabs(prev => prev.map(t => t.path === tab.path ? reconcileFileSave(t, tab.content, parsed.result.hash) : t));
       // A successful save mutates the workspace, so prior verification evidence
       // (run against the pre-save content) is now stale.
       setHumanSaveCount(c => c + 1);
     } catch (e) {
+      if (!current()) return;
       updateTab(tab.path, { error: e instanceof Error ? e.message : 'Save failed' });
     } finally {
-      updateTab(tab.path, { saving: false });
+      if (current()) updateTab(tab.path, { saving: false });
     }
   };
 
@@ -1330,6 +1389,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
   /** Open the tasks panel; seed the four default tasks on first open. */
   const openTasks = async () => {
+    const current = captureSession();
     const opening = !tasksOpen;
     setTasksOpen(opening);
     if (!opening || tasks.length > 0) return;
@@ -1337,7 +1397,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     // project is not handed `npm install`; fall back to npm on any failure.
     let pm: PackageManager = 'npm';
     try {
-      const res = await fetch(`/api/coder/list?path=${encodeURIComponent(workspace)}`);
+      const res = await fetch(`${fileApi('/list')}?path=${encodeURIComponent(workspace)}`);
       const data = await res.json().catch(() => ({})) as unknown;
       if (res.ok) {
         const parsed = parseFileList(data);
@@ -1347,21 +1407,25 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       // Fall through to npm defaults.
     }
     const defaults = buildDefaultTasks(pm);
+    if (!current()) return;
     setTasks(defaults);
     setTaskCommands(Object.fromEntries(defaults.map(t => [t.id, t.command])));
   };
 
   /** Run a named task through the daemon's on-demand shell and capture output. */
   const runTask = async (task: Task) => {
+    const current = captureSession();
     if (taskRunning) return;
     const command = (taskCommands[task.id] ?? task.command).trim();
     if (!command) return;
     const sessionId = daemonSessionId || (await ensureDaemonSession());
+    if (!current()) return;
     if (!sessionId) {
       setTaskError('Start a session first — tasks run inside the agent session.');
       return;
     }
     const startedAt = Date.now();
+    setHumanSaveCount(c => c + 1);
     const mutation = workspaceMutation;
     setTaskRunning(task.id);
     setTaskError('');
@@ -1373,6 +1437,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         body: JSON.stringify({ command }),
       });
       const data = await res.json().catch(() => ({})) as unknown;
+      if (!current()) return;
       if (!res.ok) {
         const message = `[error ${res.status}] ${(data as { error?: string }).error || 'command failed'}`;
         setTaskOutputs(prev => ({ ...prev, [task.id]: (prev[task.id] || '') + message + '\n' }));
@@ -1390,25 +1455,28 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         }
       }
     } catch (e) {
+      if (!current()) return;
       const message = `[error] ${e instanceof Error ? e.message : String(e)}`;
       setTaskOutputs(prev => ({ ...prev, [task.id]: (prev[task.id] || '') + message + '\n' }));
       setVerificationRecords(prev => [...prev, buildVerificationRecord({ id: `run-${Date.now()}`, command, cwd: workspace, exitCode: null, startedAt, output: message, mutation })]);
     } finally {
-      setTaskRunning(null);
+      if (current()) setTaskRunning(null);
     }
   };
 
   // ---- Workspace text search ----------------------------------------------
 
   const runSearch = async () => {
+    const current = captureSession();
     const query = searchQuery.trim();
     if (!query || searchLoading) return;
     setSearchLoading(true);
     setSearchError('');
     setSearchResults(null);
     try {
-      const globRes = await fetch(`/api/coder/glob?pattern=${encodeURIComponent('**/*')}&workspace=${encodeURIComponent(workspace)}`);
+      const globRes = await fetch(`${fileApi('/glob')}?pattern=${encodeURIComponent('**/*')}&maxResults=200`);
       const globData = await globRes.json().catch(() => ({})) as unknown;
+      if (!current()) return;
       if (!globRes.ok) {
         setSearchError(`Search failed: ${(globData as { error?: string }).error || globRes.status}`);
         return;
@@ -1427,7 +1495,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
       const results: Array<{ file: string; hits: SearchHit[] }> = [];
       for (const path of candidates) {
-        const fileRes = await fetch(`/api/coder/file?path=${encodeURIComponent(path)}&maxBytes=262144`);
+        if (!current()) return;
+        const fileRes = await fetch(`${fileApi('/file')}?path=${encodeURIComponent(path)}&maxBytes=262144`);
         if (!fileRes.ok) continue; // directories / unreadable files are skipped
         const fileData = await fileRes.json().catch(() => ({})) as unknown;
         const fileParsed = parseFileContent(fileData);
@@ -1435,11 +1504,11 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         const hits = searchLines(fileParsed.file.content, query);
         if (hits.length > 0) results.push({ file: path, hits });
       }
-      setSearchResults(results);
+      if (current()) setSearchResults(results);
     } catch (e) {
-      setSearchError(e instanceof Error ? e.message : 'Search failed');
+      if (current()) setSearchError(e instanceof Error ? e.message : 'Search failed');
     } finally {
-      setSearchLoading(false);
+      if (current()) setSearchLoading(false);
     }
   };
 
@@ -1571,9 +1640,13 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
    */
   const changeWorkspace = async (next: string) => {
     const clean = next.trim();
-    setWorkspace(clean);
-    if (clean === (settings?.coderWorkspace ?? '/workspace')) return;
-    void closeDaemonSession();
+    if (!clean.startsWith('/') || clean.split('/').includes('..')) {
+      setError('Workspace must be an absolute path without traversal.');
+      setWorkspace(sessionWorkspaceRef.current || settings?.coderWorkspace || '/workspace');
+      return;
+    }
+    // This edits the default for NEW sessions, never the active session's cwd.
+    setWorkspace(sessionWorkspaceRef.current || clean);
     await saveSettings({ coderWorkspace: clean || '/workspace' });
   };
 
@@ -1582,6 +1655,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const send = async () => {
     const prompt = composer.trim();
     if (!prompt || !activeSessionId) return;
+    const current = captureSession();
     setError('');
     setComposer('');
 
@@ -1594,6 +1668,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     try {
       const dsid = await ensureDaemonSession();
       if (!dsid) {
+        if (!current()) return;
+        setComposer(value => value || prompt);
         setError('Failed to start daemon session');
         return;
       }
@@ -1608,6 +1684,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       }
       setLiveStatus('thinking…');
     } catch (e) {
+      if (!current()) return;
+      setComposer(value => value || prompt);
       setError(e instanceof Error ? e.message : 'Prompt failed');
       setLiveStatus('');
     }
@@ -1706,14 +1784,17 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
    * daemon's `POST /session/:id/shell`.
    */
   const runShellCommand = async () => {
+    const current = captureSession();
     const command = shellCommand.trim();
     if (!command || shellRunning) return;
     const sessionId = daemonSessionId || (await ensureDaemonSession());
+    if (!current()) return;
     if (!sessionId) {
       setShellOutput(prev => prev + '\n[error] no daemon session\n');
       return;
     }
     setShellRunning(true);
+    setHumanSaveCount(c => c + 1);
     setShellOutput(prev => prev + `\n$ ${command}\n`);
     try {
       const res = await fetch(`/api/coder/session/${sessionId}/shell`, {
@@ -1725,6 +1806,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         body: JSON.stringify({ command }),
       });
       const data = await res.json().catch(() => ({})) as { output?: string; exitCode?: number | null; error?: string };
+      if (!current()) return;
       if (!res.ok) {
         setShellOutput(prev => prev + `[error ${res.status}] ${data.error || 'command failed'}\n`);
       } else {
@@ -1733,10 +1815,14 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         setShellOutput(prev => prev + (out || '(no output)') + code + '\n');
       }
     } catch (e) {
+      if (!current()) return;
       setShellOutput(prev => prev + `[error] ${e instanceof Error ? e.message : String(e)}\n`);
     } finally {
-      setShellRunning(false);
-      setShellCommand('');
+      if (current()) {
+        setShellRunning(false);
+        setShellCommand('');
+        setHumanSaveCount(c => c + 1);
+      }
     }
   };
 
@@ -1831,7 +1917,10 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     const close = streamSessionEvents(
       `/api/coder/session/${daemonSessionId}/events`,
       frame => onFrame(frame.data),
-      { onReconnecting: () => { if (!cancelled) note('reconnecting to agent stream…'); } },
+      {
+        onReconnecting: () => { if (!cancelled) note('reconnecting to agent stream…'); },
+        onError: status => { if (!cancelled) setError(`Agent stream unavailable (${status}). Reopen the session or sign in again.`); },
+      },
     );
 
     return () => {
@@ -1990,12 +2079,11 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         nudgedNotificationRef.current = null;
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transcriptEvents, busy, sessionStatus, daemonSessionId]);
 
   // Persist the transcript + tool activity after each turn settles.
   React.useEffect(() => {
-    if (!activeSessionId || busy || messages.length === 0) return;
+    if (!activeSessionId || busy || messages.length === 0 || !sessionResolved || !daemonSessionId || persistInFlightRef.current) return;
     // Respect an explicit user rename: once renamed, the title is fixed and
     // must not be re-derived from the first message.
     const renamed = renamedRef.current.get(activeSessionId);
@@ -2006,9 +2094,12 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     // session must not rewrite its full history continuously.
     const signature = JSON.stringify({ title, content, toolActivity });
     if (signature === lastPersistSignatureRef.current) return;
-    lastPersistSignatureRef.current = signature;
-    void persistMessages(activeSessionId, title, content, toolActivity);
-  }, [busy, activeSessionId, messages, toolActivity, persistMessages]);
+    persistInFlightRef.current = true;
+    const id = activeSessionId;
+    void persistMessages(id, title, content, toolActivity).then(saved => {
+      if (saved && activeSessionIdRef.current === id) lastPersistSignatureRef.current = signature;
+    }).finally(() => { persistInFlightRef.current = false; });
+  }, [busy, activeSessionId, messages, toolActivity, persistMessages, sessionResolved, daemonSessionId]);
 
   // Eagerly reattach to the daemon session for the active persistent session,
   // so a reopened tab resumes streaming/status immediately (the transcript
@@ -2129,10 +2220,10 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.25)', display: 'flex', flexWrap: 'wrap', gap: '18px', alignItems: 'flex-start' }}>
           <SettingField label="Workspace (session cwd)" hint="Absolute path inside the coder container">
             <input
-              value={workspace}
-              onChange={e => setWorkspace(e.target.value)}
-              onBlur={() => { if (workspace.trim() !== (settings.coderWorkspace ?? '/workspace')) void changeWorkspace(workspace); }}
-              onKeyDown={e => { if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); void changeWorkspace(workspace); } }}
+              value={workspaceDraft}
+              onChange={e => setWorkspaceDraft(e.target.value)}
+              onBlur={() => { if (workspaceDraft.trim() !== (settings.coderWorkspace ?? '/workspace')) void changeWorkspace(workspaceDraft); }}
+              onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
               placeholder="/workspace"
               style={inputStyle()}
             />
@@ -2294,7 +2385,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
             <span style={{ fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#d1d5db' }}>Files</span>
             <button
               onClick={() => void loadDir(fileDir === '/' ? '/' : fileDir.split('/').slice(0, -1).join('/') || '/')}
-              disabled={fileDir === '/'}
+              disabled={fileDir === workspace || fileDir === '/'}
               style={{ ...ghostBtnStyle(), fontSize: '0.7rem', padding: '2px 8px' }}
               title="Up one directory"
             >
@@ -2399,7 +2490,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                 </div>
               ) : (
                 <div style={{ padding: '10px', fontSize: '0.7rem', color: 'rgba(209,213,219,0.45)', fontFamily: 'ui-monospace, monospace' }}>
-                  Select a file to view/edit it. Files stay open as tabs; save is compare-and-swap on the file hash, so it won't clobber a concurrent agent edit.
+                  No file selected.
                 </div>
               )}
             </div>
@@ -2460,8 +2551,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                 {[...verificationRecords].reverse().map(r => {
                   const stale = isVerificationStale(r, workspaceMutation);
                   const failed = r.exitCode === null || r.exitCode !== 0;
-                  const statusColor = stale ? '#f59e0b' : failed ? '#ef4444' : '#22c55e';
-                  const statusLabel = stale ? 'stale' : failed ? (r.exitCode === null ? 'error' : 'failed') : 'passed';
+                  const statusColor = failed ? '#ef4444' : stale ? '#f59e0b' : '#22c55e';
+                  const statusLabel = failed ? (r.exitCode === null ? 'error' : 'failed') : stale ? 'stale' : 'passed';
                   return (
                     <div key={r.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', fontSize: '0.68rem', fontFamily: 'ui-monospace, monospace', color: '#9ca3af' }} title={stale ? 'The workspace changed since this ran — results may no longer apply.' : undefined}>
                       <span style={{ color: statusColor, flexShrink: 0, width: 50 }}>{statusLabel}</span>

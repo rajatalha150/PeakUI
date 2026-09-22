@@ -24,7 +24,7 @@ function makeRequest(body: unknown): NextRequest {
 beforeEach(() => {
   mocks.requireCurrentAuthWithPermissions.mockReset()
   mocks.requireCurrentAuthWithPermissions.mockResolvedValue({
-    auth: { user: { id: 'user-1' }, permissions: ['workspace-tool.use'] },
+    auth: { user: { id: 'user-1', role: 'ADMIN' }, permissions: ['workspace-tool.use'] },
     userId: 'user-1',
   })
 })
@@ -57,6 +57,7 @@ describe('POST /api/coder/preview', () => {
   it('rejects a missing/empty URL', async () => {
     const { POST } = await loadRoute()
     expect((await POST(makeRequest({}))).status).toBe(400)
+    expect((await POST(makeRequest(null))).status).toBe(400)
     expect((await POST(makeRequest({ url: '' }))).status).toBe(400)
   })
 

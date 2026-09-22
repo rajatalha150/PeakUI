@@ -54,9 +54,16 @@ export function createSseParser(onFrame: (frame: SseFrame) => void): {
   push: (chunk: string) => void;
 } {
   let buffer = '';
+  let endedWithCr = false;
   return {
     push(chunk: string) {
-      buffer += chunk;
+      if (!chunk) return;
+      // CRLF can be split across network chunks. SSE also permits bare CR.
+      if (endedWithCr && chunk.startsWith('\n')) chunk = chunk.slice(1);
+      endedWithCr = chunk.endsWith('\r');
+      if (chunk.length) {
+        buffer += chunk.replace(/\r\n?/g, '\n');
+      }
       let idx: number;
       while ((idx = buffer.indexOf('\n\n')) !== -1) {
         const raw = buffer.slice(0, idx);
@@ -64,6 +71,7 @@ export function createSseParser(onFrame: (frame: SseFrame) => void): {
         const frame = parseFrame(raw);
         if (frame) onFrame(frame);
       }
+      if (buffer.length > 2 * 1024 * 1024) throw new Error('SSE frame exceeds the buffer limit');
     },
   };
 }
@@ -80,7 +88,7 @@ export function createSseParser(onFrame: (frame: SseFrame) => void): {
 export function streamSessionEvents(
   url: string,
   onFrame: (frame: SseFrame) => void,
-  opts: { onReconnecting?: () => void; signal?: AbortSignal } = {},
+  opts: { onReconnecting?: () => void; onError?: (status: number) => void; signal?: AbortSignal } = {},
 ): () => void {
   let closed = false;
   let lastEventId: string | undefined;
@@ -89,8 +97,14 @@ export function streamSessionEvents(
   const abort = new AbortController();
   const onExternalAbort = () => abort.abort();
   opts.signal?.addEventListener('abort', onExternalAbort);
+  if (opts.signal?.aborted) abort.abort();
 
-  const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+  const sleep = (ms: number) => new Promise<void>(resolve => {
+    if (abort.signal.aborted) { resolve(); return; }
+    const finish = () => { clearTimeout(timer); abort.signal.removeEventListener('abort', finish); resolve(); };
+    const timer = setTimeout(finish, ms);
+    abort.signal.addEventListener('abort', finish, { once: true });
+  });
 
   const run = async () => {
     let backoff = 500;
@@ -102,14 +116,20 @@ export function streamSessionEvents(
 
         const res = await fetch(url, { headers, signal: abort.signal });
         if (!res.ok || !res.body) {
-          // A transient 4xx/5xx (e.g. session still starting) — back off and
-          // retry rather than tearing the loop down.
+          await res.body?.cancel();
+          if ([401, 403, 404].includes(res.status)) {
+            opts.onError?.(res.status);
+            break;
+          }
+          if (res.status === 409) { lastEventId = undefined; lastEpoch = undefined; }
+          opts.onReconnecting?.();
           await sleep(backoff);
           backoff = Math.min(backoff * 2, 15000);
           continue;
         }
 
         const epochHeader = res.headers.get('x-qwen-event-epoch');
+        if (epochHeader && epochHeader !== lastEpoch) lastEventId = undefined;
         if (epochHeader) lastEpoch = epochHeader;
         backoff = 500;
 
@@ -120,10 +140,15 @@ export function streamSessionEvents(
           onFrame(frame);
         });
 
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          parser.push(decoder.decode(value, { stream: true }));
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done || closed || abort.signal.aborted) break;
+            parser.push(decoder.decode(value, { stream: true }));
+          }
+        } finally {
+          await reader.cancel().catch(() => {});
+          reader.releaseLock();
         }
       } catch {
         // Network error or abort; the loop condition decides whether to stop.
@@ -136,7 +161,7 @@ export function streamSessionEvents(
     }
   };
 
-  void run();
+  void run().finally(() => opts.signal?.removeEventListener('abort', onExternalAbort));
 
   return () => {
     closed = true;

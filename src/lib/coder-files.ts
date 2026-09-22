@@ -57,9 +57,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function parseEntry(value: unknown): FileEntry | null {
   if (!isRecord(value)) return null
   if (typeof value.name !== 'string' || value.name.length === 0) return null
+  if (value.name === '.' || value.name === '..' || /[\/\\\x00-\x1f]/.test(value.name)) return null
   const kind = value.kind === 'directory' ? 'directory' : value.kind === 'file' ? 'file' : null
   if (!kind) return null
   return { name: value.name, kind, ignored: value.ignored === true }
+}
+
+/** A save acknowledges the submitted text, not edits typed while it was pending. */
+export function reconcileFileSave<T extends { content: string; hash: string | null; dirty: boolean }>(
+  current: T, submittedContent: string, hash: string,
+): T {
+  return { ...current, hash, dirty: current.content !== submittedContent }
 }
 
 /** Parse a `GET /list` payload. */
@@ -90,7 +98,7 @@ export function parseFileContent(data: unknown): { file: FileContent } | { error
     file: {
       content: data.content,
       hash: typeof data.hash === 'string' && data.hash.length > 0 ? data.hash : null,
-      sizeBytes: typeof data.sizeBytes === 'number' ? data.sizeBytes : Buffer.byteLength(data.content),
+      sizeBytes: typeof data.sizeBytes === 'number' ? data.sizeBytes : new TextEncoder().encode(data.content).byteLength,
       truncated: data.truncated === true,
     },
   }

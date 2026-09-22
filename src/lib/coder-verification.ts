@@ -67,7 +67,7 @@ export interface VerificationRecord {
  * record's exit status/output may no longer describe the current content.
  */
 export function isVerificationStale(record: VerificationRecord, currentMutation: number): boolean {
-  return currentMutation > record.mutation
+  return currentMutation !== record.mutation
 }
 
 /** Build a verification record from a completed shell run. */

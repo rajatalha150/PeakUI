@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   authorizeCoderSession,
+  bindCoderSessionWorkspace,
   extractCoderSessionId,
   isFileOperationPath,
   isPrivilegedCoderPath,
@@ -10,7 +11,7 @@ import {
 } from './coder-authorization'
 
 const prismaMock = vi.hoisted(() => ({
-  chatSession: { findUnique: vi.fn() },
+  chatSession: { findUnique: vi.fn(), updateMany: vi.fn() },
 }))
 
 vi.mock('./prisma', () => ({ prisma: prismaMock }))
@@ -138,5 +139,23 @@ describe('authorizeCoderSession', () => {
     await expect(authorizeCoderSession('user-1', 'session-1')).resolves.toBe(false)
     await expect(authorizeCoderSession('user-1', '')).resolves.toBe(false)
     expect(prismaMock.chatSession.findUnique).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('bindCoderSessionWorkspace', () => {
+  it('uses a null-only ownership-checked update and confirms the winning binding', async () => {
+    prismaMock.chatSession.updateMany.mockResolvedValue({ count: 0 })
+    prismaMock.chatSession.findUnique.mockResolvedValue({ userId: 'a', surface: 'coder', coderWorkspace: '/original' })
+    expect(await bindCoderSessionWorkspace('a', 's', '/other')).toBe(false)
+    expect(prismaMock.chatSession.updateMany).toHaveBeenLastCalledWith({
+      where: { id: 's', userId: 'a', surface: 'coder', coderWorkspace: null }, data: { coderWorkspace: '/other' },
+    })
+    expect(await bindCoderSessionWorkspace('a', 's', '/original')).toBe(true)
+  })
+
+  it('rejects encoded, control-character and dot-segment workspace paths', () => {
+    for (const p of ['/a/%2e%2e/b', '/a/./b', '/a\u0000b', '/a\\b']) {
+      expect(normalizeCoderWorkspacePath(p)).toBeNull()
+    }
   })
 })

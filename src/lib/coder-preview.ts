@@ -24,7 +24,7 @@ const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
  * executor on 4318, the DB on 5432, SearXNG on 8080, tor on 9050/9150.
  */
 export const PREVIEW_RESERVED_PORTS = new Set<number>([
-  3000, 3001, 4170, 4318, 5432, 8080, 9050, 9150,
+  2375, 2376, 3000, 3001, 4170, 4318, 5432, 6379, 8080, 9050, 9150, 11434,
 ])
 
 export interface PreviewTarget {
@@ -47,6 +47,7 @@ export function parsePreviewUrl(raw: string): { target: PreviewTarget } | { erro
   }
 
   const host = url.hostname.toLowerCase()
+  if (url.username || url.password) return { error: 'Preview URLs must not contain credentials.' }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     return { error: 'Preview URL must be http(s).' }
   }

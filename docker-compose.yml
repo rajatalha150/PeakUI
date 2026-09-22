@@ -62,6 +62,14 @@ services:
     # bridge network to reach Ollama), not a one-line config flip.
     pids_limit: 4096
     mem_limit: 8g
+    cpus: ${CODER_CPUS:-4.0}
+    init: true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4170/health',{signal:AbortSignal.timeout(4000),headers:process.env.QWEN_SERVER_TOKEN?{Authorization:'Bearer '+process.env.QWEN_SERVER_TOKEN}:{}}).then(async r=>{if(!r.ok||(await r.json()).status!=='ok')process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     security_opt:
       - no-new-privileges:true
     cap_drop:

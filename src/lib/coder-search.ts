@@ -72,6 +72,7 @@ export function searchLines(content: string, query: string, limit = 50): SearchH
  */
 export function absoluteWorkspacePath(workspace: string, relative: string): string | null {
   if (!relative || relative === '.' || relative === './') return null
+  if (relative.startsWith('/') || /[\\%\x00-\x1f]/.test(relative) || relative.split('/').includes('..')) return null
   const root = workspace.replace(/\/+$/, '')
   return `${root}/${relative.replace(/^\.\//, '')}`
 }

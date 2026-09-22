@@ -4,12 +4,18 @@ import React from 'react'
 import Editor, { loader } from '@monaco-editor/react'
 import * as monaco from 'monaco-editor'
 
-// Bundle Monaco locally instead of loading from its CDN loader, so the container
-// stays self-contained (no internet dependency at runtime — §15 of the coding
-// docs). Running in the main thread (no web worker) keeps the setup robust in the
-// standalone Next.js build; syntax highlighting + basic editing work, while
-// IntelliSense / go-to-definition would need a worker + language-service setup
-// (which is exactly the LSP gap documented for the editor).
+// Bundle Monaco locally instead of loading from its CDN loader, and provide an
+// explicit fallback so standalone Next builds do not try to resolve a
+// browser-relative worker module at runtime. Monaco catches this and runs its
+// basic editor service on the main thread; language-service workers are a later
+// enhancement for this intentionally self-contained editor.
+if (typeof window !== 'undefined') {
+  (globalThis as typeof globalThis & {
+    MonacoEnvironment?: { getWorker: () => Worker }
+  }).MonacoEnvironment = {
+    getWorker: () => { throw new Error('Monaco language workers are unavailable in the standalone bundle'); },
+  };
+}
 loader.config({ monaco })
 
 interface CodeEditorProps {

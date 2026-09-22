@@ -1,5 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { parseFileContent, parseFileList, parseFileWriteResult } from './coder-files'
+import { parseFileContent, parseFileList, parseFileWriteResult, reconcileFileSave } from './coder-files'
+
+describe('editor save acknowledgements', () => {
+  it('keeps edits typed during an in-flight save dirty while advancing the disk hash', () => {
+    expect(reconcileFileSave({ content: 'newer text', hash: 'old', dirty: true }, 'submitted text', 'saved')).toEqual({
+      content: 'newer text', hash: 'saved', dirty: true,
+    })
+    expect(reconcileFileSave({ content: 'submitted text', hash: 'old', dirty: true }, 'submitted text', 'saved').dirty).toBe(false)
+  })
+
+  it('computes byte length without a browser Buffer polyfill', () => {
+    expect(parseFileContent({ content: '\u00e9' })).toMatchObject({ file: { sizeBytes: 2 } })
+  })
+
+  it('rejects directory entries that can escape the selected directory', () => {
+    expect(parseFileList({ entries: [{ name: '../private', kind: 'file' }] })).toHaveProperty('error')
+  })
+})
 
 describe('parseFileList', () => {
   it('parses a directory listing', () => {

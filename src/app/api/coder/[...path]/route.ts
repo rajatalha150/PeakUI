@@ -23,10 +23,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
-import type { PermissionKey } from '@/lib/permissions'
+import { requireCoderAccess } from '@/lib/coder-access'
 import {
   authorizeCoderSession,
+  bindCoderSessionWorkspace,
   extractCoderSessionId,
   isFileOperationPath,
   isPrivilegedCoderPath,
@@ -38,8 +38,6 @@ import {
   proxyToCoderDaemon,
   streamCoderSse,
 } from '@/lib/coder-gateway'
-
-const REQUIRED: PermissionKey[] = ['workspace-tool.use']
 
 /**
  * Daemon API roots we allow through. Everything the daemon serves lives under
@@ -69,14 +67,6 @@ const ALLOWED_PREFIXES = [
 
 /** Daemon-served paths that carry binary/stream bodies rather than JSON. */
 const STREAMING_SUFFIX = /^\/session\/[^/]+\/events$/
-
-async function auth() {
-  return requireCurrentAuthWithPermissions(REQUIRED, {
-    forbiddenMessage: 'WorkSpaces access is not granted for this account.',
-    actionRequired:
-      'Grant the WorkSpaces permission in Settings -> User Management before using the Coding environment.',
-  })
-}
 
 /** Map `/api/coder/<rest>` (plus query) onto the daemon's own URL shape. */
 function toDaemonPath(req: NextRequest): { path: string; query: string } | null {
@@ -131,6 +121,7 @@ async function authorizeCoderRequest(
   // A specific daemon session must be owned by the caller. 404 (not 403) so a
   // foreign or missing session id is not distinguishable from a missing one.
   const sessionId = extractCoderSessionId(target.path)
+  if (target.path.startsWith('/session/') && !sessionId) return notFound()
   if (sessionId) {
     const owned = await authorizeCoderSession(userId, sessionId)
     if (!owned) return notFound('Session not found')
@@ -141,7 +132,7 @@ async function authorizeCoderRequest(
   // relative/traversal path before forwarding. The daemon's own workspace
   // containment is still the final authority — this is defense in depth so a
   // crafted `?path=../../…` never even reaches it.
-  if (isFileOperationPath(target.path)) {
+  if (isFileOperationPath(target.path) && target.path !== '/glob') {
     const filePath = extractFilePath(target, body)
     if (filePath === undefined || normalizeCoderFilePath(filePath) === null) {
       return NextResponse.json(
@@ -153,11 +144,15 @@ async function authorizeCoderRequest(
 
   // `POST /session` creates a daemon session keyed by the caller-supplied id in
   // the body; that id must be a ChatSession the caller owns.
-  if (target.path === '/session' && body && typeof body === 'object' && 'sessionId' in body) {
-    const id = (body as { sessionId?: unknown }).sessionId
-    if (typeof id === 'string' && id) {
-      const owned = await authorizeCoderSession(userId, id)
-      if (!owned) return notFound('Session not found')
+  if (target.path === '/session' || /^\/session\/[^/]+\/load$/.test(target.path)) {
+    const input = body && typeof body === 'object' ? body as Record<string, unknown> : {}
+    const id = sessionId || input.sessionId
+    if (typeof id !== 'string' || !id || typeof input.cwd !== 'string' || !normalizeCoderWorkspacePath(input.cwd)) {
+      return NextResponse.json({ error: 'A session ID and absolute workspace are required.', code: 'invalid_session' }, { status: 400 })
+    }
+    if (!await authorizeCoderSession(userId, id)) return notFound('Session not found')
+    if (!await bindCoderSessionWorkspace(userId, id, input.cwd)) {
+      return NextResponse.json({ error: 'This session belongs to a different workspace. Create a new session to change projects.', code: 'workspace_binding_conflict' }, { status: 409 })
     }
   }
 
@@ -204,7 +199,7 @@ function relay(result: Awaited<ReturnType<typeof proxyToCoderDaemon>>) {
 }
 
 export async function GET(req: NextRequest) {
-  const access = await auth()
+  const access = await requireCoderAccess(req)
   if ('response' in access) return access.response
 
   const target = toDaemonPath(req)
@@ -232,7 +227,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const access = await auth()
+  const access = await requireCoderAccess(req)
   if ('response' in access) return access.response
 
   const target = toDaemonPath(req)
@@ -266,7 +261,7 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const access = await auth()
+  const access = await requireCoderAccess(req)
   if ('response' in access) return access.response
 
   const target = toDaemonPath(req)
@@ -287,7 +282,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const access = await auth()
+  const access = await requireCoderAccess(req)
   if ('response' in access) return access.response
 
   const target = toDaemonPath(req)

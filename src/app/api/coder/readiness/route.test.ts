@@ -27,7 +27,7 @@ async function loadRoute() {
 beforeEach(() => {
   mocks.requireCurrentAuthWithPermissions.mockReset()
   mocks.requireCurrentAuthWithPermissions.mockResolvedValue({
-    auth: { user: { id: 'user-1' }, permissions: ['workspace-tool.use'] },
+    auth: { user: { id: 'user-1', role: 'ADMIN' }, permissions: ['workspace-tool.use'] },
     userId: 'user-1',
   })
   mocks.prismaQueryRaw.mockReset()
@@ -42,7 +42,7 @@ afterEach(() => {
 
 describe('GET /api/coder/readiness', () => {
   it('reports ready when DB and daemon are both reachable', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(new Response('ok', { status: 200 }))
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('{"status":"ok"}', { status: 200 }))
     const { GET } = await loadRoute()
     const res = await GET()
     expect(res.status).toBe(200)
@@ -77,5 +77,11 @@ describe('GET /api/coder/readiness', () => {
     const { GET } = await loadRoute()
     const res = await GET()
     expect(res.status).toBe(403)
+  })
+
+  it('does not call an arbitrary 200 page a healthy daemon', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response('<html>wrong service</html>'))
+    const { GET } = await loadRoute()
+    expect((await GET()).status).toBe(503)
   })
 })

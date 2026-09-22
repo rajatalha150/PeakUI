@@ -16,18 +16,11 @@
  */
 
 import { NextResponse, type NextRequest } from 'next/server'
-import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
-import type { PermissionKey } from '@/lib/permissions'
+import { requireCoderAccess } from '@/lib/coder-access'
 import { parsePreviewUrl } from '@/lib/coder-preview'
 
-const REQUIRED: PermissionKey[] = ['workspace-tool.use']
-
 export async function POST(req: NextRequest) {
-  const auth = await requireCurrentAuthWithPermissions(REQUIRED, {
-    forbiddenMessage: 'WorkSpaces access is not granted for this account.',
-    actionRequired:
-      'Grant the WorkSpaces permission in Settings -> User Management before using the Coding environment.',
-  })
+  const auth = await requireCoderAccess(req)
   if ('response' in auth) return auth.response
 
   let body: unknown
@@ -37,7 +30,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Expected a JSON body with a `url`.', code: 'bad_request' }, { status: 400 })
   }
 
-  const url = typeof (body as { url?: unknown }).url === 'string' ? (body as { url: string }).url : ''
+  const url = body && typeof body === 'object' && 'url' in body && typeof body.url === 'string' ? body.url : ''
   if (!url.trim()) {
     return NextResponse.json({ error: 'Preview URL is required.', code: 'bad_request' }, { status: 400 })
   }

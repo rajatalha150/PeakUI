@@ -35,7 +35,7 @@ describe('isVerificationStale', () => {
 
   it('is fresh when the workspace has not changed since the run', () => {
     expect(isVerificationStale(record, 3)).toBe(false)
-    expect(isVerificationStale(record, 2)).toBe(false)
+    expect(isVerificationStale(record, 2)).toBe(true)
   })
 
   it('is stale once the mutation counter advances past the captured value', () => {

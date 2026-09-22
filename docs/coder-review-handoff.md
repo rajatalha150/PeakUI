@@ -15,13 +15,14 @@ daemon's file routes (as multi-tab buffers, now in a bundled Monaco editor); run
 named tasks over the daemon shell; and search workspace files via the
 glob→read→grep composition. **Preview SSRF guarding (Phase 4)** is now enforced
 at both the client and the server, and the **operations slice (Phase 7)** landed
-`migrate deploy` (with a safe `db push` fallback) plus a db/daemon readiness
+  `migrate deploy` plus a db/daemon readiness
 endpoint. The **managed-previews auth proxy (Phase 4), the rest of the IDE
 workbench (PTY/debugger, Phase 6 — both verified hard)** and the remaining
 **operations work (logs/backup/non-root/Windows, Phase 7)** remain **not done** —
 documented as gaps. This is a deliberate honest-partial handoff, per the spec.
 
-- Tests: **985 passing / 91 files** (`npx vitest run`), `npx tsc --noEmit` clean.
+- Tests: **1001 passing / 91 files** (`npm test`), `npx tsc --noEmit` clean;
+  production browser smoke also passes against the deployed app.
 - Daemon: Qwen Code `v0.23.4` live at `127.0.0.1:4170`; key wire contracts
   re-verified against the running daemon and its pinned source under
   `/opt/qwen-code/dist`.
@@ -43,7 +44,10 @@ documented as gaps. This is a deliberate honest-partial handoff, per the spec.
   reject a relative/traversal `path` before forwarding (defense in depth; the
   daemon's workspace containment is the final authority). Tests:
   `src/lib/coder-authorization.test.ts`.
-- **Container isolation (additive).** `docker-compose.yml` coder service:
+- **Shared-runtime boundary.** The current coder daemon is one root, host-network
+  runtime. Until per-user runtimes and bridge networking land, the gateway allows
+  coder access only to `ADMIN` users; `USER`/`MANAGER` requests are rejected rather
+  than being allowed to share a privileged runtime. `docker-compose.yml` also adds:
   `pids_limit`, `mem_limit`, `no-new-privileges`, `cap_drop` of host-dangerous
   caps. **Not done:** non-root, dropping host networking, egress policy — those
   need the Phase 7 bridge-network migration (documented in §9.7 of
@@ -163,9 +167,10 @@ documented as gaps. This is a deliberate honest-partial handoff, per the spec.
   self-contained) and is lazy-loaded with `next/dynamic({ ssr: false })`, so it
   never enters the server bundle. It replaces the explorer's plain textarea with
   a syntax-highlighted, line-numbered editor; the model `path` is the workspace
-  file path, so Monaco infers the language from the extension. Runs in the main
-  thread (no web worker) — IntelliSense / go-to-definition remain gated on a
-  worker + LSP setup (documented as a gap).
+  file path, so Monaco infers the language from the extension. The standalone
+  build explicitly falls back to Monaco's main-thread editor service when
+  language workers are unavailable; IntelliSense / go-to-definition remain
+  gated on a worker + LSP setup (documented as a gap).
 - **Not built:** persistent PTY and the Node/TS debug adapter — both **verified
   hard** against the pinned daemon's HTTP surface: there is no PTY transport
   (only the on-demand `POST /session/:id/shell`) and no debug-adapter route — see
@@ -175,14 +180,10 @@ documented as gaps. This is a deliberate honest-partial handoff, per the spec.
 
 ### Phase 7 — Operations (migration + readiness slice)
 
-- **`migrate deploy` with a safe fallback.** The image's startup command now runs
-  `npx prisma migrate deploy` first, so the committed, reviewed migration history
-  is the source of truth for fresh installs; it falls back to
-  `npx prisma db push --accept-data-loss` only when the DB has no migration
-  baseline (a legacy installer-created DB), which is exactly the prior behavior —
-  no data loss, no destructive re-baselining. Verified on redeploy: the live DB
-  already recorded 15 migrations, so `migrate deploy` applied only the pending
-  16th and the app came up clean.
+- **`migrate deploy` fail-closed.** The image startup command runs only
+  `npx prisma migrate deploy`; an unbaselined or inconsistent database stops the
+  app instead of silently changing schema with `db push`. Verified on redeploy:
+  all 16 committed migrations are applied and the app came up clean.
 - **Readiness beyond process health.** New `GET /api/coder/readiness` probes the
   database (`SELECT 1`) and the daemon (`/health`) and returns `503` when either
   is down — separate from `/api/health` (chat/Ollama) and from the daemon's own
@@ -246,8 +247,8 @@ documented as gaps. This is a deliberate honest-partial handoff, per the spec.
    the preview iframe sandbox no longer includes `allow-same-origin`.
 10. The Monaco editor — `CodeEditor.tsx` bundles `monaco-editor` locally via
     `loader.config({ monaco })` (no CDN) and is lazy-loaded with `ssr: false`; it
-    runs in the main thread (no web worker), so IntelliSense is not expected.
+    falls back to Monaco's main-thread editor service when language workers are
+    unavailable, so IntelliSense is not expected.
 11. The migration + readiness slice — the Dockerfile CMD runs
-    `npx prisma migrate deploy || npx prisma db push --accept-data-loss` (legacy
-    DBs without a baseline fall back to the prior behavior, no data loss), and
-    `GET /api/coder/readiness` returns 503 when the DB or daemon is down.
+    `npx prisma migrate deploy`, and `GET /api/coder/readiness` returns 503 when
+    the DB or daemon is down.

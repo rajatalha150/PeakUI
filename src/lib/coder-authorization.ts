@@ -70,7 +70,8 @@ export function extractCoderSessionId(path: string): string | null {
   const match = /^\/session\/([^/]+)/.exec(path)
   if (!match) return null
   try {
-    return decodeURIComponent(match[1])
+    const id = decodeURIComponent(match[1])
+    return /[\/%\\\x00-\x1f]/.test(id) || id === '.' || id === '..' ? null : id
   } catch {
     return null
   }
@@ -89,6 +90,20 @@ export async function authorizeCoderSession(userId: string, sessionId: string): 
     select: { userId: true, surface: true },
   })
   return Boolean(session && session.userId === userId && session.surface === 'coder')
+}
+
+/** Bind once before daemon creation. Concurrent tabs cannot reassign a session. */
+export async function bindCoderSessionWorkspace(userId: string, sessionId: string, cwd: string): Promise<boolean> {
+  const canonical = normalizeCoderWorkspacePath(cwd)
+  if (!canonical) return false
+  await prisma.chatSession.updateMany({
+    where: { id: sessionId, userId, surface: 'coder', coderWorkspace: null },
+    data: { coderWorkspace: canonical },
+  })
+  const session = await prisma.chatSession.findUnique({
+    where: { id: sessionId }, select: { userId: true, surface: true, coderWorkspace: true },
+  })
+  return Boolean(session && session.userId === userId && session.surface === 'coder' && session.coderWorkspace === canonical)
 }
 
 /**
@@ -120,10 +135,11 @@ function canonicalAbsolutePath(value: string): string | null {
   const trimmed = value.trim()
   if (!trimmed) return null
   if (!trimmed.startsWith('/')) return null
+  if (/[\\%\x00-\x1f\x7f]/.test(trimmed)) return null
 
   const segments = trimmed.split('/')
   // A `..` segment (after decoding) is a traversal attempt, not a workspace.
-  if (segments.includes('..')) return null
+  if (segments.includes('..') || segments.includes('.')) return null
 
   const collapsed = trimmed.replace(/\/+/g, '/').replace(/\/+$/, '')
   return collapsed || '/'

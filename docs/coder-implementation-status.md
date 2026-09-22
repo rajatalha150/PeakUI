@@ -6,8 +6,8 @@ runtime and has evidence, not that a mock or a subset works.
 
 ## Baseline (Phase 0)
 
-- Branch/commit: `trimmer` @ `8112676` (`fix(coder): annotate vision/tools capability …`)
-- Worktree: clean except untracked `prompt-ai.md`
+- Branch: `trimmer` (review hardening is in the current worktree; commit after
+  final verification)
 - Baseline test command passes **59 tests / 7 files** (re-run 2026-09-21):
   ```
   npm test -- --run src/lib/coder-gateway.test.ts src/lib/coder-orchestration.test.ts \
@@ -29,7 +29,7 @@ runtime and has evidence, not that a mock or a subset works.
 | 4 Managed previews & dev processes | 🔶 partial | SSRF guard (client + server) + sandbox origin isolation landed; auth proxy + registration deferred |
 | 5 Reversible work & verification evidence | 🔶 partial | rewind exposed & live-verified; verification records + stale-marking landed (mutation-counter fingerprint) |
 | 6 Complete IDE workbench | 🔶 partial | project explorer (multi-tab), named tasks, text search, and Monaco editor landed; PTY/debugger verified-hard |
-| 7 Operations, migration, deployment | 🔶 partial | `migrate deploy` (with `db push` fallback) + readiness (db/daemon) landed; logs/backup/non-root/Windows remain |
+| 7 Operations, migration, deployment | 🔶 partial | fail-closed `migrate deploy` + readiness (db/daemon) + healthcheck/resource limits landed; logs/backup/non-root/Windows remain |
 
 Legend: ✅ done · 🔶 partial · ⬜ not started
 
@@ -89,7 +89,7 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 
 ## Phase 7 — Operations, migration, deployment
 
-- [x] Replace `prisma db push --accept-data-loss` with reviewed migrations — startup now runs `migrate deploy` (committed migration history is the source of truth for fresh installs) and falls back to `db push --accept-data-loss` only for legacy DBs without a migration baseline (no data loss, no re-baselining). Verified on redeploy: the live DB already had 15 recorded migrations, so `migrate deploy` applied only the pending 16th
+- [x] Replace `prisma db push --accept-data-loss` with reviewed migrations — startup now runs fail-closed `migrate deploy`; the live database reports all 16 committed migrations applied
 - [x] Readiness beyond process health — `GET /api/coder/readiness` probes DB (`SELECT 1`) and daemon (`/health`) and returns 503 when either is down
 - [ ] Correlated redacted logs + actionable error codes
 - [ ] Backup/restore of Postgres + coder volumes
@@ -102,4 +102,4 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 - Browser harness: `scripts/coder-browser/verify-site.mjs`
 - Runbook: `docs/coder-deployment-runbook.md`
 - Handoff: `docs/coder-review-handoff.md`
-- Current suite: **985 passing / 91 files** (`npx vitest run`)
+- Current suite: **1001 passing / 91 files** (`npm test`); production smoke: `scripts/coder-review-smoke.mjs`
