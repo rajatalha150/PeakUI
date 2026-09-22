@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # PeakUI one-command installer — Linux / macOS.
 #
-#   curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/trimmer/scripts/install.sh | sh
 #
 # Or, after a manual clone, from the repo root:
 #   ./scripts/install.sh [target_dir]
@@ -13,7 +13,7 @@
 set -eu
 
 REPO="https://github.com/rajatalha150/PeakUI.git"
-BRANCH="main"
+BRANCH="${PEAKUI_REF:-trimmer}"
 PORT="${PEAKUI_PORT:-3000}"
 
 # Target dir: explicit arg > env > ./PeakUI in the current working directory.
@@ -35,11 +35,12 @@ OS="$(uname -s 2>/dev/null || echo unknown)"
 case "$OS" in
   Linux*)  COMPOSE_FILE="docker-compose.yml";           DB_HOST="localhost";            OLLAMA_HOST="http://127.0.0.1:11434"; TOR_URL="socks5://localhost:9050" ;;
   Darwin*) COMPOSE_FILE="docker-compose.windows.yml";    DB_HOST="db";                   OLLAMA_HOST="http://host.docker.internal:11434"; TOR_URL="socks5://tor-proxy:9150" ;;
-  *) die "Unsupported OS '$OS'. Use Windows PowerShell: irm https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.ps1 | iex" ;;
+  *) die "Unsupported OS '$OS'. Use Windows PowerShell: irm https://raw.githubusercontent.com/rajatalha150/PeakUI/trimmer/scripts/install.ps1 | iex" ;;
 esac
 
 # --- 2. Verify Docker -------------------------------------------------------
 command -v docker >/dev/null 2>&1 || die "Docker is not installed. Install it first: https://docs.docker.com/get-docker/"
+command -v git >/dev/null 2>&1 || die "Git is not installed. Install it first, then re-run this command."
 log "Checking Docker daemon..."
 docker info >/dev/null 2>&1 || die "Docker daemon is not running. Start Docker and re-run this command."
 docker compose version >/dev/null 2>&1 || die "The 'docker compose' plugin is missing. Install the Docker Compose plugin (v2) and re-run."
@@ -50,9 +51,8 @@ if [ -f "$TARGET/docker-compose.yml" ]; then
   log "Updating existing checkout at $TARGET"
   cd "$TARGET"
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "$TARGET is not a git checkout; move it aside and re-run."
-  git fetch --quiet origin "$BRANCH" 2>/dev/null || warn "git fetch failed (offline?) — continuing with current checkout."
-  git checkout "$BRANCH" 2>/dev/null || true
-  git pull --ff-only --quiet origin "$BRANCH" 2>/dev/null || warn "git pull failed — continuing with current checkout."
+  git fetch --quiet origin "$BRANCH" 2>/dev/null || die "Could not fetch branch '$BRANCH'. Check internet access or set PEAKUI_REF to an existing branch."
+  git checkout --quiet -B "$BRANCH" "origin/$BRANCH" || die "Could not switch to origin/$BRANCH. Commit or move any local changes, then re-run."
 else
   log "Cloning PeakUI into $TARGET"
   mkdir -p "$(dirname "$TARGET")"
@@ -60,6 +60,7 @@ else
   cd "$TARGET"
 fi
 [ -f "$COMPOSE_FILE" ] || die "$COMPOSE_FILE not found in $TARGET — incomplete checkout."
+ok "Using PeakUI branch: $BRANCH"
 
 # --- 4. Generate .env (idempotent) ------------------------------------------
 if [ -f .env ]; then

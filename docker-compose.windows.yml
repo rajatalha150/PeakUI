@@ -48,6 +48,53 @@ services:
       retries: 3
       start_period: 30s
 
+  # The coding daemon uses a bridge-network address on Docker Desktop. The app
+  # reaches it by service name; it is never published to the host/browser.
+  coder:
+    image: peakui-coder
+    build:
+      context: .
+      dockerfile: Dockerfile.coder
+    restart: always
+    init: true
+    pids_limit: 4096
+    mem_limit: 8g
+    cpus: ${CODER_CPUS:-4.0}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - SYS_MODULE
+      - SYS_RAWIO
+      - SYS_BOOT
+      - SYS_TIME
+      - SYSLOG
+      - AUDIT_CONTROL
+      - AUDIT_READ
+      - MAC_ADMIN
+      - MAC_OVERRIDE
+      - SETFCAP
+    environment:
+      QWEN_SERVER_TOKEN: ${CODER_SERVER_TOKEN:-}
+      OPENAI_API_KEY: ${CODER_OPENAI_API_KEY:-local}
+      OPENAI_MODEL: ${CODER_MODEL:-gemma4:latest}
+      OPENAI_BASE_URL: ${CODER_OPENAI_BASE_URL:-http://host.docker.internal:11434/v1}
+      QWEN_DEBUG_LOG_FILE: "1"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4170/health',{signal:AbortSignal.timeout(4000),headers:process.env.QWEN_SERVER_TOKEN?{Authorization:'Bearer '+process.env.QWEN_SERVER_TOKEN}:{}}).then(async r=>{if(!r.ok||(await r.json()).status!=='ok')process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    volumes:
+      - coder_workspace:/workspace
+      - coder_apps:/apps
+      - coder_qwen_state:/root/.qwen
+      - coder_root_home:/root
+    networks:
+      - peakui
+
   app:
     image: peakui-app
     build:
@@ -76,6 +123,12 @@ services:
       FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
       FIRECRAWL_API_URL: ${FIRECRAWL_API_URL:-https://api.firecrawl.dev}
       OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+      CODER_DAEMON_URL: ${CODER_DAEMON_URL:-http://coder:4170}
+      CODER_SERVER_TOKEN: ${CODER_SERVER_TOKEN:-}
+      GITHUB_APP_ID: ${GITHUB_APP_ID:-}
+      GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
+      GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
+      CODER_PROJECTS_HOST_ROOT: /coder-workspace/projects
     depends_on:
       searxng:
         condition: service_started
@@ -83,6 +136,8 @@ services:
         condition: service_healthy
       tor-proxy:
         condition: service_started
+      coder:
+        condition: service_healthy
     restart: always
     volumes:
       - type: bind
@@ -100,6 +155,7 @@ services:
         source: ${WORKSPACE_TOOL_HOST_PROJECTS_DIR:-C:\Users\%USERNAME%\Desktop}
         target: /mnt/workspace-tool/projects
       - app_runtime:/var/lib/peakui
+      - coder_workspace:/coder-workspace:rw
     networks:
       - peakui
 
@@ -107,6 +163,10 @@ volumes:
   db_data:
   app_runtime:
   searxng_cache:
+  coder_workspace:
+  coder_apps:
+  coder_qwen_state:
+  coder_root_home:
 
 networks:
   peakui:

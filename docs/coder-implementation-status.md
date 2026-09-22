@@ -30,7 +30,7 @@ runtime and has evidence, not that a mock or a subset works.
 | 4 Managed previews & dev processes | 🔶 partial | SSRF guard, sandbox origin isolation, manual device/URL control, and isolated vision screenshot review landed; auth proxy + registration deferred |
 | 5 Reversible work & verification evidence | 🔶 partial | rewind exposed & live-verified; verification records + stale-marking landed (mutation-counter fingerprint) |
 | 6 Complete IDE workbench | 🔶 partial | project explorer (multi-tab), named tasks, text search, and Monaco editor landed; PTY/debugger verified-hard |
-| 7 Operations, migration, deployment | 🔶 partial | fail-closed `migrate deploy` + readiness (db/daemon) + healthcheck/resource limits landed; logs/backup/non-root/Windows remain |
+| 7 Operations, migration, deployment | 🔶 partial | fail-closed `migrate deploy` + readiness (db/daemon) + healthcheck/resource limits landed; logs/backup/non-root remain |
 
 Legend: ✅ done · 🔶 partial · ⬜ not started
 
@@ -96,7 +96,7 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 - [ ] Correlated redacted logs + actionable error codes
 - [ ] Backup/restore of Postgres + coder volumes
 - [ ] Non-root ownership migration
-- [ ] Windows compose coder service
+- [x] Windows/macOS compose coder service with private bridge-network daemon, persistent coding volumes, and app project-volume access
 
 ## Evidence locations
 

@@ -49,15 +49,17 @@ with random secrets, builds, and starts everything detached:
 
 ```bash
 # Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/trimmer/scripts/install.sh | sh
 
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/rajatalha150/PeakUI/trimmer/scripts/install.ps1 | iex
 ```
 
-Re-running the same command upgrades an existing deployment (`git pull` +
-rebuild). Then jump to step 3 below. The manual steps that follow are for when
-you prefer to clone and configure by hand.
+Re-running the same command fetches the latest `trimmer` revision and rebuilds
+the complete stack, including the Coding daemon. To deploy another published
+branch explicitly, set `PEAKUI_REF` before the command. Then jump to step 3
+below. The manual steps that follow are for when you prefer to clone and
+configure by hand.
 
 ### 1. Start Ollama
 
@@ -75,11 +77,14 @@ ollama pull nomic-embed-text
 ### 2. Start PeakUI
 
 ```bash
-# Linux / macOS (Docker Desktop)
+# Linux
 docker compose up -d --build
 
-# Windows (see WINDOWS-SETUP.md)
-docker compose -f docker-compose.windows.yml up --build
+# macOS (Docker Desktop)
+docker compose -f docker-compose.windows.yml up -d --build
+
+# Windows (Docker Desktop; see WINDOWS-SETUP.md)
+docker compose -f docker-compose.windows.yml up -d --build
 ```
 
 Open [http://localhost:3000](http://localhost:3000).

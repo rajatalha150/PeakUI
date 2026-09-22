@@ -1,6 +1,6 @@
 # PeakUI one-command installer — Windows (PowerShell).
 #
-#   irm https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/rajatalha150/PeakUI/trimmer/scripts/install.ps1 | iex
 #
 # Or, after a manual clone, from the repo root:
 #   .\scripts\install.ps1 [-TargetDir <path>]
@@ -12,12 +12,14 @@
 [CmdletBinding()]
 param(
     [string]$TargetDir = $env:PEAKUI_TARGET,
-    [int]$Port = 3000
+    [int]$Port = 3000,
+    [string]$Ref = $env:PEAKUI_REF
 )
 
 $ErrorActionPreference = "Stop"
 $Repo = "https://github.com/rajatalha150/PeakUI.git"
-$Branch = "main"
+if (-not $Ref) { $Ref = "trimmer" }
+$Branch = $Ref
 $ComposeFile = "docker-compose.windows.yml"
 
 function Write-Step($t) { Write-Host "`n==> $t" -ForegroundColor Cyan }
@@ -37,6 +39,10 @@ if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     Write-Host "  Install it with:" -ForegroundColor Yellow
     Write-Host "    winget install --id Docker.DockerDesktop --exact" -ForegroundColor Yellow
     Write-Host "  Then start Docker Desktop and re-run this command." -ForegroundColor Yellow
+    exit 1
+}
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Write-Err "Git is not installed or not on PATH. Install Git for Windows, then re-run this command."
     exit 1
 }
 function Test-DockerRunning { (docker info 2>&1 | Out-Null); $LASTEXITCODE -eq 0 }
@@ -60,7 +66,9 @@ if (Test-Path (Join-Path $TargetDir $ComposeFile)) {
     Write-Step "Updating existing checkout at $TargetDir"
     Set-Location $TargetDir
     git fetch --quiet origin $Branch 2>$null
-    if ($LASTEXITCODE -eq 0) { git checkout $Branch 2>$null; git pull --ff-only --quiet origin $Branch 2>$null }
+    if ($LASTEXITCODE -ne 0) { Write-Err "Could not fetch branch '$Branch'. Check internet access or set PEAKUI_REF to an existing branch."; exit 1 }
+    git checkout --quiet -B $Branch "origin/$Branch"
+    if ($LASTEXITCODE -ne 0) { Write-Err "Could not switch to origin/$Branch. Commit or move local changes, then re-run."; exit 1 }
 } else {
     Write-Step "Cloning PeakUI into $TargetDir"
     New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
@@ -68,6 +76,7 @@ if (Test-Path (Join-Path $TargetDir $ComposeFile)) {
     Set-Location $TargetDir
 }
 if (-not (Test-Path $ComposeFile)) { Write-Err "$ComposeFile not found in $TargetDir — incomplete checkout."; exit 1 }
+Write-OK "Using PeakUI branch: $Branch"
 
 # --- 3. Generate .env (idempotent) -----------------------------------------
 $EnvFile = Join-Path $TargetDir ".env"
