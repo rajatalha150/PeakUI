@@ -93,7 +93,9 @@ try {
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1050 } });
   await context.addCookies([{ name: 'auth_token', value: admin.token, url: base.origin, httpOnly: true, sameSite: 'Lax' }]);
-  await context.addInitScript(id => localStorage.setItem('peakui-coder-active-session', id), sid);
+  await context.addInitScript(id => {
+    if (window.top === window) localStorage.setItem('peakui-coder-active-session', id);
+  }, sid);
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -126,6 +128,35 @@ try {
   await searchInput.press('Enter');
   await page.getByText('browser edited fixture', { exact: true }).first().waitFor();
   checks.push('workspace search through real gateway');
+
+  // Simulate an agent continuously requesting a mobile preview without writing
+  // into the real shared workspace. A manual device choice must survive later
+  // preview-file polls until the URL changes.
+  await page.route(/\/api\/coder\/workspaces\/[^/]+\/file\?path=.*peakui-preview\.json/, route => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ content: JSON.stringify({ url: 'http://127.0.0.1:5173', device: 'mobile' }) }),
+  }));
+  await page.route('http://127.0.0.1:5173/**', route => route.fulfill({
+    status: 200,
+    contentType: 'text/html',
+    body: '<!doctype html><title>Preview fixture</title><main>Preview fixture</main>',
+  }));
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('iframe[title="App preview"]')?.getAttribute('style')?.includes('width: 390px'));
+  await page.getByRole('button', { name: 'desktop', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('iframe[title="App preview"]')?.getAttribute('style')?.includes('width: 1280px'));
+  await page.waitForTimeout(2_300);
+  assert.equal(await page.locator('iframe[title="App preview"]').evaluate(el => el.getAttribute('style')?.includes('width: 1280px')), true);
+  const desktopFrame = page.frames().find(frame => frame.url().startsWith('http://127.0.0.1:5173'));
+  assert.equal(await desktopFrame?.evaluate(() => window.innerWidth), 1278);
+  await page.getByRole('button', { name: 'tablet', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('iframe[title="App preview"]')?.getAttribute('style')?.includes('width: 768px'));
+  await page.waitForTimeout(100);
+  const tabletFrame = page.frames().find(frame => frame.url().startsWith('http://127.0.0.1:5173'));
+  assert.equal(await tabletFrame?.evaluate(() => window.innerWidth), 766);
+  checks.push('manual preview viewport survives agent device polling');
+
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: `${artifacts}/mobile-editor.png`, fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'Page overflows mobile viewport');
