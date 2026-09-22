@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { AlertCircle, Bot, Camera, CheckCircle2, ChevronRight, Circle, ClipboardCopy, FileText, Folder, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
+import { AlertCircle, Bot, Camera, CheckCircle2, ChevronRight, Circle, ClipboardCopy, FileText, Folder, GitBranch, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
 import { buildConversation, fetchFullTranscript, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from '@/lib/coder-transcript';
 import { streamSessionEvents } from '@/lib/coder-sse';
@@ -116,6 +116,26 @@ interface CoderSettings {
   coderToolsEnabled: boolean;
   coderVisionModel: string;
   coderWriterModel: string;
+}
+
+interface GitHubIntegration {
+  configured: boolean;
+  connection: { id: string; githubLogin: string; accountType: string } | null;
+}
+
+interface GitHubRepositoryOption {
+  id: string;
+  fullName: string;
+  name: string;
+  private: boolean;
+  defaultBranch: string;
+}
+
+interface CoderProjectOption {
+  id: string;
+  repositoryFullName: string;
+  branch: string;
+  workspacePath: string;
 }
 
 const APPROVAL_MODES: Array<{ id: string; label: string; hint: string }> = [
@@ -351,6 +371,15 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [settings, setSettings] = React.useState<CoderSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [settingsSaving, setSettingsSaving] = React.useState(false);
+  const [projectsOpen, setProjectsOpen] = React.useState(false);
+  const [githubIntegration, setGithubIntegration] = React.useState<GitHubIntegration | null>(null);
+  const [githubRepositories, setGithubRepositories] = React.useState<GitHubRepositoryOption[]>([]);
+  const [coderProjects, setCoderProjects] = React.useState<CoderProjectOption[]>([]);
+  const [selectedRepositoryId, setSelectedRepositoryId] = React.useState('');
+  const [selectedProjectBranch, setSelectedProjectBranch] = React.useState('');
+  const [projectsLoading, setProjectsLoading] = React.useState(false);
+  const [projectImporting, setProjectImporting] = React.useState(false);
+  const [projectsError, setProjectsError] = React.useState('');
   // Preview browser — a real, device-switchable preview the AI can drive.
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [previewUrl, setPreviewUrl] = React.useState('');
@@ -948,7 +977,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     }
   };
 
-  const newSession = async () => {
+  const newSession = async (workspaceOverride?: string) => {
     if (!canLeaveBuffers()) return;
     const current = captureSession();
     setError('');
@@ -969,7 +998,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       setActiveSessionId(id);
       setSessionResolved(true);
       sessionWorkspaceRef.current = null;
-      setWorkspace(settings?.coderWorkspace || '/workspace');
+      setWorkspace(workspaceOverride || settings?.coderWorkspace || '/workspace');
       setMessages([]);
       setToolActivity([]);
       setVerificationRecords([]);
@@ -1752,6 +1781,95 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     await saveSettings({ coderWorkspace: clean || '/workspace' });
   };
 
+  const loadGitHubIntegration = async () => {
+    try {
+      const res = await fetch('/api/integrations/github');
+      const data = await res.json().catch(() => ({})) as GitHubIntegration & { error?: string };
+      if (!res.ok) throw new Error(data.error || 'Could not load GitHub connection.');
+      setGithubIntegration(data);
+    } catch (error) {
+      setProjectsError(error instanceof Error ? error.message : 'Could not load GitHub connection.');
+    }
+  };
+
+  const loadProjects = async (includeRepositories = false) => {
+    setProjectsLoading(true);
+    setProjectsError('');
+    try {
+      const [projectsRes, integrationRes] = await Promise.all([
+        fetch('/api/coder/projects'),
+        fetch('/api/integrations/github'),
+      ]);
+      const projectsData = await projectsRes.json().catch(() => ({})) as { projects?: CoderProjectOption[]; error?: string };
+      const integrationData = await integrationRes.json().catch(() => ({})) as GitHubIntegration & { error?: string };
+      if (!projectsRes.ok) throw new Error(projectsData.error || 'Could not load projects.');
+      if (!integrationRes.ok) throw new Error(integrationData.error || 'Could not load GitHub connection.');
+      setCoderProjects(Array.isArray(projectsData.projects) ? projectsData.projects : []);
+      setGithubIntegration(integrationData);
+      if (includeRepositories && integrationData.connection) {
+        const reposRes = await fetch('/api/integrations/github/repos');
+        const reposData = await reposRes.json().catch(() => ({})) as { repositories?: GitHubRepositoryOption[]; error?: string };
+        if (!reposRes.ok) throw new Error(reposData.error || 'Could not load GitHub repositories.');
+        const repositories = Array.isArray(reposData.repositories) ? reposData.repositories : [];
+        setGithubRepositories(repositories);
+        if (!selectedRepositoryId && repositories[0]) {
+          setSelectedRepositoryId(repositories[0].id);
+          setSelectedProjectBranch(repositories[0].defaultBranch);
+        }
+      }
+    } catch (error) {
+      setProjectsError(error instanceof Error ? error.message : 'Could not load projects.');
+    } finally {
+      setProjectsLoading(false);
+    }
+  };
+
+  const openProjects = () => {
+    setProjectsOpen(value => !value);
+    void loadProjects(true);
+  };
+
+  const importProject = async () => {
+    if (!selectedRepositoryId || projectImporting) return;
+    setProjectImporting(true);
+    setProjectsError('');
+    try {
+      const res = await fetch('/api/coder/projects', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repositoryId: selectedRepositoryId, branch: selectedProjectBranch }),
+      });
+      const data = await res.json().catch(() => ({})) as { project?: CoderProjectOption; error?: string };
+      if (!res.ok || !data.project) throw new Error(data.error || 'Could not import project.');
+      await loadProjects(false);
+      await saveSettings({ coderWorkspace: data.project.workspacePath });
+      setWorkspaceDraft(data.project.workspacePath);
+      await newSession(data.project.workspacePath);
+      setProjectsOpen(false);
+    } catch (error) {
+      setProjectsError(error instanceof Error ? error.message : 'Could not import project.');
+    } finally {
+      setProjectImporting(false);
+    }
+  };
+
+  const openProject = async (project: CoderProjectOption) => {
+    await saveSettings({ coderWorkspace: project.workspacePath });
+    setWorkspaceDraft(project.workspacePath);
+    await newSession(project.workspacePath);
+    setProjectsOpen(false);
+  };
+
+  const disconnectGitHub = async () => {
+    try {
+      const res = await fetch('/api/integrations/github', { method: 'DELETE' });
+      if (!res.ok) throw new Error('Could not disconnect GitHub.');
+      setGithubIntegration(current => current ? { ...current, connection: null } : current);
+      setGithubRepositories([]);
+    } catch (error) {
+      setProjectsError(error instanceof Error ? error.message : 'Could not disconnect GitHub.');
+    }
+  };
+
   // ---- Send / stop ---------------------------------------------------------
 
   const send = async () => {
@@ -2309,7 +2427,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           {sidebarOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />} {isPhone ? '' : 'Sessions'}
         </button>
         <button onClick={() => setShellOpen(o => !o)} style={ghostBtnStyle()} title="Open a terminal into the isolated container"><Terminal size={14} /> Terminal</button>
-        <button onClick={() => setSettingsOpen(o => !o)} style={ghostBtnStyle()}><Wrench size={14} /> Settings</button>
+        <button onClick={() => { setSettingsOpen(o => !o); void loadGitHubIntegration(); }} style={ghostBtnStyle()}><Wrench size={14} /> Settings</button>
+        <button onClick={openProjects} style={ghostBtnStyle()} title="Open or import a source-controlled project"><GitBranch size={14} /> Projects</button>
         <button onClick={() => openPreview()} style={ghostBtnStyle()}><Globe size={14} /> Preview</button>
         <button onClick={() => void openRewind()} disabled={!activeSessionId} style={ghostBtnStyle()} title="Rewind the session to an earlier turn (restores conversation + files)"><History size={14} /> Rewind</button>
         <button onClick={() => void openFiles()} style={ghostBtnStyle()} title="Browse and edit workspace files"><Folder size={14} /> Files</button>
@@ -2406,6 +2525,71 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           <div style={{ alignSelf: 'flex-end', fontSize: '0.68rem', color: 'rgba(209,213,219,0.45)', fontFamily: 'ui-monospace, monospace', paddingBottom: 6 }}>
             {settingsSaving ? 'saving…' : 'saved'}
           </div>
+
+          <div style={{ flexBasis: '100%', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <GitBranch size={14} color={accent} />
+            <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(209,213,219,0.65)' }}>Source control</span>
+            {githubIntegration?.connection ? (
+              <>
+                <span style={{ fontSize: '0.72rem', color: 'rgba(209,213,219,0.72)' }}>GitHub: {githubIntegration.connection.githubLogin}</span>
+                <button onClick={() => void disconnectGitHub()} style={ghostBtnStyle()} title="Disconnect this GitHub installation"><X size={13} /> Disconnect</button>
+              </>
+            ) : githubIntegration?.configured ? (
+              <button onClick={() => { window.location.assign('/api/integrations/github/connect'); }} style={btnStyle(accent)}><GitBranch size={13} /> Connect GitHub</button>
+            ) : (
+              <span style={{ fontSize: '0.72rem', color: 'rgba(252,165,165,0.9)' }}>GitHub App deployment configuration is required.</span>
+            )}
+            <button onClick={openProjects} style={ghostBtnStyle()}><Folder size={13} /> Projects</button>
+          </div>
+        </div>
+      )}
+
+      {projectsOpen && (
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.3)', maxHeight: 340, overflowY: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <GitBranch size={15} color={accent} />
+            <span style={{ fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#d1d5db' }}>Projects</span>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => void loadProjects(true)} disabled={projectsLoading} title="Refresh projects and repositories" style={ghostBtnStyle()}><RefreshCw size={13} /></button>
+            <button onClick={() => setProjectsOpen(false)} style={ghostBtnStyle()} title="Close projects"><X size={13} /></button>
+          </div>
+          {projectsError && <div role="alert" style={{ marginBottom: 10, padding: '7px 9px', color: '#fca5a5', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5, fontSize: '0.72rem' }}>{projectsError}</div>}
+          {projectsLoading ? <div style={{ color: 'rgba(209,213,219,0.5)', fontSize: '0.74rem' }}>Loading source control…</div> : (
+            <>
+              {githubIntegration?.connection ? (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap', paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <SettingField label="GitHub repository">
+                    <select
+                      value={selectedRepositoryId}
+                      onChange={e => {
+                        setSelectedRepositoryId(e.target.value);
+                        const repo = githubRepositories.find(item => item.id === e.target.value);
+                        if (repo) setSelectedProjectBranch(repo.defaultBranch);
+                      }}
+                      style={{ ...inputStyle(), minWidth: 260 }}
+                    >
+                      {githubRepositories.map(repo => <option key={repo.id} value={repo.id} style={{ color: '#111' }}>{repo.fullName}{repo.private ? ' (private)' : ''}</option>)}
+                    </select>
+                  </SettingField>
+                  <SettingField label="Branch">
+                    <input value={selectedProjectBranch} onChange={e => setSelectedProjectBranch(e.target.value)} style={{ ...inputStyle(), width: 150 }} />
+                  </SettingField>
+                  <button onClick={() => void importProject()} disabled={!selectedRepositoryId || projectImporting} style={btnStyle(accent)}>{projectImporting ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Plus size={13} />}{projectImporting ? 'Importing' : 'Import'}</button>
+                </div>
+              ) : githubIntegration?.configured ? (
+                <button onClick={() => { window.location.assign('/api/integrations/github/connect'); }} style={btnStyle(accent)}><GitBranch size={13} /> Connect GitHub</button>
+              ) : (
+                <div style={{ color: 'rgba(209,213,219,0.5)', fontSize: '0.74rem' }}>GitHub App deployment configuration is required before repositories can be imported.</div>
+              )}
+              <div style={{ display: 'grid', gap: 6, marginTop: 12 }}>
+                {coderProjects.length === 0 ? <div style={{ color: 'rgba(209,213,219,0.45)', fontSize: '0.74rem' }}>No imported projects yet.</div> : coderProjects.map(project => (
+                  <button key={project.id} onClick={() => void openProject(project)} style={{ display: 'flex', alignItems: 'center', gap: 8, textAlign: 'left', background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, color: '#d1d5db', padding: '8px 10px', cursor: 'pointer' }}>
+                    <GitBranch size={13} color={accent} /><span style={{ fontSize: '0.75rem' }}>{project.repositoryFullName}</span><span style={{ marginLeft: 'auto', fontSize: '0.68rem', color: 'rgba(209,213,219,0.5)', fontFamily: 'ui-monospace, monospace' }}>{project.branch}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 

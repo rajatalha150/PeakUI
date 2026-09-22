@@ -133,6 +133,12 @@ services:
       - FIRECRAWL_API_URL=${FIRECRAWL_API_URL:-https://api.firecrawl.dev}
       - CODER_DAEMON_URL=${CODER_DAEMON_URL:-http://127.0.0.1:4170}
       - CODER_SERVER_TOKEN=${CODER_SERVER_TOKEN:-}
+      # GitHub App credentials remain server-side. The App's setup URL must be
+      # https://<PeakUI host>/api/integrations/github/callback.
+      - GITHUB_APP_ID=${GITHUB_APP_ID:-}
+      - GITHUB_APP_SLUG=${GITHUB_APP_SLUG:-}
+      - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY:-}
+      - CODER_PROJECTS_HOST_ROOT=/coder-workspace/projects
     depends_on:
       - searxng
       - db
@@ -147,6 +153,9 @@ services:
       - ${COMFYUI_MODELS_DIR:-/home/raza/ComfyUI/models}:/mnt/comfyui/models:rw
       - app_runtime:/var/lib/peakui
       - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:rw
+      # Controlled project imports use the same volume the coder sees at
+      # /workspace. No browser or agent supplies the host-side destination.
+      - coder_workspace:/coder-workspace:rw
 
 volumes:
   db_data:

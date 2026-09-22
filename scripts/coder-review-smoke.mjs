@@ -70,6 +70,15 @@ try {
     assert.equal((await request(standard, route)).status, 403);
   }
   checks.push('readiness and shared-runtime authorization');
+  const githubIntegration = await request(admin, '/api/integrations/github');
+  assert.equal(githubIntegration.status, 200, JSON.stringify(githubIntegration));
+  assert.equal(typeof githubIntegration.data.configured, 'boolean');
+  const projects = await request(admin, '/api/coder/projects');
+  assert.equal(projects.status, 200, JSON.stringify(projects));
+  assert(Array.isArray(projects.data.projects), 'Projects endpoint must return a list');
+  const invalidImport = await request(admin, '/api/coder/projects', 'POST', { repositoryId: '../not-a-repo' });
+  assert.equal(invalidImport.status, 400, JSON.stringify(invalidImport));
+  checks.push('GitHub integration status and guarded project import API');
   const created = await request(admin, '/api/chats', 'POST', { title: 'Disposable coder review', surface: 'coder', messages: [] });
   assert.equal(created.status, 201, JSON.stringify(created));
   const sid = created.data.session.id;
@@ -121,6 +130,12 @@ try {
   page.setDefaultTimeout(30_000);
   await page.goto(new URL('/coder', base).href, { waitUntil: 'domcontentloaded' });
   await page.getByText('daemon online', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByText('Source control', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Projects', exact: true }).first().click();
+  await page.getByText('No imported projects yet.', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Close projects', exact: true }).click();
+  checks.push('Coding settings source-control and projects UI');
   await page.getByRole('button', { name: 'Files', exact: true }).click();
   await page.getByText(filename, { exact: true }).first().click();
   const editor = page.locator('.monaco-editor textarea').first();

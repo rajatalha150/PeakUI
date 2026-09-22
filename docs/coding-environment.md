@@ -981,5 +981,17 @@ hints (`⚠ no vision` for the vision slot, `⚠ no tools` for main/writer).
 - **Resizable tool-activity pane**: a drag handle above it adjusts its height
   (pointer events, so both mouse and touch work). Range clamped 80–560px.
 
+---
+
+## 19. GitHub projects
+
+The Coding Settings drawer now owns GitHub App connection/revocation and the
+Projects surface owns repository import and project selection. Imports clone a
+GitHub-App-authorized repository into a server-generated directory under the
+coder volume, then create a fresh session bound to that project. The browser
+never supplies a clone URL or target path, and clone credentials are
+short-lived, repository-scoped installation tokens. Deployment configuration,
+permission requirements, and the deferred push/PR/webhook work are documented
+in [GitHub Coder Integration](github-coder-integration.md).
 
 
