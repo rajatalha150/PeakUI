@@ -356,6 +356,9 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [previewUrl, setPreviewUrl] = React.useState('');
   const [previewInput, setPreviewInput] = React.useState('');
   const [previewDevice, setPreviewDevice] = React.useState<'desktop' | 'tablet' | 'mobile'>('desktop');
+  // A user's device selection wins over the last device written by the agent.
+  // The override is cleared when the agent points the preview at a new URL.
+  const previewDeviceManualRef = React.useRef(false);
   const [previewError, setPreviewError] = React.useState('');
   // Measured width of the preview viewport, so device frames scale to fit while
   // the iframe still renders at its true pixel dimensions (media queries fire).
@@ -654,8 +657,11 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         try {
           const parsed = JSON.parse(raw);
           const url = typeof parsed.url === 'string' ? parsed.url : (typeof parsed === 'string' ? parsed : '');
-          if (url && url !== previewUrl) applyPreview(url);
-          if (typeof parsed.device === 'string' && ['desktop','tablet','mobile'].includes(parsed.device)) {
+          if (url && url !== previewUrl) {
+            previewDeviceManualRef.current = false;
+            applyPreview(url);
+          }
+          if (!previewDeviceManualRef.current && typeof parsed.device === 'string' && ['desktop','tablet','mobile'].includes(parsed.device)) {
             setPreviewDevice(parsed.device as 'desktop' | 'tablet' | 'mobile');
           }
         } catch { /* not JSON yet; keep polling */ }
@@ -2839,7 +2845,10 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                 {(['desktop', 'tablet', 'mobile'] as const).map(d => (
                   <button
                     key={d}
-                    onClick={() => setPreviewDevice(d)}
+                    onClick={() => {
+                      previewDeviceManualRef.current = true;
+                      setPreviewDevice(d);
+                    }}
                     title={`${d} viewport`}
                     style={{
                       background: previewDevice === d ? 'rgba(34,211,238,0.15)' : 'transparent',
