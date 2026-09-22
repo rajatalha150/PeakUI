@@ -116,6 +116,8 @@ interface CoderSettings {
   coderToolsEnabled: boolean;
   coderVisionModel: string;
   coderWriterModel: string;
+  coderTheme: 'midnight' | 'chatgpt' | 'sage';
+  coderThemeAccent: string;
 }
 
 interface GitHubIntegration {
@@ -481,8 +483,14 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     || sessionStatus?.isWaitingForPermission === true
     || sessionStatus?.isWaitingForUserQuestion === true;
 
-  const accent = '#22d3ee';
-  const magenta = '#e879f9';
+  const coderTheme = settings?.coderTheme || 'midnight';
+  const themeDefaults = coderTheme === 'chatgpt'
+    ? { accent: '#10a37f', background: '#212121', foreground: '#ececec', surface: '#2f2f2f', border: 'rgba(255,255,255,0.12)' }
+    : coderTheme === 'sage'
+      ? { accent: '#5c9b82', background: '#f5f7f2', foreground: '#28453a', surface: '#edf2ec', border: 'rgba(40,69,58,0.18)' }
+      : { accent: '#22d3ee', background: '#070a12', foreground: '#d1d5db', surface: '#0a0e17', border: 'rgba(255,255,255,0.10)' };
+  const accent = settings?.coderThemeAccent || themeDefaults.accent;
+  const magenta = coderTheme === 'sage' ? accent : '#e879f9';
 
   // ---- Settings load -------------------------------------------------------
 
@@ -503,6 +511,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           coderToolsEnabled: data.coderToolsEnabled !== false,
           coderVisionModel: typeof data.coderVisionModel === 'string' ? data.coderVisionModel : '',
           coderWriterModel: typeof data.coderWriterModel === 'string' ? data.coderWriterModel : '',
+          coderTheme: data.coderTheme === 'chatgpt' || data.coderTheme === 'sage' ? data.coderTheme : 'midnight',
+          coderThemeAccent: typeof data.coderThemeAccent === 'string' ? data.coderThemeAccent : '',
         };
         setSettings(next);
         setWorkspaceDraft(next.coderWorkspace);
@@ -2367,12 +2377,23 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const previewScale = previewStageWidth ? Math.min(1, previewStageWidth / previewViewport.width) : 1;
 
   return (
-    <div style={{
+    <div data-testid="coder-root" data-coder-theme={coderTheme} style={{
       position: 'fixed', inset: 0, zIndex: 50,
       display: 'flex', flexDirection: 'column',
-      background: 'radial-gradient(1200px 700px at 70% -10%, rgba(34,211,238,0.08), transparent), radial-gradient(900px 600px at 0% 110%, rgba(232,121,249,0.08), transparent), #070a12',
-      color: '#d1d5db', fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+      background: coderTheme === 'midnight'
+        ? 'radial-gradient(1200px 700px at 70% -10%, rgba(34,211,238,0.08), transparent), radial-gradient(900px 600px at 0% 110%, rgba(232,121,249,0.08), transparent), #070a12'
+        : themeDefaults.background,
+      color: themeDefaults.foreground, fontFamily: 'ui-sans-serif, system-ui, sans-serif',
     }}>
+      <style>{coderTheme === 'sage' ? `
+        [data-coder-theme="sage"] [style] { color: #28453a !important; border-color: rgba(40,69,58,0.18) !important; }
+        [data-coder-theme="sage"] [style*="rgba(255,255,255"], [data-coder-theme="sage"] [style*="rgba(255, 255, 255"], [data-coder-theme="sage"] [style*="rgba(0,0,0"], [data-coder-theme="sage"] [style*="rgba(0, 0, 0"], [data-coder-theme="sage"] [style*="#0a0e17"] { background: #edf2ec !important; }
+        [data-coder-theme="sage"] input, [data-coder-theme="sage"] textarea, [data-coder-theme="sage"] select { background: #ffffff !important; color: #28453a !important; }
+        [data-coder-theme="sage"] button { color: #28453a !important; }
+      ` : coderTheme === 'chatgpt' ? `
+        [data-coder-theme="chatgpt"] [style*="#0a0e17"] { background: #2f2f2f !important; }
+        [data-coder-theme="chatgpt"] [style*="rgba(34,211,238"] { background: rgba(16,163,127,0.13) !important; border-color: rgba(16,163,127,0.36) !important; }
+      ` : ''}</style>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', backdropFilter: 'blur(6px)', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, letterSpacing: '0.06em', color: accent }}>
@@ -2476,6 +2497,29 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
               }}
               style={{ ...inputStyle(), width: 110 }}
             />
+          </SettingField>
+          <SettingField label="Coder appearance" hint="Only changes the Coding workspace.">
+            <select
+              value={settings.coderTheme}
+              onChange={e => void saveSettings({ coderTheme: e.target.value as CoderSettings['coderTheme'] })}
+              style={inputStyle()}
+            >
+              <option value="midnight" style={{ color: '#111' }}>Midnight</option>
+              <option value="chatgpt" style={{ color: '#111' }}>ChatGPT-inspired</option>
+              <option value="sage" style={{ color: '#111' }}>Sage light</option>
+            </select>
+          </SettingField>
+          <SettingField label="Accent color" hint="Choose one accent for the selected coder theme.">
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <input
+                type="color"
+                value={accent}
+                onChange={e => void saveSettings({ coderThemeAccent: e.target.value })}
+                title="Choose coder accent color"
+                style={{ width: 34, height: 30, padding: 2, border: `1px solid ${accent}`, borderRadius: 5, background: 'transparent', cursor: 'pointer' }}
+              />
+              <button onClick={() => void saveSettings({ coderThemeAccent: '' })} style={ghostBtnStyle()} title="Use the selected theme's default accent"><RotateCcw size={13} /></button>
+            </div>
           </SettingField>
 
           {/* Multi-model orchestration — triangle: main on top, vision (left) and

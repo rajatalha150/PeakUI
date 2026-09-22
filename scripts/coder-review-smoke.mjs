@@ -79,6 +79,12 @@ try {
   const invalidImport = await request(admin, '/api/coder/projects', 'POST', { repositoryId: '../not-a-repo' });
   assert.equal(invalidImport.status, 400, JSON.stringify(invalidImport));
   checks.push('GitHub integration status and guarded project import API');
+  const themeSave = await request(admin, '/api/settings', 'POST', { coderTheme: 'sage', coderThemeAccent: '#5c9b82' });
+  assert.equal(themeSave.status, 200, JSON.stringify(themeSave));
+  const themeRead = await request(admin, '/api/settings');
+  assert.equal(themeRead.data.coderTheme, 'sage');
+  assert.equal(themeRead.data.coderThemeAccent, '#5c9b82');
+  checks.push('persisted coder-only theme and accent settings');
   const created = await request(admin, '/api/chats', 'POST', { title: 'Disposable coder review', surface: 'coder', messages: [] });
   assert.equal(created.status, 201, JSON.stringify(created));
   const sid = created.data.session.id;
@@ -130,6 +136,7 @@ try {
   page.setDefaultTimeout(30_000);
   await page.goto(new URL('/coder', base).href, { waitUntil: 'domcontentloaded' });
   await page.getByText('daemon online', { exact: true }).waitFor();
+  assert.equal(await page.getByTestId('coder-root').getAttribute('data-coder-theme'), 'sage');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByText('Source control', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Projects', exact: true }).first().click();

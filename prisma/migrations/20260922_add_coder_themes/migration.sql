@@ -1,0 +1,2 @@
+ALTER TABLE "UserSettings" ADD COLUMN IF NOT EXISTS "coderTheme" TEXT NOT NULL DEFAULT 'midnight';
+ALTER TABLE "UserSettings" ADD COLUMN IF NOT EXISTS "coderThemeAccent" TEXT NOT NULL DEFAULT '';

@@ -122,4 +122,13 @@ describe('normalizeAppSettings coder fields', () => {
     expect(s.coderWorkspace).toBe('/srv/app')
     expect(s.coderToolsEnabled).toBe(false)
   })
+
+  it('normalizes coder-only themes and accent colors', () => {
+    const sage = normalizeAppSettings({ coderTheme: 'sage', coderThemeAccent: '#5C9B82' })
+    expect(sage.coderTheme).toBe('sage')
+    expect(sage.coderThemeAccent).toBe('#5c9b82')
+    const invalid = normalizeAppSettings({ coderTheme: 'unknown', coderThemeAccent: 'not-a-color' })
+    expect(invalid.coderTheme).toBe('midnight')
+    expect(invalid.coderThemeAccent).toBe('')
+  })
 })

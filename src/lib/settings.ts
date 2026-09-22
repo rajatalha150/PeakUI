@@ -85,6 +85,15 @@ export type WorkspaceToolPromptTier = 'auto' | 'minimal' | 'compact' | 'standard
  * for permissions" instead of letting the isolated agent just do the work.
  */
 export type CoderApprovalMode = 'auto' | 'yolo'
+export type CoderTheme = 'midnight' | 'chatgpt' | 'sage'
+
+export function normalizeCoderTheme(value: unknown): CoderTheme {
+  return value === 'chatgpt' || value === 'sage' || value === 'midnight' ? value : 'midnight'
+}
+
+export function normalizeCoderThemeAccent(value: unknown): string {
+  return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value.trim()) ? value.trim().toLowerCase() : ''
+}
 
 export const MIN_CONTEXT_LENGTH = 512
 export const MAX_CONTEXT_LENGTH = 131072
@@ -200,6 +209,8 @@ export interface AppSettings {
    * output. Empty = no writer delegation (the main model writes directly).
    */
   coderWriterModel: string
+  coderTheme: CoderTheme
+  coderThemeAccent: string
   /**
    * Native tool-calling mode. 'on' passes the tool schemas via the API's
    * `tools` parameter and parses structured tool_calls frames (no XML wrapper,
@@ -302,6 +313,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   coderToolsEnabled: true,
   coderVisionModel: '',
   coderWriterModel: '',
+  coderTheme: 'midnight',
+  coderThemeAccent: '',
   workspaceToolNativeToolCalls: 'off',
   workspaceToolFavoriteModels: '[]',
 }
@@ -779,6 +792,8 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     coderToolsEnabled: normalizeBoolean(settings?.coderToolsEnabled, DEFAULT_SETTINGS.coderToolsEnabled),
     coderVisionModel: normalizeCoderDelegateModel(settings?.coderVisionModel),
     coderWriterModel: normalizeCoderDelegateModel(settings?.coderWriterModel),
+    coderTheme: normalizeCoderTheme(settings?.coderTheme),
+    coderThemeAccent: normalizeCoderThemeAccent(settings?.coderThemeAccent),
   }
 }
 

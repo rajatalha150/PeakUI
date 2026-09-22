@@ -44,6 +44,8 @@ import {
   normalizeCoderDelegateModel,
   normalizeCoderToolSearchThreshold,
   normalizeCoderWorkspace,
+  normalizeCoderTheme,
+  normalizeCoderThemeAccent,
   LEGACY_DEFAULT_SYSTEM_PROMPT,
 } from '@/lib/settings';
 import {
@@ -142,6 +144,8 @@ interface SettingsBody {
   coderToolsEnabled?: unknown;
   coderVisionModel?: unknown;
   coderWriterModel?: unknown;
+  coderTheme?: unknown;
+  coderThemeAccent?: unknown;
 }
 
 // GET: Return user settings (create defaults if none exist)
@@ -340,6 +344,8 @@ export async function POST(req: Request) {
     }
     if (body.coderVisionModel !== undefined) data.coderVisionModel = normalizeCoderDelegateModel(body.coderVisionModel);
     if (body.coderWriterModel !== undefined) data.coderWriterModel = normalizeCoderDelegateModel(body.coderWriterModel);
+    if (body.coderTheme !== undefined) data.coderTheme = normalizeCoderTheme(body.coderTheme);
+    if (body.coderThemeAccent !== undefined) data.coderThemeAccent = normalizeCoderThemeAccent(body.coderThemeAccent);
     if (body.workspaceToolFavoriteModels !== undefined) {
       // Stored as a JSON-encoded string in the column; normalized (deduped,
       // capped, control-char-stripped) on the way in and out.
