@@ -8,7 +8,8 @@ runtime and has evidence, not that a mock or a subset works.
 
 - Branch: `trimmer` (review hardening is in the current worktree; commit after
   final verification)
-- Baseline test command passes **59 tests / 7 files** (re-run 2026-09-21):
+- Historical baseline test command passed **59 tests / 7 files** (re-run
+  2026-09-21); the current full suite is recorded at the bottom of this file:
   ```
   npm test -- --run src/lib/coder-gateway.test.ts src/lib/coder-orchestration.test.ts \
     src/lib/coder-transcript.test.ts src/lib/coder-permission-vote.test.ts \
@@ -22,7 +23,7 @@ runtime and has evidence, not that a mock or a subset works.
 
 | Phase | Status | Notes |
 |---|---|---|
-| 0 Baseline | ✅ | 59/59 tests; see above |
+| 0 Baseline | ✅ | Historical baseline: 59/59 tests; current suite is 1001/1001 |
 | 1 Ownership & runtime boundaries | 🔶 partial | authz + workspace binding + resource limits landed; non-root/bridge deferred to Phase 7 |
 | 2 Sessions, recovery, event persistence | ✅ | all 8 landed; SSE resume + no-overlap polling complete |
 | 3 Effective settings & project context | 🔶 partial | toolSearch threshold applied (restart-gated); context/tools audited & documented |

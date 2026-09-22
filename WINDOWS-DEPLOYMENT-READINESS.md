@@ -1,6 +1,6 @@
 # PeakUI Windows Deployment Readiness Report
 
-Generated from current main (`267f42d`).
+Reviewed against branch `trimmer` at `b14886b`.
 
 ## Existing Windows support
 
