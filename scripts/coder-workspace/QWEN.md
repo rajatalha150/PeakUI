@@ -71,6 +71,14 @@ Settings drawer:
   `subagent_type: "peakui-writer"`), pinned to a different model and restricted
   to read/write/edit/search/shell.
 
+### Git over SSH
+
+The runtime's global SSH key is configured for GitHub. Git commands run in
+batch mode with a short connection timeout: use normal `git clone git@github.com:OWNER/REPO.git`
+commands, never add interactive prompts or `read` steps. If authentication or
+host verification fails, report the resulting error and ask for a credential
+fix; do not retry indefinitely.
+
 **When a writer subagent is available, delegate code/file authoring to it**: use
 the Agent tool with `subagent_type: "peakui-writer"` to write or edit files
 rather than calling `write_file`/`edit` yourself. Give it precise instructions
