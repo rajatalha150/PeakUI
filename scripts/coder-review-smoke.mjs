@@ -157,6 +157,18 @@ try {
     body: JSON.stringify({ content: JSON.stringify({ url: previewFixtureUrl, device: 'mobile' }) }),
   }));
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  const previewWindow = page.getByTestId('coder-preview-window');
+  assert.equal(await previewWindow.evaluate(el => getComputedStyle(el).position), 'fixed');
+  const previewBeforeResize = await previewWindow.boundingBox();
+  const resizeHandle = page.getByTestId('coder-preview-resize-handle');
+  const resizeHandleBox = await resizeHandle.boundingBox();
+  assert(previewBeforeResize && resizeHandleBox, 'Preview window and resize handle must be visible');
+  await page.mouse.move(resizeHandleBox.x + 8, resizeHandleBox.y + 8);
+  await page.mouse.down();
+  await page.mouse.move(resizeHandleBox.x + 108, resizeHandleBox.y + 60);
+  await page.mouse.up();
+  const previewAfterResize = await previewWindow.boundingBox();
+  assert(previewAfterResize && previewAfterResize.width > previewBeforeResize.width + 80, 'Preview window must be resizable');
   await page.waitForFunction(() => document.querySelector('iframe[title="App preview"]')?.getAttribute('style')?.includes('width: 390px'));
   await page.getByRole('button', { name: 'desktop', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('iframe[title="App preview"]')?.getAttribute('style')?.includes('width: 1280px'));
@@ -169,7 +181,7 @@ try {
   await page.waitForTimeout(100);
   const tabletFrame = page.frames().find(frame => frame.url().startsWith(previewFixtureUrl));
   assert.equal(await tabletFrame?.evaluate(() => window.innerWidth), 766);
-  checks.push('manual preview viewport survives agent device polling');
+  checks.push('floating resizable preview and manual viewport survives agent device polling');
 
   const visionPrompt = page.waitForRequest(request => request.url().includes('/api/coder/session/') && request.url().endsWith('/prompt'));
   await page.getByRole('button', { name: 'Vision', exact: true }).click();

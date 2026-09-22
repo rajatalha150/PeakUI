@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { AlertCircle, Bot, Camera, CheckCircle2, ChevronRight, Circle, ClipboardCopy, FileText, Folder, Globe, History, Loader2, MessageSquare, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
+import { AlertCircle, Bot, Camera, CheckCircle2, ChevronRight, Circle, ClipboardCopy, FileText, Folder, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
 import { buildConversation, fetchFullTranscript, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from '@/lib/coder-transcript';
 import { streamSessionEvents } from '@/lib/coder-sse';
@@ -364,6 +364,9 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [previewReloadKey, setPreviewReloadKey] = React.useState(0);
   const [previewCapturing, setPreviewCapturing] = React.useState(false);
   const [previewError, setPreviewError] = React.useState('');
+  const [previewWindowSize, setPreviewWindowSize] = React.useState({ width: 640, height: 760 });
+  const [previewWindowPosition, setPreviewWindowPosition] = React.useState<{ x: number; y: number } | null>(null);
+  const [previewMaximized, setPreviewMaximized] = React.useState(false);
   // Measured width of the preview viewport, so device frames scale to fit while
   // the iframe still renders at its true pixel dimensions (media queries fire).
   const previewStageRef = React.useRef<HTMLDivElement | null>(null);
@@ -740,6 +743,48 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       setPreviewCapturing(false);
     }
   };
+
+  const beginPreviewWindowDrag = React.useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (isPhone || previewMaximized || (e.target instanceof Element && e.target.closest('button, input'))) return;
+    const popup = e.currentTarget.parentElement;
+    if (!popup) return;
+    e.preventDefault();
+    const rect = popup.getBoundingClientRect();
+    const offsetX = e.clientX - rect.left;
+    const offsetY = e.clientY - rect.top;
+    const onMove = (event: PointerEvent) => {
+      const x = Math.max(8, Math.min(window.innerWidth - previewWindowSize.width - 8, event.clientX - offsetX));
+      const y = Math.max(8, Math.min(window.innerHeight - previewWindowSize.height - 8, event.clientY - offsetY));
+      setPreviewWindowPosition({ x, y });
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }, [isPhone, previewMaximized, previewWindowSize]);
+
+  const beginPreviewWindowResize = React.useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (isPhone || previewMaximized) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startSize = previewWindowSize;
+    const onMove = (event: PointerEvent) => {
+      setPreviewWindowSize({
+        width: Math.max(360, Math.min(window.innerWidth - 16, startSize.width + event.clientX - startX)),
+        height: Math.max(360, Math.min(window.innerHeight - 16, startSize.height + event.clientY - startY)),
+      });
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  }, [isPhone, previewMaximized, previewWindowSize]);
 
   // Measure the preview stage so the device frame scales to fit it.
   React.useEffect(() => {
@@ -2890,8 +2935,17 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
         {/* Preview browser — device-switchable, AI-driven. */}
         {previewOpen && (
-          <div style={{ width: 380, maxWidth: '92vw', borderLeft: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', minHeight: 0, flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap' }}>
+          <div
+            data-testid="coder-preview-window"
+            style={isPhone
+              ? { position: 'fixed', inset: '56px 8px 8px', zIndex: 90, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, background: '#0a0e17', boxShadow: '0 18px 55px rgba(0,0,0,0.55)', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }
+              : previewMaximized
+                ? { position: 'fixed', inset: '8px', zIndex: 90, border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, background: '#0a0e17', boxShadow: '0 18px 55px rgba(0,0,0,0.55)', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }
+                : { position: 'fixed', zIndex: 90, top: previewWindowPosition?.y, left: previewWindowPosition?.x, right: previewWindowPosition ? undefined : 20, bottom: previewWindowPosition ? undefined : 20, width: previewWindowSize.width, height: previewWindowSize.height, maxWidth: 'calc(100vw - 16px)', maxHeight: 'calc(100vh - 16px)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, background: '#0a0e17', boxShadow: '0 18px 55px rgba(0,0,0,0.55)', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }
+            }
+          >
+            <div onPointerDown={beginPreviewWindowDrag} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', flexWrap: 'wrap', cursor: isPhone || previewMaximized ? 'default' : 'grab', touchAction: 'none' }}>
+              {!isPhone && <Grip size={14} style={{ color: 'rgba(209,213,219,0.38)', flexShrink: 0 }} />}
               <Globe size={13} style={{ color: accent }} />
               <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(209,213,219,0.5)' }}>Preview</span>
               <div style={{ display: 'flex', gap: '2px', marginLeft: 8, background: 'rgba(255,255,255,0.03)', borderRadius: 6, padding: 2 }}>
@@ -2925,6 +2979,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
               <button onClick={() => void sendPreviewToVision()} disabled={!previewUrl || !activeSessionId || previewCapturing} title="Capture this viewport and ask the coding agent to inspect and fix it" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(34,211,238,0.1)', color: accent, border: '1px solid rgba(34,211,238,0.3)', borderRadius: 5, padding: '3px 6px', fontSize: '0.66rem', cursor: previewUrl && activeSessionId && !previewCapturing ? 'pointer' : 'default', opacity: previewUrl && activeSessionId && !previewCapturing ? 1 : 0.45 }}>
                 {previewCapturing ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Camera size={12} />} Vision
               </button>
+              {!isPhone && <button onClick={() => setPreviewMaximized(value => !value)} title={previewMaximized ? 'Restore preview size' : 'Maximize preview'} style={{ display: 'inline-flex', alignItems: 'center', background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.6)', cursor: 'pointer', padding: 2 }}>{previewMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}</button>}
               <button onClick={() => setPreviewOpen(false)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.5)', cursor: 'pointer', padding: 0 }}><X size={13} /></button>
             </div>
             <div style={{ display: 'flex', gap: '6px', padding: '8px 10px' }}>
@@ -2977,6 +3032,11 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                 </div>
               )}
             </div>
+            {!isPhone && !previewMaximized && (
+              <div data-testid="coder-preview-resize-handle" onPointerDown={beginPreviewWindowResize} title="Resize preview" style={{ position: 'absolute', right: 0, bottom: 0, width: 22, height: 22, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end', padding: 3, color: 'rgba(209,213,219,0.5)', cursor: 'nwse-resize', touchAction: 'none' }}>
+                <Grip size={13} style={{ transform: 'rotate(-45deg)' }} />
+              </div>
+            )}
           </div>
         )}
 
