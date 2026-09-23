@@ -801,6 +801,17 @@ reopen. Switching sessions **disconnects** the local handle (leaving the daemon
 session running so in-flight work survives); only `delete` tears the daemon
 session down. See §16.
 
+**Long-session context** — the Coding UI reads Qwen's authoritative
+`GET /session/:id/context-usage` state through the authenticated gateway. This
+reports the actual model window, used/free tokens, and Qwen's native warn,
+auto-compact, and hard thresholds rather than estimating from character count.
+At each pressure tier PeakUI captures at most one non-mutating
+`POST /session/:id/recap` handoff and stores it as a source-linked Postgres
+`ContextSnapshot`. Qwen performs its own native auto-compaction; PeakUI keeps
+the durable ledger, episode history, and handoffs for recovery after restarts.
+The context pill shows that native state, and the disk icon captures a manual
+handoff checkpoint without changing the visible transcript or live context.
+
 **Approval** is `yolo` by default (no tool prompts); the only thing that pauses
 the agent is `ask_user_question`, which is rendered inline with real options.
 
@@ -993,5 +1004,4 @@ never supplies a clone URL or target path, and clone credentials are
 short-lived, repository-scoped installation tokens. Deployment configuration,
 permission requirements, and the deferred push/PR/webhook work are documented
 in [GitHub Coder Integration](github-coder-integration.md).
-
 

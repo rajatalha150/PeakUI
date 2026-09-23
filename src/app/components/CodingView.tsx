@@ -12,6 +12,7 @@ import { buildDefaultTasks, detectPackageManager, parseShellResult, type Package
 import { absoluteWorkspacePath, parseGlobResult, searchLines, type SearchHit } from '@/lib/coder-search';
 import { buildVerificationRecord, isMutatingTool, isVerificationStale, type VerificationRecord } from '@/lib/coder-verification';
 import { buildWriterSubagentCreateBody, buildWriterSubagentUpdateBody, CODER_WRITER_AGENT_NAME, CODER_WRITER_AGENT_SCOPE, toDaemonModelSelector } from '@/lib/coder-orchestration';
+import { formatCoderContextUsage, shouldCaptureCoderHandoff, type CoderContextUsage } from '@/lib/coder-context';
 import { copyToClipboard } from '@/lib/clipboard';
 import AssistantContent from './AssistantContent';
 import { ThinkingBlock } from './ChatMessageContent';
@@ -46,6 +47,7 @@ interface ToolActivity {
   detail: string;
   toolName?: string;
   rawInput?: unknown;
+  rawOutput?: string;
 }
 
 /** An open file in the project explorer, with its own buffer + save state. */
@@ -322,6 +324,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [workspaceDraft, setWorkspaceDraft] = React.useState('/workspace');
   const [daemonOnline, setDaemonOnline] = React.useState(false);
   const [sessionStatus, setSessionStatus] = React.useState<CoderSessionStatus | null>(null);
+  const [coderContext, setCoderContext] = React.useState<CoderContextUsage | null>(null);
+  const [contextHandoffSaving, setContextHandoffSaving] = React.useState(false);
   const [toolActivity, setToolActivity] = React.useState<ToolActivity[]>([]);
   const [pending, setPending] = React.useState<PendingInteraction[]>([]);
   // Per-interaction draft answers, keyed by requestId -> (answerKey -> label).
@@ -357,6 +361,9 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   // Last persisted transcript signature, so an idle poll (which rebuilds
   // identical arrays every tick) does not rewrite the full history to the DB.
   const lastPersistSignatureRef = React.useRef<string>('');
+  // At most one side-channel handoff per pressure tier. Qwen's recap is an LLM
+  // call, so repeatedly polling at the same tier must not multiply cost.
+  const capturedContextTiersRef = React.useRef(new Set<string>());
   // The active session's BOUND workspace (from its persisted ChatSession row),
   // or null when the session has not yet been bound. `ensureDaemonSession`
   // prefers this over the user's current default `workspace` state, so a
@@ -2159,6 +2166,58 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     };
   }, [daemonSessionId]);
 
+  const captureContextHandoff = React.useCallback(async (sessionId: string) => {
+    if (contextHandoffSaving) return;
+    setContextHandoffSaving(true);
+    try {
+      await fetch(`/api/coder/session/${sessionId}/context`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+    } finally {
+      setContextHandoffSaving(false);
+    }
+  }, [contextHandoffSaving]);
+
+  /**
+   * Qwen exposes exact, model-native accounting including its auto-compact
+   * thresholds. Poll slowly: this is operational state, not a chat event.
+   */
+  React.useEffect(() => {
+    if (!daemonSessionId) {
+      setCoderContext(null);
+      return;
+    }
+    let cancelled = false;
+    let running = false;
+    const tick = async () => {
+      if (running) return;
+      running = true;
+      try {
+        const response = await fetch(`/api/coder/session/${daemonSessionId}/context`);
+        const data = await response.json().catch(() => ({})) as { usage?: CoderContextUsage };
+        if (!response.ok || cancelled || !data.usage) return;
+        setCoderContext(data.usage);
+        if (shouldCaptureCoderHandoff(data.usage)) {
+          const key = `${daemonSessionId}:${data.usage.tier}`;
+          if (!capturedContextTiersRef.current.has(key)) {
+            capturedContextTiersRef.current.add(key);
+            void captureContextHandoff(daemonSessionId);
+          }
+        }
+      } catch {
+        // The Coding session remains usable while the optional telemetry path
+        // is temporarily unavailable.
+      } finally {
+        running = false;
+      }
+    };
+    void tick();
+    const timer = setInterval(tick, 15_000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [daemonSessionId, captureContextHandoff]);
+
   /**
    * Status poll. Kept as a low-frequency safety net behind the SSE stream:
    * it reconciles `busy`/idle and permission counts if a frame was missed.
@@ -2418,6 +2477,19 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
             {statusLabel}
           </span>
         )}
+        {coderContext && (
+          <span
+            title={`Model-native context usage. Qwen will auto-compact at ${coderContext.thresholds.auto?.toLocaleString() || 'its configured threshold'} tokens.`}
+            style={{
+              fontSize: '0.7rem', padding: '2px 8px', borderRadius: '999px',
+              border: `1px solid ${coderContext.tier === 'hard' ? '#ef4444' : coderContext.tier === 'auto' || coderContext.tier === 'warn' ? '#f59e0b' : '#34d399'}`,
+              color: coderContext.tier === 'hard' ? '#ef4444' : coderContext.tier === 'auto' || coderContext.tier === 'warn' ? '#f59e0b' : '#34d399',
+              background: 'rgba(255,255,255,0.03)', fontFamily: 'ui-monospace, monospace',
+            }}
+          >
+            {formatCoderContextUsage(coderContext)}
+          </span>
+        )}
         <div style={{ flex: 1 }} />
         <select
           value={settings?.coderApprovalMode || 'yolo'}
@@ -2443,6 +2515,9 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         </select>
         <button onClick={() => void copySession()} disabled={transcriptEvents.length === 0} style={ghostBtnStyle()} title="Copy the full session (chat + thinking + tool activity) to the clipboard">
           {copied ? <CheckCircle2 size={14} /> : <ClipboardCopy size={14} />} {copied ? 'Copied' : 'Copy'}
+        </button>
+        <button onClick={() => daemonSessionId && void captureContextHandoff(daemonSessionId)} disabled={!daemonSessionId || contextHandoffSaving} style={ghostBtnStyle()} title="Capture a durable context handoff before Qwen compacts its live session">
+          {contextHandoffSaving ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={14} />}
         </button>
         <button onClick={() => setSidebarOpen(o => !o)} style={ghostBtnStyle()} title={sidebarOpen ? 'Hide the sessions sidebar' : 'Show the sessions sidebar'}>
           {sidebarOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />} {isPhone ? '' : 'Sessions'}

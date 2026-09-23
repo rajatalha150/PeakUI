@@ -11,10 +11,26 @@ function digest(value: string) {
   return createHash('sha256').update(value).digest('hex')
 }
 
+function coderToolEvidence(message: StoredChatMessage): string {
+  if (!message.meta || typeof message.meta !== 'object' || Array.isArray(message.meta)) return ''
+  const activity = (message.meta as Record<string, unknown>).toolActivity
+  if (!Array.isArray(activity)) return ''
+  const lines = activity.slice(-24).flatMap(item => {
+    if (!item || typeof item !== 'object') return []
+    const record = item as Record<string, unknown>
+    const title = typeof record.title === 'string' ? record.title : 'tool'
+    const status = typeof record.status === 'string' ? record.status : ''
+    const detail = typeof record.detail === 'string' ? record.detail.slice(0, 2_000) : ''
+    const output = typeof record.rawOutput === 'string' ? record.rawOutput.slice(0, 6_000) : ''
+    return [`[Coder tool ${title}${status ? ` (${status})` : ''}]`, detail, output].filter(Boolean)
+  })
+  return lines.length ? `\n\n${lines.join('\n')}` : ''
+}
+
 function asSourceMessages(messages: StoredChatMessage[]): ContextSourceMessage[] {
   return messages.map(message => ({
     role: message.role,
-    content: message.content,
+    content: `${message.content}${coderToolEvidence(message)}`.slice(0, 80_000),
     hidden: message.hidden,
     images: message.images,
   }))
@@ -45,14 +61,14 @@ export async function recordContextLedger(input: RecordContextLedgerInput): Prom
   if (messages.length === 0) return
 
   await prisma.contextEvent.createMany({
-    data: input.messages.map((message, ordinal) => ({
+    data: messages.map((message, ordinal) => ({
       sessionId: input.sessionId,
       ordinal,
       role: message.role,
       content: message.content,
       contentHash: digest(`${message.role}\n${message.hidden ? '1' : '0'}\n${message.content}`),
       hidden: Boolean(message.hidden),
-      createdAt: parseTimestamp(message.createdAt),
+      createdAt: parseTimestamp(input.messages[ordinal]?.createdAt),
     })),
     skipDuplicates: true,
   })
@@ -60,7 +76,7 @@ export async function recordContextLedger(input: RecordContextLedgerInput): Prom
   const episodeRange = deriveEpisodeRange(messages, input.preserveTurns)
   if (!episodeRange) return
 
-  const episodeMessages = input.messages.slice(episodeRange.startOrdinal, episodeRange.endOrdinal + 1)
+  const episodeMessages = messages.slice(episodeRange.startOrdinal, episodeRange.endOrdinal + 1)
   const episodeSummary = buildSessionContextSummary(episodeMessages, { preserveTurns: 0 }) || input.workingMemory || 'Completed earlier work. Open its source events before relying on details.'
   const episode = await prisma.contextEpisode.upsert({
     where: {
@@ -76,12 +92,12 @@ export async function recordContextLedger(input: RecordContextLedgerInput): Prom
       endOrdinal: episodeRange.endOrdinal,
       summary: episodeSummary,
       searchText: `${episodeSummary}\n${episodeMessages.map(message => message.content).join('\n')}`.slice(0, 80_000),
-      tokenEstimate: estimateContextMessages(asSourceMessages(episodeMessages)),
+      tokenEstimate: estimateContextMessages(episodeMessages),
     },
     update: {
       summary: episodeSummary,
       searchText: `${episodeSummary}\n${episodeMessages.map(message => message.content).join('\n')}`.slice(0, 80_000),
-      tokenEstimate: estimateContextMessages(asSourceMessages(episodeMessages)),
+      tokenEstimate: estimateContextMessages(episodeMessages),
     },
   })
 
@@ -114,6 +130,34 @@ export async function recordContextLedger(input: RecordContextLedgerInput): Prom
 export interface ContextRecall {
   content: string
   episodeIds: string[]
+}
+
+/** Store a provider-native handoff without pretending it is PeakUI's summary. */
+export async function recordNativeContextHandoff(input: {
+  sessionId: string
+  provider: string
+  model: string
+  summary: string
+  tokenEstimate: number
+}): Promise<void> {
+  const latestEvent = await prisma.contextEvent.findFirst({
+    where: { sessionId: input.sessionId },
+    orderBy: [{ ordinal: 'desc' }, { recordedAt: 'desc' }],
+    select: { ordinal: true },
+  })
+  const sourceEnd = latestEvent?.ordinal ?? 0
+  await prisma.contextSnapshot.create({
+    data: {
+      sessionId: input.sessionId,
+      provider: input.provider,
+      model: input.model,
+      kind: 'provider-recap',
+      summary: input.summary.slice(0, 12_000),
+      sourceStart: 0,
+      sourceEnd,
+      tokenEstimate: Math.max(0, Math.floor(input.tokenEstimate)),
+    },
+  })
 }
 
 /**
