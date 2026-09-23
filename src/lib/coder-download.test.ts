@@ -1,11 +1,11 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   hostPathForWorkspaceFile,
-  readDaemonFileWindowed,
   sanitizeDownloadFilename,
+  streamDaemonFileWindowed,
   streamLocalDownload,
 } from './coder-download'
 
@@ -53,7 +53,7 @@ describe('streamLocalDownload', () => {
     const content = Buffer.from('hello world '.repeat(100))
     const file = join(dir, 'artifact.bin')
     await writeFile(file, content)
-    const res = await streamLocalDownload(file, 'artifact.bin')
+    const res = await streamLocalDownload(file, dir, 'artifact.bin')
     expect(res.headers.get('Content-Type')).toBe('application/octet-stream')
     expect(res.headers.get('Content-Length')).toBe(String(content.length))
     expect(res.headers.get('Content-Disposition')).toContain('artifact.bin')
@@ -62,11 +62,19 @@ describe('streamLocalDownload', () => {
   })
 
   it('throws when the target is not a regular file', async () => {
-    await expect(streamLocalDownload(join(dir, 'missing.bin'), 'missing.bin')).rejects.toThrow()
+    await expect(streamLocalDownload(join(dir, 'missing.bin'), dir, 'missing.bin')).rejects.toThrow()
+  })
+
+  it('rejects a workspace symlink that resolves outside its volume', async () => {
+    const outside = join(tmpdir(), `peakui-secret-${Date.now()}`)
+    await writeFile(outside, 'not workspace data')
+    await symlink(outside, join(dir, 'escape'))
+    await expect(streamLocalDownload(join(dir, 'escape'), dir, 'escape')).rejects.toThrow('outside the workspace')
+    await rm(outside, { force: true })
   })
 })
 
-describe('readDaemonFileWindowed', () => {
+describe('streamDaemonFileWindowed', () => {
   beforeEach(() => { mocks.proxyToCoderDaemon.mockReset() })
 
   it('reassembles a file across truncated windows', async () => {
@@ -75,7 +83,7 @@ describe('readDaemonFileWindowed', () => {
       .mockResolvedValueOnce({ status: 200, body: JSON.stringify({ contentBase64: a.toString('base64'), truncated: true, returnedBytes: a.length }) })
       .mockResolvedValueOnce({ status: 200, body: JSON.stringify({ contentBase64: b.toString('base64'), truncated: true, returnedBytes: b.length }) })
       .mockResolvedValueOnce({ status: 200, body: JSON.stringify({ contentBase64: c.toString('base64'), truncated: false, returnedBytes: c.length }) })
-    const out = await readDaemonFileWindowed('/apps/foo.bin')
+    const out = Buffer.from(await streamDaemonFileWindowed('/apps/foo.bin', 'foo.bin').arrayBuffer())
     expect(out.toString()).toBe('AAAABBBBCC')
     expect(mocks.proxyToCoderDaemon).toHaveBeenCalledTimes(3)
     // Each window requests the daemon's 256 KiB ceiling and advances the offset.
@@ -87,6 +95,32 @@ describe('readDaemonFileWindowed', () => {
 
   it('throws on a non-2xx daemon response', async () => {
     mocks.proxyToCoderDaemon.mockResolvedValueOnce({ status: 404, body: '{"error":"not found"}' })
-    await expect(readDaemonFileWindowed('/apps/foo.bin')).rejects.toThrow()
+    await expect(streamDaemonFileWindowed('/apps/foo.bin', 'foo.bin').arrayBuffer()).rejects.toThrow()
+  })
+
+  it('rejects a truncated response that makes no progress', async () => {
+    mocks.proxyToCoderDaemon.mockResolvedValueOnce({
+      status: 200,
+      body: JSON.stringify({ contentBase64: '', truncated: true, returnedBytes: 0, sizeBytes: 10 }),
+    })
+    await expect(streamDaemonFileWindowed('/apps/foo.bin', 'foo.bin').arrayBuffer()).rejects.toThrow('before the file was complete')
+  })
+
+  it('rejects a daemon chunk whose declared and decoded sizes disagree', async () => {
+    mocks.proxyToCoderDaemon.mockResolvedValueOnce({
+      status: 200,
+      body: JSON.stringify({ contentBase64: Buffer.from('data').toString('base64'), truncated: false, returnedBytes: 3 }),
+    })
+    await expect(streamDaemonFileWindowed('/apps/foo.bin', 'foo.bin').arrayBuffer()).rejects.toThrow('invalid file chunk length')
+  })
+
+  it('runs cleanup after the streamed body closes', async () => {
+    const cleanup = vi.fn()
+    mocks.proxyToCoderDaemon.mockResolvedValueOnce({
+      status: 200,
+      body: JSON.stringify({ contentBase64: Buffer.from('data').toString('base64'), truncated: false, returnedBytes: 4, sizeBytes: 4 }),
+    })
+    await streamDaemonFileWindowed('/apps/foo.bin', 'foo.bin', 'application/octet-stream', cleanup).arrayBuffer()
+    expect(cleanup).toHaveBeenCalledTimes(1)
   })
 })

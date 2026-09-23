@@ -31,10 +31,12 @@ features — no volume reset, no credential rotation, no `docker compose down -v
   arbitrary path and never deletes protected runtime locations.
 - **Large-file explorer downloads**: the app mounts both coder workspace
   volumes (`coder_workspace`→`/coder-workspace`, `coder_apps`→`/coder-apps`) and
-  streams explorer downloads straight from them, bypassing the daemon's
-  256 KiB `/file/bytes` ceiling (which defaults to 64 KiB and was silently
-  truncating large artifacts). The daemon path maps to the host path via
-  `src/lib/coder-download.ts`; unknown roots fall back to windowed daemon reads.
+  streams both individual files and generated ZIP archives directly from them,
+  with no application-memory download-size cap. The same mounts and environment
+  are present in the Linux and Windows Compose files. Shared-volume paths are
+  resolved through symlinks and rejected if their final target leaves the
+  workspace root. Unknown roots fall back to validated, incrementally streamed
+  256 KiB daemon reads rather than buffering an entire artifact.
 
 ## Prerequisites (secrets — all via `.env`, never committed)
 

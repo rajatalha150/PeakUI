@@ -23,7 +23,7 @@ runtime and has evidence, not that a mock or a subset works.
 
 | Phase | Status | Notes |
 |---|---|---|
-| 0 Baseline | ✅ | Historical baseline: 59/59 tests; current suite is 1026/96 |
+| 0 Baseline | ✅ | Historical baseline: 59/59 tests; current suite: 1,030 tests across 96 files |
 | 1 Ownership & runtime boundaries | 🔶 partial | authz + workspace binding + resource limits landed; non-root/bridge deferred to Phase 7 |
 | 2 Sessions, recovery, event persistence | ✅ | all 8 landed; SSE resume + no-overlap polling complete |
 | 3 Effective settings & project context | 🔶 partial | toolSearch threshold applied (restart-gated); context/tools audited & documented |

@@ -135,6 +135,8 @@ services:
       GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
       CODER_PROJECTS_HOST_ROOT: /coder-workspace/projects
+      CODER_WORKSPACE_HOST_ROOT: /coder-workspace
+      CODER_APPS_HOST_ROOT: /coder-apps
     depends_on:
       searxng:
         condition: service_started
@@ -162,6 +164,7 @@ services:
         target: /mnt/workspace-tool/projects
       - app_runtime:/var/lib/peakui
       - coder_workspace:/coder-workspace:rw
+      - coder_apps:/coder-apps:ro
     networks:
       - peakui
 

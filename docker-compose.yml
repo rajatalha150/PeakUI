@@ -170,7 +170,7 @@ services:
       # The app also streams explorer downloads straight from these shared
       # volumes (no daemon size ceiling); both coder workspace roots are mounted.
       - coder_workspace:/coder-workspace:rw
-      - coder_apps:/coder-apps:rw
+      - coder_apps:/coder-apps:ro
 
 volumes:
   db_data:

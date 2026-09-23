@@ -4,9 +4,9 @@ import { requireCoderAccess } from '@/lib/coder-access'
 import { bindCoderSessionWorkspace, normalizeCoderFilePath, normalizeCoderWorkspacePath } from '@/lib/coder-authorization'
 import {
   hostPathForWorkspaceFile,
-  readDaemonFileWindowed,
-  readLocalFile,
+  hostRootForWorkspaceFile,
   sanitizeDownloadFilename,
+  streamDaemonFileWindowed,
   streamLocalDownload,
 } from '@/lib/coder-download'
 import { proxyToCoderDaemon } from '@/lib/coder-gateway'
@@ -42,8 +42,9 @@ export async function POST(request: NextRequest) {
   if (!body || typeof body.sessionId !== 'string' || typeof body.workspace !== 'string') {
     return NextResponse.json({ error: 'A session and workspace are required.' }, { status: 400 })
   }
+  const sessionId = body.sessionId
   const workspace = normalizeCoderWorkspacePath(body.workspace)
-  if (!workspace || !await bindCoderSessionWorkspace(access.userId, body.sessionId, workspace)) {
+  if (!workspace || !await bindCoderSessionWorkspace(access.userId, sessionId, workspace)) {
     return NextResponse.json({ error: 'Session not found.' }, { status: 404 })
   }
   const paths = parsePaths(body.paths, workspace)
@@ -65,14 +66,14 @@ export async function POST(request: NextRequest) {
       }
       const source = paths[0]
       const target = `${source.slice(0, source.lastIndexOf('/') + 1)}${targetName}`
-      await runShell(body.sessionId, `test ! -e ${shellQuote(target)} && mv -- ${shellQuote(source)} ${shellQuote(target)}`, clientId)
+      await runShell(sessionId, `test ! -e ${shellQuote(target)} && mv -- ${shellQuote(source)} ${shellQuote(target)}`, clientId)
       return NextResponse.json({ path: target })
     }
 
     if (body.action === 'delete') {
       const missingClient = requireDaemonClient()
       if (missingClient) return missingClient
-      await runShell(body.sessionId, `rm -rf -- ${paths.map(shellQuote).join(' ')}`, clientId)
+      await runShell(sessionId, `rm -rf -- ${paths.map(shellQuote).join(' ')}`, clientId)
       return NextResponse.json({ deleted: paths.length })
     }
 
@@ -81,26 +82,28 @@ export async function POST(request: NextRequest) {
       if (isSingleFileDownload) {
         const filename = sanitizeDownloadFilename(paths[0].split('/').pop() || 'download')
         // Stream straight from the shared volume when the workspace is mounted
-        // (no per-request size ceiling); otherwise reassemble via the daemon.
+        // (no size ceiling); otherwise stream validated daemon windows.
         const hostPath = hostPathForWorkspaceFile(paths[0])
-        if (hostPath) return await streamLocalDownload(hostPath, filename)
-        return new NextResponse(new Uint8Array(await readDaemonFileWindowed(paths[0])), {
-          headers: { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="${filename}"` },
-        })
+        const hostRoot = hostRootForWorkspaceFile(paths[0])
+        if (hostPath && hostRoot) return await streamLocalDownload(hostPath, hostRoot, filename)
+        return streamDaemonFileWindowed(paths[0], filename)
       }
       const missingClient = requireDaemonClient()
       if (missingClient) return missingClient
       const archive = `${workspace}/.peakui-download-${randomUUID()}.zip`
       const relative = paths.map(path => path.slice(workspace.length + 1))
-      await runShell(body.sessionId, `cd ${shellQuote(workspace)} && zip -q -r ${shellQuote(archive)} -- ${relative.map(shellQuote).join(' ')}`, clientId)
+      await runShell(sessionId, `cd ${shellQuote(workspace)} && zip -q -r ${shellQuote(archive)} -- ${relative.map(shellQuote).join(' ')}`, clientId)
       try {
         const hostPath = hostPathForWorkspaceFile(archive)
-        const data = hostPath ? await readLocalFile(hostPath) : await readDaemonFileWindowed(archive)
-        return new NextResponse(new Uint8Array(data), {
-          headers: { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="peakui-download.zip"' },
-        })
-      } finally {
-        void runShell(body.sessionId, `rm -f -- ${shellQuote(archive)}`, clientId).catch(() => {})
+        const hostRoot = hostRootForWorkspaceFile(archive)
+        const cleanup = () => { void runShell(sessionId, `rm -f -- ${shellQuote(archive)}`, clientId).catch(() => {}) }
+        if (hostPath && hostRoot) {
+          return await streamLocalDownload(hostPath, hostRoot, 'peakui-download.zip', 'application/zip', cleanup)
+        }
+        return streamDaemonFileWindowed(archive, 'peakui-download.zip', 'application/zip', cleanup)
+      } catch (error) {
+        void runShell(sessionId, `rm -f -- ${shellQuote(archive)}`, clientId).catch(() => {})
+        throw error
       }
     }
     return NextResponse.json({ error: 'Unknown file action.' }, { status: 400 })
