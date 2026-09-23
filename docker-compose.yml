@@ -149,6 +149,8 @@ services:
       - GITHUB_APP_SLUG=${GITHUB_APP_SLUG:-}
       - GITHUB_APP_PRIVATE_KEY=${GITHUB_APP_PRIVATE_KEY:-}
       - CODER_PROJECTS_HOST_ROOT=/coder-workspace/projects
+      - CODER_WORKSPACE_HOST_ROOT=/coder-workspace
+      - CODER_APPS_HOST_ROOT=/coder-apps
     depends_on:
       - searxng
       - db
@@ -165,7 +167,10 @@ services:
       - ${DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:rw
       # Controlled project imports use the same volume the coder sees at
       # /workspace. No browser or agent supplies the host-side destination.
+      # The app also streams explorer downloads straight from these shared
+      # volumes (no daemon size ceiling); both coder workspace roots are mounted.
       - coder_workspace:/coder-workspace:rw
+      - coder_apps:/coder-apps:rw
 
 volumes:
   db_data:

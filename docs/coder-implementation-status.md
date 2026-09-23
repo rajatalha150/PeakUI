@@ -23,13 +23,13 @@ runtime and has evidence, not that a mock or a subset works.
 
 | Phase | Status | Notes |
 |---|---|---|
-| 0 Baseline | ✅ | Historical baseline: 59/59 tests; current suite is 1001/1001 |
+| 0 Baseline | ✅ | Historical baseline: 59/59 tests; current suite is 1026/96 |
 | 1 Ownership & runtime boundaries | 🔶 partial | authz + workspace binding + resource limits landed; non-root/bridge deferred to Phase 7 |
 | 2 Sessions, recovery, event persistence | ✅ | all 8 landed; SSE resume + no-overlap polling complete |
 | 3 Effective settings & project context | 🔶 partial | toolSearch threshold applied (restart-gated); context/tools audited & documented |
 | 4 Managed previews & dev processes | 🔶 partial | SSRF guard, sandbox origin isolation, manual device/URL control, and isolated vision screenshot review landed; auth proxy + registration deferred |
 | 5 Reversible work & verification evidence | 🔶 partial | rewind exposed & live-verified; verification records + stale-marking landed (mutation-counter fingerprint) |
-| 6 Complete IDE workbench | 🔶 partial | project explorer (multi-tab), named tasks, text search, and Monaco editor landed; PTY/debugger verified-hard |
+| 6 Complete IDE workbench | 🔶 partial | project explorer (multi-tab), named tasks, text search, Monaco editor, and large-file downloads landed; PTY/debugger verified-hard |
 | 7 Operations, migration, deployment | 🔶 partial | fail-closed `migrate deploy`, durable Coder runtime volumes, Java baseline, storage readiness/cleanup guard, and healthcheck/resource limits landed; logs/backup/non-root remain |
 
 Legend: ✅ done · 🔶 partial · ⬜ not started
@@ -84,6 +84,7 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 ## Phase 6 — Complete IDE workbench
 
 - [x] Editor (Monaco) + project explorer + open tabs + search — project explorer (list + read + edit + save via daemon `/list`/`/file`/`/file/write`, multi-tab buffers with per-tab compare-and-swap saves), text search (glob → read → in-memory grep via `/glob` + `/file`), and a **Monaco editor** (bundled locally, lazy-loaded, syntax highlighting + line numbers via the model `path`) landed. IntelliSense/go-to-definition remain gated on a worker + LSP setup (documented)
+- [x] Large-file downloads — explorer downloads stream straight from the shared coder volumes (`/workspace`→`/coder-workspace`, `/apps`→`/coder-apps`) with no daemon size ceiling, so build artifacts (e.g. an 80 MB APK) arrive whole instead of truncated at the daemon's 64 KiB default. Any unmapped future root falls back to 256 KiB windowed daemon reads
 - [ ] Persistent PTY terminal (xterm.js + server PTY) — **verified hard**: the pinned daemon exposes no PTY transport (only on-demand `POST /session/:id/shell`); a persistent PTY needs a server-side broker (§12.11). On-demand shell exists
 - [x] Named project tasks (install/build/test/run) — package-manager detection (lockfile) + editable commands, run via the daemon shell
 - [ ] Node/TS debug adapter (breakpoints/stack/vars/step) — **verified hard**: no debug-adapter route on the daemon HTTP surface; needs a separate DAP server (§12.11)
@@ -109,4 +110,4 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 - Browser harness: `scripts/coder-browser/verify-site.mjs`
 - Runbook: `docs/coder-deployment-runbook.md`
 - Handoff: `docs/coder-review-handoff.md`
-- Current suite: **1004 passing / 92 files** (`npm test`); production smoke: `scripts/coder-review-smoke.mjs`
+- Current suite: **1026 passing / 96 files** (`npm test`); production smoke: `scripts/coder-review-smoke.mjs`

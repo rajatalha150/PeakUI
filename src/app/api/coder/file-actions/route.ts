@@ -2,6 +2,13 @@ import { randomUUID } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireCoderAccess } from '@/lib/coder-access'
 import { bindCoderSessionWorkspace, normalizeCoderFilePath, normalizeCoderWorkspacePath } from '@/lib/coder-authorization'
+import {
+  hostPathForWorkspaceFile,
+  readDaemonFileWindowed,
+  readLocalFile,
+  sanitizeDownloadFilename,
+  streamLocalDownload,
+} from '@/lib/coder-download'
 import { proxyToCoderDaemon } from '@/lib/coder-gateway'
 
 export const runtime = 'nodejs'
@@ -72,12 +79,13 @@ export async function POST(request: NextRequest) {
     if (body.action === 'download') {
       const isSingleFileDownload = paths.length === 1 && body.archive !== true
       if (isSingleFileDownload) {
-        const result = await proxyToCoderDaemon(`/file/bytes?path=${encodeURIComponent(paths[0])}`, { method: 'GET' })
-        if (result.status < 200 || result.status >= 300) throw new Error(result.body || 'Could not read file')
-        const payload = JSON.parse(result.body) as { contentBase64?: string }
-        if (!payload.contentBase64) throw new Error('Coder returned an empty file')
-        return new NextResponse(Buffer.from(payload.contentBase64, 'base64'), {
-          headers: { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="${paths[0].split('/').pop()!.replace(/"/g, '')}"` },
+        const filename = sanitizeDownloadFilename(paths[0].split('/').pop() || 'download')
+        // Stream straight from the shared volume when the workspace is mounted
+        // (no per-request size ceiling); otherwise reassemble via the daemon.
+        const hostPath = hostPathForWorkspaceFile(paths[0])
+        if (hostPath) return await streamLocalDownload(hostPath, filename)
+        return new NextResponse(new Uint8Array(await readDaemonFileWindowed(paths[0])), {
+          headers: { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="${filename}"` },
         })
       }
       const missingClient = requireDaemonClient()
@@ -86,11 +94,9 @@ export async function POST(request: NextRequest) {
       const relative = paths.map(path => path.slice(workspace.length + 1))
       await runShell(body.sessionId, `cd ${shellQuote(workspace)} && zip -q -r ${shellQuote(archive)} -- ${relative.map(shellQuote).join(' ')}`, clientId)
       try {
-        const result = await proxyToCoderDaemon(`/file/bytes?path=${encodeURIComponent(archive)}`, { method: 'GET' })
-        if (result.status < 200 || result.status >= 300) throw new Error(result.body || 'Could not read archive')
-        const payload = JSON.parse(result.body) as { contentBase64?: string }
-        if (!payload.contentBase64) throw new Error('Coder returned an empty archive')
-        return new NextResponse(Buffer.from(payload.contentBase64, 'base64'), {
+        const hostPath = hostPathForWorkspaceFile(archive)
+        const data = hostPath ? await readLocalFile(hostPath) : await readDaemonFileWindowed(archive)
+        return new NextResponse(new Uint8Array(data), {
           headers: { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="peakui-download.zip"' },
         })
       } finally {

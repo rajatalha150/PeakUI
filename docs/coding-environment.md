@@ -138,6 +138,12 @@ daemon token server-side and to bridge SSE + auth cleanly.
   A right-click menu provides open/view, download, rename, and delete. Single
   files download directly; a folder or any multi-selection downloads as a ZIP.
   Delete always requires a browser confirmation.
+- **Large-file downloads** — downloads stream straight from the coder's shared
+  volumes mounted into the app (`/workspace`→`/coder-workspace`,
+  `/apps`→`/coder-apps`), so there is no daemon per-request size ceiling (the
+  daemon's `GET /file/bytes` caps at 256 KiB and defaults to 64 KiB). Build
+  artifacts like a multi-hundred-MB APK arrive whole. Any workspace root not
+  mounted into the app falls back to 256 KiB windowed daemon reads.
 - **Workspace isolation** — explorer mutations and downloads are authorized
   against the owner’s Coder session and its persisted workspace binding. Every
   requested path must be a normalized child of that workspace before it reaches
@@ -773,6 +779,7 @@ Two routes sit on the app side rather than the daemon pass-through:
 | `src/lib/coder-preview.test.ts` | preview-URL loopback/reserved-port validation |
 | `src/lib/coder-rewind.test.ts` | rewind snapshot-list + result parsing, malformed-payload rejection |
 | `src/lib/coder-files.test.ts` | directory-listing / file-content / write-result parsing, malformed-payload rejection |
+| `src/lib/coder-download.test.ts` | workspace→host volume mapping (`/workspace`→`/coder-workspace`, `/apps`→`/coder-apps`), filename sanitisation, streaming with content-length, windowed daemon reassembly |
 | `src/lib/coder-tasks.test.ts` | lockfile→package-manager detection, default task commands, shell-result parsing |
 | `src/lib/coder-search.test.ts` | glob-response parsing, bounded case-insensitive line search, workspace-relative→absolute path join |
 | `src/lib/coder-verification.test.ts` | mutating-vs-read-only tool classification (default-deny), staleness from the mutation counter, record construction |

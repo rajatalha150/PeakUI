@@ -29,6 +29,12 @@ features — no volume reset, no credential rotation, no `docker compose down -v
   Java baseline, writable persistent locations, and build disk headroom.
   `peakui-cleanup` accepts only `status` and `prune-tmp`; it never accepts an
   arbitrary path and never deletes protected runtime locations.
+- **Large-file explorer downloads**: the app mounts both coder workspace
+  volumes (`coder_workspace`→`/coder-workspace`, `coder_apps`→`/coder-apps`) and
+  streams explorer downloads straight from them, bypassing the daemon's
+  256 KiB `/file/bytes` ceiling (which defaults to 64 KiB and was silently
+  truncating large artifacts). The daemon path maps to the host path via
+  `src/lib/coder-download.ts`; unknown roots fall back to windowed daemon reads.
 
 ## Prerequisites (secrets — all via `.env`, never committed)
 
