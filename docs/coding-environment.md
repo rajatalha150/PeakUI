@@ -130,6 +130,21 @@ daemon token server-side and to bridge SSE + auth cleanly.
 - **Project selector** — pick the `cwd` for a new session from the mounted
   `/workspace` (or host-mounted project dir).
 
+#### Explorer actions and readable progress
+
+- **File explorer** — select one or more files or folders with the checkboxes.
+  A right-click menu provides open/view, download, rename, and delete. Single
+  files download directly; a folder or any multi-selection downloads as a ZIP.
+  Delete always requires a browser confirmation.
+- **Workspace isolation** — explorer mutations and downloads are authorized
+  against the owner’s Coder session and its persisted workspace binding. Every
+  requested path must be a normalized child of that workspace before it reaches
+  the daemon shell or file API.
+- **Agent progress** — Qwen’s adjacent, complete status messages are rendered
+  as separate Markdown paragraphs. Normal token streaming remains contiguous,
+  while long-running work becomes scannable instead of accumulating as one
+  unbroken block of prose.
+
 ### 3.4 Aesthetic
 
 Futuristic cyberpunk, TUI + GUI mix: terminal panes in monospace with a

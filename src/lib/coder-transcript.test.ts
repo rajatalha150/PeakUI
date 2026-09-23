@@ -83,6 +83,18 @@ describe('buildConversation', () => {
     expect(messages).toHaveLength(1);
     expect(messages[0].usage).toEqual({ inputTokens: 10, outputTokens: 3 });
   });
+
+  it('separates complete agent status updates into readable paragraphs', () => {
+    const { messages } = buildConversation([
+      event('user_message_chunk', { content: { type: 'text', text: 'build it' } }),
+      event('agent_message_chunk', { content: { type: 'text', text: 'I inspected the project and found the Android folder is missing.' } }),
+      event('agent_message_chunk', { content: { type: 'text', text: 'The environment is ready, so I will generate the native project next.' } }),
+    ]);
+
+    expect(messages[1].content).toBe(
+      'I inspected the project and found the Android folder is missing.\n\nThe environment is ready, so I will generate the native project next.',
+    );
+  });
 });
 
 describe('serializeConversation', () => {

@@ -158,6 +158,23 @@ function contentText(content: unknown): string {
   return '';
 }
 
+/**
+ * The daemon sends status updates as adjacent message chunks within one turn.
+ * Preserve normal token streaming, while making complete, independently phrased
+ * updates render as separate Markdown paragraphs instead of one dense wall.
+ */
+function appendAgentText(previous: string, next: string): string {
+  if (!previous || !next) return previous + next;
+  const prior = previous.trimEnd();
+  const upcoming = next.trimStart();
+  const startsFreshStatement = upcoming.length >= 18 && /^[A-Z#*\-]/.test(upcoming);
+  const completedStatement = /[.!?;:]$/.test(prior);
+  const alreadySeparated = /\n\s*\n$/.test(previous);
+  return completedStatement && startsFreshStatement && !alreadySeparated
+    ? `${prior}\n\n${upcoming}`
+    : previous + next;
+}
+
 function usageOf(d: Record<string, unknown>): CoderChatMessage['usage'] {
   const meta = (d._meta || {}) as Record<string, unknown>;
   const u = (meta.usage || {}) as Record<string, unknown>;
@@ -227,7 +244,10 @@ export function buildConversation(events: CoderTranscriptEvent[]): {
       }
     } else if (su === 'agent_message_chunk') {
       const text = contentText(d.content);
-      if (text) ensureAssistant().content += text;
+      if (text) {
+        const a = ensureAssistant();
+        a.content = appendAgentText(a.content, text);
+      }
       const usage = usageOf(d);
       if (usage) ensureAssistant().usage = usage;
     } else if (su === 'tool_call' || su === 'tool_call_update') {

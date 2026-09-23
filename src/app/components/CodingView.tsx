@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { AlertCircle, Bot, Camera, CheckCircle2, ChevronRight, Circle, ClipboardCopy, FileText, Folder, GitBranch, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
+import { AlertCircle, Bot, Camera, CheckCircle2, ChevronRight, Circle, ClipboardCopy, Download, FileText, Folder, GitBranch, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
 import { buildConversation, fetchFullTranscript, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from '@/lib/coder-transcript';
 import { streamSessionEvents } from '@/lib/coder-sse';
@@ -437,6 +437,9 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const [fileEntries, setFileEntries] = React.useState<FileEntry[] | null>(null);
   const [fileLoading, setFileLoading] = React.useState(false);
   const [fileError, setFileError] = React.useState('');
+  const [selectedFilePaths, setSelectedFilePaths] = React.useState<string[]>([]);
+  const [fileMenu, setFileMenu] = React.useState<{ entry: FileEntry; path: string; x: number; y: number } | null>(null);
+  const [fileActionRunning, setFileActionRunning] = React.useState(false);
   const [openTabs, setOpenTabs] = React.useState<EditorTab[]>([]);
   const [activePath, setActivePath] = React.useState<string | null>(null);
   // Named project tasks (install/build/test/run) state.
@@ -1421,6 +1424,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       }
       setFileDir(dir);
       setFileEntries(parsed.list.entries);
+      setSelectedFilePaths([]);
     } catch (e) {
       if (!current()) return;
       setFileError(e instanceof Error ? e.message : 'Failed to list directory');
@@ -1521,6 +1525,48 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
   /** Join a directory and entry name into a daemon absolute path. */
   const childPath = (dir: string, name: string) => `${dir.replace(/\/+$/, '')}/${name}`;
+
+  const toggleFileSelection = (path: string) => {
+    setSelectedFilePaths(current => current.includes(path) ? current.filter(value => value !== path) : [...current, path]);
+  };
+
+  const runFileAction = async (action: 'download' | 'rename' | 'delete', paths: string[], options: { archive?: boolean; targetName?: string } = {}) => {
+    const sessionId = daemonSessionId || await ensureDaemonSession();
+    if (!sessionId || paths.length === 0 || fileActionRunning) return;
+    if (action === 'delete' && !window.confirm(`Delete ${paths.length === 1 ? paths[0].split('/').pop() : `${paths.length} selected items`} permanently?`)) return;
+    let targetName = options.targetName;
+    if (action === 'rename') {
+      const currentName = paths[0].split('/').pop() || '';
+      targetName = window.prompt('New name', currentName)?.trim();
+      if (!targetName || targetName === currentName) return;
+    }
+    setFileActionRunning(true);
+    setFileError('');
+    try {
+      const response = await fetch('/api/coder/file-actions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, sessionId, workspace, paths, archive: options.archive === true, targetName }),
+      });
+      if (action === 'download' && response.ok) {
+        const blob = await response.blob();
+        const href = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = href;
+        link.download = paths.length === 1 && !options.archive ? paths[0].split('/').pop() || 'download' : 'peakui-download.zip';
+        link.click();
+        URL.revokeObjectURL(href);
+      } else if (!response.ok) {
+        const data = await response.json().catch(() => ({})) as { error?: string };
+        throw new Error(data.error || `File action failed (${response.status})`);
+      }
+      if (action !== 'download') await loadDir(fileDir);
+    } catch (error) {
+      setFileError(error instanceof Error ? error.message : 'File action failed');
+    } finally {
+      setFileActionRunning(false);
+      setFileMenu(null);
+    }
+  };
 
   /** The tab currently in focus (if any). */
   const activeTab = openTabs.find(t => t.path === activePath) ?? null;
@@ -2828,6 +2874,11 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
             </button>
             <span style={{ fontSize: '0.7rem', fontFamily: 'ui-monospace, monospace', color: 'rgba(209,213,219,0.6)', overflowWrap: 'anywhere' }}>{fileDir}</span>
             <div style={{ flex: 1 }} />
+            {selectedFilePaths.length > 0 && (
+              <button onClick={() => void runFileAction('download', selectedFilePaths, { archive: selectedFilePaths.length > 1 })} disabled={fileActionRunning} style={ghostBtnStyle()} title="Download the selected files or folders">
+                <Download size={13} /> {selectedFilePaths.length}
+              </button>
+            )}
             <button onClick={() => setFilesOpen(false)} style={ghostBtnStyle()}><X size={13} /></button>
           </div>
 
@@ -2845,23 +2896,41 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
               )}
               {!fileLoading && !fileError && fileEntries !== null && [...fileEntries]
                 .sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name) : a.kind === 'directory' ? -1 : 1))
-                .map(e => (
-                  <button
+                .map(e => {
+                  const path = childPath(fileDir, e.name);
+                  const selected = selectedFilePaths.includes(path);
+                  return (
+                  <div
+                    role="button"
+                    tabIndex={0}
                     key={e.name}
-                    onClick={() => { if (e.kind === 'directory') void loadDir(childPath(fileDir, e.name)); else void openFile(childPath(fileDir, e.name)); }}
+                    onClick={() => { if (e.kind === 'directory') void loadDir(path); else void openFile(path); }}
+                    onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); if (e.kind === 'directory') void loadDir(path); else void openFile(path); } }}
+                    onContextMenu={event => { event.preventDefault(); setFileMenu({ entry: e, path, x: event.clientX, y: event.clientY }); }}
                     style={{
                       display: 'flex', alignItems: 'center', gap: '7px', width: '100%', textAlign: 'left',
-                      background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                      background: selected ? 'rgba(34,211,238,0.10)' : 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.04)',
                       padding: '6px 10px', cursor: 'pointer', fontSize: '0.74rem',
                       color: e.kind === 'directory' ? '#e5e7eb' : 'rgba(209,213,219,0.8)',
                       fontFamily: 'ui-monospace, monospace', overflow: 'hidden',
                     }}
                   >
+                    <input type="checkbox" checked={selected} onChange={() => toggleFileSelection(path)} onClick={event => event.stopPropagation()} aria-label={`Select ${e.name}`} />
                     {e.kind === 'directory' ? <Folder size={13} color="#22d3ee" /> : <FileText size={13} color="rgba(209,213,219,0.5)" />}
                     <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.name}</span>
-                  </button>
-                ))}
+                  </div>
+                  );
+                })}
             </div>
+
+            {fileMenu && (
+              <div onMouseLeave={() => setFileMenu(null)} style={{ position: 'fixed', zIndex: 100, left: Math.min(fileMenu.x, window.innerWidth - 190), top: Math.min(fileMenu.y, window.innerHeight - 180), width: 180, padding: 4, background: '#171c27', border: '1px solid rgba(255,255,255,0.16)', borderRadius: 6, boxShadow: '0 12px 32px rgba(0,0,0,0.45)' }}>
+                <button onClick={() => { if (fileMenu.entry.kind === 'directory') void loadDir(fileMenu.path); else void openFile(fileMenu.path); setFileMenu(null); }} style={{ ...ghostBtnStyle(), width: '100%', justifyContent: 'flex-start' }}>{fileMenu.entry.kind === 'directory' ? 'Open folder' : 'View file'}</button>
+                <button onClick={() => void runFileAction('download', [fileMenu.path], { archive: fileMenu.entry.kind === 'directory' })} style={{ ...ghostBtnStyle(), width: '100%', justifyContent: 'flex-start' }}><Download size={13} /> {fileMenu.entry.kind === 'directory' ? 'Download as ZIP' : 'Download'}</button>
+                <button onClick={() => void runFileAction('rename', [fileMenu.path])} style={{ ...ghostBtnStyle(), width: '100%', justifyContent: 'flex-start' }}><Pencil size={13} /> Rename</button>
+                <button onClick={() => void runFileAction('delete', [fileMenu.path])} style={{ ...ghostBtnStyle(), width: '100%', justifyContent: 'flex-start', color: '#fca5a5' }}><Trash2 size={13} /> Delete</button>
+              </div>
+            )}
 
             {/* Editor */}
             <div style={{ flex: 1, minWidth: 260, display: 'flex', flexDirection: 'column', gap: '6px' }}>
