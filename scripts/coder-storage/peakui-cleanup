@@ -1,0 +1,19 @@
+#!/bin/sh
+# Deliberately narrow cleanup utility. It never accepts arbitrary paths, so
+# agent-driven cleanup cannot delete the persistent runtime or toolchain.
+set -eu
+
+case "${1:-status}" in
+  status)
+    echo "Protected: /workspace /apps /root/.qwen /root/.ssh /root/.gradle /root/.android /root/.npm /root/.cache/pip /opt/android-sdk /usr/lib/jvm"
+    exec peakui-coder-readiness --startup
+    ;;
+  prune-tmp)
+    find /tmp -xdev -maxdepth 1 -type f \( -name 'peakui-*' -o -name 'verify-*.png' \) -mtime +7 -print -delete
+    ;;
+  *)
+    echo "Usage: peakui-cleanup [status|prune-tmp]" >&2
+    echo "Refusing arbitrary cleanup paths; persistent runtime data is protected." >&2
+    exit 64
+    ;;
+esac

@@ -96,8 +96,10 @@ A new `docker-compose.yml` service:
 - **Daemon**: runs `qwen serve` on `0.0.0.0:4170` (or loopback + Docker
   port-map), configured to talk to the host's **Ollama** (`host.docker.internal`
   or the host-network IP) so the brain uses our local models.
-- **Persistent volume**: `coder_workspace:/workspace` (projects + qwen's
-  `~/.qwen` config/state survive restarts).
+- **Persistent runtime volumes**: projects, Qwen session state, SSH/Git state,
+  Gradle, Android SDK/NDK, npm, and pip caches survive container recreation.
+  Java 17 and system libraries are immutable image dependencies so cleanup can
+  never silently remove the compiler baseline.
 - **Long-lived**: dev servers the agent starts stay up between turns.
 
 ### 3.2 `coder-gateway` (the only backend code)

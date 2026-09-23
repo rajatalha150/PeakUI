@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       curl \
       ca-certificates \
       build-essential \
+      openjdk-17-jdk-headless \
       python3 \
       python3-pip \
       python3-venv \
@@ -72,7 +73,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ARG GO_VERSION=1.22.5
 RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tgz \
     && tar -C /usr/local -xzf /tmp/go.tgz && rm /tmp/go.tgz
-ENV PATH="/usr/local/go/bin:${PATH}"
+ENV PATH="/usr/local/go/bin:${PATH}" \
+    JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64" \
+    ANDROID_HOME="/opt/android-sdk" \
+    ANDROID_SDK_ROOT="/opt/android-sdk"
 
 # --- Qwen Code (built from pinned source, not the npm registry) -------------
 # The npm package name is flagged by a heuristic scanner (false positive for
@@ -88,7 +92,7 @@ RUN git clone --depth 1 --branch "v${QWEN_CODE_VERSION}" \
 
 # --- Workspace (persistent project dir) --------------------------------------
 # Mounted as a volume so projects + qwen's ~/.qwen state survive restarts.
-RUN mkdir -p /workspace
+RUN mkdir -p /workspace /opt/android-sdk /root/.gradle /root/.android /root/.npm /root/.cache/pip
 WORKDIR /workspace
 
 # --- Real-browser verification harness --------------------------------------
@@ -134,6 +138,10 @@ EXPOSE 4170
 # Model-list sync: mirror Ollama's live models into ~/.qwen/settings.json so the
 # daemon can route to every model (local + cloud) the UI offers.
 COPY scripts/sync-coder-models.mjs /opt/qwen-code/sync-coder-models.mjs
+COPY scripts/coder-storage/peakui-coder-readiness /usr/local/bin/peakui-coder-readiness
+COPY scripts/coder-storage/peakui-cleanup /usr/local/bin/peakui-cleanup
+COPY scripts/coder-storage/peakui-coder-start /usr/local/bin/peakui-coder-start
+RUN chmod 755 /usr/local/bin/peakui-coder-readiness /usr/local/bin/peakui-cleanup /usr/local/bin/peakui-coder-start
 
 # Workspace context file (QWEN.md): the daemon auto-loads this into every
 # session so the agent doesn't re-derive the project layout + verify commands,
@@ -154,4 +162,4 @@ COPY scripts/coder-workspace/QWEN.md /opt/qwen-code/workspace-qwen.md
 #     git identity is seeded ONLY IF UNSET (first boot of a fresh volume), so a
 #     user's custom identity persists across recreates instead of being
 #     clobbered each boot. GIT_AUTHOR_* env vars remain set regardless.
-CMD ["sh", "-c", "mkdir -p /root/.qwen /root/.ssh && chmod 700 /root/.ssh && cp /opt/qwen-code/workspace-qwen.md /root/.qwen/QWEN.md; cp /opt/qwen-code/workspace-qwen.md /workspace/QWEN.md 2>/dev/null; if [ -f /root/.ssh/id_ed25519 ] && ! ssh-keygen -F github.com -f /root/.ssh/known_hosts >/dev/null 2>&1; then timeout 10 ssh-keyscan -H github.com >> /root/.ssh/known_hosts 2>/dev/null || true; chmod 600 /root/.ssh/known_hosts; fi; if [ -z \"$(git config --global user.name 2>/dev/null)\" ]; then git config --global user.name \"PeakUI Coding Agent\"; fi; if [ -z \"$(git config --global user.email 2>/dev/null)\" ]; then git config --global user.email \"agent@peakui.local\"; fi; if [ -z \"$(git config --global init.defaultBranch 2>/dev/null)\" ]; then git config --global init.defaultBranch main; fi; git config --global core.sshCommand 'ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes'; node /opt/qwen-code/sync-coder-models.mjs && exec node /opt/qwen-code/scripts/cli-entry.js serve --hostname 127.0.0.1 --port 4170 --workspace /workspace --no-web --enable-session-shell"]
+CMD ["/usr/local/bin/peakui-coder-start"]

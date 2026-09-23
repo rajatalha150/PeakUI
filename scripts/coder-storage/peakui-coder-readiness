@@ -1,0 +1,48 @@
+#!/bin/sh
+# Validate the persistent Coder runtime without mutating it. `--strict` is for
+# large builds; startup reports warnings but keeps the interactive daemon alive.
+set -eu
+
+mode="${1:---startup}"
+minimum_gb="${CODER_MIN_FREE_GB:-12}"
+failed=0
+warnings=0
+
+require_dir() {
+  path="$1"
+  label="$2"
+  if [ ! -d "$path" ] || [ ! -w "$path" ]; then
+    echo "FAIL: $label is unavailable or not writable: $path" >&2
+    failed=1
+  else
+    echo "OK: $label ($path)"
+  fi
+}
+
+if ! command -v java >/dev/null 2>&1 || [ ! -x "${JAVA_HOME:-}/bin/java" ]; then
+  echo "FAIL: Java 17 baseline is missing at ${JAVA_HOME:-unset}" >&2
+  failed=1
+else
+  echo "OK: $(java -version 2>&1 | head -n 1)"
+fi
+
+require_dir /workspace "workspace volume"
+require_dir /root/.qwen "Qwen state volume"
+require_dir /root/.ssh "SSH state"
+require_dir /root/.gradle "Gradle cache volume"
+require_dir /root/.android "Android user state volume"
+require_dir /root/.npm "npm cache volume"
+require_dir /root/.cache/pip "pip cache volume"
+require_dir "${ANDROID_SDK_ROOT:-/opt/android-sdk}" "Android SDK volume"
+
+available_kb=$(df -Pk /workspace | awk 'NR == 2 { print $4 }')
+available_gb=$((available_kb / 1024 / 1024))
+if [ "$available_gb" -lt "$minimum_gb" ]; then
+  echo "WARN: only ${available_gb}G free; ${minimum_gb}G is required for large builds." >&2
+  warnings=1
+else
+  echo "OK: ${available_gb}G free (minimum ${minimum_gb}G)"
+fi
+
+if [ "$failed" -ne 0 ]; then exit 1; fi
+if [ "$mode" = "--strict" ] && [ "$warnings" -ne 0 ]; then exit 2; fi

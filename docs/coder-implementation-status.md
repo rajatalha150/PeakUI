@@ -30,7 +30,7 @@ runtime and has evidence, not that a mock or a subset works.
 | 4 Managed previews & dev processes | 🔶 partial | SSRF guard, sandbox origin isolation, manual device/URL control, and isolated vision screenshot review landed; auth proxy + registration deferred |
 | 5 Reversible work & verification evidence | 🔶 partial | rewind exposed & live-verified; verification records + stale-marking landed (mutation-counter fingerprint) |
 | 6 Complete IDE workbench | 🔶 partial | project explorer (multi-tab), named tasks, text search, and Monaco editor landed; PTY/debugger verified-hard |
-| 7 Operations, migration, deployment | 🔶 partial | fail-closed `migrate deploy` + readiness (db/daemon) + healthcheck/resource limits landed; logs/backup/non-root remain |
+| 7 Operations, migration, deployment | 🔶 partial | fail-closed `migrate deploy`, durable Coder runtime volumes, Java baseline, storage readiness/cleanup guard, and healthcheck/resource limits landed; logs/backup/non-root remain |
 
 Legend: ✅ done · 🔶 partial · ⬜ not started
 
@@ -93,6 +93,11 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 
 - [x] Replace `prisma db push --accept-data-loss` with reviewed migrations — startup now runs fail-closed `migrate deploy`; the live database reports all 16 committed migrations applied
 - [x] Readiness beyond process health — `GET /api/coder/readiness` probes DB (`SELECT 1`) and daemon (`/health`) and returns 503 when either is down
+- [x] Durable Coder runtime baseline — Java 17 is baked into the Coder image;
+  workspace, Qwen/SSH state, Gradle, Android SDK/NDK, npm and pip caches are
+  named volumes; guarded `peakui-cleanup` cannot target protected paths and
+  `peakui-coder-readiness --strict` gates disk-heavy work on prerequisites and
+  configured free-space headroom
 - [ ] Correlated redacted logs + actionable error codes
 - [ ] Backup/restore of Postgres + coder volumes
 - [ ] Non-root ownership migration

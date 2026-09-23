@@ -16,6 +16,22 @@ container restarts and redeploys. When the user points you at a different
 workspace path (the session cwd can change in the Coding Settings drawer), trust
 that path — it is the project you are being asked to work in.
 
+## Runtime storage and cleanup safety
+
+The runtime has protected persistent storage for Qwen state, SSH/Git identity,
+Gradle, Android SDK/NDK, npm, and pip caches. Java 17 is image-managed and is
+always available at `$JAVA_HOME`; Android tooling uses `$ANDROID_SDK_ROOT`.
+
+- Before a large build or download, run `peakui-coder-readiness --strict`.
+  It checks Java, persistent locations, and the configured disk headroom.
+- To inspect storage, run `peakui-cleanup status`. The only supported cleanup
+  command is `peakui-cleanup prune-tmp`, which removes old PeakUI-owned
+  temporary verification files only.
+- Never run broad cleanup commands such as `apt autoremove`, `apt clean`,
+  `rm -rf /root`, or recursive deletion of SDK/cache directories. Do not delete
+  `/usr/lib/jvm`, `/opt/android-sdk`, `/root/.gradle`, `/root/.android`,
+  `/root/.npm`, `/root/.qwen`, `/root/.ssh`, `/workspace`, or `/apps`.
+
 ## Discover the layout before you assume it
 
 Do NOT assume a fixed project layout. The contents of `/workspace` and `/apps`

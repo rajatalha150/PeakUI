@@ -21,6 +21,14 @@ features — no volume reset, no credential rotation, no `docker compose down -v
 - **Shared-runtime access boundary**: because the current daemon is one root,
   host-network runtime, coder routes are restricted to `ADMIN` users until
   per-user runtimes and bridge networking are implemented.
+- **Persistent build runtime**: Java 17 is image-managed; workspace, Qwen and
+  SSH state, Gradle, Android SDK/NDK, Android user state, npm, and pip each use
+  named volumes. Recreating the Coder container therefore does not discard
+  projects, session state, credentials, or downloaded build dependencies.
+- **Safe storage operations**: `peakui-coder-readiness --strict` checks the
+  Java baseline, writable persistent locations, and build disk headroom.
+  `peakui-cleanup` accepts only `status` and `prune-tmp`; it never accepts an
+  arbitrary path and never deletes protected runtime locations.
 
 ## Prerequisites (secrets — all via `.env`, never committed)
 
@@ -71,6 +79,16 @@ docker exec peakui-db-1 psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
 # Container isolation flags actually applied
 docker inspect peakui-coder-1 \
   --format '{{.HostConfig.PidsLimit}} pids / {{.HostConfig.Memory}} mem / {{.HostConfig.CapDrop}} caps'
+
+# Persistent-runtime readiness. Use --strict before Gradle, Android, model, or
+# other disk-heavy work; it exits nonzero below CODER_MIN_FREE_GB (12 by default).
+docker compose exec coder peakui-coder-readiness --strict
+docker compose exec coder peakui-cleanup status
+
+# Confirm the immutable Java baseline and protected volumes are mounted.
+docker compose exec coder sh -lc 'java -version && echo "$JAVA_HOME" && echo "$ANDROID_SDK_ROOT"'
+docker inspect peakui-coder-1 --format '{{range .Mounts}}{{println .Destination}}{{end}}' \
+  | grep -E '^/(workspace|apps|root/.qwen|root/.ssh|root/.gradle|root/.android|root/.npm|root/.cache/pip|opt/android-sdk)$'
 ```
 
 ## Functional smoke test (in the UI)
@@ -107,6 +125,28 @@ The changes are additive and independently reversible:
   `cap_drop` block from the `coder` service and recreate the container.
 
 No `docker compose down -v` anywhere in this process.
+
+## Storage operations
+
+The Coder container is intentionally not a fully persistent root filesystem.
+The image owns operating-system libraries and Java; Docker volumes own all
+state that must outlive an image rebuild. This keeps upgrades reproducible
+while preserving active development work.
+
+| Location | Persistence | Purpose |
+|---|---|---|
+| `/workspace`, `/apps` | named volume | projects and working files |
+| `/root/.qwen`, `/root/.ssh`, `/root` | named volumes | sessions, memories, Git identity, SSH keys, user state |
+| `/root/.gradle`, `/root/.android`, `/opt/android-sdk` | named volumes | Gradle cache, Android/NDK tooling and user state |
+| `/root/.npm`, `/root/.cache/pip` | named volumes | package caches |
+| `/usr/lib/jvm` | immutable image | Java 17 baseline; never cleanup-managed |
+
+Do not run broad cleanup commands in Coder. In particular, never use `apt
+autoremove`, `apt clean`, `rm -rf /root`, or recursive deletion of an SDK/cache
+directory. Use `peakui-cleanup status` to inspect capacity and
+`peakui-cleanup prune-tmp` only for PeakUI-owned temporary verification files.
+The helper refuses every other cleanup form. Set `CODER_MIN_FREE_GB` in `.env`
+to raise the strict-readiness threshold for large Android builds.
 
 ## Known operational gaps (Phase 7 — not yet done)
 

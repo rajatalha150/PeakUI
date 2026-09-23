@@ -81,6 +81,7 @@ services:
       OPENAI_MODEL: ${CODER_MODEL:-gemma4:latest}
       OPENAI_BASE_URL: ${CODER_OPENAI_BASE_URL:-http://host.docker.internal:11434/v1}
       QWEN_DEBUG_LOG_FILE: "1"
+      CODER_MIN_FREE_GB: ${CODER_MIN_FREE_GB:-12}
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4170/health',{signal:AbortSignal.timeout(4000),headers:process.env.QWEN_SERVER_TOKEN?{Authorization:'Bearer '+process.env.QWEN_SERVER_TOKEN}:{}}).then(async r=>{if(!r.ok||(await r.json()).status!=='ok')process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
@@ -91,6 +92,11 @@ services:
       - coder_workspace:/workspace
       - coder_apps:/apps
       - coder_qwen_state:/root/.qwen
+      - coder_gradle_cache:/root/.gradle
+      - coder_android_home:/root/.android
+      - coder_npm_cache:/root/.npm
+      - coder_pip_cache:/root/.cache/pip
+      - coder_android_sdk:/opt/android-sdk
       - coder_root_home:/root
     networks:
       - peakui
@@ -167,6 +173,11 @@ volumes:
   coder_apps:
   coder_qwen_state:
   coder_root_home:
+  coder_gradle_cache:
+  coder_android_home:
+  coder_npm_cache:
+  coder_pip_cache:
+  coder_android_sdk:
 
 networks:
   peakui:
