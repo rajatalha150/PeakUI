@@ -31,9 +31,11 @@ export function normalizeCoderContextUsage(value: unknown): CoderContextUsage | 
   const contextWindow = finite(record.contextWindowSize)
   if (totalTokens === null || contextWindow === null || contextWindow === 0) return null
   const tierValue = breakdown.currentTier
-  const tier: CoderContextTier = tierValue === 'warn' || tierValue === 'auto' || tierValue === 'hard' || tierValue === 'fresh'
-    ? tierValue
-    : 'unknown'
+  const tier: CoderContextTier = tierValue === 'safe' || tierValue === 'fresh'
+    ? 'fresh'
+    : tierValue === 'warn' || tierValue === 'auto' || tierValue === 'hard'
+      ? tierValue
+      : 'unknown'
   return {
     model: typeof record.modelName === 'string' ? record.modelName : '',
     totalTokens,

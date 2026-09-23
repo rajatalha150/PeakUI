@@ -17,4 +17,12 @@ describe('coder context usage', () => {
   it('does not make up usage from malformed daemon payloads', () => {
     expect(normalizeCoderContextUsage({ usage: { totalTokens: 'a lot' } })).toBeNull()
   })
+
+  it('normalizes Qwen daemon versions that call the healthy tier safe', () => {
+    const usage = normalizeCoderContextUsage({ usage: {
+      totalTokens: 100, contextWindowSize: 1000, breakdown: { currentTier: 'safe', thresholds: {} },
+    } })
+    expect(usage?.tier).toBe('fresh')
+    expect(shouldCaptureCoderHandoff(usage)).toBe(false)
+  })
 })
