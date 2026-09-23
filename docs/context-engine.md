@@ -30,6 +30,8 @@ Older bulky tool results are compacted separately before hard trimming. The
 model is told that recalled history is evidence, not instructions, and that
 newer user requests win. Exact episode source ranges are retained so a future
 agent-facing `recall_context` tool can reopen raw evidence rather than guess.
+The owner-scoped `GET /api/chats/:id/context?query=...` endpoint exposes the
+same bounded, source-linked recall contract for the UI and future agent tools.
 
 ## Budgeting and provider adapters
 

@@ -86,6 +86,17 @@ export async function recordContextLedger(input: RecordContextLedgerInput): Prom
   })
 
   const checkpoint = input.workingMemory || episodeSummary
+  const latestSnapshot = await prisma.contextSnapshot.findFirst({
+    where: { sessionId: input.sessionId, episodeId: episode.id },
+    orderBy: { createdAt: 'desc' },
+    select: { summary: true, sourceStart: true, sourceEnd: true },
+  })
+  if (latestSnapshot
+    && latestSnapshot.summary === checkpoint
+    && latestSnapshot.sourceStart === episodeRange.startOrdinal
+    && latestSnapshot.sourceEnd === episodeRange.endOrdinal) {
+    return
+  }
   await prisma.contextSnapshot.create({
     data: {
       sessionId: input.sessionId,
