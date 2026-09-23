@@ -503,6 +503,7 @@ artifact.
 
 - `User` - User accounts
 - `ChatSession` - WorkSpaces task threads
+- `ContextEvent` / `ContextEpisode` / `ContextSnapshot` - append-only context evidence, source-linked completed-work episodes, and versioned working-memory checkpoints for long sessions
 - `ChatMessage` - Individual messages
 - `UserSettings` - Per-user preferences
 - `RagDocument` - Knowledge base files

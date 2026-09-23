@@ -78,10 +78,13 @@ export function trimMessagesToFit<T extends ConversationMessage>(
   messages: T[],
   contextLength: number,
   systemOverhead: number,
-  options?: { preserveTurns?: number },
+  options?: { preserveTurns?: number; inputBudget?: number },
 ): TrimResult<T> {
   const context = Number.isFinite(contextLength) ? Math.max(0, Math.floor(contextLength)) : 0;
-  const inputBudget = Math.floor(context * 0.8);
+  const defaultInputBudget = Math.floor(context * 0.8);
+  const inputBudget = Number.isFinite(options?.inputBudget)
+    ? Math.max(0, Math.min(context, Math.floor(options!.inputBudget!)))
+    : defaultInputBudget;
   const systems = messages.filter(message => message.role === 'system');
   const conversation = messages.filter(message => message.role !== 'system');
   const systemTokens = estimateMessageTokens(systems);

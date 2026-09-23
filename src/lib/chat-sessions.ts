@@ -14,6 +14,8 @@ import {
   type SessionAnalytics,
   type SessionAutoContinueMode,
 } from './session-intelligence';
+import { recordContextLedger } from './context-ledger';
+import { buildContextBudget, type ContextModelProfile } from './context-engine';
 
 export type StoredChatRole = 'user' | 'assistant' | 'system';
 export type ChatSessionSurface = 'chat' | 'workspace-tool' | 'coder';
@@ -400,9 +402,15 @@ async function buildDerivedSessionState(
       })
     : null;
   const tokenEstimate = estimateMessageTokens(messages);
+  const budget = buildContextBudget({
+    provider: settings.workspaceToolProvider,
+    model: settings.workspaceToolModel,
+    contextWindow: settings.contextLength,
+  }, tokenEstimate);
   const hasOlderTurnsOutsideRawWindow = recentTurnStart(messages, settings.workspaceToolSessionPreserveTurns) > 0;
   const contextSummary = settings.workspaceToolSessionSummariesEnabled
-    && (tokenEstimate >= settings.workspaceToolSessionSummaryTargetTokens || hasOlderTurnsOutsideRawWindow)
+    && (budget.pressure === 'compact' || budget.pressure === 'rebuild' || budget.pressure === 'emergency'
+      || tokenEstimate >= settings.workspaceToolSessionSummaryTargetTokens || hasOlderTurnsOutsideRawWindow)
       ? buildSessionContextSummary(messages, {
           preserveTurns: settings.workspaceToolSessionPreserveTurns,
         })
@@ -413,6 +421,41 @@ async function buildDerivedSessionState(
     contextSummary: contextSummary || null,
     contextSummaryUpdatedAt: contextSummary ? new Date() : null,
   };
+}
+
+async function persistContextLedger(
+  userId: string,
+  sessionId: string,
+  messages: StoredChatMessage[],
+  workingMemory: string | null,
+  surface: ChatSessionSurface,
+): Promise<void> {
+  // Unit tests and older rolling deployments can have a generated Prisma
+  // client without the new delegate. Chat persistence must remain available
+  // while the migration rolls through the fleet.
+  if (!('contextEvent' in (prisma as object))) return;
+  try {
+    const settings = await getUserSettings(userId);
+    const isCoder = surface === 'coder';
+    const profile: ContextModelProfile = {
+      provider: isCoder ? 'qwen-daemon' : settings.workspaceToolProvider,
+      model: isCoder ? settings.coderModel : settings.workspaceToolModel,
+      contextWindow: isCoder && settings.coderContextLength > 0
+        ? settings.coderContextLength
+        : settings.contextLength,
+    };
+    await recordContextLedger({
+      sessionId,
+      messages,
+      workingMemory,
+      profile,
+      preserveTurns: settings.workspaceToolSessionPreserveTurns,
+    });
+  } catch (error) {
+    // Durable recall enriches a session but must never make a user lose a chat
+    // because a database migration is still rolling out.
+    console.error('Context ledger persistence failed:', error);
+  }
 }
 
 function normalizeLastAutoContinueAt(value: unknown): Date | undefined {
@@ -678,6 +721,7 @@ export async function upsertChatSession(userId: string, input: SaveChatSessionIn
         },
       });
 
+      await persistContextLedger(userId, updated.id, payload.messages, payload.contextSummary, payload.surface);
       return { created: false, session: mapSessionRows([updated], new Map([[updated.id, payload.messages]]))[0]! };
     }
   }
@@ -709,6 +753,7 @@ export async function upsertChatSession(userId: string, input: SaveChatSessionIn
     },
   });
 
+  await persistContextLedger(userId, created.id, payload.messages, payload.contextSummary, payload.surface);
   return { created: true, session: mapSessionRows([created], new Map([[created.id, payload.messages]]))[0]! };
 }
 
@@ -774,6 +819,7 @@ export async function updateChatSession(
     },
   });
 
+  await persistContextLedger(userId, updated.id, payload.messages, payload.contextSummary, payload.surface);
   return mapSessionRows([updated], new Map([[updated.id, payload.messages]]))[0] ?? null;
 }
 
@@ -936,6 +982,13 @@ export async function finalizeChatSession(
         },
       });
 
+  await persistContextLedger(
+    userId,
+    saved.id,
+    nextMessages,
+    derived.contextSummary,
+    normalizeSurface(input.surface ?? existing?.surface),
+  );
   return mapSessionRows([saved], new Map([[saved.id, nextMessages]]))[0] ?? null;
 }
 

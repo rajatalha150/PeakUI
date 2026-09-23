@@ -37,6 +37,8 @@ import { getWorkspaceToolWorkspaceContext } from './workspace-tool-project-works
 import { getOpenAutomationNudges } from './workspace-tool-automation';
 import { getChatSessionById } from './chat-sessions';
 import { applyContextManagement, filterRelevantCrossSessionMemory, isContinuationWorkspacePrompt } from './session-intelligence';
+import { recallContextEpisodes } from './context-ledger';
+import { buildContextBudget } from './context-engine';
 import { getUwafMetricsSnapshot } from './uwaf-telemetry';
 import {
   getPreferredSearchProviderLabel,
@@ -1186,6 +1188,22 @@ export async function createChatCompletionResponse(req: NextRequest) {
       ? buildContextCandidates(settings.contextLength, settings.ollamaUseModelDefaultContext, requestedModel, provider, capacityProfile)[0] || settings.contextLength
       : settings.contextLength;
     const systemOverhead = estimateMessageTokens(untrimmedMessages.filter(message => message.role === 'system'));
+    const rawContextTokens = estimateMessageTokens(untrimmedMessages);
+    const contextPressure = buildContextBudget({
+      provider,
+      model: requestedModel,
+      contextWindow: effectiveContextLength,
+    }, rawContextTokens);
+    const latestUserRequest = [...untrimmedMessages].reverse().find(message => message.role === 'user' && !message.hidden)?.content || '';
+    const recalledMemory = surface === 'workspace-tool'
+      && existingSession?.id
+      && latestUserRequest.trim()
+      && ['prepare', 'compact', 'rebuild', 'emergency'].includes(contextPressure.pressure)
+        ? await recallContextEpisodes(existingSession.id, latestUserRequest).then(result => result.content).catch(error => {
+            console.error('Context recall failed:', error);
+            return '';
+          })
+        : '';
     const contextManaged = surface === 'workspace-tool'
       ? applyContextManagement(untrimmedMessages, {
           contextLength: effectiveContextLength,
@@ -1194,6 +1212,8 @@ export async function createChatCompletionResponse(req: NextRequest) {
           summaryEnabled: settings.workspaceToolSessionSummariesEnabled,
           summaryTargetTokens: settings.workspaceToolSessionSummaryTargetTokens,
           preserveTurns: settings.workspaceToolSessionPreserveTurns,
+          modelProfile: { provider, model: requestedModel },
+          recalledMemory,
         })
       : {
           ...trimMessagesToFit(untrimmedMessages, effectiveContextLength, systemOverhead),
@@ -1233,6 +1253,8 @@ export async function createChatCompletionResponse(req: NextRequest) {
       outbound_token_estimate: outboundTokenEstimate,
       context_health: surface === 'workspace-tool' ? contextManaged.contextHealth : null,
       summary_used: surface === 'workspace-tool' ? contextManaged.summaryUsed : false,
+      context_pressure: surface === 'workspace-tool' ? contextPressure.pressure : null,
+      recalled_context: Boolean(recalledMemory),
       ...extra,
     });
 
