@@ -1544,7 +1544,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     setFileError('');
     try {
       const response = await fetch('/api/coder/file-actions', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-qwen-client-id': clientIdRef.current },
         body: JSON.stringify({ action, sessionId, workspace, paths, archive: options.archive === true, targetName }),
       });
       if (action === 'download' && response.ok) {

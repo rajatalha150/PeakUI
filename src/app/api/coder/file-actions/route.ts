@@ -18,9 +18,9 @@ function parsePaths(value: unknown, workspace: string) {
   return paths as string[]
 }
 
-async function runShell(sessionId: string, command: string) {
+async function runShell(sessionId: string, command: string, clientId: string) {
   const result = await proxyToCoderDaemon(`/session/${encodeURIComponent(sessionId)}/shell`, {
-    method: 'POST', body: { command }, timeoutMs: 120_000,
+    method: 'POST', body: { command }, headers: { 'x-qwen-client-id': clientId }, timeoutMs: 120_000,
   })
   if (result.status < 200 || result.status >= 300) throw new Error(result.body || 'Coder command failed')
   const data = JSON.parse(result.body) as { exitCode?: number | null; output?: string; result?: { exitCode?: number | null; output?: string } }
@@ -41,21 +41,31 @@ export async function POST(request: NextRequest) {
   }
   const paths = parsePaths(body.paths, workspace)
   if (!paths) return NextResponse.json({ error: 'Selected paths must stay inside the active workspace.' }, { status: 400 })
+  const clientId = request.headers.get('x-qwen-client-id') || ''
+
+  const requireDaemonClient = () => {
+    if (clientId) return null
+    return NextResponse.json({ error: 'Reconnect to the Coder session before changing workspace files.' }, { status: 409 })
+  }
 
   try {
     if (body.action === 'rename') {
+      const missingClient = requireDaemonClient()
+      if (missingClient) return missingClient
       const targetName = typeof body.targetName === 'string' ? body.targetName.trim() : ''
       if (paths.length !== 1 || !targetName || /[\\/\x00-\x1f]/.test(targetName) || targetName === '.' || targetName === '..') {
         return NextResponse.json({ error: 'Choose one item and provide a valid name.' }, { status: 400 })
       }
       const source = paths[0]
       const target = `${source.slice(0, source.lastIndexOf('/') + 1)}${targetName}`
-      await runShell(body.sessionId, `test ! -e ${shellQuote(target)} && mv -- ${shellQuote(source)} ${shellQuote(target)}`)
+      await runShell(body.sessionId, `test ! -e ${shellQuote(target)} && mv -- ${shellQuote(source)} ${shellQuote(target)}`, clientId)
       return NextResponse.json({ path: target })
     }
 
     if (body.action === 'delete') {
-      await runShell(body.sessionId, `rm -rf -- ${paths.map(shellQuote).join(' ')}`)
+      const missingClient = requireDaemonClient()
+      if (missingClient) return missingClient
+      await runShell(body.sessionId, `rm -rf -- ${paths.map(shellQuote).join(' ')}`, clientId)
       return NextResponse.json({ deleted: paths.length })
     }
 
@@ -70,9 +80,11 @@ export async function POST(request: NextRequest) {
           headers: { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="${paths[0].split('/').pop()!.replace(/"/g, '')}"` },
         })
       }
+      const missingClient = requireDaemonClient()
+      if (missingClient) return missingClient
       const archive = `${workspace}/.peakui-download-${randomUUID()}.zip`
       const relative = paths.map(path => path.slice(workspace.length + 1))
-      await runShell(body.sessionId, `cd ${shellQuote(workspace)} && zip -q -r ${shellQuote(archive)} -- ${relative.map(shellQuote).join(' ')}`)
+      await runShell(body.sessionId, `cd ${shellQuote(workspace)} && zip -q -r ${shellQuote(archive)} -- ${relative.map(shellQuote).join(' ')}`, clientId)
       try {
         const result = await proxyToCoderDaemon(`/file/bytes?path=${encodeURIComponent(archive)}`, { method: 'GET' })
         if (result.status < 200 || result.status >= 300) throw new Error(result.body || 'Could not read archive')
@@ -82,7 +94,7 @@ export async function POST(request: NextRequest) {
           headers: { 'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="peakui-download.zip"' },
         })
       } finally {
-        void runShell(body.sessionId, `rm -f -- ${shellQuote(archive)}`).catch(() => {})
+        void runShell(body.sessionId, `rm -f -- ${shellQuote(archive)}`, clientId).catch(() => {})
       }
     }
     return NextResponse.json({ error: 'Unknown file action.' }, { status: 400 })
