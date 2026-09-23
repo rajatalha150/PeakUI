@@ -2537,7 +2537,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
       {/* Coder settings drawer */}
       {settingsOpen && settings && (
         <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.25)', display: 'flex', flexWrap: 'wrap', gap: '18px', alignItems: 'flex-start' }}>
-          <SettingField label="Workspace (session cwd)" hint="Absolute path inside the coder container">
+          <SettingField label="Workspace" hint="The folder a new Coding session opens in. Use an absolute container path such as /workspace or /apps/project. Existing sessions stay bound to their original project so work cannot jump folders unexpectedly.">
             <input
               value={workspaceDraft}
               onChange={e => setWorkspaceDraft(e.target.value)}
@@ -2547,16 +2547,44 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
               style={inputStyle()}
             />
           </SettingField>
-          <SettingField label="Context window" hint="0 = the model's own window. Raise for long jobs.">
-            <input
-              type="number"
-              value={settings.coderContextLength || 0}
-              disabled
-              title="Reported by the model; edit on the daemon side"
-              style={{ ...inputStyle(), width: 110, opacity: 0.6 }}
-            />
+          <SettingField label="Context capacity" hint={settings.coderContextLength > 0
+            ? "Advanced cap is used by PeakUI's durable-memory budgeting. Qwen still uses the active model's own live window and native auto-compaction. Return to Model default unless you are deliberately testing a smaller budget."
+            : `Automatic uses the active model's reported window${coderContext ? ` (${coderContext.contextWindow.toLocaleString()} tokens right now)` : ''}. Qwen manages its native warn/auto/hard compaction thresholds; this is the recommended setting.`}>
+            <div role="group" aria-label="Context capacity mode" style={{ display: 'inline-flex', width: 'fit-content', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 6, overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => void saveSettings({ coderContextLength: 0 })}
+                aria-pressed={settings.coderContextLength === 0}
+                style={{ border: 0, borderRadius: 0, padding: '6px 9px', background: settings.coderContextLength === 0 ? `${accent}26` : 'transparent', color: settings.coderContextLength === 0 ? accent : 'rgba(209,213,219,0.65)', fontSize: '0.7rem', cursor: 'pointer' }}
+              >
+                Model default
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (settings.coderContextLength === 0) void saveSettings({ coderContextLength: 8192 });
+                }}
+                aria-pressed={settings.coderContextLength > 0}
+                style={{ border: 0, borderLeft: '1px solid rgba(255,255,255,0.14)', borderRadius: 0, padding: '6px 9px', background: settings.coderContextLength > 0 ? `${accent}26` : 'transparent', color: settings.coderContextLength > 0 ? accent : 'rgba(209,213,219,0.65)', fontSize: '0.7rem', cursor: 'pointer' }}
+              >
+                Advanced cap
+              </button>
+            </div>
+            {settings.coderContextLength > 0 && (
+              <input
+                type="number"
+                min={512}
+                max={131072}
+                step={512}
+                value={settings.coderContextLength}
+                onChange={e => setSettings(previous => previous ? { ...previous, coderContextLength: Math.max(512, Number(e.target.value) || 512) } : previous)}
+                onBlur={() => void saveSettings({ coderContextLength: settings.coderContextLength })}
+                title="PeakUI advanced context budget cap in tokens"
+                style={{ ...inputStyle(), width: 130 }}
+              />
+            )}
           </SettingField>
-          <SettingField label="Tool-search budget (%)" hint="How much of the context window is spent declaring tool schemas upfront. Raise toward 100 for small models that never call tool_search. Takes effect after the daemon restarts.">
+          <SettingField label="Tool-search budget" hint="Controls how much context Qwen reserves for tool discovery before it starts a session. Leave at 0 for Qwen's default. Raise it only when a smaller model repeatedly fails to find the right tool; restart the coder container after changing it.">
             <input
               type="number"
               min={0}
@@ -2573,7 +2601,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
               style={{ ...inputStyle(), width: 110 }}
             />
           </SettingField>
-          <SettingField label="Coder appearance" hint="Only changes the Coding workspace.">
+          <SettingField label="Coder appearance" hint="Changes only the Coding workspace, not WorkSpaces or the rest of PeakUI. Choose the theme that is most comfortable for extended coding sessions.">
             <select
               value={settings.coderTheme}
               onChange={e => void saveSettings({ coderTheme: e.target.value as CoderSettings['coderTheme'] })}
@@ -2584,7 +2612,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
               <option value="sage" style={{ color: '#111' }}>Sage light</option>
             </select>
           </SettingField>
-          <SettingField label="Accent color" hint="Choose one accent for the selected coder theme.">
+          <SettingField label="Accent color" hint="Sets the highlight color for the selected Coding theme. Use the reset control to return to that theme's built-in accent.">
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
               <input
                 type="color"
@@ -2607,7 +2635,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
               {/* Main (top) */}
               <ModelSlot
                 label="Main"
-                hint="Plans, executes, and reviews all work"
+                hint="Plans, executes, and reviews the session. Choose a capable coding model here first; its own reported context window is used automatically."
                 value={settings.coderModel}
                 models={models}
                 loading={modelLoading}
@@ -2622,7 +2650,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
               <div style={{ display: 'flex', gap: '16px', width: '100%' }}>
                 <ModelSlot
                   label="Vision"
-                  hint="Sees images; transcribes for the main model"
+                  hint="Optional image specialist. Select a vision-capable model when you want screenshot or image analysis; leave empty to let Qwen use its default."
                   value={settings.coderVisionModel}
                   models={models}
                   loading={modelLoading}
@@ -2631,7 +2659,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                 />
                 <ModelSlot
                   label="Writer"
-                  hint="Writes code and files; main reviews + fixes"
+                  hint="Optional implementation delegate. Use a faster or cheaper model for file authoring while the Main model keeps planning and review responsibility."
                   value={settings.coderWriterModel}
                   models={models}
                   loading={modelLoading}

@@ -812,6 +812,20 @@ the durable ledger, episode history, and handoffs for recovery after restarts.
 The context pill shows that native state, and the disk icon captures a manual
 handoff checkpoint without changing the visible transcript or live context.
 
+**Context capacity setting** — Coding Settings defaults to **Model default**
+(`coderContextLength = 0`). It follows the active Qwen model's reported window
+and is the correct choice for nearly every session. **Advanced cap** is for
+operators deliberately testing a smaller PeakUI durable-memory budget; it does
+not override Qwen's live model context or its native compaction policy. The UI
+states this explicitly so a local-model user does not accidentally expect a
+larger input field to create memory their model cannot support.
+
+The same drawer explains the scope of every Coder control: workspace applies
+to new sessions while old sessions remain project-bound; tool-search budget is
+an advanced daemon-reserve setting and requires a coder restart; themes and
+accents affect Coding only; and the main, vision, and writer model slots state
+their respective planning, image-analysis, and implementation roles.
+
 **Approval** is `yolo` by default (no tool prompts); the only thing that pauses
 the agent is `ask_user_question`, which is rendered inline with real options.
 
@@ -1004,4 +1018,3 @@ never supplies a clone URL or target path, and clone credentials are
 short-lived, repository-scoped installation tokens. Deployment configuration,
 permission requirements, and the deferred push/PR/webhook work are documented
 in [GitHub Coder Integration](github-coder-integration.md).
-
