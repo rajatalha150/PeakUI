@@ -208,9 +208,71 @@ model ChatSession {
   childSessions           ChatSession[]    @relation("ChatSessionBranches")
   user                    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   tags                    ChatSessionTag[]
+  contextEvents           ContextEvent[]
+  contextEpisodes         ContextEpisode[]
+  contextSnapshots        ContextSnapshot[]
 
   @@index([userId, surface, updatedAt])
   @@index([userId, parentSessionId])
+}
+
+/// Immutable normalized transcript entries. `ChatSession.messages` remains the
+/// canonical backwards-compatible transcript; this ledger makes old work
+/// recoverable and searchable without repeatedly parsing one large JSON blob.
+model ContextEvent {
+  id          String      @id @default(uuid())
+  sessionId   String
+  ordinal     Int
+  role        String
+  content     String
+  contentHash String
+  hidden      Boolean     @default(false)
+  createdAt   DateTime?
+  recordedAt  DateTime    @default(now())
+  session     ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, ordinal, contentHash])
+  @@index([sessionId, ordinal, recordedAt])
+}
+
+/// A completed, source-linked portion of a conversation. Episodes are never
+/// used as authority without their source event range being available.
+model ContextEpisode {
+  id           String      @id @default(uuid())
+  sessionId    String
+  startOrdinal Int
+  endOrdinal   Int
+  summary      String
+  searchText   String
+  tokenEstimate Int
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  session      ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  snapshots    ContextSnapshot[]
+
+  @@unique([sessionId, startOrdinal, endOrdinal])
+  @@index([sessionId, updatedAt])
+}
+
+/// Versioned working-memory checkpoints. Snapshot source ranges make every
+/// compaction auditable and let a future provider-native checkpoint coexist.
+model ContextSnapshot {
+  id            String          @id @default(uuid())
+  sessionId     String
+  episodeId     String?
+  provider      String          @default("local")
+  model         String          @default("")
+  kind          String          @default("working-memory")
+  summary       String
+  sourceStart   Int
+  sourceEnd     Int
+  tokenEstimate Int
+  createdAt     DateTime        @default(now())
+  session       ChatSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  episode       ContextEpisode? @relation(fields: [episodeId], references: [id], onDelete: SetNull)
+
+  @@index([sessionId, createdAt])
+  @@index([episodeId])
 }
 
 model Folder {
