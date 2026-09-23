@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { AlertCircle, Bot, Camera, CheckCircle2, ChevronRight, Circle, ClipboardCopy, Download, FileText, Folder, GitBranch, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
+import { AlertCircle, Bot, Camera, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardCopy, Download, FileText, Folder, GitBranch, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
 import { buildConversation, fetchFullTranscript, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from '@/lib/coder-transcript';
 import { streamSessionEvents } from '@/lib/coder-sse';
@@ -14,6 +14,7 @@ import { buildVerificationRecord, isMutatingTool, isVerificationStale, type Veri
 import { buildWriterSubagentCreateBody, buildWriterSubagentUpdateBody, CODER_WRITER_AGENT_NAME, CODER_WRITER_AGENT_SCOPE, toDaemonModelSelector } from '@/lib/coder-orchestration';
 import { formatCoderContextUsage, shouldCaptureCoderHandoff, type CoderContextUsage } from '@/lib/coder-context';
 import { copyToClipboard } from '@/lib/clipboard';
+import { useStickyScroll } from '@/lib/use-sticky-scroll';
 import AssistantContent from './AssistantContent';
 import { ThinkingBlock } from './ChatMessageContent';
 import dynamic from 'next/dynamic';
@@ -492,6 +493,27 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const busy = sessionStatus?.hasActivePrompt === true
     || sessionStatus?.isWaitingForPermission === true
     || sessionStatus?.isWaitingForUserQuestion === true;
+
+  // The transcript is rebuilt from daemon events, so its array identity changes
+  // frequently while the agent works. This gives the scroll controller each
+  // visible chat change without forcing readers back down after they scroll up.
+  const chatContentKey = React.useMemo(
+    () => ({ messages, liveStatus, pending, error }),
+    [messages, liveStatus, pending, error],
+  );
+  const {
+    handleScroll: handleChatScroll,
+    messagesEndRef: chatEndRef,
+    pinToBottom: pinChatToBottom,
+    requestScrollReset: resetChatScroll,
+    scrollAreaRef: chatScrollRef,
+    scrollToBottom: scrollChatToBottom,
+    showScrollToBottom: showScrollToLatest,
+  } = useStickyScroll({ contentKey: chatContentKey, isStreaming: busy });
+
+  React.useEffect(() => {
+    resetChatScroll();
+  }, [activeSessionId, resetChatScroll]);
 
   const coderTheme = settings?.coderTheme || 'midnight';
   const themeDefaults = coderTheme === 'chatgpt'
@@ -1941,6 +1963,10 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
     const current = captureSession();
     setError('');
     setComposer('');
+    // A sent prompt is an explicit request to follow the conversation again.
+    // The daemon transcript may take a beat to echo it, so pin immediately and
+    // let the sticky controller keep following the live status and response.
+    pinChatToBottom();
 
     // The transcript poll is the single source of truth for messages; the user
     // message will appear there as soon as the daemon records it. We do NOT
@@ -3130,8 +3156,8 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
 
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Chat / main */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, position: 'relative' }}>
+          <div ref={chatScrollRef} onScroll={handleChatScroll} style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '14px', overscrollBehavior: 'contain', scrollBehavior: 'smooth', WebkitOverflowScrolling: 'touch' }}>
             {messages.length === 0 && !connecting && (
               <div style={{ margin: 'auto', textAlign: 'center', color: 'rgba(209,213,219,0.4)', maxWidth: '460px' }}>
                 <Bot size={36} style={{ margin: '0 auto 12px', color: accent }} />
@@ -3272,7 +3298,20 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
                 <AlertCircle size={14} /> {error}
               </div>
             )}
+            <div ref={chatEndRef} aria-hidden="true" />
           </div>
+
+          {showScrollToLatest && (
+            <button
+              type="button"
+              onClick={() => scrollChatToBottom('smooth')}
+              aria-label="Scroll to latest message"
+              title="Scroll to latest message"
+              style={{ position: 'absolute', right: 24, bottom: toolActivityHeight + 76, zIndex: 4, width: 34, height: 34, borderRadius: '50%', border: `1px solid ${accent}`, background: themeDefaults.surface, color: accent, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 8px 24px rgba(0,0,0,0.28)' }}
+            >
+              <ChevronDown size={18} />
+            </button>
+          )}
 
           {/* Composer */}
           <div style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>

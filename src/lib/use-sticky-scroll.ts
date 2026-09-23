@@ -144,10 +144,18 @@ export function useStickyScroll(options: UseStickyScrollOptions) {
     const resizeObserver = new ResizeObserver(() => {
       maybeScrollOnResize();
     });
+    // Token streaming and rich-message rendering can grow descendants without
+    // resizing the scroll viewport itself. Watch those mutations so a pinned
+    // conversation stays pinned to the actual latest content.
+    const mutationObserver = new MutationObserver(() => {
+      maybeScrollOnResize();
+    });
 
     resizeObserver.observe(area, { box: 'border-box' });
+    mutationObserver.observe(area, { childList: true, subtree: true, characterData: true });
     return () => {
       resizeObserver.disconnect();
+      mutationObserver.disconnect();
       if (raf) cancelAnimationFrame(raf);
     };
   }, [isStreaming]);
