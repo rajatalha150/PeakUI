@@ -826,7 +826,10 @@ reopen. Switching sessions **disconnects** the local handle (leaving the daemon
 session running so in-flight work survives); only `delete` tears the daemon
 session down. See §16.
 
-**Long-session context** — the Coding UI reads Qwen's authoritative
+**Long-session context** — at Coder startup, PeakUI copies each Ollama model's
+authoritative `/api/tags` `details.context_length` into Qwen's per-model
+configuration, so an unknown local or cloud model does not inherit Qwen's
+generic 200k fallback. The Coding UI then reads Qwen's authoritative
 `GET /session/:id/context-usage` state through the authenticated gateway. This
 reports the actual model window, used/free tokens, and Qwen's native warn,
 auto-compact, and hard thresholds rather than estimating from character count.

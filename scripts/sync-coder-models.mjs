@@ -24,6 +24,17 @@ const OLLAMA_BASE_URL = process.env.OPENAI_BASE_URL || 'http://127.0.0.1:11434/v
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || '';
 const SETTINGS_PATH = path.join(homedir(), '.qwen', 'settings.json');
 
+// Qwen falls back to a generic 200k window for an OpenAI-compatible model it
+// does not recognize by name. Ollama already exposes the actual model limit in
+// /api/tags, so carry it into Qwen's per-model generation configuration.
+// Qwen accepts positive integers up to 10 million here; reject bad provider
+// metadata rather than accidentally replacing its own fallback with nonsense.
+function contextWindowSize(value) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= 10_000_000
+    ? value
+    : undefined;
+}
+
 async function fetchOllamaModels() {
   const tagsUrl = OLLAMA_BASE_URL.replace(/\/v1\/?$/, '') + '/api/tags';
   const res = await fetch(tagsUrl, { signal: AbortSignal.timeout(15000) });
@@ -37,6 +48,7 @@ async function fetchOllamaModels() {
         name: typeof m?.name === 'string' ? m.name : '',
         tools: caps.includes('tools'),
         vision: caps.includes('vision'),
+        contextWindowSize: contextWindowSize(m?.details?.context_length),
       };
     })
     .filter(m => m.name);
@@ -137,6 +149,7 @@ async function main() {
             ...(m.tools ? { agent: true } : {}),
           },
           generationConfig: {
+            ...(m.contextWindowSize ? { contextWindowSize: m.contextWindowSize } : {}),
             ...(m.vision ? { modalities: { image: true } } : {}),
           },
         })),
@@ -155,7 +168,7 @@ async function main() {
     await fs.writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
     console.log(
       `[coder-sync] wrote ${models.length} models to ${SETTINGS_PATH} ` +
-        `(${toolsCapable} tools-capable); default=${defaultModel}`,
+          `(${toolsCapable} tools-capable; ${models.filter(m => m.contextWindowSize).length} with native context); default=${defaultModel}`,
     );
   } catch (error) {
     console.error('[coder-sync] failed:', error instanceof Error ? error.message : String(error));
