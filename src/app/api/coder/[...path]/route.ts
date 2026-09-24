@@ -24,6 +24,15 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireCoderAccess } from '@/lib/coder-access'
+import { prisma } from '@/lib/prisma'
+import { getUserSettings } from '@/lib/settings'
+import {
+  buildWriterSubagentCreateBody,
+  buildWriterSubagentUpdateBody,
+  CODER_WRITER_AGENT_NAME,
+  CODER_WRITER_AGENT_SCOPE,
+  toDaemonModelSelector,
+} from '@/lib/coder-orchestration'
 import {
   authorizeCoderSession,
   bindCoderSessionWorkspace,
@@ -198,6 +207,51 @@ function relay(result: Awaited<ReturnType<typeof proxyToCoderDaemon>>) {
   })
 }
 
+/**
+ * The daemon currently stores vision and user agents globally. Reconcile the
+ * saved role choices immediately before every real prompt, including empty
+ * values, so a reopened session never silently inherits a prior user's roles.
+ */
+async function reconcilePromptOrchestration(userId: string, sessionId: string): Promise<string | null> {
+  const [settings, session] = await Promise.all([
+    getUserSettings(userId),
+    prisma.chatSession.findFirst({
+      where: { id: sessionId, userId, surface: 'coder' },
+      select: { coderWorkspace: true },
+    }),
+  ])
+  const workspace = normalizeCoderWorkspacePath(session?.coderWorkspace || settings.coderWorkspace)
+  if (!workspace) return 'The coding session has no valid workspace for model orchestration.'
+
+  const vision = await proxyToCoderDaemon(`/workspace/settings?workspace=${encodeURIComponent(workspace)}`, {
+    method: 'POST',
+    body: {
+      scope: 'user',
+      key: 'visionModel',
+      value: settings.coderVisionModel ? toDaemonModelSelector(settings.coderVisionModel) : '',
+    },
+  })
+  if (vision.status < 200 || vision.status >= 300) return 'Could not apply the configured Vision model before this turn.'
+
+  if (!settings.coderWriterModel) {
+    const removed = await proxyToCoderDaemon(`/workspace/agents/${CODER_WRITER_AGENT_NAME}?scope=${CODER_WRITER_AGENT_SCOPE}`, { method: 'DELETE' })
+    if (![200, 204, 404].includes(removed.status)) return 'Could not clear the Writer delegate before this turn.'
+    return null
+  }
+
+  let writer = await proxyToCoderDaemon(`/workspace/agents/${CODER_WRITER_AGENT_NAME}?scope=${CODER_WRITER_AGENT_SCOPE}`, {
+    method: 'POST', body: buildWriterSubagentUpdateBody(settings.coderWriterModel),
+  })
+  if (writer.status === 404) {
+    writer = await proxyToCoderDaemon('/workspace/agents', {
+      method: 'POST', body: buildWriterSubagentCreateBody(settings.coderWriterModel),
+    })
+  }
+  return writer.status >= 200 && writer.status < 300
+    ? null
+    : 'Could not apply the configured Writer delegate before this turn.'
+}
+
 export async function GET(req: NextRequest) {
   const access = await requireCoderAccess(req)
   if ('response' in access) return access.response
@@ -237,6 +291,15 @@ export async function POST(req: NextRequest) {
 
   const denied = await authorizeCoderRequest(access.userId, access.auth.user.role, target, body)
   if (denied) return denied
+
+  if (/^\/session\/[^/]+\/prompt$/.test(target.path)) {
+    const sessionId = extractCoderSessionId(target.path)
+    if (!sessionId) return notFound()
+    const orchestrationError = await reconcilePromptOrchestration(access.userId, sessionId)
+    if (orchestrationError) {
+      return NextResponse.json({ error: orchestrationError, code: 'orchestration_unavailable' }, { status: 503 })
+    }
+  }
 
   // A prompt can legitimately run for minutes on a local model; stream it when
   // the caller asked for SSE, otherwise allow a long JSON timeout.

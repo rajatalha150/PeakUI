@@ -425,6 +425,7 @@ export default function CodingView() {
   // Responsive layout: sidebar retractability + resizable tool-activity pane.
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
   const [headerActionsOpen, setHeaderActionsOpen] = React.useState(false);
+  const orchestrationRevisionRef = React.useRef(0);
   const [toolActivityHeight, setToolActivityHeight] = React.useState(220);
   const [isPhone, setIsPhone] = React.useState(false);
   // Reversible-work (rewind) state.
@@ -1243,12 +1244,11 @@ export default function CodingView() {
         if (!current()) return null;
         if (!await applyApprovalMode(data.sessionId, settings?.coderApprovalMode || 'yolo', { quiet: true })) return null;
         if (!current()) return null;
-        if (settings?.coderVisionModel) {
-          await applyVisionModel(toDaemonModelSelector(settings.coderVisionModel));
-        }
-        if (settings?.coderWriterModel) {
-          await applyWriterModel(settings.coderWriterModel);
-        }
+        // Always reconcile both delegates, including explicit blanks. The Qwen
+        // daemon is shared, so skipping an empty value would inherit another
+        // session's old vision bridge or writer agent.
+        await applyVisionModel(settings?.coderVisionModel ? toDaemonModelSelector(settings.coderVisionModel) : '');
+        await applyWriterModel(settings?.coderWriterModel || '');
         if (settings?.coderToolSearchThreshold) {
           await applyToolSearchThreshold(settings.coderToolSearchThreshold);
         }
@@ -1316,6 +1316,11 @@ export default function CodingView() {
   };
 
   const switchModel = async (modelId: string) => {
+    const candidate = models.find(model => model.id === modelId);
+    if (modelId && !candidate?.toolsCapable) {
+      setError('Choose a tools-capable model for the Main role.');
+      return;
+    }
     if (daemonSessionId && !await applyModel(daemonSessionId, modelId)) return;
     await saveSettings({ coderModel: modelId });
   };
@@ -1752,8 +1757,15 @@ export default function CodingView() {
   };
 
   const switchVisionModel = async (modelId: string) => {
+    const candidate = models.find(model => model.id === modelId);
+    if (modelId && !candidate?.visionCapable) {
+      setError('Choose a vision-capable model for the Vision role.');
+      return;
+    }
+    const revision = ++orchestrationRevisionRef.current;
     setSettings(prev => (prev ? { ...prev, coderVisionModel: modelId } : prev));
-    void saveSettings({ coderVisionModel: modelId });
+    const saved = await saveSettings({ coderVisionModel: modelId });
+    if (!saved || revision !== orchestrationRevisionRef.current) return;
     await applyVisionModel(modelId ? toDaemonModelSelector(modelId) : '');
   };
 
@@ -1793,8 +1805,15 @@ export default function CodingView() {
   };
 
   const switchWriterModel = async (modelId: string) => {
+    const candidate = models.find(model => model.id === modelId);
+    if (modelId && !candidate?.toolsCapable) {
+      setError('Choose a tools-capable model for the Writer role.');
+      return;
+    }
+    const revision = ++orchestrationRevisionRef.current;
     setSettings(prev => (prev ? { ...prev, coderWriterModel: modelId } : prev));
-    void saveSettings({ coderWriterModel: modelId });
+    const saved = await saveSettings({ coderWriterModel: modelId });
+    if (!saved || revision !== orchestrationRevisionRef.current) return;
     await applyWriterModel(modelId);
   };
 
@@ -1822,7 +1841,7 @@ export default function CodingView() {
     }
   };
 
-  const saveSettings = async (patch: Partial<CoderSettings>) => {
+  const saveSettings = async (patch: Partial<CoderSettings>): Promise<boolean> => {
     setSettingsSaving(true);
     // Reflect the change locally so the UI (and subsequent reads) see the new
     // value immediately, not just after a reload.
@@ -1840,10 +1859,13 @@ export default function CodingView() {
         setSettings(previous);
         const data = await res.json().catch(() => ({})) as { error?: string };
         setError(typeof data.error === 'string' ? data.error : `Failed to save coding settings (HTTP ${res.status}).`);
+        return false;
       }
+      return true;
     } catch {
       setSettings(previous);
       setError('Failed to save coding settings.');
+      return false;
     } finally {
       setSettingsSaving(false);
     }
@@ -2581,7 +2603,7 @@ export default function CodingView() {
         >
           <option value="">{modelLoading ? 'loading models…' : 'select model'}</option>
           {models.map(m => (
-            <option key={m.id} value={m.id} style={{ color: '#111' }}>
+            <option key={m.id} value={m.id} disabled={!m.toolsCapable} style={{ color: '#111' }}>
               {m.name}{m.toolsCapable ? '' : '  ⚠ no tools'}
             </option>
           ))}
@@ -3638,7 +3660,7 @@ function ModelSlot({
       >
         <option value="">{loading ? 'loading…' : requireVision ? 'auto (same provider)' : 'same as main'}</option>
         {models.map(m => (
-          <option key={m.id} value={m.id} style={{ color: '#111' }}>
+          <option key={m.id} value={m.id} disabled={requireVision ? !m.visionCapable : !m.toolsCapable} style={{ color: '#111' }}>
             {m.name}
             {requireVision && !m.visionCapable ? '  ⚠ no vision' : ''}
             {!requireVision && !m.toolsCapable ? '  ⚠ no tools' : ''}

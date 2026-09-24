@@ -18,6 +18,8 @@ const ORIGINAL_ENV = { ...process.env }
 
 const mocks = vi.hoisted(() => ({
   requireCurrentAuthWithPermissions: vi.fn(),
+  getUserSettings: vi.fn(),
+  chatSessionFindFirst: vi.fn(),
 }))
 
 // The route imports the auth helper, which reaches for Prisma/request state that
@@ -25,6 +27,9 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/request-auth', () => ({
   requireCurrentAuthWithPermissions: mocks.requireCurrentAuthWithPermissions,
 }))
+
+vi.mock('@/lib/settings', () => ({ getUserSettings: mocks.getUserSettings }))
+vi.mock('@/lib/prisma', () => ({ prisma: { chatSession: { findFirst: mocks.chatSessionFindFirst } } }))
 
 // `authorizeCoderSession` hits Prisma; keep the pure helpers real and stub only
 // the DB lookup so ownership checks pass without a database.
@@ -51,6 +56,8 @@ beforeEach(() => {
   })
   vi.mocked(authorizeCoderSession).mockResolvedValue(true)
   vi.mocked(bindCoderSessionWorkspace).mockResolvedValue(true)
+  mocks.getUserSettings.mockResolvedValue({ coderWorkspace: '/workspace', coderVisionModel: '', coderWriterModel: '' })
+  mocks.chatSessionFindFirst.mockResolvedValue({ coderWorkspace: '/workspace' })
 })
 
 afterEach(() => {
@@ -197,6 +204,43 @@ describe('coder gateway route — response relay', () => {
     ])
     // The rewind body is forwarded so `promptId` reaches the daemon verbatim.
     expect(JSON.parse(seen[1].body as string)).toEqual({ promptId: 'abc########1', rewindFiles: true })
+  })
+
+  it('reconciles vision and writer roles before every prompt, including blanks', async () => {
+    const seen: string[] = []
+    mocks.getUserSettings.mockResolvedValue({
+      coderWorkspace: '/workspace',
+      coderVisionModel: 'glm-vision:cloud',
+      coderWriterModel: 'kimi-code:cloud',
+    })
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      seen.push(String(url).replace('http://127.0.0.1:4170', ''))
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }))
+    const { POST } = await loadRoute()
+
+    expect((await POST(makeRequest('/session/abc/prompt', { method: 'POST', body: JSON.stringify({ prompt: 'hello' }) }) as never)).status).toBe(200)
+    expect(seen).toEqual([
+      '/workspace/settings?workspace=%2Fworkspace',
+      '/workspace/agents/peakui-writer?scope=global',
+      '/session/abc/prompt',
+    ])
+  })
+
+  it('actively clears global delegates for a user with blank role settings', async () => {
+    const seen: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      seen.push(String(url).replace('http://127.0.0.1:4170', ''))
+      return new Response('{}', { status: seen.length === 2 ? 404 : 200, headers: { 'content-type': 'application/json' } })
+    }))
+    const { POST } = await loadRoute()
+
+    expect((await POST(makeRequest('/session/abc/prompt', { method: 'POST', body: JSON.stringify({ prompt: 'hello' }) }) as never)).status).toBe(200)
+    expect(seen).toEqual([
+      '/workspace/settings?workspace=%2Fworkspace',
+      '/workspace/agents/peakui-writer?scope=global',
+      '/session/abc/prompt',
+    ])
   })
 
   it('denies a rewind against a session the caller does not own', async () => {

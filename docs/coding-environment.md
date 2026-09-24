@@ -1017,7 +1017,27 @@ materialization, plus a re-derivation of the `agent`-tool `subagent_type`
 resolution. Deliberately left global until that trust/agent-resolution work
 lands.
 
-### 17.2 Triangle UI
+### 17.2 Turn-time reconciliation and role safety
+
+PeakUI reconciles both delegate roles immediately before every `POST
+/session/:id/prompt`, using the authenticated user's persisted settings. This
+is deliberately server-side as well as UI-side: a reopened tab, a failed
+optimistic save, or an empty role selection cannot silently inherit a previous
+daemon value. Empty Vision writes an empty `visionModel`; empty Writer removes
+`peakui-writer`. If reconciliation fails, the turn is rejected rather than run
+with an unknown delegate.
+
+The model picker also refuses a non-tools model for Main or Writer and a
+non-vision model for Vision. Capability discovery remains best-effort while
+Ollama is unavailable, so the daemon remains the final authority.
+
+**Current shared-daemon limit.** Reconciliation prevents stale inheritance but
+does not make daemon-global Qwen settings safely concurrent across different
+users or active workspaces. Fully isolated concurrent role selection requires
+per-user daemon state (or trusted workspace-scoped agents); it is an
+infrastructure boundary, not something a browser setting can solve.
+
+### 17.3 Triangle UI
 
 `CodingView` renders the three dropdowns in the Settings drawer, populated from
 the daemon's authoritative `/workspace/models` and annotated with capability
