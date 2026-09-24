@@ -36,6 +36,7 @@ Most AI chat interfaces send your prompts, documents, and browsing history to so
 | **Tools** | Shell, filesystem, code sandbox, public browser, UWAF Direct/Stealth browser, PDF/Word/Excel/PowerPoint/CSV/Email/Markdown/ZIP/ICS/Mermaid artifact generation, and URL fetch-summarize with approval gates. Tool calls are parsed from a **multi-format parser** that accepts the custom `<workspace_tool>` wrapper *and* the native syntax of Qwen, Gemma, Llama, Mistral, GLM, and Anthropic-style models — so local GGUF models that don't reliably emit the custom wrapper still work. |
 | **Automation** | Heartbeats, cron tasks, monitors, wake events, nudges, and guarded unattended local Ollama runs |
 | **Session intelligence** | Rolling summaries, context health, auto-continue modes, branches, branch compare, and analytics |
+| **Coding** | Dedicated Qwen Code workspace with persistent sessions, terminal, files, tasks, rewind, GitHub projects, floating responsive preview, native per-model context windows, and Main / Vision / Writer orchestration. Every coding turn reconciles its configured delegates before execution, so empty roles explicitly clear stale daemon state rather than inheriting a previous session's configuration. |
 
 ---
 
@@ -172,6 +173,7 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | [docs/tool-call-formats.md](docs/tool-call-formats.md) | Multi-format tool-call parser reference — every model-native syntax PeakUI accepts |
 | [docs/image-generation.md](docs/image-generation.md) | Image generation — ComfyUI engine setup, model download, and generation flow |
 | [docs/development-section-plan.md](docs/development-section-plan.md) | Development section plan (draft) |
+| [docs/coding-environment.md](docs/coding-environment.md) | Coding environment architecture, deployment, long-session context, preview, projects, and multi-model orchestration |
 
 ---
 
@@ -195,6 +197,9 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | `src/lib/workspace-tool-tools.ts` | Tool-call parser (multi-format), tag stripper, and per-tool payload validation |
 | `src/lib/workspace-tool-prompt.ts` | WorkSpaces system-prompt builder (tier-aware, query-gated) |
 | `src/lib/model-context.ts` | Model-capacity detection, prompt tiers, and device-fit classification |
+| `src/app/components/CodingView.tsx` | Dedicated Coder UI: session chat, tools, preview, files, projects, and Main / Vision / Writer controls |
+| `src/app/api/coder/[...path]/route.ts` | Authenticated Qwen Code gateway, session authorization, and per-turn delegate reconciliation |
+| `src/lib/coder-orchestration.ts` | Vision bridge and Writer subagent configuration shapes |
 | `src/lib/rag.ts` | Knowledge Base retrieval and indexing logic |
 | `prisma/schema.prisma` | PostgreSQL data model |
 
@@ -213,6 +218,7 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | `/api/rag/*` | Knowledge Base upload, search, health, diagnostics |
 | `/api/canvas/artifacts*` | Canvas artifact list, create, edit, delete, revisions, server-side preview, and downloads |
 | `/api/workspace-tool/*` | WorkSpaces workspace, tools, browser, document generation (PDF, Word, Excel, PowerPoint, CSV, Email, Markdown, ZIP, ICS, Mermaid), fetch-summarize, and automation |
+| `/api/coder/*` | Authenticated gateway to the dedicated Qwen Code daemon; session-owned prompts reconcile Vision and Writer roles before execution |
 | `/api/workspace-tool/workspaces/[id]/files` | Workspace Files panel — list (`GET`), write (`POST`), rename/move (`PATCH`), delete (`DELETE`) |
 | `/api/workspace-tool/workspaces/[id]/files/raw` | Read one workspace file (ETag-aware via `If-Match`) |
 | `/api/workspace-tool/workspaces/[id]/files/upload` | Multipart upload (50 MB / 100 files per request) |
