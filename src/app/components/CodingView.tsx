@@ -2527,10 +2527,10 @@ export default function CodingView() {
         [data-coder-theme="chatgpt"] [style*="rgba(34,211,238"] { background: rgba(16,163,127,0.13) !important; border-color: rgba(16,163,127,0.36) !important; }
       ` : ''}</style>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: isPhone ? '7px' : '10px', padding: isPhone ? '8px 10px' : '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', backdropFilter: 'blur(6px)', flexWrap: 'wrap' }}>
+      <div style={{ position: 'relative', zIndex: headerActionsOpen ? 120 : 5, display: 'flex', alignItems: 'center', gap: isPhone ? '7px' : '10px', padding: isPhone ? '7px 8px 8px' : '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', backdropFilter: 'blur(6px)', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, letterSpacing: '0.06em', color: accent }}>
           <Terminal size={18} />
-          <span style={{ textTransform: 'uppercase', fontSize: '0.8rem' }}>Coding</span>
+          {!isPhone && <span style={{ textTransform: 'uppercase', fontSize: '0.8rem' }}>Coding</span>}
         </div>
         {!isPhone && <span style={{
           fontSize: '0.7rem', padding: '2px 8px', borderRadius: '999px',
@@ -2568,7 +2568,7 @@ export default function CodingView() {
           value={settings?.coderApprovalMode || 'yolo'}
           onChange={e => void switchApprovalMode(e.target.value)}
           title="How freely the agent may act"
-          style={{ background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none', ...(isPhone ? { order: 3, width: 'calc(38% - 4px)' } : {}) }}
+          style={{ background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none', ...(isPhone ? { order: 2, flex: '0 0 78px', padding: '5px 4px', fontSize: '0.68rem' } : {}) }}
         >
           {APPROVAL_MODES.map(m => (<option key={m.id} value={m.id} style={{ color: '#111' }} title={m.hint}>{m.label}</option>))}
         </select>
@@ -2577,7 +2577,7 @@ export default function CodingView() {
           onChange={e => void switchModel(e.target.value)}
           disabled={modelLoading || models.length === 0}
           title="Model for the coding brain"
-          style={{ maxWidth: isPhone ? undefined : 230, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none', ...(isPhone ? { order: 3, width: 'calc(62% - 4px)' } : {}) }}
+          style={{ maxWidth: isPhone ? undefined : 230, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none', ...(isPhone ? { order: 2, flex: '1 1 220px', minWidth: 0, fontSize: '0.7rem' } : {}) }}
         >
           <option value="">{modelLoading ? 'loading models…' : 'select model'}</option>
           {models.map(m => (
@@ -2586,7 +2586,7 @@ export default function CodingView() {
             </option>
           ))}
         </select>
-        <div style={{ position: 'relative', display: 'flex', order: isPhone ? 0 : undefined }}>
+        <div style={{ position: 'relative', zIndex: 1, display: 'flex', order: isPhone ? 0 : undefined }}>
           <button
             onClick={() => setHeaderActionsOpen(open => !open)}
             aria-label="Session actions"
@@ -2597,7 +2597,7 @@ export default function CodingView() {
             <MoreHorizontal size={16} />
           </button>
           {headerActionsOpen && (
-            <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 110, minWidth: 190, padding: 4, border: '1px solid rgba(255,255,255,0.14)', borderRadius: 8, background: themeDefaults.surface, boxShadow: '0 12px 32px rgba(0,0,0,0.35)' }}>
+            <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 130, minWidth: 190, padding: 4, border: '1px solid rgba(255,255,255,0.14)', borderRadius: 8, background: themeDefaults.surface, boxShadow: '0 12px 32px rgba(0,0,0,0.35)' }}>
               <button role="menuitem" onClick={() => { void copySession(); setHeaderActionsOpen(false); }} disabled={transcriptEvents.length === 0} style={{ ...menuButtonStyle(), color: copied ? '#34d399' : 'rgba(209,213,219,0.82)' }} title="Copy the full session, including chat, thinking, and tool activity">
                 {copied ? <CheckCircle2 size={14} /> : <ClipboardCopy size={14} />} {copied ? 'Copied' : 'Copy session'}
               </button>
@@ -2610,7 +2610,7 @@ export default function CodingView() {
             </div>
           )}
         </div>
-        <button onClick={() => setSidebarOpen(o => !o)} style={ghostBtnStyle()} title={sidebarOpen ? 'Hide the sessions sidebar' : 'Show the sessions sidebar'}>
+        <button onClick={() => setSidebarOpen(o => !o)} style={{ ...ghostBtnStyle(), ...(isPhone ? { marginLeft: 0, padding: '7px 8px' } : {}) }} title={sidebarOpen ? 'Hide the sessions sidebar' : 'Show the sessions sidebar'}>
           {sidebarOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />} {isPhone ? '' : 'Sessions'}
         </button>
       </div>
