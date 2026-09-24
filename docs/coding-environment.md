@@ -1030,7 +1030,16 @@ hints (`⚠ no vision` for the vision slot, `⚠ no tools` for main/writer).
 - **Retractable sessions sidebar**: a header toggle collapses/shows it. On a
   phone/narrow viewport (`max-width: 720px`) it overlays the chat as a dismissible
   drawer (auto-closes on session select); on desktop it sits inline and collapses
-  to nothing when hidden.
+  to nothing when hidden. The toggle stays at the far right of the header, aligned
+  with this rail.
+- **Compact command layout**: Copy session, Save context, and Terminal live in
+  the header's actions menu. Settings, Projects, Preview, Rewind, Files, Tasks,
+  Search, and New session are touch-sized icon-and-label controls above the
+  session list. The dedicated Coding route has no Exit button because it opens
+  in its own browser tab.
+- **Phone header**: runtime badges collapse away, while approval and model
+  selectors use a deliberate second row. This keeps the actions and sessions
+  controls reachable without squeezing the active conversation.
 - **Resizable tool-activity pane**: a drag handle above it adjusts its height
   (pointer events, so both mouse and touch work). Range clamped 80–560px.
 

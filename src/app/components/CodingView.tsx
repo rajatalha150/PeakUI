@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { AlertCircle, Bot, Camera, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardCopy, Download, FileText, Folder, GitBranch, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
+import { AlertCircle, Bot, Camera, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardCopy, Download, FileText, Folder, GitBranch, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
 import { buildConversation, fetchFullTranscript, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from '@/lib/coder-transcript';
 import { streamSessionEvents } from '@/lib/coder-sse';
@@ -310,7 +310,7 @@ function reconcilePending(
  * all render inline on the chat surface, so the agent's work is visible while
  * it happens instead of only after a refresh.
  */
-export default function CodingView({ onExit }: { onExit?: () => void }) {
+export default function CodingView() {
   const [sessions, setSessions] = React.useState<CoderSession[]>([]);
   const [activeSessionId, setActiveSessionId] = React.useState<string | null>(null);
   // True once the active session's bound workspace has been resolved (from the
@@ -424,6 +424,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
   const renamedRef = React.useRef<Map<string, string>>(new Map());
   // Responsive layout: sidebar retractability + resizable tool-activity pane.
   const [sidebarOpen, setSidebarOpen] = React.useState(true);
+  const [headerActionsOpen, setHeaderActionsOpen] = React.useState(false);
   const [toolActivityHeight, setToolActivityHeight] = React.useState(220);
   const [isPhone, setIsPhone] = React.useState(false);
   // Reversible-work (rewind) state.
@@ -2526,19 +2527,19 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
         [data-coder-theme="chatgpt"] [style*="rgba(34,211,238"] { background: rgba(16,163,127,0.13) !important; border-color: rgba(16,163,127,0.36) !important; }
       ` : ''}</style>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', backdropFilter: 'blur(6px)', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: isPhone ? '7px' : '10px', padding: isPhone ? '8px 10px' : '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', backdropFilter: 'blur(6px)', flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, letterSpacing: '0.06em', color: accent }}>
           <Terminal size={18} />
           <span style={{ textTransform: 'uppercase', fontSize: '0.8rem' }}>Coding</span>
         </div>
-        <span style={{
+        {!isPhone && <span style={{
           fontSize: '0.7rem', padding: '2px 8px', borderRadius: '999px',
           border: '1px solid rgba(255,255,255,0.12)', color: daemonOnline ? '#34d399' : '#f87171',
           background: 'rgba(255,255,255,0.03)', fontFamily: 'ui-monospace, monospace',
         }}>
           {connecting ? 'probing…' : daemonOnline ? 'daemon online' : 'daemon offline'}
-        </span>
-        {activeSessionId && (
+        </span>}
+        {activeSessionId && !isPhone && (
           <span style={{
             display: 'flex', alignItems: 'center', gap: '5px',
             fontSize: '0.7rem', padding: '2px 8px', borderRadius: '999px',
@@ -2549,7 +2550,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
             {statusLabel}
           </span>
         )}
-        {coderContext && (
+        {coderContext && !isPhone && (
           <span
             title={`Model-native context usage. Qwen will auto-compact at ${coderContext.thresholds.auto?.toLocaleString() || 'its configured threshold'} tokens.`}
             style={{
@@ -2562,12 +2563,12 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
             {formatCoderContextUsage(coderContext)}
           </span>
         )}
-        <div style={{ flex: 1 }} />
+        <div style={{ flex: 1, minWidth: isPhone ? 0 : undefined }} />
         <select
           value={settings?.coderApprovalMode || 'yolo'}
           onChange={e => void switchApprovalMode(e.target.value)}
           title="How freely the agent may act"
-          style={{ background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
+          style={{ background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none', ...(isPhone ? { order: 3, width: 'calc(38% - 4px)' } : {}) }}
         >
           {APPROVAL_MODES.map(m => (<option key={m.id} value={m.id} style={{ color: '#111' }} title={m.hint}>{m.label}</option>))}
         </select>
@@ -2576,7 +2577,7 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
           onChange={e => void switchModel(e.target.value)}
           disabled={modelLoading || models.length === 0}
           title="Model for the coding brain"
-          style={{ maxWidth: 230, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
+          style={{ maxWidth: isPhone ? undefined : 230, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none', ...(isPhone ? { order: 3, width: 'calc(62% - 4px)' } : {}) }}
         >
           <option value="">{modelLoading ? 'loading models…' : 'select model'}</option>
           {models.map(m => (
@@ -2585,25 +2586,33 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
             </option>
           ))}
         </select>
-        <button onClick={() => void copySession()} disabled={transcriptEvents.length === 0} style={ghostBtnStyle()} title="Copy the full session (chat + thinking + tool activity) to the clipboard">
-          {copied ? <CheckCircle2 size={14} /> : <ClipboardCopy size={14} />} {copied ? 'Copied' : 'Copy'}
-        </button>
-        <button onClick={() => daemonSessionId && void captureContextHandoff(daemonSessionId)} disabled={!daemonSessionId || contextHandoffSaving} style={ghostBtnStyle()} title="Capture a durable context handoff before Qwen compacts its live session">
-          {contextHandoffSaving ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={14} />}
-        </button>
+        <div style={{ position: 'relative', display: 'flex', order: isPhone ? 0 : undefined }}>
+          <button
+            onClick={() => setHeaderActionsOpen(open => !open)}
+            aria-label="Session actions"
+            aria-expanded={headerActionsOpen}
+            title="Session actions"
+            style={{ ...ghostBtnStyle(), padding: '7px 8px' }}
+          >
+            <MoreHorizontal size={16} />
+          </button>
+          {headerActionsOpen && (
+            <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 6px)', zIndex: 110, minWidth: 190, padding: 4, border: '1px solid rgba(255,255,255,0.14)', borderRadius: 8, background: themeDefaults.surface, boxShadow: '0 12px 32px rgba(0,0,0,0.35)' }}>
+              <button role="menuitem" onClick={() => { void copySession(); setHeaderActionsOpen(false); }} disabled={transcriptEvents.length === 0} style={{ ...menuButtonStyle(), color: copied ? '#34d399' : 'rgba(209,213,219,0.82)' }} title="Copy the full session, including chat, thinking, and tool activity">
+                {copied ? <CheckCircle2 size={14} /> : <ClipboardCopy size={14} />} {copied ? 'Copied' : 'Copy session'}
+              </button>
+              <button role="menuitem" onClick={() => { if (daemonSessionId) void captureContextHandoff(daemonSessionId); setHeaderActionsOpen(false); }} disabled={!daemonSessionId || contextHandoffSaving} style={menuButtonStyle()} title="Capture a durable context handoff before automatic compaction">
+                {contextHandoffSaving ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={14} />} Save context
+              </button>
+              <button role="menuitem" onClick={() => { setShellOpen(open => !open); setHeaderActionsOpen(false); }} style={menuButtonStyle()} title="Open a terminal into the isolated container">
+                <Terminal size={14} /> Terminal
+              </button>
+            </div>
+          )}
+        </div>
         <button onClick={() => setSidebarOpen(o => !o)} style={ghostBtnStyle()} title={sidebarOpen ? 'Hide the sessions sidebar' : 'Show the sessions sidebar'}>
           {sidebarOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />} {isPhone ? '' : 'Sessions'}
         </button>
-        <button onClick={() => setShellOpen(o => !o)} style={ghostBtnStyle()} title="Open a terminal into the isolated container"><Terminal size={14} /> Terminal</button>
-        <button onClick={() => { setSettingsOpen(o => !o); void loadGitHubIntegration(); }} style={ghostBtnStyle()}><Wrench size={14} /> Settings</button>
-        <button onClick={openProjects} style={ghostBtnStyle()} title="Open or import a source-controlled project"><GitBranch size={14} /> Projects</button>
-        <button onClick={() => openPreview()} style={ghostBtnStyle()}><Globe size={14} /> Preview</button>
-        <button onClick={() => void openRewind()} disabled={!activeSessionId} style={ghostBtnStyle()} title="Rewind the session to an earlier turn (restores conversation + files)"><History size={14} /> Rewind</button>
-        <button onClick={() => void openFiles()} style={ghostBtnStyle()} title="Browse and edit workspace files"><Folder size={14} /> Files</button>
-        <button onClick={() => void openTasks()} style={ghostBtnStyle()} title="Run named project tasks (install/build/test/run)"><Terminal size={14} /> Tasks</button>
-        <button onClick={() => setSearchOpen(o => !o)} style={ghostBtnStyle()} title="Search workspace files"><Search size={14} /> Search</button>
-        <button onClick={() => void newSession()} style={btnStyle(accent)}><Plus size={14} /> New</button>
-        {onExit && (<button onClick={onExit} style={ghostBtnStyle()}><X size={14} /> Exit</button>)}
       </div>
 
       {/* Coder settings drawer */}
@@ -3483,12 +3492,28 @@ export default function CodingView({ onExit }: { onExit?: () => void }) {
             desktop it sits inline and collapses to nothing when hidden. */}
         {sidebarOpen && (
           <div style={isPhone
-            ? { position: 'fixed', top: 0, right: 0, bottom: 0, width: 280, maxWidth: '86vw', zIndex: 70, borderLeft: '1px solid rgba(255,255,255,0.08)', background: '#0a0e17', display: 'flex', flexDirection: 'column', boxShadow: '-12px 0 40px rgba(0,0,0,0.5)' }
+            ? { position: 'fixed', top: 0, right: 0, bottom: 0, width: 336, maxWidth: '92vw', zIndex: 70, borderLeft: '1px solid rgba(255,255,255,0.08)', background: '#0a0e17', display: 'flex', flexDirection: 'column', boxShadow: '-12px 0 40px rgba(0,0,0,0.5)' }
             : { width: 260, borderLeft: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', minHeight: 0, flexShrink: 0 }
           }>
-            <div style={{ display: 'flex', alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', padding: isPhone ? '14px 16px 10px' : '12px 14px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <Terminal size={15} style={{ color: accent, marginRight: 7 }} />
+              <span style={{ fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.05em', color: '#d1d5db', flex: 1 }}>Coding</span>
+              {isPhone && <span title={daemonOnline ? 'Coder daemon online' : 'Coder daemon offline'} style={{ width: 8, height: 8, borderRadius: '50%', background: daemonOnline ? '#34d399' : '#f87171', marginRight: 12 }} />}
+              <button onClick={() => setSidebarOpen(false)} title="Close sessions" style={{ background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.5)', cursor: 'pointer', padding: 2 }}><X size={16} /></button>
+            </div>
+            <nav aria-label="Coding tools" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6, padding: isPhone ? '12px 12px 10px' : '10px 12px 8px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+              <button onClick={() => { setSettingsOpen(open => !open); void loadGitHubIntegration(); if (isPhone) setSidebarOpen(false); }} style={sidebarToolButtonStyle()}><Wrench size={14} /> Settings</button>
+              <button onClick={() => { openProjects(); if (isPhone) setSidebarOpen(false); }} style={sidebarToolButtonStyle()}><GitBranch size={14} /> Projects</button>
+              <button onClick={() => { openPreview(); if (isPhone) setSidebarOpen(false); }} style={sidebarToolButtonStyle()}><Globe size={14} /> Preview</button>
+              <button onClick={() => { void openRewind(); if (isPhone) setSidebarOpen(false); }} disabled={!activeSessionId} style={sidebarToolButtonStyle()}><History size={14} /> Rewind</button>
+              <button onClick={() => { void openFiles(); if (isPhone) setSidebarOpen(false); }} style={sidebarToolButtonStyle()}><Folder size={14} /> Files</button>
+              <button onClick={() => { void openTasks(); if (isPhone) setSidebarOpen(false); }} style={sidebarToolButtonStyle()}><Terminal size={14} /> Tasks</button>
+              <button onClick={() => { setSearchOpen(open => !open); if (isPhone) setSidebarOpen(false); }} style={sidebarToolButtonStyle()}><Search size={14} /> Search</button>
+              <button onClick={() => { void newSession(); if (isPhone) setSidebarOpen(false); }} style={{ ...sidebarToolButtonStyle(), color: accent, borderColor: `${accent}75`, background: `${accent}14` }}><Plus size={14} /> New</button>
+            </nav>
+            <div style={{ display: 'flex', alignItems: 'center', padding: '10px 14px 8px' }}>
               <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(209,213,219,0.5)', flex: 1 }}>Sessions</span>
-              <button onClick={() => setSidebarOpen(false)} title="Close sessions" style={{ background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.5)', cursor: 'pointer', padding: 0 }}><X size={14} /></button>
+              <span style={{ fontSize: '0.68rem', color: 'rgba(209,213,219,0.36)', fontFamily: 'ui-monospace, monospace' }}>{sessions.length}</span>
             </div>
             <div style={{ flex: 1, overflowY: 'auto' }}>
             {sessions.length === 0 && <div style={{ padding: '14px', fontSize: '0.78rem', color: 'rgba(209,213,219,0.4)' }}>No sessions yet.</div>}
@@ -3635,4 +3660,12 @@ function btnStyle(accent: string): React.CSSProperties {
 
 function ghostBtnStyle(): React.CSSProperties {
   return { display: 'flex', alignItems: 'center', gap: '6px', background: 'transparent', color: 'rgba(209,213,219,0.7)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', padding: '7px 12px', fontSize: '0.78rem', cursor: 'pointer' };
+}
+
+function menuButtonStyle(): React.CSSProperties {
+  return { display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: 'transparent', color: 'rgba(209,213,219,0.82)', border: 'none', borderRadius: 5, padding: '8px 9px', fontSize: '0.76rem', textAlign: 'left', cursor: 'pointer' };
+}
+
+function sidebarToolButtonStyle(): React.CSSProperties {
+  return { display: 'flex', alignItems: 'center', gap: 7, minWidth: 0, background: 'rgba(255,255,255,0.025)', color: 'rgba(209,213,219,0.78)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6, padding: '8px 9px', fontSize: '0.74rem', cursor: 'pointer', textAlign: 'left' };
 }

@@ -11,5 +11,5 @@ import CodingView from '../components/CodingView';
  * PeakUI interface.
  */
 export default function CoderPage() {
-  return <CodingView onExit={() => { window.location.href = '/'; }} />;
+  return <CodingView />;
 }
