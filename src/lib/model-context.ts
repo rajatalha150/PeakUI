@@ -173,7 +173,7 @@ function buildProfileFromCapacity(
 }
 
 interface OllamaShowResponse {
-  details?: { parameter_size?: string };
+  details?: { parameter_size?: string; context_length?: number };
   model_info?: Record<string, unknown>;
   general?: { parameter_count?: number; context_length?: number };
 }
@@ -222,6 +222,9 @@ function parseOllamaShowCapacity(data: OllamaShowResponse): {
   }
   if (nativeContextLength === null && typeof data.general?.context_length === 'number') {
     nativeContextLength = data.general.context_length;
+  }
+  if (nativeContextLength === null && typeof data.details?.context_length === 'number') {
+    nativeContextLength = data.details.context_length;
   }
 
   return { parameterSizeB, nativeContextLength };

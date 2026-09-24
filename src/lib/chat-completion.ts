@@ -490,9 +490,9 @@ function buildContextCandidates(
     );
   }
 
-  // For local models, prefer a conservative default context over Ollama's
-  // native default. Native defaults for modern models can be large (8k+)
-  // and cause first-token stalls on CPU-bound small models.
+  // This setting promises to let Ollama select the model's own window. Keep
+  // conservative numeric candidates behind it for the existing OOM retry path
+  // so a model with an overly ambitious native default can still recover.
   if (recommendation && !recommendation.isCloud) {
     const startContext = Math.min(
       'recommendedContext' in recommendation
@@ -500,7 +500,7 @@ function buildContextCandidates(
         : recommendation.defaultContext,
       hardCap,
     );
-    return buildNumericContextCandidates(startContext, hardCap);
+    return [null, ...buildNumericContextCandidates(startContext, hardCap)];
   }
 
   const fallbackStart = Math.max(
@@ -1185,7 +1185,9 @@ export async function createChatCompletionResponse(req: NextRequest) {
     // Trim conversation history to fit within context window
     const contextManagementStartedAt = performance.now();
     const effectiveContextLength = provider === 'ollama'
-      ? buildContextCandidates(settings.contextLength, settings.ollamaUseModelDefaultContext, requestedModel, provider, capacityProfile)[0] || settings.contextLength
+      ? (settings.ollamaUseModelDefaultContext && capacityProfile?.nativeContextLength
+          ? capacityProfile.nativeContextLength
+          : buildContextCandidates(settings.contextLength, settings.ollamaUseModelDefaultContext, requestedModel, provider, capacityProfile)[0] || settings.contextLength)
       : settings.contextLength;
     const systemOverhead = estimateMessageTokens(untrimmedMessages.filter(message => message.role === 'system'));
     const rawContextTokens = estimateMessageTokens(untrimmedMessages);

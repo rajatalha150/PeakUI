@@ -150,6 +150,16 @@ describe('model-context', () => {
       expect(profile.recommendedContext).toBe(8192)
     })
 
+    it('parses the context length carried in Ollama details metadata', async () => {
+      stubShowResponse({
+        details: { parameter_size: '3.0B', context_length: 32768 },
+      })
+      const profile = await getModelCapacityProfile('granite4.1:3b', 'ollama', 'http://127.0.0.1:11434')
+      expect(profile.parameterSizeB).toBe(3)
+      expect(profile.nativeContextLength).toBe(32768)
+      expect(profile.recommendedContext).toBe(4096)
+    })
+
     it('clamps the recommendation to a small native window', async () => {
       stubShowResponse({
         general: { parameter_count: 8e9, context_length: 4096 },
