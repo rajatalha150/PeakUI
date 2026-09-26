@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Consistent Coder backup: LXD root, mounted Docker volumes, and PeakUI DB.
+# Consistent Coder backup: persistent instance root and PeakUI database.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 [[ -f .env ]] || { echo 'Missing PeakUI .env.' >&2; exit 1; }
@@ -11,8 +11,6 @@ destination=${1:-"$HOME/PeakUI-backups/$(date -u +%Y%m%dT%H%M%SZ)"}
 [[ ! -e "$destination" ]] || { echo "Backup destination already exists: $destination" >&2; exit 1; }
 mkdir -p -m 700 "$destination"
 destination=$(realpath "$destination")
-project=$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')
-docker image inspect alpine:3.20 >/dev/null 2>&1 || docker pull alpine:3.20
 
 restore_services() {
   if [[ "$("$instance_cli" list "$instance" -f csv -c s)" != RUNNING ]]; then "$instance_cli" start "$instance"; fi
@@ -26,13 +24,6 @@ docker compose -f docker-compose.yml -f docker-compose.lxd.yml stop app
 "$instance_cli" stop "$instance"
 docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > "$destination/peakui.sql"
 "$instance_cli" export "$instance" "$destination/coder-root.tar.gz"
-
-for suffix in coder_workspace coder_apps coder_qwen_state coder_root_home \
-  coder_gradle_cache coder_android_home coder_npm_cache coder_pip_cache coder_android_sdk; do
-  volume="${project}_${suffix}"
-  docker run --rm --network none -v "$volume:/source:ro" -v "$destination:/backup" \
-    alpine:3.20 tar -C /source -czf "/backup/${suffix}.tar.gz" .
-done
 
 restore_services
 trap - EXIT

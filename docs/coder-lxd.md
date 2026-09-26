@@ -5,15 +5,18 @@ other services remain in Docker. Coder runs in an unprivileged LXD or Incus
 system container with a persistent root filesystem. The `/` visible to the
 agent is the instance's root, never the host's root. Packages installed with
 `apt`, systemd services, `/etc`, `/usr/local`, and Docker containers created
-inside the instance survive restart. The existing Coder Docker volumes remain
-mounted at their original guest paths, so projects, SSH/Git state, Qwen state,
-Android SDK, and caches are not reset.
+inside the instance survive restart. On first cutover, the installer copies the
+existing Coder Docker volumes into their original guest paths, so projects,
+SSH/Git state, Qwen state, Android SDK, and caches are retained. The old Docker
+volumes remain untouched for rollback.
 
 ## Requirements
 
 - Linux host with Docker Compose. Windows and macOS continue using Docker Coder.
-- An apt-based host for automatic Incus installation. Existing Incus or LXD
-  installations are detected and preserved.
+- A supported package manager for automatic Incus installation: APT, DNF,
+  Zypper, Pacman, APK, XBPS, or Portage. Existing Incus or LXD installations
+  are detected and preserved. Distributions that do not package the Incus
+  server must install Incus or LXD first.
 - The installer can ask for the current account's `sudo` password. It uses
   elevated access only to install the host runtime and add that same account to
   its administration group; it does not create or switch login users.
@@ -65,11 +68,13 @@ from 4171; Preview uses 4172. `CODER_LXD_INSTANCE` changes the instance name
 from `peakui-coder` and is saved for updates, backups, and rollback.
 
 The installer creates an unprivileged Ubuntu 24.04 instance with nested Docker
-support, mounts the nine existing Coder volumes using idmapped disk devices,
-installs Qwen and the current development/browser toolchain, then starts a
-systemd service. It stops Docker Coder only at cutover, checks a real Qwen
-runtime health response, and reconnects PeakUI. If setup fails, it restores
-Docker Coder and the app's original daemon URL. It never removes volumes.
+support, installs Qwen and the current development/browser toolchain, migrates
+the nine existing Coder volumes through portable tar streams, then starts a
+systemd service. The migration does not depend on host bind-mount idmapping, so
+it works across Incus-supported filesystems and distributions. It stops Docker
+Coder only at cutover, checks a real Qwen runtime health response, and
+reconnects PeakUI. If setup fails, it restores Docker Coder and the app's
+original daemon URL. It never removes the Docker volumes.
 On every instance boot, the service refreshes the managed QWEN.md, Git defaults,
 SSH host trust, and runtime readiness checks.
 
@@ -109,11 +114,13 @@ selecting it as a workspace. Existing sessions remain bound to their original
 directory. The managed QWEN.md is refreshed when a runtime starts after an
 update.
 
-The instance root persists all other directories. The agent can install
+The instance root persists all directories, including `/workspace`, `/apps`,
+tool caches, and SSH/Qwen state. The agent can install
 packages, start systemd services, build projects, and use nested `docker` and
-`docker compose`. Files and large downloads under `/workspace` and `/apps`
-retain direct shared-volume streaming; elsewhere PeakUI streams through the
-daemon in bounded windows without buffering the whole file.
+`docker compose`. PeakUI streams downloads from the authenticated Coder daemon
+in bounded windows, so file and ZIP size is not capped or buffered wholly in
+the app. GitHub imports use a private daemon endpoint and do not expose the
+installation token in shell history or agent transcripts.
 
 Preview URLs such as `http://127.0.0.1:5173` map to the loopback-only origin
 `http://p5173.localhost:4172`. The proxy forwards HTTP paths and WebSocket
@@ -128,13 +135,12 @@ with Docker Coder, a browser on another machine cannot use that machine's
 ```
 
 The script briefly stops the app and instance, dumps Postgres, exports the
-instance root, archives each Coder Docker volume, restarts services, and
-writes SHA-256 checksums. Store the resulting directory on another disk or
-machine. An instance snapshot alone omits the mounted Docker volumes and
-Postgres session metadata.
+complete persistent instance root, restarts services, and writes SHA-256
+checksums. Store the resulting directory on another disk or machine. An
+instance snapshot or export still omits Postgres session metadata.
 
-Recovery requires restoring the exported instance, all nine named volumes,
-and the SQL dump as one set during a maintenance window. Verify `SHA256SUMS`
+Recovery requires restoring the exported instance and SQL dump as one set
+during a maintenance window. Verify `SHA256SUMS`
 and retain the original data until sessions, imports, downloads, Preview, and
 nested Docker have been checked in the restored deployment.
 

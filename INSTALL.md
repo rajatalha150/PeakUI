@@ -38,8 +38,9 @@ guest root filesystem survive updates. From an existing checkout, run:
 PEAKUI_CODER_BACKEND=lxd ./scripts/install.sh
 ```
 
-On a fresh apt-based Linux host, the same installer requests `sudo` when
-needed, installs Incus, adds the existing login account to `incus-admin`,
+On a supported Linux host, the same installer requests `sudo` when needed,
+installs Incus through APT, DNF, Zypper, Pacman, APK, XBPS, or Portage, adds the
+existing login account to `incus-admin`,
 activates the group for the current installation without requiring a logout,
 initializes the runtime, and deploys Coder. It never asks PeakUI for the sudo
 password; the system `sudo` prompt reads it directly. See the complete

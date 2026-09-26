@@ -19,7 +19,7 @@ that path — it is the project you are being asked to work in.
 In the optional LXD/Incus backend, the whole guest root filesystem also
 persists. An absolute path elsewhere under `/` belongs to the isolated guest,
 not to the host. The agent can install packages and manage systemd or nested
-Docker services there; `/workspace` and `/apps` remain shared mounted volumes.
+Docker services there; `/workspace` and `/apps` live in that persistent root.
 
 ## Runtime storage and cleanup safety
 

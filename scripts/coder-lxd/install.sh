@@ -33,19 +33,20 @@ qwen_version=$(sed -n 's/^ARG QWEN_CODE_VERSION=//p' Dockerfile.coder | head -n 
 python3 -c 'import pathlib,secrets; p=pathlib.Path(".env"); lines=p.read_text().splitlines(); matches=[s.split("=",1)[1] for s in lines if s.startswith("CODER_SERVER_TOKEN=")]; token=matches[-1] if matches else ""; p.open("a").write("\nCODER_SERVER_TOKEN="+secrets.token_urlsafe(48)+"\n") if not token else None'
 coder_token=$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["coder"]["environment"]["QWEN_SERVER_TOKEN"])')
 [[ -n "$coder_token" ]] || { echo 'Coder token is empty.' >&2; exit 1; }
+saved_backend=$(sed -n 's/^PEAKUI_CODER_BACKEND=//p' .env | tail -n 1)
 
-# Reuse the Docker volumes already mounted by the app. LXD's idmapped disk
-# mounts let its unprivileged root use them without changing host ownership.
-volume_mounts=(
-  'coder_workspace:/workspace:workspace'
-  'coder_apps:/apps:apps'
-  'coder_qwen_state:/root/.qwen:qwen'
-  'coder_root_home:/root:home'
-  'coder_gradle_cache:/root/.gradle:gradle'
-  'coder_android_home:/root/.android:android-home'
-  'coder_npm_cache:/root/.npm:npm'
-  'coder_pip_cache:/root/.cache/pip:pip'
-  'coder_android_sdk:/opt/android-sdk:android-sdk'
+# Migration order matters: copy /root first, then overlay the Docker volumes
+# that were mounted at nested paths inside it.
+volume_migrations=(
+  'coder_root_home:/root'
+  'coder_workspace:/workspace'
+  'coder_apps:/apps'
+  'coder_qwen_state:/root/.qwen'
+  'coder_gradle_cache:/root/.gradle'
+  'coder_android_home:/root/.android'
+  'coder_npm_cache:/root/.npm'
+  'coder_pip_cache:/root/.cache/pip'
+  'coder_android_sdk:/opt/android-sdk'
 )
 
 if ! "$instance_cli" info "$instance" >/dev/null 2>&1; then
@@ -56,13 +57,12 @@ if ! "$instance_cli" info "$instance" >/dev/null 2>&1; then
     -c security.syscalls.intercept.setxattr=true
 fi
 
-for spec in "${volume_mounts[@]}"; do
-  IFS=: read -r suffix destination name <<< "$spec"
-  volume="${compose_project}_${suffix}"
-  docker volume create "$volume" >/dev/null
-  source=$(docker volume inspect --format '{{.Mountpoint}}' "$volume")
-  if ! "$instance_cli" config device get "$instance" "$name" path >/dev/null 2>&1; then
-    "$instance_cli" config device add "$instance" "$name" disk "source=$source" "path=$destination" shift=true
+# Older previews of this backend attached Docker's internal volume paths with
+# shift=true. Remove those devices so startup works on every Incus-supported
+# filesystem; the data itself remains untouched in Docker.
+for name in workspace apps qwen home gradle android-home npm pip android-sdk shift-test; do
+  if "$instance_cli" config device get "$instance" "$name" path >/dev/null 2>&1; then
+    "$instance_cli" config device remove "$instance" "$name"
   fi
 done
 
@@ -79,9 +79,6 @@ if ! "$instance_cli" config device get "$instance" ollama listen >/dev/null 2>&1
     'listen=tcp:127.0.0.1:11434' 'connect=tcp:127.0.0.1:11434'
 fi
 
-if [[ "$("$instance_cli" list "$instance" -f csv -c s)" != RUNNING ]]; then "$instance_cli" start "$instance"; fi
-"$instance_cli" exec "$instance" -- cloud-init status --wait
-
 rollback=1
 on_failure() {
   if [[ "$rollback" == 1 ]]; then
@@ -90,6 +87,10 @@ on_failure() {
   fi
 }
 trap on_failure EXIT
+
+if [[ "$("$instance_cli" list "$instance" -f csv -c s)" != RUNNING ]]; then "$instance_cli" start "$instance"; fi
+"$instance_cli" exec "$instance" -- cloud-init status --wait
+
 "$instance_cli" exec "$instance" -- systemctl stop peakui-coder.service >/dev/null 2>&1 || true
 
 "$instance_cli" file push -p scripts/coder-storage/peakui-coder-start "$instance/usr/local/bin/peakui-coder-start"
@@ -113,9 +114,21 @@ printf 'QWEN_SERVER_TOKEN=%s\nOPENAI_API_KEY=%s\nOPENAI_MODEL=%s\nOPENAI_BASE_UR
 echo "Provisioning $instance (first run downloads the toolchain and browser)..."
 "$instance_cli" exec "$instance" -- bash /tmp/peakui-bootstrap.sh
 
-# Keep Docker Coder available for rollback until LXD is healthy. Both daemons
-# must not write the same Qwen state at the same time.
-docker compose stop coder
+# Keep Docker data available for rollback, but make the Incus root filesystem
+# authoritative. Tar streaming preserves large workspaces without relying on
+# host bind mounts, UID shifting, or a particular host filesystem.
+docker compose stop app coder
+if [[ "$saved_backend" != lxd ]]; then
+  docker image inspect alpine:3.20 >/dev/null 2>&1 || docker pull alpine:3.20
+  for spec in "${volume_migrations[@]}"; do
+    IFS=: read -r suffix destination <<< "$spec"
+    volume="${compose_project}_${suffix}"
+    docker volume create "$volume" >/dev/null
+    "$instance_cli" exec "$instance" -- mkdir -p "$destination"
+    docker run --rm --network none -v "$volume:/source:ro" alpine:3.20 \
+      tar -C /source -cf - . | "$instance_cli" exec "$instance" -- tar -C "$destination" -xpf -
+  done
+fi
 "$instance_cli" exec "$instance" -- systemctl start peakui-coder.service
 for i in {1..60}; do
   if curl -fsS --max-time 5 -H "Authorization: Bearer $coder_token" "http://127.0.0.1:${host_port}/health" >/dev/null 2>&1; then break; fi

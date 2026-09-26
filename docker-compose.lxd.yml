@@ -7,4 +7,5 @@ services:
   app:
     environment:
       CODER_BACKEND: lxd
+      CODER_SHARED_VOLUMES: "false"
       CODER_DAEMON_URL: http://127.0.0.1:${CODER_LXD_PORT:-4171}

@@ -216,6 +216,36 @@ function readSmallBody(req) {
   });
 }
 
+async function importProject(body) {
+  const repositoryUrl = typeof body?.repositoryUrl === 'string' ? body.repositoryUrl : '';
+  const branch = typeof body?.branch === 'string' ? body.branch : '';
+  const destination = typeof body?.destination === 'string' ? body.destination : '';
+  const authHeader = typeof body?.authHeader === 'string' ? body.authHeader : '';
+  if (!/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\.git$/.test(repositoryUrl)) throw new Error('Invalid GitHub repository URL.');
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/.test(branch) || branch.includes('..') || branch.endsWith('/') || branch.endsWith('.') || branch.includes('@{')) {
+    throw new Error('Invalid Git branch.');
+  }
+  if (!/^\/workspace\/projects\/[0-9a-f-]{36}$/.test(destination)) throw new Error('Invalid project destination.');
+  if (!/^Authorization: Basic [A-Za-z0-9+/=]+$/.test(authHeader)) throw new Error('Invalid GitHub authorization header.');
+  await mkdir('/workspace/projects', { recursive: true, mode: 0o700 });
+  if (existsSync(destination)) throw new Error('Project destination already exists.');
+  try {
+    await execFileAsync('git', ['clone', '--depth=1', '--branch', branch, '--', repositoryUrl, destination], {
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: '0', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_ALLOW_PROTOCOL: 'https', GIT_PROTOCOL_FROM_USER: '0',
+        GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.https://github.com/.extraheader', GIT_CONFIG_VALUE_0: authHeader,
+      },
+      timeout: 180_000,
+      maxBuffer: 1024 * 1024,
+    });
+  } catch (error) {
+    await rm(destination, { recursive: true, force: true });
+    throw new Error(error instanceof Error ? error.message.replace(/https?:\/\/[^\s]+/g, '[repository URL]') : 'Repository clone failed.');
+  }
+}
+
 function proxy(req, res, runtime, buffered, onSuccess) {
   const upstream = http.request({
     hostname: '127.0.0.1', port: runtime.port, path: req.url,
@@ -250,9 +280,13 @@ async function handle(req, res) {
     await startRuntime(defaultWorkspace);
     return sendJson(res, 200, { status: 'ok' });
   }
-  const smallBody = req.method === 'POST' && (url.pathname === '/session' || url.pathname === '/workspaces' || /^\/session\/[^/]+\/load$/.test(url.pathname));
+  const smallBody = req.method === 'POST' && (url.pathname === '/session' || url.pathname === '/workspaces' || url.pathname === '/peakui/projects/import' || /^\/session\/[^/]+\/load$/.test(url.pathname));
   const buffered = smallBody ? await readSmallBody(req) : null;
   const body = buffered?.length ? JSON.parse(buffered.toString('utf8')) : null;
+  if (url.pathname === '/peakui/projects/import' && req.method === 'POST') {
+    await importProject(body);
+    return sendJson(res, 201, { imported: true });
+  }
   if (url.pathname === '/workspaces' && req.method === 'POST') {
     const cwd = await canonicalDirectory(body?.cwd);
     await startRuntime(cwd);

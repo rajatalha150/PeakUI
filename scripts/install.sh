@@ -154,7 +154,9 @@ if [ "$BACKEND" = lxd ]; then
   elif [ "$runtime_status" -ne 0 ]; then
     die "$PEAKUI_INSTANCE_CLI installation or initialization failed. Docker Coder is unchanged."
   fi
-  docker compose -f "$COMPOSE_FILE" -f docker-compose.lxd.yml up -d --build
+  # Keep the Docker backend active while the persistent guest is provisioned.
+  # The LXD overlay is applied only after its real daemon health check passes.
+  docker compose -f "$COMPOSE_FILE" up -d --build
   if ! ./scripts/coder-lxd/install.sh; then
     docker compose -f "$COMPOSE_FILE" up -d --no-deps --build app coder
     die "LXD Coder setup failed; Docker Coder has been restored."

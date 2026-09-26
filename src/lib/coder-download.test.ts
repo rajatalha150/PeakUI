@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   hostPathForWorkspaceFile,
+  hostRootForWorkspaceFile,
   sanitizeDownloadFilename,
   streamDaemonFileWindowed,
   streamLocalDownload,
@@ -31,6 +32,16 @@ describe('hostPathForWorkspaceFile', () => {
 
   it('returns null for a path outside any mapped root', () => {
     expect(hostPathForWorkspaceFile('/etc/passwd')).toBeNull()
+  })
+
+  it('disables direct host paths when the backend owns its filesystem', () => {
+    process.env.CODER_SHARED_VOLUMES = 'false'
+    try {
+      expect(hostPathForWorkspaceFile('/workspace/large.zip')).toBeNull()
+      expect(hostRootForWorkspaceFile('/apps')).toBeNull()
+    } finally {
+      delete process.env.CODER_SHARED_VOLUMES
+    }
   })
 })
 

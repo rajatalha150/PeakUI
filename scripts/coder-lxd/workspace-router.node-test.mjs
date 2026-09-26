@@ -76,6 +76,7 @@ test('routes parent and nested directories to independent persistent runtimes', 
     assert.equal((await request('/session', { sessionId: 'child', cwd: child })).data.cwd, child);
     assert.equal((await request('/session/parent/status')).data.cwd, workspace);
     assert.equal((await request('/session/child/status')).data.cwd, child);
+    assert.equal((await request('/peakui/projects/import', { repositoryUrl: 'file:///tmp/repo', branch: 'main', destination: '/workspace/projects/nope' })).status, 400);
     const preview = await fetch(`http://p${appPort}.localhost:${previewPort}/hello`);
     assert.equal(await preview.text(), 'preview:/hello');
     const ws = new WebSocket(`ws://p${appPort}.localhost:${previewPort}/hmr`);

@@ -38,6 +38,7 @@ const FILE_BYTES_MAX = 256 * 1024
  * via `normalizeCoderFilePath`.
  */
 export function hostPathForWorkspaceFile(daemonPath: string): string | null {
+  if (process.env.CODER_SHARED_VOLUMES === 'false') return null
   for (const [daemonRoot, hostRoot] of HOST_WORKSPACE_ROOTS) {
     if (daemonPath === daemonRoot) return resolve(hostRoot)
     if (!daemonPath.startsWith(`${daemonRoot}/`)) continue
@@ -50,6 +51,7 @@ export function hostPathForWorkspaceFile(daemonPath: string): string | null {
 
 /** Return the app-side shared-volume root for a daemon path, if it has one. */
 export function hostRootForWorkspaceFile(daemonPath: string): string | null {
+  if (process.env.CODER_SHARED_VOLUMES === 'false') return null
   for (const [daemonRoot, hostRoot] of HOST_WORKSPACE_ROOTS) {
     if (daemonPath === daemonRoot || daemonPath.startsWith(`${daemonRoot}/`)) return resolve(hostRoot)
   }
