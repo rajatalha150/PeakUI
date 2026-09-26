@@ -7,7 +7,8 @@
 #   ./scripts/install.sh [target_dir]
 #
 # Idempotent: safe to re-run to update an existing deployment.
-# The only hard prerequisite is Docker (+ the `docker compose` plugin).
+# Docker (+ the `docker compose` plugin) is required. When the LXD/Incus Coder
+# backend is selected on Linux, this installer can install its runtime too.
 # Ollama is a soft prerequisite — the stack comes up without it.
 
 set -eu
@@ -103,7 +104,17 @@ log "Building and starting PeakUI (first build takes a few minutes)..."
 SAVED_BACKEND=$(sed -n 's/^PEAKUI_CODER_BACKEND=//p' .env | tail -n 1)
 BACKEND="${PEAKUI_CODER_BACKEND:-${SAVED_BACKEND:-docker}}"
 SAVED_INSTANCE_CLI=$(sed -n 's/^PEAKUI_INSTANCE_CLI=//p' .env | tail -n 1)
-PEAKUI_INSTANCE_CLI="${PEAKUI_INSTANCE_CLI:-${SAVED_INSTANCE_CLI:-lxc}}"
+if [ -z "${PEAKUI_INSTANCE_CLI:-}" ]; then
+  if [ -n "$SAVED_INSTANCE_CLI" ]; then
+    PEAKUI_INSTANCE_CLI=$SAVED_INSTANCE_CLI
+  elif command -v incus >/dev/null 2>&1; then
+    PEAKUI_INSTANCE_CLI=incus
+  elif command -v lxc >/dev/null 2>&1; then
+    PEAKUI_INSTANCE_CLI=lxc
+  else
+    PEAKUI_INSTANCE_CLI=incus
+  fi
+fi
 export PEAKUI_INSTANCE_CLI
 SAVED_INSTANCE=$(sed -n 's/^CODER_LXD_INSTANCE=//p' .env | tail -n 1)
 CODER_LXD_INSTANCE="${CODER_LXD_INSTANCE:-${SAVED_INSTANCE:-peakui-coder}}"
@@ -111,7 +122,20 @@ export CODER_LXD_INSTANCE
 case "$BACKEND" in docker|lxd) ;; *) die "PEAKUI_CODER_BACKEND must be docker or lxd." ;; esac
 if [ "$BACKEND" = lxd ]; then
   [ "$OS" = Linux ] || die "The LXD Coder backend requires a Linux host."
-  command -v "$PEAKUI_INSTANCE_CLI" >/dev/null 2>&1 || die "Install and initialize LXD (or Incus) before selecting the LXD Coder backend."
+  runtime_status=0
+  ./scripts/coder-lxd/ensure-runtime.sh || runtime_status=$?
+  if [ "$runtime_status" -eq 42 ]; then
+    if [ "$PEAKUI_INSTANCE_CLI" = incus ]; then RUNTIME_GROUP=incus-admin; else RUNTIME_GROUP=lxd; fi
+    log "Continuing with the new $RUNTIME_GROUP membership; no logout is required."
+    PEAKUI_REEXEC_SCRIPT=$(pwd)/scripts/install.sh
+    PEAKUI_REEXEC_TARGET=$(pwd)
+    PEAKUI_REF=$BRANCH
+    PEAKUI_CODER_BACKEND=lxd
+    export PEAKUI_REEXEC_SCRIPT PEAKUI_REEXEC_TARGET PEAKUI_REF PEAKUI_CODER_BACKEND PEAKUI_INSTANCE_CLI CODER_LXD_INSTANCE
+    exec sg "$RUNTIME_GROUP" -c 'exec /bin/sh "$PEAKUI_REEXEC_SCRIPT" "$PEAKUI_REEXEC_TARGET"'
+  elif [ "$runtime_status" -ne 0 ]; then
+    die "$PEAKUI_INSTANCE_CLI installation or initialization failed. Docker Coder is unchanged."
+  fi
   docker compose -f "$COMPOSE_FILE" -f docker-compose.lxd.yml up -d --build
   if ! ./scripts/coder-lxd/install.sh; then
     docker compose -f "$COMPOSE_FILE" up -d --no-deps --build app coder

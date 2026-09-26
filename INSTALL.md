@@ -28,6 +28,23 @@ comes up without it, and you point PeakUI at your Ollama host in Settings
 after first login. To clone manually instead, run `./scripts/install.sh`
 (Linux/macOS) or `.\scripts\install.ps1` (Windows) from the repo root.
 
+### Persistent Linux Coding Environment
+
+The `coder-lxd` branch can run Coding in a persistent Incus/LXD system
+container, where installed packages, services, nested Docker data, and the
+guest root filesystem survive updates. From an existing checkout, run:
+
+```bash
+PEAKUI_CODER_BACKEND=lxd ./scripts/install.sh
+```
+
+On a fresh apt-based Linux host, the same installer requests `sudo` when
+needed, installs Incus, adds the existing login account to `incus-admin`,
+activates the group for the current installation without requiring a logout,
+initializes the runtime, and deploys Coder. It never asks PeakUI for the sudo
+password; the system `sudo` prompt reads it directly. See the complete
+[Coder LXD/Incus guide](docs/coder-lxd.md).
+
 ## Requirements
 
 - Docker and Docker Compose

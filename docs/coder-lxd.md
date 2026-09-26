@@ -11,42 +11,53 @@ Android SDK, and caches are not reset.
 
 ## Requirements
 
-- Linux host with Docker Compose and either LXD (`lxc`) or Incus (`incus`).
-  Windows and macOS continue using Docker Coder.
-- Initialized LXD/Incus bridge and storage pool large enough for the OS, Android
-  builds, nested Docker images, and backups. A 30 GiB default loop pool is
-  usually too small for this workload.
-- Installing account can control Docker and LXD/Incus. Access to the LXD/Incus
-  admin socket is host-administrator equivalent; the agent receives no host
-  instance-manager socket.
+- Linux host with Docker Compose. Windows and macOS continue using Docker Coder.
+- An apt-based host for automatic Incus installation. Existing Incus or LXD
+  installations are detected and preserved.
+- The installer can ask for the current account's `sudo` password. It uses
+  elevated access only to install the host runtime and add that same account to
+  its administration group; it does not create or switch login users.
 - `python3`, `curl`, internet access for the Ubuntu image, Qwen source, Node,
   packages, and Chromium; free host loopback ports 4171 and 4172.
 
-On Ubuntu with snap-supported LXD, follow the [official LXD setup](https://documentation.ubuntu.com/lxd/default/tutorial/first_steps/).
-On Linux Mint, Ubuntu's repository provides Incus:
-
-```bash
-sudo apt update
-sudo apt install incus
-sudo adduser "$USER" incus-admin
-# Start a new login shell to pick up group membership.
-incus admin init
-```
-
-Choose a sufficiently large Btrfs/ZFS storage pool. Incus `--minimal` uses a
-slower directory pool. See [Incus installation](https://linuxcontainers.org/incus/docs/main/installing/)
-and [initialization](https://linuxcontainers.org/incus/docs/main/howto/initialize/).
+Access to the Incus/LXD administration socket is host-administrator equivalent.
+The Coding agent does not receive that socket, so it can control its nested
+Linux environment without controlling host instances.
 
 ## Install And Update
 
-From this branch's checkout:
+From this branch's checkout, this is the complete installation command:
 
 ```bash
-PEAKUI_CODER_BACKEND=lxd PEAKUI_INSTANCE_CLI=incus ./scripts/install.sh
+PEAKUI_CODER_BACKEND=lxd ./scripts/install.sh
 ```
 
-Omit `PEAKUI_INSTANCE_CLI=incus` for LXD. The backend and instance CLI are
-recorded in `.env`, so subsequent `./scripts/install.sh` runs preserve them.
+The installer performs the host setup too. When no runtime exists, it:
+
+1. asks through `sudo` and installs Incus with the host package manager;
+2. adds the current login account to `incus-admin`;
+3. activates that membership for the installer without requiring a logout;
+4. initializes Incus when needed; and
+5. provisions, verifies, and cuts over the persistent Coder instance.
+
+Re-running the same command updates all components. Incus is preferred for a
+fresh installation. To use an existing LXD installation explicitly:
+
+```bash
+PEAKUI_CODER_BACKEND=lxd PEAKUI_INSTANCE_CLI=lxc ./scripts/install.sh
+```
+
+The backend and selected runtime are recorded in `.env`, so subsequent
+`./scripts/install.sh` runs preserve them. The automatic first-time setup uses
+Incus's local-only minimal configuration and directory-backed storage, which
+uses available host filesystem capacity instead of creating a small fixed-size
+loop pool. It is broadly compatible but slower and lacks the snapshot features
+of Btrfs/ZFS. For a production host with a dedicated disk, initialize Incus
+yourself with Btrfs or ZFS before running PeakUI; the installer will preserve it.
+See the official [Incus installation](https://linuxcontainers.org/incus/docs/main/installing/)
+and [initialization](https://linuxcontainers.org/incus/docs/main/howto/initialize/)
+guides.
+
 The instance defaults to four CPUs and 8 GiB of RAM; set `CODER_LXD_CPUS` and
 `CODER_LXD_MEMORY` before its first creation to change them. `CODER_LXD_IMAGE`
 selects a compatible Ubuntu image. `CODER_LXD_PORT` changes the host API port
@@ -61,6 +72,17 @@ runtime health response, and reconnects PeakUI. If setup fails, it restores
 Docker Coder and the app's original daemon URL. It never removes volumes.
 On every instance boot, the service refreshes the managed QWEN.md, Git defaults,
 SSH host trust, and runtime readiness checks.
+
+When installing through a pipe, place the deployment variables on the `sh`
+side so they reach the installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/coder-lxd/scripts/install.sh \
+  | PEAKUI_REF=coder-lxd PEAKUI_CODER_BACKEND=lxd sh
+```
+
+Run this from an interactive terminal so `sudo` can request the password. The
+password is read by `sudo`; PeakUI never reads or stores it.
 
 To return to Docker Coder deliberately:
 

@@ -63,10 +63,12 @@ below. The manual steps that follow are for when you prefer to clone and
 configure by hand.
 
 On Linux, Coding also has an opt-in persistent LXD/Incus system-container
-backend under development on `coder-lxd`. PeakUI and its data services remain
-in Docker. See [Coder LXD/Incus setup](docs/coder-lxd.md) for installation,
-directory routing, backups, and rollback. Windows and macOS continue to use
-the Docker Coding backend.
+backend under development on `coder-lxd`. Its installer detects or installs
+Incus, initializes it, grants the existing login account access, and provisions
+the persistent Coding environment in one run. PeakUI and its data services
+remain in Docker. See [Coder LXD/Incus setup](docs/coder-lxd.md) for the command,
+directory routing, backups, and rollback. Windows and macOS continue to use the
+Docker Coding backend.
 
 ### 1. Start Ollama
 
@@ -180,6 +182,7 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | [docs/image-generation.md](docs/image-generation.md) | Image generation — ComfyUI engine setup, model download, and generation flow |
 | [docs/development-section-plan.md](docs/development-section-plan.md) | Development section plan (draft) |
 | [docs/coding-environment.md](docs/coding-environment.md) | Coding environment architecture, deployment, long-session context, preview, projects, and multi-model orchestration |
+| [docs/coder-lxd.md](docs/coder-lxd.md) | Persistent Linux Coding backend with automatic Incus/LXD setup, backups, and rollback |
 
 ---
 
