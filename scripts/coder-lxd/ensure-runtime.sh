@@ -58,6 +58,12 @@ install_incus() {
 }
 
 start_incus() {
+  # Package installs commonly activate a socket unit. Avoid asking for sudo on
+  # every update merely to start an already reachable daemon; group activation
+  # happens below before the client is used.
+  if [ -S /var/lib/incus/unix.socket ] || [ -S /run/incus/unix.socket ]; then
+    return
+  fi
   if command -v systemctl >/dev/null 2>&1; then
     run_as_root systemctl enable --now incus.socket >/dev/null 2>&1 || true
     run_as_root systemctl start incus.service >/dev/null 2>&1 || true
