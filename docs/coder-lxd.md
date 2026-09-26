@@ -84,6 +84,12 @@ curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/coder-lxd/scrip
 Run this from an interactive terminal so `sudo` can request the password. The
 password is read by `sudo`; PeakUI never reads or stores it.
 
+If an unrelated third-party APT source fails signature validation, the
+installer prints a warning and still attempts to install Incus from the signed
+distribution indexes that updated successfully. It does not disable the broken
+source or bypass APT signature checks. Repair that source separately so normal
+system updates return to a clean state.
+
 To return to Docker Coder deliberately:
 
 ```bash

@@ -21,10 +21,16 @@ active_group() {
   id -nG | tr ' ' '\n' | grep -qx "$1"
 }
 
+refresh_apt_indexes() {
+  if ! run_as_root apt-get update; then
+    log 'WARNING: apt update reported a repository error; trying the signed package indexes that updated successfully.'
+  fi
+}
+
 install_incus() {
   command -v apt-get >/dev/null 2>&1 || fail 'Automatic Incus installation currently requires an apt-based Linux host.'
   log 'Incus is required. sudo may ask for your account password.'
-  run_as_root apt-get update
+  refresh_apt_indexes
   run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y incus
 }
 
@@ -32,7 +38,7 @@ install_lxd() {
   if ! command -v snap >/dev/null 2>&1; then
     command -v apt-get >/dev/null 2>&1 || fail 'Automatic LXD installation requires snap.'
     log 'Installing snapd for LXD. sudo may ask for your account password.'
-    run_as_root apt-get update
+    refresh_apt_indexes
     run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y snapd
   fi
   log 'Installing the LXD snap. sudo may ask for your account password.'
