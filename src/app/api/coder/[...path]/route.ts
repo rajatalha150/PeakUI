@@ -234,16 +234,16 @@ async function reconcilePromptOrchestration(userId: string, sessionId: string): 
   if (vision.status < 200 || vision.status >= 300) return 'Could not apply the configured Vision model before this turn.'
 
   if (!settings.coderWriterModel) {
-    const removed = await proxyToCoderDaemon(`/workspace/agents/${CODER_WRITER_AGENT_NAME}?scope=${CODER_WRITER_AGENT_SCOPE}`, { method: 'DELETE' })
+    const removed = await proxyToCoderDaemon(`/workspace/agents/${CODER_WRITER_AGENT_NAME}?scope=${CODER_WRITER_AGENT_SCOPE}&workspace=${encodeURIComponent(workspace)}`, { method: 'DELETE' })
     if (![200, 204, 404].includes(removed.status)) return 'Could not clear the Writer delegate before this turn.'
     return null
   }
 
-  let writer = await proxyToCoderDaemon(`/workspace/agents/${CODER_WRITER_AGENT_NAME}?scope=${CODER_WRITER_AGENT_SCOPE}`, {
+  let writer = await proxyToCoderDaemon(`/workspace/agents/${CODER_WRITER_AGENT_NAME}?scope=${CODER_WRITER_AGENT_SCOPE}&workspace=${encodeURIComponent(workspace)}`, {
     method: 'POST', body: buildWriterSubagentUpdateBody(settings.coderWriterModel),
   })
   if (writer.status === 404) {
-    writer = await proxyToCoderDaemon('/workspace/agents', {
+    writer = await proxyToCoderDaemon(`/workspace/agents?workspace=${encodeURIComponent(workspace)}`, {
       method: 'POST', body: buildWriterSubagentCreateBody(settings.coderWriterModel),
     })
   }

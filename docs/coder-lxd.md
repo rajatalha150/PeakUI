@@ -1,0 +1,130 @@
+# Persistent Coder Server (LXD / Incus)
+
+This is an opt-in Linux deployment for Coding. PeakUI, Postgres, search, and
+other services remain in Docker. Coder runs in an unprivileged LXD or Incus
+system container with a persistent root filesystem. The `/` visible to the
+agent is the instance's root, never the host's root. Packages installed with
+`apt`, systemd services, `/etc`, `/usr/local`, and Docker containers created
+inside the instance survive restart. The existing Coder Docker volumes remain
+mounted at their original guest paths, so projects, SSH/Git state, Qwen state,
+Android SDK, and caches are not reset.
+
+## Requirements
+
+- Linux host with Docker Compose and either LXD (`lxc`) or Incus (`incus`).
+  Windows and macOS continue using Docker Coder.
+- Initialized LXD/Incus bridge and storage pool large enough for the OS, Android
+  builds, nested Docker images, and backups. A 30 GiB default loop pool is
+  usually too small for this workload.
+- Installing account can control Docker and LXD/Incus. Access to the LXD/Incus
+  admin socket is host-administrator equivalent; the agent receives no host
+  instance-manager socket.
+- `python3`, `curl`, internet access for the Ubuntu image, Qwen source, Node,
+  packages, and Chromium; free host loopback ports 4171 and 4172.
+
+On Ubuntu with snap-supported LXD, follow the [official LXD setup](https://documentation.ubuntu.com/lxd/default/tutorial/first_steps/).
+On Linux Mint, Ubuntu's repository provides Incus:
+
+```bash
+sudo apt update
+sudo apt install incus
+sudo adduser "$USER" incus-admin
+# Start a new login shell to pick up group membership.
+incus admin init
+```
+
+Choose a sufficiently large Btrfs/ZFS storage pool. Incus `--minimal` uses a
+slower directory pool. See [Incus installation](https://linuxcontainers.org/incus/docs/main/installing/)
+and [initialization](https://linuxcontainers.org/incus/docs/main/howto/initialize/).
+
+## Install And Update
+
+From this branch's checkout:
+
+```bash
+PEAKUI_CODER_BACKEND=lxd PEAKUI_INSTANCE_CLI=incus ./scripts/install.sh
+```
+
+Omit `PEAKUI_INSTANCE_CLI=incus` for LXD. The backend and instance CLI are
+recorded in `.env`, so subsequent `./scripts/install.sh` runs preserve them.
+The instance defaults to four CPUs and 8 GiB of RAM; set `CODER_LXD_CPUS` and
+`CODER_LXD_MEMORY` before its first creation to change them. `CODER_LXD_IMAGE`
+selects a compatible Ubuntu image. `CODER_LXD_PORT` changes the host API port
+from 4171; Preview uses 4172. `CODER_LXD_INSTANCE` changes the instance name
+from `peakui-coder` and is saved for updates, backups, and rollback.
+
+The installer creates an unprivileged Ubuntu 24.04 instance with nested Docker
+support, mounts the nine existing Coder volumes using idmapped disk devices,
+installs Qwen and the current development/browser toolchain, then starts a
+systemd service. It stops Docker Coder only at cutover, checks a real Qwen
+runtime health response, and reconnects PeakUI. If setup fails, it restores
+Docker Coder and the app's original daemon URL. It never removes volumes.
+On every instance boot, the service refreshes the managed QWEN.md, Git defaults,
+SSH host trust, and runtime readiness checks.
+
+To return to Docker Coder deliberately:
+
+```bash
+PEAKUI_CODER_BACKEND=docker ./scripts/install.sh
+```
+
+## Directories And Sessions
+
+The workspace router starts one Qwen runtime per selected **existing** absolute
+directory. This permits `/workspace` and `/workspace/vision-proxy` concurrently,
+even though a single Qwen daemon rejects nested workspace registrations. Each
+runtime has its own persistent `QWEN_HOME`; `/workspace` keeps the existing
+`/root/.qwen` data. New runtimes copy model settings and historical project
+transcripts without copying debug caches. The session-to-directory map is
+persisted under `/var/lib/peakui/coder-router`. Create a directory before
+selecting it as a workspace. Existing sessions remain bound to their original
+directory. The managed QWEN.md is refreshed when a runtime starts after an
+update.
+
+The instance root persists all other directories. The agent can install
+packages, start systemd services, build projects, and use nested `docker` and
+`docker compose`. Files and large downloads under `/workspace` and `/apps`
+retain direct shared-volume streaming; elsewhere PeakUI streams through the
+daemon in bounded windows without buffering the whole file.
+
+Preview URLs such as `http://127.0.0.1:5173` map to the loopback-only origin
+`http://p5173.localhost:4172`. The proxy forwards HTTP paths and WebSocket
+upgrades into the guest. Preview screenshots use the same mapped origin. As
+with Docker Coder, a browser on another machine cannot use that machine's
+`localhost` to reach the PeakUI host.
+
+## Backups And Recovery
+
+```bash
+./scripts/coder-lxd/backup.sh /path/to/new/backup-directory
+```
+
+The script briefly stops the app and instance, dumps Postgres, exports the
+instance root, archives each Coder Docker volume, restarts services, and
+writes SHA-256 checksums. Store the resulting directory on another disk or
+machine. An instance snapshot alone omits the mounted Docker volumes and
+Postgres session metadata.
+
+Recovery requires restoring the exported instance, all nine named volumes,
+and the SQL dump as one set during a maintenance window. Verify `SHA256SUMS`
+and retain the original data until sessions, imports, downloads, Preview, and
+nested Docker have been checked in the restored deployment.
+
+## Verification
+
+```bash
+node --test scripts/coder-lxd/workspace-router.node-test.mjs
+npx vitest run src/lib/coder-preview.test.ts src/app/api/coder/preview/route.test.ts src/app/api/coder/'[...path]'/route.test.ts
+docker compose -f docker-compose.yml -f docker-compose.lxd.yml config --services
+```
+
+After host installation, verify `incus exec peakui-coder -- systemctl status
+peakui-coder docker`, `incus exec peakui-coder -- docker info`, an existing
+session reopen, a new nested-directory session, GitHub import, a large ZIP
+download, and a dev server in Preview with screenshot capture. Use `lxc` in
+place of `incus` when deployed with LXD.
+
+This backend currently has one shared Coder instance per PeakUI installation,
+as the Docker backend does. It is intended for a trusted single-user/admin
+deployment. Separate instances per PeakUI user are needed before providing
+independent Linux roots to untrusted users.

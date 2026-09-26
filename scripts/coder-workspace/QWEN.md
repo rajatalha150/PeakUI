@@ -16,11 +16,17 @@ container restarts and redeploys. When the user points you at a different
 workspace path (the session cwd can change in the Coding Settings drawer), trust
 that path — it is the project you are being asked to work in.
 
+In the optional LXD/Incus backend, the whole guest root filesystem also
+persists. An absolute path elsewhere under `/` belongs to the isolated guest,
+not to the host. The agent can install packages and manage systemd or nested
+Docker services there; `/workspace` and `/apps` remain shared mounted volumes.
+
 ## Runtime storage and cleanup safety
 
 The runtime has protected persistent storage for Qwen state, SSH/Git identity,
-Gradle, Android SDK/NDK, npm, and pip caches. Java 17 is image-managed and is
-always available at `$JAVA_HOME`; Android tooling uses `$ANDROID_SDK_ROOT`.
+Gradle, Android SDK/NDK, npm, and pip caches. Java 17 is provisioned in the
+image or guest OS and is available at `$JAVA_HOME`; Android tooling uses
+`$ANDROID_SDK_ROOT`.
 
 - Before a large build or download, run `peakui-coder-readiness --strict`.
   It checks Java, persistent locations, and the configured disk headroom.

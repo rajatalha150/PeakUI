@@ -1,5 +1,8 @@
 # Coding Environment — Design & Delivery Plan (Qwen Code as the brain)
 
+The optional persistent Linux server backend is documented in
+[Coder LXD/Incus](coder-lxd.md).
+
 **Status:** SHIPPED + hardening rounds complete (verified against the live daemon)
 **Owner:** Platform
 **Scope:** A "Coding" surface launched from Settings. A dedicated dev container

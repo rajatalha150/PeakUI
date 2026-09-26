@@ -31,6 +31,12 @@ describe('parsePreviewUrl', () => {
     expect(parsePreviewUrl('http://localhost:notaport/')).toHaveProperty('error')
   })
 
+  it('accepts an LXD preview origin without exposing host reserved ports', () => {
+    expect(parsePreviewUrl('http://p3000.localhost:4172/app')).toEqual({ target: { host: 'p3000.localhost', port: 4172, path: '/app' } })
+    expect(parsePreviewUrl('http://p4170.localhost:4172/')).toHaveProperty('error')
+    expect(parsePreviewUrl('http://127.0.0.1:3000/', { allowGuestPorts: true })).toHaveProperty('target')
+  })
+
   it('rejects malformed input', () => {
     expect(parsePreviewUrl('not a url')).toHaveProperty('error')
     expect(parsePreviewUrl('')).toHaveProperty('error')

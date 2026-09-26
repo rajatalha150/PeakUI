@@ -1,5 +1,8 @@
 # Coder Deployment Runbook
 
+For the opt-in LXD/Incus Coder backend, see its [installation and recovery
+runbook](coder-lxd.md). The steps below operate the Docker Coder backend.
+
 How to deploy and roll back this hardening round. The changes are additive and
 do not touch existing projects, accounts, credentials, or unrelated PeakUI
 features — no volume reset, no credential rotation, no `docker compose down -v`.

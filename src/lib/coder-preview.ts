@@ -15,6 +15,8 @@
 
 /** Hostnames a preview target may bind to (the daemon binds loopback). */
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
+const LXD_PREVIEW_HOST = /^ps?(\d{4,5})\.localhost$/
+const LXD_GUEST_RESERVED_PORTS = new Set([2375, 2376, 4170, 4171, 4172, 11434])
 
 export type PreviewDevice = 'desktop' | 'tablet' | 'mobile'
 
@@ -33,7 +35,7 @@ export const PREVIEW_VIEWPORTS: Record<PreviewDevice, { width: number; height: n
  * executor on 4318, the DB on 5432, SearXNG on 8080, tor on 9050/9150.
  */
 export const PREVIEW_RESERVED_PORTS = new Set<number>([
-  2375, 2376, 3000, 3001, 4170, 4318, 5432, 6379, 8080, 9050, 9150, 11434,
+  2375, 2376, 3000, 3001, 4170, 4171, 4172, 4318, 5432, 6379, 8080, 9050, 9150, 11434,
 ])
 
 export interface PreviewTarget {
@@ -47,7 +49,7 @@ export interface PreviewTarget {
  * Parse a user/agent-provided preview URL into a validated loopback target, or
  * an `error` string describing why it is not a safe local dev-server URL.
  */
-export function parsePreviewUrl(raw: string): { target: PreviewTarget } | { error: string } {
+export function parsePreviewUrl(raw: string, options: { allowGuestPorts?: boolean } = {}): { target: PreviewTarget } | { error: string } {
   let url: URL
   try {
     url = new URL(raw)
@@ -60,6 +62,13 @@ export function parsePreviewUrl(raw: string): { target: PreviewTarget } | { erro
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     return { error: 'Preview URL must be http(s).' }
   }
+  const lxdPreview = LXD_PREVIEW_HOST.exec(host)
+  if (lxdPreview && url.port === '4172') {
+    const appPort = Number(lxdPreview[1])
+    if (appPort >= 1024 && appPort <= 65535 && !LXD_GUEST_RESERVED_PORTS.has(appPort)) {
+      return { target: { host, port: 4172, path: url.pathname || '/' } }
+    }
+  }
   if (!LOOPBACK_HOSTS.has(host)) {
     return { error: 'Preview URL must be a local dev server (127.0.0.1/localhost).' }
   }
@@ -70,7 +79,7 @@ export function parsePreviewUrl(raw: string): { target: PreviewTarget } | { erro
   if (!Number.isInteger(port) || port < 1024 || port > 65535) {
     return { error: 'Preview port must be 1024–65535.' }
   }
-  if (PREVIEW_RESERVED_PORTS.has(port)) {
+  if ((options.allowGuestPorts ? LXD_GUEST_RESERVED_PORTS : PREVIEW_RESERVED_PORTS).has(port)) {
     return { error: `Port ${port} is reserved for another service.` }
   }
 

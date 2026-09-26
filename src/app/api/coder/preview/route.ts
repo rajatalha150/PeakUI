@@ -35,10 +35,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Preview URL is required.', code: 'bad_request' }, { status: 400 })
   }
 
-  const parsed = parsePreviewUrl(url)
+  const parsed = parsePreviewUrl(url, { allowGuestPorts: process.env.CODER_BACKEND === 'lxd' })
   if ('error' in parsed) {
     return NextResponse.json({ error: parsed.error, code: 'invalid_preview_url' }, { status: 400 })
   }
 
-  return NextResponse.json({ ok: true, target: parsed.target })
+  const original = new URL(url)
+  const previewUrl = process.env.CODER_BACKEND === 'lxd' && !original.hostname.toLowerCase().endsWith('.localhost')
+    ? `http://p${original.protocol === 'https:' ? 's' : ''}${parsed.target.port}.localhost:4172${original.pathname}${original.search}${original.hash}`
+    : url
+  return NextResponse.json({ ok: true, target: parsed.target, previewUrl })
 }

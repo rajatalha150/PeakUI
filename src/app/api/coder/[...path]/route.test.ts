@@ -222,7 +222,7 @@ describe('coder gateway route — response relay', () => {
     expect((await POST(makeRequest('/session/abc/prompt', { method: 'POST', body: JSON.stringify({ prompt: 'hello' }) }) as never)).status).toBe(200)
     expect(seen).toEqual([
       '/workspace/settings?workspace=%2Fworkspace',
-      '/workspace/agents/peakui-writer?scope=global',
+      '/workspace/agents/peakui-writer?scope=global&workspace=%2Fworkspace',
       '/session/abc/prompt',
     ])
   })
@@ -238,7 +238,7 @@ describe('coder gateway route — response relay', () => {
     expect((await POST(makeRequest('/session/abc/prompt', { method: 'POST', body: JSON.stringify({ prompt: 'hello' }) }) as never)).status).toBe(200)
     expect(seen).toEqual([
       '/workspace/settings?workspace=%2Fworkspace',
-      '/workspace/agents/peakui-writer?scope=global',
+      '/workspace/agents/peakui-writer?scope=global&workspace=%2Fworkspace',
       '/session/abc/prompt',
     ])
   })

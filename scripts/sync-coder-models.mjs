@@ -22,7 +22,7 @@ import { homedir } from 'node:os';
 
 const OLLAMA_BASE_URL = process.env.OPENAI_BASE_URL || 'http://127.0.0.1:11434/v1';
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || '';
-const SETTINGS_PATH = path.join(homedir(), '.qwen', 'settings.json');
+const SETTINGS_PATH = path.join(process.env.QWEN_HOME || path.join(homedir(), '.qwen'), 'settings.json');
 
 // Qwen falls back to a generic 200k window for an OpenAI-compatible model it
 // does not recognize by name. Ollama already exposes the actual model limit in

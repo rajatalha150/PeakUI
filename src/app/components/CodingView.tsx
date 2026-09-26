@@ -399,6 +399,7 @@ export default function CodingView() {
   // The override is cleared when the agent points the preview at a new URL.
   const previewDeviceManualRef = React.useRef(false);
   const previewUrlManualRef = React.useRef(false);
+  const previewRequestRef = React.useRef(0);
   const agentPreviewRef = React.useRef<{ url: string; device?: PreviewDevice } | null>(null);
   const [previewReloadKey, setPreviewReloadKey] = React.useState(0);
   const [previewCapturing, setPreviewCapturing] = React.useState(false);
@@ -678,6 +679,7 @@ export default function CodingView() {
 
   const applyPreview = React.useCallback((url: string, source: 'agent' | 'manual' = 'manual') => {
     const clean = (url || '').trim();
+    const requestId = ++previewRequestRef.current;
     setPreviewInput(clean);
     if (!clean) {
       if (source === 'manual') {
@@ -687,21 +689,7 @@ export default function CodingView() {
       }
       return;
     }
-    // Reject anything that is not a loopback dev-server URL before it can be
-    // framed. The agent writes this file, so the guard is the only thing
-    // standing between a crafted `.peakui-preview.json` and an internal service
-    // (the app/daemon/DB/SearXNG/tor) being loaded into the preview pane.
-    const parsed = parsePreviewUrl(clean);
-    if ('error' in parsed) {
-      setPreviewError(`${parsed.error} Preview only loads a local development server, for example http://127.0.0.1:5173.`);
-      return;
-    }
     if (source === 'manual') previewUrlManualRef.current = true;
-    setPreviewUrl(clean);
-    setPreviewReloadKey(key => key + 1);
-    setPreviewError('');
-    // Defense in depth: re-validate server-side before framing, so a URL the
-    // client accepts but the API refuses is still kept out of the pane.
     void (async () => {
       try {
         const res = await fetch('/api/coder/preview', {
@@ -709,12 +697,23 @@ export default function CodingView() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: clean }),
         });
+        const data = (await res.json().catch(() => ({}))) as { error?: string; previewUrl?: string };
+        if (requestId !== previewRequestRef.current) return;
         if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
           setPreviewError(data.error || 'Preview URL rejected by the server.');
+          return;
         }
+        const approvedUrl = data.previewUrl || clean;
+        const parsed = parsePreviewUrl(approvedUrl);
+        if ('error' in parsed) {
+          setPreviewError(parsed.error);
+          return;
+        }
+        setPreviewUrl(approvedUrl);
+        setPreviewReloadKey(key => key + 1);
+        setPreviewError('');
       } catch {
-        // The guard route is best-effort; the client-side check already ran.
+        if (requestId === previewRequestRef.current) setPreviewError('Could not validate the preview URL.');
       }
     })();
   }, []);
@@ -744,7 +743,7 @@ export default function CodingView() {
             ? parsed.device as PreviewDevice
             : undefined;
           if (url) agentPreviewRef.current = { url, device };
-          if (url && url !== previewUrl && !previewUrlManualRef.current) {
+          if (url && url !== previewInput && !previewUrlManualRef.current) {
             previewDeviceManualRef.current = false;
             applyPreview(url, 'agent');
           }
@@ -760,7 +759,7 @@ export default function CodingView() {
     };
     void tick();
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
-  }, [previewOpen, daemonSessionId, previewUrl, applyPreview, workspace]);
+  }, [previewOpen, daemonSessionId, previewInput, applyPreview, workspace]);
 
   const openPreview = (initialUrl?: string) => {
     if (initialUrl) applyPreview(initialUrl, 'manual');
@@ -1775,20 +1774,21 @@ export default function CodingView() {
    */
   const applyWriterModel = async (modelId: string) => {
     try {
+      const workspaceQuery = `workspace=${encodeURIComponent(sessionWorkspaceRef.current || workspace)}`;
       let res: Response;
       if (!modelId) {
-        res = await fetch(`/api/coder/workspace/agents/${CODER_WRITER_AGENT_NAME}?scope=${CODER_WRITER_AGENT_SCOPE}`, { method: 'DELETE' });
+        res = await fetch(`/api/coder/workspace/agents/${CODER_WRITER_AGENT_NAME}?scope=${CODER_WRITER_AGENT_SCOPE}&${workspaceQuery}`, { method: 'DELETE' });
         if (res.status === 404) return; // already absent — nothing to do
       } else {
         // Try update first (idempotent, hot-reloads the daemon's agent list);
         // fall back to create if it does not exist yet.
-        res = await fetch(`/api/coder/workspace/agents/${CODER_WRITER_AGENT_NAME}?scope=${CODER_WRITER_AGENT_SCOPE}`, {
+        res = await fetch(`/api/coder/workspace/agents/${CODER_WRITER_AGENT_NAME}?scope=${CODER_WRITER_AGENT_SCOPE}&${workspaceQuery}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(buildWriterSubagentUpdateBody(modelId)),
         });
         if (res.status === 404) {
-          res = await fetch('/api/coder/workspace/agents', {
+          res = await fetch(`/api/coder/workspace/agents?${workspaceQuery}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(buildWriterSubagentCreateBody(modelId)),

@@ -1,0 +1,21 @@
+[Unit]
+Description=PeakUI Coder workspace router
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/peakui-coder.env
+Environment=PUPPETEER_CACHE_DIR=/opt/puppeteer-cache
+Environment=ANDROID_HOME=/opt/android-sdk
+Environment=ANDROID_SDK_ROOT=/opt/android-sdk
+WorkingDirectory=/workspace
+ExecStartPre=/usr/local/bin/peakui-coder-prepare
+ExecStartPre=/usr/local/bin/peakui-coder-readiness --startup
+ExecStart=/usr/local/bin/node /opt/peakui/coder/workspace-router.mjs
+Restart=always
+RestartSec=3
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

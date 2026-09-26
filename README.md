@@ -62,6 +62,12 @@ branch explicitly, set `PEAKUI_REF` before the command. Then jump to step 3
 below. The manual steps that follow are for when you prefer to clone and
 configure by hand.
 
+On Linux, Coding also has an opt-in persistent LXD/Incus system-container
+backend under development on `coder-lxd`. PeakUI and its data services remain
+in Docker. See [Coder LXD/Incus setup](docs/coder-lxd.md) for installation,
+directory routing, backups, and rollback. Windows and macOS continue to use
+the Docker Coding backend.
+
 ### 1. Start Ollama
 
 ```bash
