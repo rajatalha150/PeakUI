@@ -14,12 +14,30 @@
 set -eu
 
 REPO="https://github.com/rajatalha150/PeakUI.git"
-BRANCH="${PEAKUI_REF:-trimmer}"
 PORT="${PEAKUI_PORT:-3000}"
 
-# Target dir: explicit arg > env > ./PeakUI in the current working directory.
-# (When piped from curl, $PWD is wherever the user ran the command.)
-TARGET="${1:-${PEAKUI_TARGET:-$PWD/PeakUI}}"
+# Target dir: explicit arg > env > current checkout > ./PeakUI. A local run
+# from the repository root must update that checkout, not clone PeakUI/PeakUI.
+if [ -n "${1:-}" ]; then
+  TARGET=$1
+elif [ -n "${PEAKUI_TARGET:-}" ]; then
+  TARGET=$PEAKUI_TARGET
+elif [ -f "$PWD/docker-compose.yml" ] && git -C "$PWD" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  TARGET=$PWD
+else
+  TARGET=$PWD/PeakUI
+fi
+
+# An explicit ref wins. Otherwise preserve the active branch of an existing
+# checkout; curl-based fresh installations continue to default to trimmer.
+if [ -n "${PEAKUI_REF:-}" ]; then
+  BRANCH=$PEAKUI_REF
+elif git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  BRANCH=$(git -C "$TARGET" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  BRANCH=${BRANCH:-trimmer}
+else
+  BRANCH=trimmer
+fi
 
 if [ -t 1 ]; then
   C_BLUE='\033[1;34m'; C_GREEN='\033[1;32m'; C_YELLOW='\033[1;33m'; C_RED='\033[1;31m'; C_OFF='\033[0m'
