@@ -57,6 +57,9 @@ push_guest_file() {
   # mkdir -p leaves an existing directory's permissions intact. In particular,
   # never turn the guest's sticky /tmp (1777) into a private staging directory.
   "$instance_cli" exec "$instance" -- mkdir -p "$(dirname "$destination")"
+  # Cloud-init may leave a staging file owned by its default user in sticky
+  # /tmp. Remove only this explicit managed target before writing it as root.
+  "$instance_cli" exec "$instance" -- rm -f "$destination"
   "$instance_cli" exec "$instance" -- sh -c 'umask 022; cat > "$1"; chmod "$2" "$1"' sh "$destination" "$mode" < "$source"
 }
 
