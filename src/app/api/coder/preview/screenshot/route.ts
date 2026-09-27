@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
     const code = error instanceof PreviewCaptureError ? error.code : 'preview_unreachable'
     const status = code === 'invalid_preview_url' ? 400 : code === 'preview_busy' ? 429 : code === 'preview_too_large' ? 413 : 502
     const messages: Record<typeof code, string> = {
-      invalid_preview_url: 'Preview URL is not an approved local dev-server URL.',
+      invalid_preview_url: 'Preview URL is not an approved local target or a DNS-resolvable public website.',
       preview_busy: 'Preview capture is busy. Try again shortly.',
       preview_unreachable: 'The local preview could not be loaded for capture.',
       preview_too_large: 'The preview screenshot is too large to send to the vision model.',

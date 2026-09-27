@@ -21,6 +21,9 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     const code = error instanceof PreviewCaptureError ? error.code : 'preview_unreachable'
     const status = code === 'invalid_preview_url' ? 400 : code === 'preview_busy' ? 429 : 502
-    return NextResponse.json({ error: 'Preview diagnostics could not be collected.', code }, { status })
+    const message = code === 'invalid_preview_url'
+      ? 'Preview URL is not an approved local target or a DNS-resolvable public website.'
+      : 'Preview diagnostics could not be collected.'
+    return NextResponse.json({ error: message, code }, { status })
   }
 }

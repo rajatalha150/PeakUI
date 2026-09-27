@@ -117,19 +117,28 @@ sequenceDiagram
   A->>G: Start app on a guest port
   A->>G: Publish .peakui-preview.json
   B->>S: Open Preview
-  S->>G: Authenticated private preview bridge
-  S-->>B: Same-origin preview proxy
-  B->>S: Load HTML, assets, API requests
+  S-->>B: Short-lived signed launch ticket
+  B->>S: Open isolated Preview origin on :4173
+  S->>G: Private preview bridge on :4172
+  G-->>B: HTML, routes, cookies, APIs, assets, WebSockets
 ```
 
-Preview is intentionally served through PeakUI's same origin rather than `*.localhost`. This lets it work from a phone or another computer on your LAN, while the guest bridge stays private. Root-relative Vite assets and API paths are rewritten through the proxy so a production-style SPA does not render as a blank page.
+Preview uses a dedicated origin instead of placing an arbitrary application
+under PeakUI's `/api/...` path. A signed launch ticket authorizes one validated
+guest port; the gateway then redirects to the application's real root. React
+Router, authenticated cookies, redirects, CSP, absolute assets, API paths, and
+WebSockets behave as they do in production, while the guest bridge remains
+private. Port `4173` must be reachable anywhere port `3000` is reachable. For
+an HTTPS deployment, set `CODER_PREVIEW_PUBLIC_ORIGIN` to a separate TLS
+hostname that reverse-proxies to `4173`.
 
 The Preview window provides:
 
 - Desktop, tablet, and mobile viewport frames.
 - Resize, move, maximize, reload, and automatic running-port discovery.
+- Public HTTP(S) URLs, plus a full-tab button for sites that prohibit framing.
 - `Vision` screenshot review for the selected viewport.
-- `Log` diagnostics: Chromium console output, page errors, failed requests, and HTTP failures with one-click copy. Vision receives the captured log with the screenshot when available.
+- `Log` diagnostics: Chromium console output, page errors, failed requests, and HTTP failures with one-click copy. Vision receives the captured log with the screenshot when available. Public capture resolves every requested hostname and refuses private or literal IP targets; `.onion` AI capture uses the configured Tor proxy.
 
 ## Durable Agent Sessions
 

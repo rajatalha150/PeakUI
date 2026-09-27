@@ -765,13 +765,16 @@ architecture decision (a PTY/DAP broker in the app server), not a thin UI slice.
 
 Two routes sit on the app side rather than the daemon pass-through:
 
-- **`POST /api/coder/preview`** re-validates a preview URL at the API boundary
-  before it is framed — `parsePreviewUrl` (loopback-only, reserved ports refused)
-  is the same validator the client runs, now enforced server-side so a tampered
-  or bypassed client check cannot frame an SSRF target. Returns
-  `{ ok: true, target }` or `{ error, code: 'invalid_preview_url' }` (400). This
-  is defense in depth, not a replacement for the authenticated proxy (still
-  deferred — see §4).
+- **`POST /api/coder/preview`** re-validates a preview URL at the API boundary,
+  using the same loopback-only, reserved-port validation as the client before
+  anything is framed. It then
+  signs a short-lived target ticket, and launches the app on the isolated
+  Preview gateway origin (port 4173). Root routing, application cookies,
+  redirects, assets, CSP, APIs, and WebSockets pass through without path-prefix
+  rewriting. HTTPS installations set `CODER_PREVIEW_PUBLIC_ORIGIN` to a
+  separate TLS hostname that proxies to port 4173. A tampered or bypassed
+  client check therefore cannot frame an SSRF target; invalid targets return
+  `{ error, code: 'invalid_preview_url' }` (400).
 - **`GET /api/coder/readiness`** probes the two things the Coding UI depends on
   beyond the app process: the database (`SELECT 1`) and the daemon (`/health`,
   4s timeout). It returns 200 with per-check status, or 503 when either is down.

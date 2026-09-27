@@ -227,16 +227,31 @@ in bounded windows, so file and ZIP size is not capped or buffered wholly in
 the app. GitHub imports use a private daemon endpoint and do not expose the
 installation token in shell history or agent transcripts.
 
-Preview URLs such as `http://127.0.0.1:5173` are approved by PeakUI and shown
-through its authenticated same-origin preview proxy at
-`/api/coder/preview-proxy/<port>/...`. The app-to-guest bridge remains private
-on loopback port 4172; the browser never needs to resolve a guest hostname or
-use its own `localhost`. This makes Preview work from another computer or phone
-on the same trusted network. The proxy rewrites root-relative HTML and Vite
-asset/API paths so production SPAs retain their expected routing inside the
-Preview iframe. Preview's **Log** action runs Chromium against the same
-approved target and exposes copyable console, page, request, and HTTP errors;
-Vision reviews include those diagnostics when available.
+Preview URLs such as `http://127.0.0.1:5173` are approved by PeakUI, exchanged
+for a short-lived signed launch ticket, and opened on the dedicated Preview
+origin at host port 4173. The gateway stores the approved guest target in an
+HttpOnly routing cookie and redirects to the app's real `/` path. It then
+passes routes, application cookies, redirects, request bodies, assets, and
+WebSockets through unchanged. React Router, OAuth-style callbacks, root-relative
+assets, CSP, and authenticated APIs therefore see a normal origin instead of a
+PeakUI path prefix. The private app-to-guest bridge remains on loopback port
+4172 and cannot be selected as a preview target.
+
+The browser must be able to reach TCP 4173 on the same PeakUI host. When PeakUI
+is published through HTTPS, route a separate TLS hostname to port 4173 and set
+`CODER_PREVIEW_PUBLIC_ORIGIN=https://preview.example.com`; this avoids mixed
+content while preserving the isolated origin. Never point that hostname at
+the main PeakUI port. Preview's **Log** and **Vision** actions use the same
+signed gateway path from server-side Chromium, so their result matches the
+transport shown in the iframe rather than a private direct URL.
+
+Preview also accepts named public HTTP(S) sites such as
+`https://apps.example.com`. Those load directly in the isolated iframe, and
+the external-tab button handles applications whose `frame-ancestors` CSP or
+`X-Frame-Options` deliberately forbids embedding. Server-side Log and Vision
+capture resolve each public hostname and reject private, link-local, literal-IP,
+or DNS-failing targets. An `.onion` capture is accepted only when
+`TOR_PROXY_URL` is configured and Chromium can use that SOCKS endpoint.
 
 ## Backups And Recovery
 

@@ -41,29 +41,30 @@ describe('POST /api/coder/preview', () => {
     const { POST } = await loadRoute()
     const res = await POST(makeRequest({ url: 'http://127.0.0.1:5173/' }))
     expect(res.status).toBe(200)
-    expect(await res.json()).toMatchObject({ ok: true, target: { host: '127.0.0.1', port: 5173 } })
+    const body = await res.json()
+    expect(body).toMatchObject({ ok: true, target: { host: '127.0.0.1', port: 5173 } })
+    expect(body.previewUrl).toMatch(/^http:\/\/localhost:4173\/__peakui\/open\?ticket=/)
   })
 
-  it('maps a guest dev server through the same-origin LXD preview proxy', async () => {
+  it('maps a guest dev server through the isolated Preview origin', async () => {
     process.env.CODER_BACKEND = 'lxd'
     const { POST } = await loadRoute()
     const res = await POST(makeRequest({ url: 'http://127.0.0.1:3000/app?view=1' }))
     expect(res.status).toBe(200)
-    expect(await res.json()).toMatchObject({
-      previewUrl: '/api/coder/preview-proxy/3000/app?view=1',
-      captureUrl: 'http://p3000.localhost:4172/app?view=1',
-    })
+    const body = await res.json()
+    expect(body.previewUrl).toMatch(/^http:\/\/localhost:4173\/__peakui\/open\?ticket=/)
+    expect(body.previewUrl).toContain('path=%2Fapp%3Fview%3D1')
+    expect(body.captureUrl).toMatch(/^http:\/\/127\.0\.0\.1:4173\/__peakui\/open\?ticket=/)
   })
 
-  it('upgrades a legacy LXD localhost bridge URL to the same-origin proxy', async () => {
+  it('upgrades a legacy LXD localhost bridge URL to the isolated Preview origin', async () => {
     process.env.CODER_BACKEND = 'lxd'
     const { POST } = await loadRoute()
     const res = await POST(makeRequest({ url: 'http://p8081.localhost:4172/login' }))
     expect(res.status).toBe(200)
-    expect(await res.json()).toMatchObject({
-      previewUrl: '/api/coder/preview-proxy/8081/login',
-      captureUrl: 'http://p8081.localhost:4172/login',
-    })
+    const body = await res.json()
+    expect(body.previewUrl).toMatch(/^http:\/\/localhost:4173\/__peakui\/open\?ticket=/)
+    expect(body.previewUrl).toContain('path=%2Flogin')
   })
 
   it('rejects a non-loopback URL (SSRF guard)', async () => {
@@ -71,6 +72,13 @@ describe('POST /api/coder/preview', () => {
     const res = await POST(makeRequest({ url: 'http://169.254.169.254/latest/meta-data' }))
     expect(res.status).toBe(400)
     expect(((await res.json()) as { code: string }).code).toBe('invalid_preview_url')
+  })
+
+  it('opens a public hostname directly and gives capture the same URL', async () => {
+    const { POST } = await loadRoute()
+    const res = await POST(makeRequest({ url: 'http://apps.visiongrid.net/' }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ previewUrl: 'http://apps.visiongrid.net/', captureUrl: 'http://apps.visiongrid.net/', remote: true })
   })
 
   it('rejects a reserved port', async () => {

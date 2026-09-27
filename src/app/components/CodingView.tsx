@@ -1,7 +1,7 @@
 "use client";
 
 import React from 'react';
-import { AlertCircle, Bot, Camera, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardCopy, Download, FileText, Folder, GitBranch, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
+import { AlertCircle, Bot, Camera, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardCopy, Download, ExternalLink, FileText, Folder, GitBranch, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
 import { buildConversation, fetchFullTranscript, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from '@/lib/coder-transcript';
 import { streamSessionEvents } from '@/lib/coder-sse';
@@ -712,23 +712,23 @@ export default function CodingView() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: clean }),
         });
-        const data = (await res.json().catch(() => ({}))) as { error?: string; previewUrl?: string; captureUrl?: string };
+        const data = (await res.json().catch(() => ({}))) as { error?: string; previewUrl?: string; captureUrl?: string | null };
         if (requestId !== previewRequestRef.current) return;
         if (!res.ok) {
           setPreviewError(data.error || 'Preview URL rejected by the server.');
           return;
         }
         const approvedUrl = data.previewUrl || clean;
-        const sameOriginProxy = /^\/api\/coder\/preview-proxy\/(?:s?\d{1,5})(?:\/|$)/.test(approvedUrl);
-        if (!sameOriginProxy) {
-          const parsed = parsePreviewUrl(approvedUrl);
+        const signedPreviewOrigin = approvedUrl.includes('/__peakui/open?ticket=');
+        if (!signedPreviewOrigin) {
+          const parsed = parsePreviewUrl(approvedUrl, { allowRemote: true });
           if ('error' in parsed) {
             setPreviewError(parsed.error);
             return;
           }
         }
         setPreviewUrl(approvedUrl);
-        setPreviewCaptureUrl(typeof data.captureUrl === 'string' ? data.captureUrl : approvedUrl);
+        setPreviewCaptureUrl(typeof data.captureUrl === 'string' ? data.captureUrl : '');
         setPreviewDiagnostics([]);
         setPreviewDiagnosticsOpen(false);
         setPreviewReloadKey(key => key + 1);
@@ -827,7 +827,7 @@ export default function CodingView() {
   };
 
   const sendPreviewToVision = async () => {
-    if (!activeSessionId || !previewUrl || previewCapturing) return;
+    if (!activeSessionId || !previewUrl || !previewCaptureUrl || previewCapturing) return;
     const current = captureSession();
     setPreviewCapturing(true);
     setError('');
@@ -838,7 +838,7 @@ export default function CodingView() {
       const capture = await fetch('/api/coder/preview/screenshot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: previewCaptureUrl || previewUrl, device: previewDevice }),
+        body: JSON.stringify({ url: previewCaptureUrl, device: previewDevice }),
       });
       const image = await capture.json().catch(() => ({})) as { data?: unknown; mimeType?: unknown; width?: unknown; height?: unknown; error?: unknown };
       if (!capture.ok || typeof image.data !== 'string' || typeof image.mimeType !== 'string') {
@@ -868,13 +868,13 @@ export default function CodingView() {
   };
 
   const inspectPreviewDiagnostics = async () => {
-    if (!previewUrl || previewDiagnosticsLoading) return;
+    if (!previewUrl || !previewCaptureUrl || previewDiagnosticsLoading) return;
     setPreviewDiagnosticsLoading(true);
     try {
       const response = await fetch('/api/coder/preview/diagnostics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: previewCaptureUrl || previewUrl, device: previewDevice }),
+        body: JSON.stringify({ url: previewCaptureUrl, device: previewDevice }),
       });
       const result = await response.json().catch(() => ({})) as { entries?: Array<{ level?: unknown; message?: unknown }>; error?: string };
       if (!response.ok) throw new Error(result.error || 'Browser diagnostics failed');
@@ -3603,10 +3603,10 @@ export default function CodingView() {
                   <RefreshCw size={13} />
                 </button>
               )}
-              <button onClick={() => void sendPreviewToVision()} disabled={!previewUrl || !activeSessionId || previewCapturing} title="Capture this viewport and ask the coding agent to inspect and fix it" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(34,211,238,0.1)', color: accent, border: '1px solid rgba(34,211,238,0.3)', borderRadius: 5, padding: '3px 6px', fontSize: '0.66rem', cursor: previewUrl && activeSessionId && !previewCapturing ? 'pointer' : 'default', opacity: previewUrl && activeSessionId && !previewCapturing ? 1 : 0.45 }}>
+              <button onClick={() => void sendPreviewToVision()} disabled={!previewCaptureUrl || !activeSessionId || previewCapturing} title={previewCaptureUrl ? 'Capture this viewport and ask the coding agent to inspect and fix it' : 'Vision capture is available for validated local previews'} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(34,211,238,0.1)', color: accent, border: '1px solid rgba(34,211,238,0.3)', borderRadius: 5, padding: '3px 6px', fontSize: '0.66rem', cursor: previewCaptureUrl && activeSessionId && !previewCapturing ? 'pointer' : 'default', opacity: previewCaptureUrl && activeSessionId && !previewCapturing ? 1 : 0.45 }}>
                 {previewCapturing ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Camera size={12} />} Vision
               </button>
-              <button onClick={() => void inspectPreviewDiagnostics()} disabled={!previewUrl || previewDiagnosticsLoading} title="Run the preview in Chromium and collect console, network, and page errors" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: previewDiagnosticsOpen ? 'rgba(245,158,11,0.14)' : 'transparent', color: previewDiagnosticsOpen ? '#fbbf24' : 'rgba(209,213,219,0.7)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 5, padding: '3px 6px', fontSize: '0.66rem', cursor: previewUrl && !previewDiagnosticsLoading ? 'pointer' : 'default', opacity: previewUrl && !previewDiagnosticsLoading ? 1 : 0.45 }}>
+              <button onClick={() => void inspectPreviewDiagnostics()} disabled={!previewCaptureUrl || previewDiagnosticsLoading} title={previewCaptureUrl ? 'Run the preview in Chromium and collect console, network, and page errors' : 'Runtime diagnostics are available for validated local previews'} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: previewDiagnosticsOpen ? 'rgba(245,158,11,0.14)' : 'transparent', color: previewDiagnosticsOpen ? '#fbbf24' : 'rgba(209,213,219,0.7)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 5, padding: '3px 6px', fontSize: '0.66rem', cursor: previewCaptureUrl && !previewDiagnosticsLoading ? 'pointer' : 'default', opacity: previewCaptureUrl && !previewDiagnosticsLoading ? 1 : 0.45 }}>
                 {previewDiagnosticsLoading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Terminal size={12} />} Log
               </button>
               {!isPhone && <button onClick={() => setPreviewMaximized(value => !value)} title={previewMaximized ? 'Restore preview size' : 'Maximize preview'} style={{ display: 'inline-flex', alignItems: 'center', background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.6)', cursor: 'pointer', padding: 2 }}>{previewMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}</button>}
@@ -3622,6 +3622,7 @@ export default function CodingView() {
               />
               <button onClick={() => void discoverPreview()} title="Detect running local web servers" aria-label="Detect running local web servers" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: 'pointer' }}><RefreshCw size={13} /></button>
               <button onClick={() => applyPreview(previewInput, 'manual')} style={{ background: 'rgba(34,211,238,0.12)', color: accent, border: `1px solid ${accent}`, borderRadius: '6px', padding: '4px 10px', fontSize: '0.72rem', cursor: 'pointer' }}>Go</button>
+              <button onClick={() => previewUrl && window.open(previewUrl, '_blank', 'noopener,noreferrer')} disabled={!previewUrl} title="Open this preview in a full browser tab" aria-label="Open preview in new tab" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: previewUrl ? 'pointer' : 'default', opacity: previewUrl ? 1 : 0.45 }}><ExternalLink size={13} /></button>
             </div>
             {previewError && <div role="alert" style={{ margin: '0 10px 8px', padding: '6px 8px', fontSize: '0.7rem', color: '#fca5a5', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5 }}>{previewError}</div>}
             {previewDiagnosticsOpen && (
@@ -3661,7 +3662,7 @@ export default function CodingView() {
                       transform: `scale(${previewScale})`,
                       transformOrigin: 'top left',
                     }}
-                    sandbox="allow-scripts allow-forms allow-popups"
+                    sandbox="allow-scripts allow-forms allow-popups allow-same-origin allow-downloads allow-modals allow-pointer-lock"
                   />
                 </div>
               ) : (

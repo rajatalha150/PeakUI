@@ -31,12 +31,15 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/src/novnc.d.ts ./src/novnc.d.ts
 COPY --from=builder /app/irs_forms ./irs_forms
+COPY --from=builder /app/scripts/coder-preview-gateway.mjs ./scripts/coder-preview-gateway.mjs
+COPY --from=builder /app/scripts/start-peakui.sh ./scripts/start-peakui.sh
+RUN chmod 755 ./scripts/start-peakui.sh
 
-EXPOSE 3000
+EXPOSE 3000 4173
 ENV PORT=3000
 ENV HOSTNAME=::
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Production startup fails closed on migration errors. Legacy databases must
 # be explicitly baselined after a schema comparison and a verified backup.
-CMD ["sh", "-c", "mkdir -p /mnt/workspace-tool/workspace /var/lib/peakui && if [ -z \"${JWT_SECRET:-}\" ] || [ ${#JWT_SECRET} -lt 32 ]; then if [ -f /var/lib/peakui/jwt-secret ]; then export JWT_SECRET=\"$(cat /var/lib/peakui/jwt-secret)\"; else export JWT_SECRET=\"$(head -c 48 /dev/urandom | base64 | tr -d '\\n' | cut -c1-64)\"; printf '%s' \"$JWT_SECRET\" >/var/lib/peakui/jwt-secret; chmod 600 /var/lib/peakui/jwt-secret; fi; fi && WORKSPACE_TOOL_HOST_WORKSPACE_DIR=\"${WORKSPACE_TOOL_HOST_WORKSPACE_DIR:-/home/raza/.peakui/workspace}\" && if [ \"$WORKSPACE_TOOL_HOST_WORKSPACE_DIR\" != \"/mnt/workspace-tool/workspace\" ] && [ ! -e \"$WORKSPACE_TOOL_HOST_WORKSPACE_DIR\" ] && ! printf '%s' \"$WORKSPACE_TOOL_HOST_WORKSPACE_DIR\" | grep -qE '^[A-Za-z]:'; then mkdir -p \"$(dirname \"$WORKSPACE_TOOL_HOST_WORKSPACE_DIR\")\" && ln -s /mnt/workspace-tool/workspace \"$WORKSPACE_TOOL_HOST_WORKSPACE_DIR\"; fi && npx prisma migrate deploy && node server.js"]
+CMD ["./scripts/start-peakui.sh"]

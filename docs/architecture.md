@@ -43,9 +43,9 @@ The browser never receives the Qwen daemon token. Gateway authorization binds ea
 flowchart LR
   Agent[Agent starts server] --> GuestPort[Guest app port]
   GuestPort --> Bridge[Private preview bridge :4172]
-  Bridge --> Proxy[PeakUI same-origin preview proxy]
-  Proxy --> Frame[Sandboxed Preview iframe]
-  Frame --> Log[Chromium diagnostics]
+  Bridge --> PreviewGateway[Signed isolated preview origin :4173]
+  PreviewGateway --> PreviewFrame[Preview iframe at real root paths]
+  PreviewFrame --> Log[Chromium diagnostics]
   Frame --> Vision[Viewport screenshot review]
 ```
 

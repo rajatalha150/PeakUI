@@ -82,6 +82,7 @@ services:
       OPENAI_BASE_URL: ${CODER_OPENAI_BASE_URL:-http://host.docker.internal:11434/v1}
       QWEN_DEBUG_LOG_FILE: "1"
       CODER_MIN_FREE_GB: ${CODER_MIN_FREE_GB:-12}
+      CODER_PREVIEW_BIND: 0.0.0.0
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4170/health',{signal:AbortSignal.timeout(4000),headers:process.env.QWEN_SERVER_TOKEN?{Authorization:'Bearer '+process.env.QWEN_SERVER_TOKEN}:{}}).then(async r=>{if(!r.ok||(await r.json()).status!=='ok')process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
@@ -109,6 +110,7 @@ services:
     shm_size: "256m"
     ports:
       - "3000:3000"
+      - "4173:4173"
     environment:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
@@ -131,6 +133,9 @@ services:
       OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
       CODER_DAEMON_URL: ${CODER_DAEMON_URL:-http://coder:4170}
       CODER_SERVER_TOKEN: ${CODER_SERVER_TOKEN:-}
+      CODER_PREVIEW_GATEWAY_PORT: ${CODER_PREVIEW_GATEWAY_PORT:-4173}
+      CODER_PREVIEW_BRIDGE_URL: http://coder:4172
+      CODER_PREVIEW_PUBLIC_ORIGIN: ${CODER_PREVIEW_PUBLIC_ORIGIN:-}
       GITHUB_APP_ID: ${GITHUB_APP_ID:-}
       GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}

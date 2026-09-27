@@ -25,6 +25,15 @@ describe('parsePreviewUrl', () => {
     expect(parsePreviewUrl('javascript:alert(1)')).toHaveProperty('error')
   })
 
+  it('accepts public HTTP(S) sites only when remote preview is explicit', () => {
+    expect(parsePreviewUrl('http://apps.visiongrid.net/', { allowRemote: true })).toEqual({
+      target: { host: 'apps.visiongrid.net', port: 80, path: '/' },
+    })
+    expect(parsePreviewUrl('https://example.com/dashboard', { allowRemote: true })).toEqual({
+      target: { host: 'example.com', port: 443, path: '/dashboard' },
+    })
+  })
+
   it('uses safe protocol defaults and rejects non-numeric ports', () => {
     expect(parsePreviewUrl('http://localhost/')).toEqual({
       target: { host: 'localhost', port: 80, path: '/' },

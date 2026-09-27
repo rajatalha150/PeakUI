@@ -17,7 +17,8 @@ const qwenEntry = process.env.CODER_QWEN_ENTRY || '/opt/qwen-code/scripts/cli-en
 const token = process.env.QWEN_SERVER_TOKEN || '';
 const listenPort = Number(process.env.CODER_ROUTER_PORT || 4170);
 const previewPort = Number(process.env.CODER_PREVIEW_PORT || 4172);
-const previewBlockedPorts = new Set([2375, 2376, 4170, 4171, 4172, 11434]);
+const previewBind = process.env.CODER_PREVIEW_BIND || '127.0.0.1';
+const previewBlockedPorts = new Set([2375, 2376, 4170, 4171, 4172, 4173, 11434]);
 const runtimes = new Map();
 const starts = new Map();
 const execFileAsync = promisify(execFile);
@@ -175,7 +176,7 @@ function listeningPreviewPorts() {
   // Prefer the ports developers conventionally use, while still returning
   // every eligible listener so a project using port 80 or a custom port is
   // never invisible to the Preview window.
-  const preferred = [5173, 3000, 4173, 4200, 8081, 8000, 80, 443];
+  const preferred = [5173, 3000, 4200, 8081, 8000, 80, 443];
   return [...ports].sort((a, b) => {
     const aRank = preferred.indexOf(a);
     const bRank = preferred.indexOf(b);
@@ -354,7 +355,7 @@ export function startServer() {
   const previewServer = http.createServer(proxyPreview);
   previewServer.on('upgrade', proxyPreviewUpgrade);
   server.listen(listenPort, '127.0.0.1');
-  previewServer.listen(previewPort, '127.0.0.1');
+  previewServer.listen(previewPort, previewBind);
   const shutdown = () => {
     server.close();
     previewServer.close();

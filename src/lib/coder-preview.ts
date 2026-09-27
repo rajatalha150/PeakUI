@@ -16,7 +16,7 @@
 /** Hostnames a preview target may bind to (the daemon binds loopback). */
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
 const LXD_PREVIEW_HOST = /^ps?(\d{1,5})\.localhost$/
-const LXD_GUEST_RESERVED_PORTS = new Set([2375, 2376, 4170, 4171, 4172, 11434])
+const LXD_GUEST_RESERVED_PORTS = new Set([2375, 2376, 4170, 4171, 4172, 4173, 11434])
 const LXD_PREVIEW_PROXY_TARGET = /^(s?)(\d{1,5})$/
 
 export type PreviewDevice = 'desktop' | 'tablet' | 'mobile'
@@ -36,7 +36,7 @@ export const PREVIEW_VIEWPORTS: Record<PreviewDevice, { width: number; height: n
  * executor on 4318, the DB on 5432, SearXNG on 8080, tor on 9050/9150.
  */
 export const PREVIEW_RESERVED_PORTS = new Set<number>([
-  2375, 2376, 3000, 3001, 4170, 4171, 4172, 4318, 5432, 6379, 8080, 9050, 9150, 11434,
+  2375, 2376, 3000, 3001, 4170, 4171, 4172, 4173, 4318, 5432, 6379, 8080, 9050, 9150, 11434,
 ])
 
 export interface PreviewTarget {
@@ -64,7 +64,7 @@ export function parseLxdPreviewProxyTarget(raw: string): { port: number; secure:
  * Parse a user/agent-provided preview URL into a validated loopback target, or
  * an `error` string describing why it is not a safe local dev-server URL.
  */
-export function parsePreviewUrl(raw: string, options: { allowGuestPorts?: boolean } = {}): { target: PreviewTarget } | { error: string } {
+export function parsePreviewUrl(raw: string, options: { allowGuestPorts?: boolean; allowRemote?: boolean } = {}): { target: PreviewTarget } | { error: string } {
   let url: URL
   try {
     url = new URL(raw)
@@ -84,7 +84,12 @@ export function parsePreviewUrl(raw: string, options: { allowGuestPorts?: boolea
       return { target: { host, port: 4172, path: url.pathname || '/' } }
     }
   }
-  if (!LOOPBACK_HOSTS.has(host)) {
+  const remoteIpLiteral = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(host) || host.includes(':')
+  if (!LOOPBACK_HOSTS.has(host) && options.allowRemote
+    && (remoteIpLiteral || host.endsWith('.localhost') || host.endsWith('.local'))) {
+    return { error: 'Remote Preview requires a public hostname, not a private or literal IP address.' }
+  }
+  if (!LOOPBACK_HOSTS.has(host) && !options.allowRemote) {
     return { error: 'Preview URL must be a local dev server (127.0.0.1/localhost).' }
   }
   // WHATWG URL normalizes default ports away (`https://localhost:443` becomes
@@ -96,10 +101,14 @@ export function parsePreviewUrl(raw: string, options: { allowGuestPorts?: boolea
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     return { error: 'Preview port must be 1–65535.' }
   }
-  if ((options.allowGuestPorts ? LXD_GUEST_RESERVED_PORTS : PREVIEW_RESERVED_PORTS).has(port)) {
+  if (LOOPBACK_HOSTS.has(host) && (options.allowGuestPorts ? LXD_GUEST_RESERVED_PORTS : PREVIEW_RESERVED_PORTS).has(port)) {
     return { error: `Port ${port} is reserved for another service.` }
   }
 
   const path = url.pathname || '/'
   return { target: { host, port, path } }
+}
+
+export function isLocalPreviewHost(host: string) {
+  return LOOPBACK_HOSTS.has(host.toLowerCase()) || LXD_PREVIEW_HOST.test(host.toLowerCase())
 }

@@ -184,7 +184,11 @@ log "Waiting for the app to come up on http://localhost:$PORT ..."
 i=0
 while [ "$i" -lt 90 ]; do
   if curl -fsS -o /dev/null "http://localhost:$PORT/" 2>/dev/null; then
+    if ! curl -fsS -o /dev/null "http://localhost:${CODER_PREVIEW_GATEWAY_PORT:-4173}/__peakui/health" 2>/dev/null; then
+      warn "PeakUI started, but the Preview gateway on :${CODER_PREVIEW_GATEWAY_PORT:-4173} is not ready yet. Check app logs."
+    fi
     printf "\n${C_GREEN}PeakUI is running at http://localhost:$PORT${C_OFF}\n"
+    printf "  • Preview: isolated app origin on port %s\n" "${CODER_PREVIEW_GATEWAY_PORT:-4173}"
     printf "  • On first visit, create the initial admin account.\n"
     printf "  • Ollama: set OLLAMA_HOST in Settings if it's not at %s\n" "$OLLAMA_HOST"
     printf "  • Logs:   docker compose -f %s logs -f app\n" "$COMPOSE_FILE"

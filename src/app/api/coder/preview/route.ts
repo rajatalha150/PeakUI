@@ -8,15 +8,21 @@
  * (defense in depth) so a URL that is not a safe loopback dev server is refused
  * at the API boundary too, not just in the UI.
  *
- * With the LXD backend, the browser receives an authenticated same-origin
- * proxy path. `*.localhost` is deliberately not exposed to the browser: that
- * hostname would resolve on a remote viewer's computer rather than on the
+ * The browser receives a signed launch URL on the isolated Preview origin.
+ * The private bridge hostname never reaches the browser, because its
+ * `localhost` would resolve on a remote viewer's computer rather than on the
  * PeakUI host.
  */
 
 import { NextResponse, type NextRequest } from 'next/server'
 import { requireCoderAccess } from '@/lib/coder-access'
-import { parsePreviewUrl } from '@/lib/coder-preview'
+import { isLocalPreviewHost, parsePreviewUrl } from '@/lib/coder-preview'
+import { signPreviewTicket } from '@/lib/coder-preview-ticket'
+
+function requestHostname(req: NextRequest) {
+  const forwarded = req.headers.get('x-forwarded-host')?.split(',')[0]?.trim()
+  return (forwarded || req.headers.get('host') || req.nextUrl.host).replace(/:\d+$/, '')
+}
 
 export async function POST(req: NextRequest) {
   const auth = await requireCoderAccess(req)
@@ -34,24 +40,38 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Preview URL is required.', code: 'bad_request' }, { status: 400 })
   }
 
-  const parsed = parsePreviewUrl(url, { allowGuestPorts: process.env.CODER_BACKEND === 'lxd' })
+  const parsed = parsePreviewUrl(url, { allowGuestPorts: process.env.CODER_BACKEND === 'lxd', allowRemote: true })
   if ('error' in parsed) {
     return NextResponse.json({ error: parsed.error, code: 'invalid_preview_url' }, { status: 400 })
   }
 
   const original = new URL(url)
+  if (!isLocalPreviewHost(original.hostname)) {
+    return NextResponse.json({
+      ok: true,
+      target: parsed.target,
+      previewUrl: original.toString(),
+      captureUrl: original.toString(),
+      remote: true,
+    })
+  }
   // Accept preview values saved by the prior `p<port>.localhost:4172` scheme
   // too, then immediately return the durable same-origin route. This makes an
   // existing open Preview window self-heal after the upgrade.
   const legacyHost = /^p(s?)(\d{1,5})\.localhost$/i.exec(original.hostname)
-  const lxdPreview = process.env.CODER_BACKEND === 'lxd'
   const targetPort = legacyHost ? Number(legacyHost[2]) : parsed.target.port
   const secure = legacyHost ? legacyHost[1].toLowerCase() === 's' : original.protocol === 'https:'
-  const bridgeUrl = lxdPreview
-    ? `http://p${secure ? 's' : ''}${targetPort}.localhost:4172${original.pathname}${original.search}`
-    : url
-  const previewUrl = lxdPreview
-    ? `/api/coder/preview-proxy/${secure ? 's' : ''}${targetPort}${original.pathname}${original.search}${original.hash}`
-    : url
-  return NextResponse.json({ ok: true, target: parsed.target, previewUrl, captureUrl: bridgeUrl })
+  const bridgeUrl = `http://p${secure ? 's' : ''}${targetPort}.localhost:4172${original.pathname}${original.search}`
+  const ticket = signPreviewTicket({ port: targetPort, secure, userId: auth.userId })
+  const gatewayPort = Number(process.env.CODER_PREVIEW_GATEWAY_PORT || 4173)
+  const launch = `/__peakui/open?ticket=${encodeURIComponent(ticket)}&path=${encodeURIComponent(`${original.pathname}${original.search}${original.hash}`)}`
+  const publicOrigin = process.env.CODER_PREVIEW_PUBLIC_ORIGIN?.replace(/\/$/, '')
+    || `http://${requestHostname(req)}:${gatewayPort}`
+  return NextResponse.json({
+    ok: true,
+    target: parsed.target,
+    previewUrl: `${publicOrigin}${launch}`,
+    captureUrl: `http://127.0.0.1:${gatewayPort}${launch}`,
+    bridgeUrl,
+  })
 }
