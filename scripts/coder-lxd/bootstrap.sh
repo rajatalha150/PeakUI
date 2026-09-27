@@ -3,6 +3,13 @@
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
+# Some desktop networks advertise IPv6 but do not route it. Prefer a working
+# IPv4 path so apt, curl, and the initial image toolchain bootstrap don't wait
+# on repeated IPv6 connection timeouts.
+printf 'Acquire::ForceIPv4 "true";\n' > /etc/apt/apt.conf.d/99peakui-force-ipv4
+if ! grep -q '^precedence ::ffff:0:0/96  100$' /etc/gai.conf 2>/dev/null; then
+  printf '\n# Prefer IPv4 when an upstream IPv6 route is unavailable.\nprecedence ::ffff:0:0/96  100\n' >> /etc/gai.conf
+fi
 apt-get update
 apt-get install -y --no-install-recommends \
   ca-certificates curl git build-essential openjdk-17-jdk-headless python3 \
@@ -22,8 +29,8 @@ case "$(uname -m)" in
 esac
 node_archive="node-v${NODE_VERSION}-linux-${node_arch}.tar.xz"
 if ! command -v node >/dev/null || [[ "$(node --version)" != "v${NODE_VERSION}" ]]; then
-  curl -fsSLo "/tmp/${node_archive}" "https://nodejs.org/dist/v${NODE_VERSION}/${node_archive}"
-  curl -fsSLo /tmp/node-sha256sums "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt"
+  curl -4 -fsSLo "/tmp/${node_archive}" "https://nodejs.org/dist/v${NODE_VERSION}/${node_archive}"
+  curl -4 -fsSLo /tmp/node-sha256sums "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt"
   (cd /tmp && grep "  ${node_archive}$" node-sha256sums | sha256sum -c -)
   tar -xJf "/tmp/${node_archive}" -C /usr/local --strip-components=1
 fi

@@ -41,7 +41,9 @@ The installer performs the host setup too. When no runtime exists, it:
 2. adds the current login account to `incus-admin`;
 3. activates that membership for the installer without requiring a logout;
 4. initializes Incus when needed; and
-5. provisions, verifies, and cuts over the persistent Coder instance.
+5. configures forwarding for its local Incus bridge when UFW, firewalld, or
+   Docker's forwarding policy is active; and
+6. provisions, verifies, and cuts over the persistent Coder instance.
 
 Re-running the same command updates all components. Incus is preferred for a
 fresh installation. To use an existing LXD installation explicitly:
@@ -94,6 +96,23 @@ installer prints a warning and still attempts to install Incus from the signed
 distribution indexes that updated successfully. It does not disable the broken
 source or bypass APT signature checks. Repair that source separately so normal
 system updates return to a clean state.
+
+### Host Networking
+
+The installer configures the local `incusbr0` (or `lxdbr0` for LXD) bridge so a
+Coder guest can reach package registries without exposing an Internet-facing
+PeakUI port. On UFW it
+adds persistent bridge input and forwarding rules; on firewalld it places the
+local bridge in the trusted zone; and when Docker's `DOCKER-USER` chain exists,
+it adds bridge forwarding rules plus a systemd or OpenRC boot hook. This handles
+the common "guest reaches its gateway but cannot reach the Internet" condition
+on Debian/Ubuntu/Mint, Fedora/RHEL-family, openSUSE, Arch, Alpine, Void, and
+Gentoo hosts. The guest prefers IPv4 during bootstrap for home networks with
+advertised but unusable IPv6.
+
+The instance is a trusted local development environment. Its bridge rules let
+the guest contact the host and the Internet. Do not run untrusted workloads in
+the shared Coder instance; create a separate restricted Incus profile instead.
 
 To return to Docker Coder deliberately:
 

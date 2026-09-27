@@ -1,0 +1,13 @@
+[Unit]
+Description=PeakUI Incus bridge forwarding rules
+After=network-online.target incus.service docker.service
+Wants=network-online.target incus.service docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/peakui-instance-network.conf
+ExecStart=/bin/sh -c '/usr/local/sbin/peakui-incus-network "${PEAKUI_INSTANCE_BRIDGE:-incusbr0}"'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

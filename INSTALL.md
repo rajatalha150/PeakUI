@@ -42,7 +42,8 @@ On a supported Linux host, the same installer requests `sudo` when needed,
 installs Incus through APT, DNF, Zypper, Pacman, APK, XBPS, or Portage, adds the
 existing login account to `incus-admin`,
 activates the group for the current installation without requiring a logout,
-initializes the runtime, and deploys Coder. It never asks PeakUI for the sudo
+initializes the runtime, configures the local bridge around active UFW,
+firewalld, and Docker forwarding policy, and deploys Coder. It never asks PeakUI for the sudo
 password; the system `sudo` prompt reads it directly. See the complete
 [Coder LXD/Incus guide](docs/coder-lxd.md).
 

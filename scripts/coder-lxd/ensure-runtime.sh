@@ -118,6 +118,55 @@ install_lxd() {
   run_as_root snap install lxd
 }
 
+configure_instance_network() {
+  # Incus creates incusbr0 during `admin init --minimal`. UFW and Docker both
+  # commonly default to dropping forwarded traffic, which leaves a guest able
+  # to reach its gateway but unable to download its toolchain. Configure only
+  # the managed bridge and keep this independent of the host distribution.
+  case "$runtime_cli" in
+    incus) default_bridge=incusbr0 ;;
+    lxc) default_bridge=lxdbr0 ;;
+  esac
+  bridge=${PEAKUI_INSTANCE_BRIDGE:-$default_bridge}
+  "$runtime_cli" network show "$bridge" >/dev/null 2>&1 || return
+
+  log "Configuring host forwarding for the $bridge Incus bridge."
+
+  if command -v ufw >/dev/null 2>&1 && run_as_root ufw status 2>/dev/null | grep -q '^Status: active'; then
+    # These persistent rules permit the trusted local Coder instance to use
+    # DHCP/DNS and reach the network through the host. They don't open an
+    # external port on the host.
+    run_as_root ufw allow in on "$bridge" >/dev/null
+    run_as_root ufw route allow in on "$bridge" >/dev/null
+    run_as_root ufw route allow out on "$bridge" >/dev/null
+  fi
+
+  if command -v firewall-cmd >/dev/null 2>&1 && run_as_root firewall-cmd --state >/dev/null 2>&1; then
+    # The bridge is local-only and is the boundary owned by Incus. Firewalld's
+    # trusted zone is the portable, persistent equivalent of forwarding it.
+    run_as_root firewall-cmd --permanent --zone=trusted --add-interface="$bridge" >/dev/null
+    run_as_root firewall-cmd --reload >/dev/null
+  fi
+
+  # Docker may set a global FORWARD drop. Put the Incus bridge in DOCKER-USER
+  # before Docker's own policy and install a boot hook where the host init
+  # system supports it. The helper is harmless when Docker/iptables is absent.
+  script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  run_as_root install -m 755 "$script_dir/host-network.sh" /usr/local/sbin/peakui-incus-network
+  run_as_root sh -c "printf '%s\\n' 'PEAKUI_INSTANCE_BRIDGE=$bridge' > /etc/peakui-instance-network.conf"
+  run_as_root /usr/local/sbin/peakui-incus-network "$bridge" || true
+
+  if command -v systemctl >/dev/null 2>&1; then
+    run_as_root install -m 644 "$script_dir/peakui-incus-network.service" /etc/systemd/system/peakui-incus-network.service
+    run_as_root systemctl daemon-reload
+    run_as_root systemctl enable --now peakui-incus-network.service >/dev/null
+  elif command -v rc-service >/dev/null 2>&1 && command -v rc-update >/dev/null 2>&1; then
+    run_as_root install -m 755 "$script_dir/peakui-incus-network.openrc" /etc/init.d/peakui-incus-network
+    run_as_root rc-update add peakui-incus-network default >/dev/null 2>&1 || true
+    run_as_root rc-service peakui-incus-network restart >/dev/null 2>&1 || true
+  fi
+}
+
 case "$runtime_cli" in
   incus)
     command -v incus >/dev/null 2>&1 || install_incus
@@ -148,22 +197,24 @@ if [ "$runtime_cli" = incus ]; then
   if ! incus info >/dev/null 2>&1; then
     fail 'Incus is installed but its daemon is unavailable. Check: sudo systemctl status incus'
   fi
-  first_pool=$(incus storage list --format csv --columns n 2>/dev/null | sed -n '1p')
+  first_pool=$(incus storage list --format csv -c n 2>/dev/null | sed -n '1p')
   if [ -z "$first_pool" ]; then
     log 'Initializing Incus with local-only defaults and host-backed directory storage.'
     incus admin init --minimal
   fi
   incus info >/dev/null
+  configure_instance_network
 else
   if ! lxc info >/dev/null 2>&1; then
     fail 'LXD is installed but its daemon is unavailable. Check: sudo snap services lxd'
   fi
-  first_pool=$(lxc storage list --format csv --columns n 2>/dev/null | sed -n '1p')
+  first_pool=$(lxc storage list --format csv -c n 2>/dev/null | sed -n '1p')
   if [ -z "$first_pool" ]; then
     log 'Initializing LXD with local-only defaults.'
     lxd init --minimal
   fi
   lxc info >/dev/null
+  configure_instance_network
 fi
 
 available_kb=$(df -Pk /var/lib 2>/dev/null | awk 'NR == 2 { print $4 }')

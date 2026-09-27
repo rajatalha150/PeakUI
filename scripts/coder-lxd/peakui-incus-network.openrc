@@ -1,0 +1,14 @@
+#!/sbin/openrc-run
+description="PeakUI Incus bridge forwarding rules"
+
+depend() {
+  need net
+  use docker incusd
+}
+
+start() {
+  ebegin "Installing PeakUI Incus bridge forwarding rules"
+  . /etc/peakui-instance-network.conf 2>/dev/null || true
+  /usr/local/sbin/peakui-incus-network "${PEAKUI_INSTANCE_BRIDGE:-incusbr0}"
+  eend $?
+}
