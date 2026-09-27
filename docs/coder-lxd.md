@@ -77,6 +77,8 @@ it works across Incus-supported filesystems and distributions. It stops Docker
 Coder only at cutover, checks a real Qwen runtime health response, and
 reconnects PeakUI. If setup fails, it restores Docker Coder and the app's
 original daemon URL. It never removes the Docker volumes.
+After a successful cutover the temporary Docker Coder container is stopped;
+its volumes remain available for rollback and are not deleted.
 Provisioning assets are streamed through guest-root processes rather than the
 Incus file-push metadata API, which avoids a known permission-reporting quirk
 on some unprivileged Incus 6.0 hosts and supports large browser/tooling trees.

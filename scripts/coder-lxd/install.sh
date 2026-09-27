@@ -156,6 +156,10 @@ for i in {1..60}; do
 done
 curl -fsS --max-time 10 -H "Authorization: Bearer $coder_token" "http://127.0.0.1:${host_port}/health" >/dev/null
 docker compose -f docker-compose.yml -f docker-compose.lxd.yml up -d --no-deps app
+# Docker Coder is started temporarily as a rollback target while the guest is
+# provisioned. Once the Incus daemon and app overlay are healthy, release its
+# duplicate CPU and memory rather than leaving two coding runtimes running.
+docker compose stop coder
 rollback=0
 sed -i '/^PEAKUI_CODER_BACKEND=/d; /^PEAKUI_INSTANCE_CLI=/d; /^CODER_LXD_PORT=/d; /^CODER_LXD_INSTANCE=/d' .env
 printf '\nPEAKUI_CODER_BACKEND=lxd\nPEAKUI_INSTANCE_CLI=%s\nCODER_LXD_PORT=%s\nCODER_LXD_INSTANCE=%s\n' "$instance_cli" "$host_port" "$instance" >> .env
