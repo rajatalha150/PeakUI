@@ -55,6 +55,17 @@ describe('POST /api/coder/preview', () => {
     })
   })
 
+  it('upgrades a legacy LXD localhost bridge URL to the same-origin proxy', async () => {
+    process.env.CODER_BACKEND = 'lxd'
+    const { POST } = await loadRoute()
+    const res = await POST(makeRequest({ url: 'http://p8081.localhost:4172/login' }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({
+      previewUrl: '/api/coder/preview-proxy/8081/login',
+      captureUrl: 'http://p8081.localhost:4172/login',
+    })
+  })
+
   it('rejects a non-loopback URL (SSRF guard)', async () => {
     const { POST } = await loadRoute()
     const res = await POST(makeRequest({ url: 'http://169.254.169.254/latest/meta-data' }))

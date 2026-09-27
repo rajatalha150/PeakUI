@@ -40,12 +40,18 @@ export async function POST(req: NextRequest) {
   }
 
   const original = new URL(url)
-  const lxdPreview = process.env.CODER_BACKEND === 'lxd' && !original.hostname.toLowerCase().endsWith('.localhost')
+  // Accept preview values saved by the prior `p<port>.localhost:4172` scheme
+  // too, then immediately return the durable same-origin route. This makes an
+  // existing open Preview window self-heal after the upgrade.
+  const legacyHost = /^p(s?)(\d{1,5})\.localhost$/i.exec(original.hostname)
+  const lxdPreview = process.env.CODER_BACKEND === 'lxd'
+  const targetPort = legacyHost ? Number(legacyHost[2]) : parsed.target.port
+  const secure = legacyHost ? legacyHost[1].toLowerCase() === 's' : original.protocol === 'https:'
   const bridgeUrl = lxdPreview
-    ? `http://p${original.protocol === 'https:' ? 's' : ''}${parsed.target.port}.localhost:4172${original.pathname}${original.search}`
+    ? `http://p${secure ? 's' : ''}${targetPort}.localhost:4172${original.pathname}${original.search}`
     : url
   const previewUrl = lxdPreview
-    ? `/api/coder/preview-proxy/${original.protocol === 'https:' ? 's' : ''}${parsed.target.port}${original.pathname}${original.search}${original.hash}`
+    ? `/api/coder/preview-proxy/${secure ? 's' : ''}${targetPort}${original.pathname}${original.search}${original.hash}`
     : url
   return NextResponse.json({ ok: true, target: parsed.target, previewUrl, captureUrl: bridgeUrl })
 }
