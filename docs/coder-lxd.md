@@ -48,13 +48,13 @@ machine while keeping host control in the hands of the installation owner.
   packages, and Chromium; free host loopback ports 4171 and 4172.
 
 On supported Debian/Ubuntu releases and Ubuntu derivatives such as Linux Mint,
-the installer configures the maintained Incus `lts-6.0` package channel. This
-avoids an older host AppArmor/runc interaction where Docker can be installed in
-the guest but cannot launch any OCI container. The package signing key is
+the installer configures the maintained Incus `stable` package channel. The
+AppArmor/runc fix required by modern nested Docker landed after the 6.0 LTS
+series, so `lts-6.0` is not a suitable default. The package signing key is
 fingerprint-checked before the source is added. Set
 `PEAKUI_INCUS_CHANNEL=distribution` only when the host distribution already
-ships a current, tested Incus build; `lts-7.0` and `stable` are available for
-administrators deliberately tracking those channels.
+ships a current, tested Incus build; `lts-7.0` is suitable where it contains
+the required fix, while `stable` remains the default for Coder.
 
 Access to the Incus/LXD administration socket is host-administrator equivalent.
 The Coding agent does not receive that socket, so it can control its nested
@@ -115,7 +115,7 @@ its volumes remain available for rollback and are not deleted.
 Provisioning assets are streamed through guest-root processes rather than the
 Incus file-push metadata API, which avoids a known permission-reporting quirk
 on some unprivileged Incus 6.0 hosts and supports large browser/tooling trees.
-It then runs `docker run --rm hello-world` inside the guest before cutover.
+It refreshes the guest after an Incus runtime upgrade, then runs `docker run --rm hello-world` inside the guest before cutover.
 This is a real OCI-runtime check, not a shallow `docker info` check. A failed
 probe keeps Docker Coder active, so a deployment cannot report a fully capable
 persistent environment when nested Docker is actually blocked.

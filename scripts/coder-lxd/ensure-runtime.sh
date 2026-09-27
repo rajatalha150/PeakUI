@@ -51,8 +51,10 @@ apt_os_codename() {
 install_supported_incus() {
   # Older LTS point releases can start Docker in an unprivileged guest but
   # fail every OCI launch due to an AppArmor/runc incompatibility. Zabbly
-  # publishes maintained Incus LTS builds for supported Debian/Ubuntu suites.
-  channel=${PEAKUI_INCUS_CHANNEL:-lts-6.0}
+  # publishes maintained Incus builds for supported Debian/Ubuntu suites. The
+  # AppArmor fix required by current runc landed after the 6.0 LTS series, so
+  # Coder defaults to stable rather than a known-insufficient 6.0 release.
+  channel=${PEAKUI_INCUS_CHANNEL:-stable}
   if [ "$channel" = distribution ]; then
     command -v incus >/dev/null 2>&1 || install_incus
     return

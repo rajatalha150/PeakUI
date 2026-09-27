@@ -25,7 +25,7 @@ apt-get install -y --no-install-recommends \
   libxrender1 libdrm2 libasound2t64 libpango-1.0-0 libcairo2 libcups2t64 \
   libfontconfig1 golang-go docker.io docker-compose-v2
 
-NODE_VERSION=${PEAKUI_NODE_VERSION:-22.16.0}
+NODE_VERSION=${PEAKUI_NODE_VERSION:-22.22.2}
 case "$(uname -m)" in
   x86_64) node_arch=x64 ;;
   aarch64) node_arch=arm64 ;;

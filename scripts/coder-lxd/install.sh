@@ -132,6 +132,15 @@ on_failure() {
 trap on_failure EXIT
 
 if [[ "$("$instance_cli" list "$instance" -f csv -c s)" != RUNNING ]]; then "$instance_cli" start "$instance"; fi
+runtime_version=$("$instance_cli" version 2>/dev/null | sed -n 's/^Server version: //p' | head -n 1)
+applied_runtime_version=$("$instance_cli" config get "$instance" user.peakui-runtime-version 2>/dev/null || true)
+# Incus generates the guest AppArmor profile at start. Refresh an existing
+# guest once after an Incus upgrade so its security profile gains runtime fixes.
+if [[ -n "$runtime_version" && "$runtime_version" != "$applied_runtime_version" ]]; then
+  echo "Refreshing $instance for Incus runtime $runtime_version..."
+  "$instance_cli" restart "$instance"
+  "$instance_cli" config set "$instance" user.peakui-runtime-version "$runtime_version"
+fi
 "$instance_cli" exec "$instance" -- cloud-init status --wait
 
 "$instance_cli" exec "$instance" -- systemctl stop peakui-coder.service >/dev/null 2>&1 || true
