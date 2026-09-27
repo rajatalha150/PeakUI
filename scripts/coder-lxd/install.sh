@@ -8,7 +8,13 @@ saved_instance=$(sed -n 's/^CODER_LXD_INSTANCE=//p' .env | tail -n 1)
 instance=${CODER_LXD_INSTANCE:-${saved_instance:-peakui-coder}}
 saved_port=$(sed -n 's/^CODER_LXD_PORT=//p' .env 2>/dev/null | tail -n 1)
 host_port=${CODER_LXD_PORT:-${saved_port:-4171}}
-instance_cli=${PEAKUI_INSTANCE_CLI:-lxc}
+if [[ -n "${PEAKUI_INSTANCE_CLI:-}" ]]; then
+  instance_cli=$PEAKUI_INSTANCE_CLI
+elif command -v incus >/dev/null 2>&1; then
+  instance_cli=incus
+else
+  instance_cli=lxc
+fi
 [[ "$instance_cli" == lxc || "$instance_cli" == incus ]] || { echo 'PEAKUI_INSTANCE_CLI must be lxc or incus' >&2; exit 1; }
 if [[ "$instance_cli" == incus ]]; then
   image=${CODER_LXD_IMAGE:-images:ubuntu/24.04/cloud}

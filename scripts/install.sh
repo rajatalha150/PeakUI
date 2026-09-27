@@ -29,12 +29,15 @@ else
 fi
 
 # An explicit ref wins. Otherwise preserve the active branch of an existing
-# checkout; curl-based fresh installations continue to default to trimmer.
+# checkout. A fresh persistent-Coder install selects its implementation branch
+# automatically, so the documented piped command has no hidden ref argument.
 if [ -n "${PEAKUI_REF:-}" ]; then
   BRANCH=$PEAKUI_REF
 elif git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   BRANCH=$(git -C "$TARGET" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
   BRANCH=${BRANCH:-trimmer}
+elif [ "${PEAKUI_CODER_BACKEND:-docker}" = lxd ]; then
+  BRANCH=coder-lxd
 else
   BRANCH=trimmer
 fi

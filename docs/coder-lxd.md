@@ -99,8 +99,12 @@ side so they reach the installer:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/coder-lxd/scripts/install.sh \
-  | PEAKUI_REF=coder-lxd PEAKUI_CODER_BACKEND=lxd sh
+  | PEAKUI_CODER_BACKEND=lxd sh
 ```
+
+The persistent-Coder flag selects the `coder-lxd` branch automatically on a
+fresh installation. Set `PEAKUI_REF` only when intentionally deploying a
+different branch.
 
 Run this from an interactive terminal so `sudo` can request the password. The
 password is read by `sudo`; PeakUI never reads or stores it.
