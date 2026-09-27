@@ -32,7 +32,12 @@ export async function canonicalDirectory(value) {
     throw new Error('Workspace must be an absolute Linux directory.');
   }
   if (value.split('/').some(part => part === '.' || part === '..')) throw new Error('Workspace traversal is not allowed.');
-  const canonical = await realpath(resolve(value));
+  const requested = resolve(value);
+  // A selected workspace is an intent to work there. Creating a missing
+  // directory lets Coder use any valid path in its persistent Linux root while
+  // realpath below still resolves symlinks before a Qwen runtime is started.
+  await mkdir(requested, { recursive: true, mode: 0o755 });
+  const canonical = await realpath(requested);
   return canonical;
 }
 

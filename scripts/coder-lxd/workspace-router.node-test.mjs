@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, rm } from 'node:fs/promises';
 import net from 'node:net';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
@@ -23,6 +23,7 @@ test('routes parent and nested directories to independent persistent runtimes', 
   const root = await mkdtemp(join(tmpdir(), 'peakui-coder-router-'));
   const workspace = join(root, 'workspace');
   const child = join(workspace, 'vision-proxy');
+  const created = join(workspace, 'data');
   const seed = join(root, 'qwen-seed');
   await mkdir(child, { recursive: true });
   await mkdir(seed);
@@ -74,6 +75,8 @@ test('routes parent and nested directories to independent persistent runtimes', 
     assert.equal((await request('/workspaces', { cwd: child, persist: true })).status, 200);
     assert.equal((await request('/session', { sessionId: 'parent', cwd: workspace })).data.cwd, workspace);
     assert.equal((await request('/session', { sessionId: 'child', cwd: child })).data.cwd, child);
+    assert.equal((await request('/session', { sessionId: 'created', cwd: created })).data.cwd, created);
+    await access(created);
     assert.equal((await request('/session/parent/status')).data.cwd, workspace);
     assert.equal((await request('/session/child/status')).data.cwd, child);
     assert.equal((await request('/peakui/projects/import', { repositoryUrl: 'file:///tmp/repo', branch: 'main', destination: '/workspace/projects/nope' })).status, 400);

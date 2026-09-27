@@ -149,7 +149,9 @@ runtime has its own persistent `QWEN_HOME`; `/workspace` keeps the existing
 `/root/.qwen` data. New runtimes copy model settings and historical project
 transcripts without copying debug caches. The session-to-directory map is
 persisted under `/var/lib/peakui/coder-router`. Create a directory before
-selecting it as a workspace. Existing sessions remain bound to their original
+selecting it as a workspace. When you select a valid missing absolute directory
+such as `/workspace/data`, Coder creates it in the persistent guest root.
+Existing sessions remain bound to their original
 directory. The managed QWEN.md is refreshed when a runtime starts after an
 update.
 
