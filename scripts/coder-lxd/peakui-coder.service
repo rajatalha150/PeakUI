@@ -6,6 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/peakui-coder.env
+Environment=HOME=/root
 Environment=PUPPETEER_CACHE_DIR=/opt/puppeteer-cache
 Environment=ANDROID_HOME=/opt/android-sdk
 Environment=ANDROID_SDK_ROOT=/opt/android-sdk

@@ -84,6 +84,9 @@ The bootstrap also verifies the standard sticky permissions on `/tmp` before
 using APT, allowing a failed earlier attempt to recover cleanly.
 After a successful toolchain build, it records the pinned Qwen version so an
 interrupted cutover can resume without rebuilding the same source tree.
+The persistent service explicitly sets `HOME=/root` so Git, SSH, Qwen, and
+their state directories behave the same under systemd as they do in an
+interactive Coder shell.
 On every instance boot, the service refreshes the managed QWEN.md, Git defaults,
 SSH host trust, and runtime readiness checks.
 
