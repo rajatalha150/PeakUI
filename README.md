@@ -2,357 +2,251 @@
   <img src="public/logo.png" alt="PeakUI logo" width="120" height="120" />
 </p>
 
-# PeakUI
+<h1 align="center">PeakUI</h1>
 
-**PeakUI** is a local-first, self-hosted AI studio built around **WorkSpaces** — a persistent agent workspace for local Ollama models, OpenAI-compatible providers, RAG, tools, browser research, Canvas artifacts, automation, and session intelligence.
+<p align="center">
+  A self-hosted AI studio for research, documents, automation, and durable coding agents.
+</p>
 
-Built by **Muhammad Talha Raza** and owned by **[Peak Services INC](https://peakservices-inc.com)**.
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="MIT License" /></a>
+  <a href="docs/coding-environment.md"><img src="https://img.shields.io/badge/Coder-persistent%20Linux-16a34a" alt="Persistent Linux Coder" /></a>
+  <a href="docs/operations-and-updates.md"><img src="https://img.shields.io/badge/deploy-self--hosted-2563eb" alt="Self hosted deployment" /></a>
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+Built by **Muhammad Talha Raza** and owned by [Peak Services INC](https://peakservices-inc.com).
 
----
+## The Studio At A Glance
 
-## Why PeakUI?
+```mermaid
+flowchart LR
+  U[You] --> W[WorkSpaces]
+  U --> C[Coding]
+  W --> M[Local or cloud models]
+  W --> K[Knowledge Base]
+  W --> T[Tools and browser]
+  W --> A[Canvas and automation]
+  C --> Q[Qwen Code agent]
+  C --> P[Preview and runtime logs]
+  C --> G[GitHub projects]
+```
 
-Most AI chat interfaces send your prompts, documents, and browsing history to someone else's cloud. PeakUI flips that model:
+| Open | Use it for | What stays durable |
+|---|---|---|
+| **WorkSpaces** | Research, documents, browsing, tools, and automation | Chats, artifacts, Knowledge Base, automation, workspace files |
+| **Coding** | Full projects, terminal work, agents, browser preview, GitHub | Sessions, project files, context handoffs, tool activity, previews |
+| **Canvas** | Inspect, edit, version, bundle, and download artifacts | Revisions, lineage, source files, exports |
+| **Settings** | Models, providers, permissions, themes, GitHub, context policy | Per-user configuration |
 
-- **Local-first** — run models on your own hardware via Ollama.
-- **Self-hosted** — your data stays on your infrastructure.
-- **Agentic** — WorkSpaces gives task threads, tools, memory, and automation a persistent home.
-- **Transparent** — open source, auditable, and under your control.
+## Choose A Path
 
----
+```mermaid
+flowchart TD
+  Start[Install PeakUI] --> Host{Host operating system}
+  Host -->|Linux, durable coding server wanted| Incus[Persistent Incus Coder]
+  Host -->|macOS or Windows| Docker[Docker Coder]
+  Host -->|Linux, simple setup| Docker
+  Incus --> Studio[PeakUI Studio]
+  Docker --> Studio
+```
 
-## At A Glance
+### Docker Coder
 
-| Area | What it does |
-|---|---|
-| **WorkSpaces** | Main agent shell for task threads, model selection, modes, tools, settings, and Knowledge Base |
-| **Workspace Files panel** | Right-rail GUI over the active workspace's files: virtualized tree, type-dispatched preview, in-place editor with ETag conflict detection, upload, multi-select + bulk ops (copy paths / zip / delete), rename, move-to, right-click context menu, and live SSE updates whenever the model writes a file |
-| **Local models** | Ollama-first generation with health checks, model stop, exclusive switching, context backoff, and model-capacity-aware prompt tiers + context windows (small models get a trimmed manifest and a raised `num_ctx`; large/cloud models keep the full manifest) |
-| **Remote providers** | OpenAI-compatible endpoints, including Hugging Face router, TGI, vLLM, and SGLang-style servers |
-| **Knowledge Base** | PostgreSQL-backed document index with semantic, keyword, hybrid RRF, source chips, and full-access mode |
-| **Canvas** | Compact artifact rows, modal previews (PDF, image, markdown, code, table, chart, ZIP, ICS), source-editable binary artifacts, downloads, bundles, revisions, lineage, search, restore, exports, and a server-side preview endpoint for Excel/Word/email/slides/Mermaid inline rendering |
-| **Tools** | Shell, filesystem, code sandbox, public browser, UWAF Direct/Stealth browser, PDF/Word/Excel/PowerPoint/CSV/Email/Markdown/ZIP/ICS/Mermaid artifact generation, and URL fetch-summarize with approval gates. Tool calls are parsed from a **multi-format parser** that accepts the custom `<workspace_tool>` wrapper *and* the native syntax of Qwen, Gemma, Llama, Mistral, GLM, and Anthropic-style models — so local GGUF models that don't reliably emit the custom wrapper still work. |
-| **Automation** | Heartbeats, cron tasks, monitors, wake events, nudges, and guarded unattended local Ollama runs |
-| **Session intelligence** | Rolling summaries, context health, auto-continue modes, branches, branch compare, and analytics |
-| **Coding** | Dedicated Qwen Code workspace with persistent sessions, terminal, files, tasks, rewind, GitHub projects, floating responsive preview, native per-model context windows, and Main / Vision / Writer orchestration. On Linux, Coder can run in a persistent Incus/LXD system container: a full durable Linux environment where the agent can create directories anywhere in its guest root, install packages, run services, use nested Docker, build Android or web projects, and retain projects, SSH state, toolchains, caches, and long-session memory across updates. |
-
----
-
-## Quick Start
-
-### 0. One-command install (optional)
-
-If Docker is already installed, skip the manual steps below and deploy the
-whole stack with a single command — it clones the repo, generates a `.env`
-with random secrets, builds, and starts everything detached:
+The default on all supported platforms. It is a good fit for ordinary repositories and a quick self-hosted setup.
 
 ```bash
 # Linux / macOS
 curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/trimmer/scripts/install.sh | sh
 
-# Windows (PowerShell)
+# Windows PowerShell
 irm https://raw.githubusercontent.com/rajatalha150/PeakUI/trimmer/scripts/install.ps1 | iex
 ```
 
-Re-running the same command fetches the latest `trimmer` revision and rebuilds
-the complete stack, including the Coding daemon. To deploy another published
-branch explicitly, set `PEAKUI_REF` before the command. Then jump to step 3
-below. The manual steps that follow are for when you prefer to clone and
-configure by hand.
-
-On Linux, Coding has an opt-in persistent Incus/LXD system-container backend on
-`coder-lxd`. Its installer detects or installs Incus, initializes it, grants the
-existing login account access, and provisions the persistent Coding environment
-in one run. PeakUI and its data services remain in Docker. See [Persistent Linux
-Coder](#persistent-linux-coder) or [Coder LXD/Incus setup](docs/coder-lxd.md).
-Windows and macOS continue to use the Docker Coding backend.
-
 ### Persistent Linux Coder
 
-For a serious, long-running coding environment on Linux, deploy the persistent
-Coder backend:
+For long-running engineering work, native/Android builds, package installation, system services, nested Docker, and projects that must outlive app updates.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/coder-lxd/scripts/install.sh \
   | PEAKUI_CODER_BACKEND=lxd sh
 ```
 
-Coder runs inside an unprivileged **Incus/LXD system container**. This is a
-real, persistent Linux guest rather than a disposable application container:
-the agent can work in `/workspace`, `/apps`, or any selected absolute guest
-directory; install OS packages; run systemd services; build with Java, Go,
-Node, Python, Gradle, and the Android SDK; use nested Docker with Buildx and
-reliable registry DNS; host development
-servers for Preview; and retain all of that state after a PeakUI update or host
-restart. Project trees, Git/SSH configuration, Qwen state, browser tooling,
-package caches, and agent-created services live with the guest instead of being
-reconstructed for every coding session.
+The installer can install and initialize Incus, ask for `sudo` only when host setup requires it, provision the guest, verify nested Docker with a real container run, migrate existing Coder state, and switch PeakUI to the guest only after its authenticated health check succeeds.
 
-The Linux installer verifies that nested Docker can actually start an OCI
-container before it switches PeakUI to persistent Coder. On supported Debian,
-Ubuntu, and Ubuntu-derived hosts it uses the maintained Incus stable packages
-for current Docker/runc and AppArmor behavior. “Docker available” therefore means
-a usable build capability, not merely a running daemon. Details, including the
-package channel override, are in [Coder LXD/Incus setup](docs/coder-lxd.md).
+## Why Persistent Coder Is Different
 
-| Capability | Docker Coder | Incus/LXD Coder |
+```mermaid
+flowchart LR
+  subgraph Host[Your Linux host]
+    App[PeakUI app, Docker]
+    DB[(Postgres)]
+    subgraph Guest[peakui-coder, unprivileged Incus guest]
+      Router[Workspace router]
+      Qwen[Qwen Code runtimes]
+      Toolchain[Node, Python, Java, Go, Android SDK]
+      Docker[Guest Docker and services]
+      Files[Persistent guest filesystem]
+      Router --> Qwen
+      Qwen --> Toolchain
+      Qwen --> Docker
+      Qwen --> Files
+    end
+    App -->|authenticated loopback bridge| Router
+    App --> DB
+  end
+```
+
+| | Docker Coder | Persistent Incus Coder |
 |---|---|---|
-| Runtime model | Application container | Persistent system container with its own Linux root |
-| OS packages and services | Image-defined; changes are transient or require image rebuilds | Install packages, use `systemd`, and keep services running in the guest |
-| Filesystem scope | Fixed mounted volumes | Any valid absolute path in the isolated guest root |
-| Complex builds | Good for ordinary repositories | Better for long Android, native, Docker, and multi-service builds with durable toolchains and caches |
-| Updates and recovery | Recreate the daemon container | Health-checked guest updates, persistent root filesystem, snapshots/exports, and Docker fallback volumes |
-| Isolation boundary | Shared container runtime model | Unprivileged guest separate from the PeakUI app and host root |
+| Runtime | Recreated application container | Persistent unprivileged Linux system container |
+| Filesystem | Defined by image and mounted volumes | Any selected absolute path inside the guest root |
+| Packages and services | Rebuild or explicitly persist them | `apt`, `systemd`, services, and toolchains persist naturally |
+| Complex builds | Good for normal projects | Designed for Android, native, multi-service, and nested Docker work |
+| Host access | Isolated from host root | Still isolated: no host root or Incus socket is exposed to the agent |
 
-Docker remains the simpler default for macOS, Windows, and lightweight Linux
-use. Incus/LXD is the better fit when Coding should behave like a durable Linux
-development server without giving the agent the host operating system.
+The guest behaves like a durable development server, not an unrestricted host shell. Its `/` is the guest filesystem, never the host filesystem.
 
-### 1. Start Ollama
+## Preview That Works From Any Device
 
-```bash
-ollama serve
+```mermaid
+sequenceDiagram
+  participant A as Coding agent
+  participant G as Incus guest
+  participant S as PeakUI server
+  participant B as Your browser
+  A->>G: Start app on a guest port
+  A->>G: Publish .peakui-preview.json
+  B->>S: Open Preview
+  S->>G: Authenticated private preview bridge
+  S-->>B: Same-origin preview proxy
+  B->>S: Load HTML, assets, API requests
 ```
 
-Pull at least one chat model. Pull an embedding model only if you want semantic RAG.
+Preview is intentionally served through PeakUI's same origin rather than `*.localhost`. This lets it work from a phone or another computer on your LAN, while the guest bridge stays private. Root-relative Vite assets and API paths are rewritten through the proxy so a production-style SPA does not render as a blank page.
 
-```bash
-ollama pull phi3:mini
-ollama pull nomic-embed-text
+The Preview window provides:
+
+- Desktop, tablet, and mobile viewport frames.
+- Resize, move, maximize, reload, and automatic running-port discovery.
+- `Vision` screenshot review for the selected viewport.
+- `Log` diagnostics: Chromium console output, page errors, failed requests, and HTTP failures with one-click copy. Vision receives the captured log with the screenshot when available.
+
+## Durable Agent Sessions
+
+```mermaid
+stateDiagram-v2
+  [*] --> Working
+  Working --> Persisted: transcript and tools change
+  Persisted --> Streaming: SSE healthy
+  Streaming --> Recovering: guest or daemon restart
+  Recovering --> Streaming: same session recreated or loaded
+  Recovering --> Waiting: runtime still booting
+  Waiting --> Recovering: bounded retry
+  Streaming --> Complete: turn finishes
 ```
 
-### 2. Start PeakUI
+Coding sessions use a durable PeakUI session ID, persistent transcript records, context handoffs, and a reconnecting SSE stream. If a guest restart removes the daemon's in-memory session, PeakUI automatically restores the same session and resumes its stream instead of requiring a new tab or a new chat.
 
-```bash
-# Linux
-docker compose up -d --build
+## Core Capabilities
 
-# macOS (Docker Desktop)
-docker compose -f docker-compose.windows.yml up -d --build
-
-# Windows (Docker Desktop; see WINDOWS-SETUP.md)
-docker compose -f docker-compose.windows.yml up -d --build
+```mermaid
+mindmap
+  root((PeakUI))
+    WorkSpaces
+      Research and browser
+      Shell and filesystem
+      Documents and artifacts
+      Automations
+    Knowledge Base
+      Semantic retrieval
+      Keyword retrieval
+      Hybrid ranking
+    Canvas
+      Revisions
+      Preview and download
+      Bundles and lineage
+    Coding
+      Qwen Code
+      Files and tasks
+      GitHub projects
+      Preview and Vision
+      Main Vision Writer roles
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+- **Local-first models:** Ollama, plus OpenAI-compatible remote providers.
+- **Knowledge Base:** PostgreSQL-backed semantic, keyword, and hybrid retrieval.
+- **Artifacts:** PDF, Office, slides, spreadsheets, CSV, email, Markdown, Mermaid, ZIP, ICS, and image workflows.
+- **Tools:** gated shell/filesystem operations, public and stealth browser modes, document generation, and fetch/summarize.
+- **Automation:** schedules, heartbeats, monitors, wake events, and guarded unattended local runs.
+- **GitHub:** connect in Coding settings, import repositories, retain the project in the persistent workspace, and use the normal agent/terminal workflow.
 
-PeakUI also starts a private, local-only SearXNG metasearch service by default,
-so ordinary web search works without a Brave, Google, or other commercial API
-key. Paid providers are optional fallbacks, not prerequisites.
+## First Run
 
-On first visit, create the initial Admin account. After login, the app opens directly into WorkSpaces.
-
-### 3. Optional: Enable Image Generation (ComfyUI)
-
-Image generation runs through a self-hosted [ComfyUI](https://github.com/comfyanonymous/ComfyUI) engine on the host (requires an NVIDIA GPU):
-
-```bash
-# Linux / macOS — installs ComfyUI + PyTorch CUDA and registers a service
-scripts/install-comfyui.sh
+```mermaid
+flowchart LR
+  A[Start Ollama] --> B[Start PeakUI]
+  B --> C[Open localhost:3000]
+  C --> D[Create admin]
+  D --> E[Choose model]
+  E --> F[Start in WorkSpaces or Coding]
 ```
 
-Then set **Engine** to ComfyUI in Settings → Image Generation, search Hugging Face for a model, download it, and toggle **Image Gen** on in the chat. See [docs/image-generation.md](docs/image-generation.md).
+1. Start Ollama and pull at least one model:
 
-#### How image generation works
+   ```bash
+   ollama serve
+   ollama pull phi3:mini
+   ollama pull nomic-embed-text # optional, for semantic RAG
+   ```
 
-```
-┌──────────────┐         ┌──────────────────┐
-│  You (chat)  │────────▶│   PeakUI (Next)  │
-│ "draw a cat" │         │                  │
-└──────────────┘         └────────┬─────────┘
-                                  │ 1. Model emits
-                                  │    image_generation tool call
-                                  ▼
-                         ┌─────────────────┐
-                         │  VRAM sequencer │
-                         │ (free GPU first)│
-                         └────────┬────────┘
-                                  │ 2. Submit workflow
-                                  ▼
-        ┌─────────────────────────────────────────────┐
-        │                 ComfyUI                      │
-        │  UNETLoader ─► KSampler ─► VAEDecode ─► Save │
-        └──────────────────────┬──────────────────────┘
-                               │ 3. PNG output
-                               ▼
-        ┌─────────────────────────────────────────────┐
-        │  PeakUI persists as Canvas artifact          │
-        │  → renders inline in chat                    │
-        │  → downloadable via /api/canvas/.../download │
-        └─────────────────────────────────────────────┘
-```
+2. Open [http://localhost:3000](http://localhost:3000), create the first Admin account, and choose a model in Settings.
 
-**Model formats supported** — search Hugging Face and download in one click:
-
-| Format | Layout | Loader |
-|---|---|---|
-| Checkpoint | single `.safetensors` / `.ckpt` | `CheckpointLoaderSimple` |
-| Split | `diffusion_models/` + `text_encoders/` + `vae/` | `UNETLoader` + `CLIPLoader` + `VAELoader` |
-| Diffusers | `unet/` + `vae/` + `text_encoder/` + `model_index.json` | `DiffusersLoader` |
-
-Downloads are resumable (HTTP Range) with persistent state, and the safetensors
-header is inspected after each download to auto-relocate files that landed in
-the wrong folder. A VRAM sequencer frees ComfyUI + Ollama weights before each
-generation so the image model always has the full GPU.
-
-### 4. Configure The Studio
-
-Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool permissions, and session intelligence preferences.
-
----
-
-## Documentation
-
-| Document | Description |
-|---|---|
-| [INSTALL.md](INSTALL.md) | Detailed installation for Linux, macOS, and Windows |
-| [WINDOWS-SETUP.md](WINDOWS-SETUP.md) | Windows Docker Desktop specific notes |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | Local development, tests, lint, and Prisma workflow |
-| [DEPLOYMENT.md](DEPLOYMENT.md) | Production-style deployments, reverse-proxy config, backups, hardening |
-| [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | Common errors by area with fix recipes |
-| [docs/features.md](docs/features.md) | Full feature reference and high-level architecture |
-| [docs/workspace-files-panel.md](docs/workspace-files-panel.md) | Workspace Files panel — UI, API, SSE stream, client library |
-| [docs/settings-and-rag.md](docs/settings-and-rag.md) | Settings and Knowledge Base behavior |
-| [docs/workspaces-host-executor.md](docs/workspaces-host-executor.md) | Optional host shell executor setup |
-| [docs/capability-inventory.md](docs/capability-inventory.md) | Native tool capability inventory |
-| [docs/tool-workflows.md](docs/tool-workflows.md) | Tool contracts for PDF, Word, Excel, CSV, email, Markdown, slides, ZIP, ICS, Mermaid, fetch/summarize, and tax PDF |
-| [docs/tool-call-formats.md](docs/tool-call-formats.md) | Multi-format tool-call parser reference — every model-native syntax PeakUI accepts |
-| [docs/image-generation.md](docs/image-generation.md) | Image generation — ComfyUI engine setup, model download, and generation flow |
-| [docs/development-section-plan.md](docs/development-section-plan.md) | Development section plan (draft) |
-| [docs/coding-environment.md](docs/coding-environment.md) | Coding environment architecture, deployment, long-session context, preview, projects, and multi-model orchestration |
-| [docs/coder-lxd.md](docs/coder-lxd.md) | Persistent Linux Coding backend with automatic Incus/LXD setup, backups, and rollback |
-| [docs/operations-and-updates.md](docs/operations-and-updates.md) | Operational runbook for PeakUI, Docker, Incus Coder, backups, host updates, and dependency maintenance |
-
----
-
-## Important Paths
-
-| Path | Purpose |
-|---|---|
-| `/mnt/workspace-tool/workspace` | Managed workspace path inside the app container |
-| `~/.peakui/workspace` | Host-style alias for the managed workspace |
-| `src/app/components/WorkspaceToolWorkspace.tsx` | Main WorkSpaces UI |
-| `src/app/components/WorkspaceFilesPanel.tsx` | Workspace Files panel (read / edit / upload / multi-select / rename / move) |
-| `src/app/components/workspace-files/` | Workspace Files panel sub-components (tree, preview, editor, upload, context menu, move dialog) |
-| `src/lib/chat-completion.ts` | Shared streaming completion pipeline |
-| `src/lib/chat-sessions.ts` | Session persistence, branching, summaries, analytics |
-| `src/lib/session-intelligence.ts` | Context management, analytics, continuation detection |
-| `src/lib/workspace-tool-automation*.ts` | Automation worker and unattended execution |
-| `src/lib/uwaf-*` | Unified browser, stealth/direct browsing, sanitization |
-| `src/lib/workspace-files-pubsub.ts` | In-process pub/sub for file-mutation events |
-| `src/lib/workspace-files-events-encoder.ts` | SSE wire-format encoder / parser for `/events` |
-| `src/lib/workspace-files-client.ts` | Browser-side Workspace Files API client |
-| `src/lib/workspace-tool-tools.ts` | Tool-call parser (multi-format), tag stripper, and per-tool payload validation |
-| `src/lib/workspace-tool-prompt.ts` | WorkSpaces system-prompt builder (tier-aware, query-gated) |
-| `src/lib/model-context.ts` | Model-capacity detection, prompt tiers, and device-fit classification |
-| `src/app/components/CodingView.tsx` | Dedicated Coder UI: session chat, tools, preview, files, projects, and Main / Vision / Writer controls |
-| `src/app/api/coder/[...path]/route.ts` | Authenticated Qwen Code gateway, session authorization, and per-turn delegate reconciliation |
-| `src/lib/coder-orchestration.ts` | Vision bridge and Writer subagent configuration shapes |
-| `src/lib/rag.ts` | Knowledge Base retrieval and indexing logic |
-| `prisma/schema.prisma` | PostgreSQL data model |
-
----
-
-## API Map
-
-| Route | Purpose |
-|---|---|
-| `/api/chat/completions` | Streaming chat and WorkSpaces generation |
-| `/api/chat/completed` | Session finalization after generation |
-| `/api/chats` | List, create, update, delete sessions (list returns lean rows without the `messages` transcript) |
-| `/api/chats/[id]` | Fetch a single session's full DTO including the `messages` transcript (lazy-loaded on open/switch) |
-| `/api/chats/[id]/branch` | Fork a session from a selected message |
-| `/api/settings` | Per-user app and WorkSpaces settings |
-| `/api/rag/*` | Knowledge Base upload, search, health, diagnostics |
-| `/api/canvas/artifacts*` | Canvas artifact list, create, edit, delete, revisions, server-side preview, and downloads |
-| `/api/workspace-tool/*` | WorkSpaces workspace, tools, browser, document generation (PDF, Word, Excel, PowerPoint, CSV, Email, Markdown, ZIP, ICS, Mermaid), fetch-summarize, and automation |
-| `/api/coder/*` | Authenticated gateway to the dedicated Qwen Code daemon; session-owned prompts reconcile Vision and Writer roles before execution |
-| `/api/workspace-tool/workspaces/[id]/files` | Workspace Files panel — list (`GET`), write (`POST`), rename/move (`PATCH`), delete (`DELETE`) |
-| `/api/workspace-tool/workspaces/[id]/files/raw` | Read one workspace file (ETag-aware via `If-Match`) |
-| `/api/workspace-tool/workspaces/[id]/files/upload` | Multipart upload (50 MB / 100 files per request) |
-| `/api/workspace-tool/workspaces/[id]/files/download` | Single-file download with RFC 5987 filename |
-| `/api/workspace-tool/workspaces/[id]/files/zip` | Bulk zip download (500 MB / 500 files) |
-| `/api/workspace-tool/workspaces/[id]/events` | SSE stream of file-mutation events (Workspace Files panel live updates) |
-
----
-
-## Environment
-
-See [`.env.example`](.env.example) for a full template.
-
-| Variable | Required | Description |
-|---|---:|---|
-| `DATABASE_URL` | Yes | PostgreSQL connection string |
-| `JWT_SECRET` | Yes | Strong secret for signing JWTs (min 32 chars) |
-| `WORKSPACE_TOOL_HOST_EXECUTOR_TOKEN` | Optional | Enables host-side shell executor integration |
-| `WORKSPACE_TOOL_HOST_WORKSPACE_DIR` | Optional | Host path mounted as the managed workspace |
-| `TOR_PROXY_URL` | Optional | SOCKS proxy for UWAF stealth mode, defaulted by Compose |
-| `BRAVE_API_KEY` | Optional | Brave search backend |
-| `SEARXNG_URL` | Optional | Self-hosted SearXNG backend |
-| `GOOGLE_SEARCH_API_KEY` | Optional | Google Programmable Search backend |
-| `GOOGLE_SEARCH_CX` | Optional | Google Programmable Search CX id |
-| `FIRECRAWL_API_KEY` | Optional | Firecrawl v2 search fallback; not required for normal web research |
-| `FIRECRAWL_API_URL` | Optional | Firecrawl API base URL, including a compatible private deployment |
-
----
+3. Use **WorkSpaces** for general work or **Coding** for repository work. On Linux persistent Coder, select any valid absolute directory in the guest such as `/workspace/project` or `/apps/project`.
 
 ## Operations
 
 ```bash
-# Build and start
+# Standard Docker backend
 docker compose up -d --build
-
-# View logs
 docker compose logs -f app
 
-# Run tests
+# Persistent Linux Coder update
+PEAKUI_CODER_BACKEND=lxd ./scripts/install.sh
+
+# Tests
 npm test
-
-# Check the JavaScript bundle budget (fails if the entry bundle bloats)
 npm run bundle:check
-
-# Generate Prisma client
-npx prisma generate
-
-# Apply schema changes (development only)
-npx prisma db push
 ```
 
-Do **not** use destructive Prisma reset commands on a real database.
+Use the installer for updates, especially when persistent Coder is enabled. It preserves the selected backend and supplies the necessary LXD Compose overlay. Do not run a base-only Compose recreation of `app` on an LXD deployment; it omits the guest daemon bridge configuration.
 
----
+Back up a persistent Coder guest and Postgres together:
 
-## Security Model
+```bash
+./scripts/coder-lxd/backup.sh /path/to/backup-directory
+```
 
-PeakUI is a powerful local tool: it can run shell commands, access files, browse the web, and invoke local models. By default these capabilities are gated by:
+## Documentation
 
-- JWT-based authentication and per-user permissions
-- Personal tool-permission toggles
-- Approval tokens for destructive or interactive actions
-- Optional host executor with approved roots and env allowlists
-- Tor-routed stealth browsing with failsafe preflight checks
+| Need | Read |
+|---|---|
+| Architecture overview | [docs/architecture.md](docs/architecture.md) |
+| Coding UI, sessions, context, preview, model roles | [docs/coding-environment.md](docs/coding-environment.md) |
+| Persistent Incus/LXD Coder, backups, recovery, host prerequisites | [docs/coder-lxd.md](docs/coder-lxd.md) |
+| Keep hosts, dependencies, and the repo current | [docs/operations-and-updates.md](docs/operations-and-updates.md) |
+| GitHub import and integration | [docs/github-coder-integration.md](docs/github-coder-integration.md) |
+| Installation details | [INSTALL.md](INSTALL.md), [WINDOWS-SETUP.md](WINDOWS-SETUP.md), [DEPLOYMENT.md](DEPLOYMENT.md) |
+| Security model | [SECURITY.md](SECURITY.md) |
+| Full feature and tool reference | [docs/features.md](docs/features.md), [docs/tool-workflows.md](docs/tool-workflows.md), [docs/tool-call-formats.md](docs/tool-call-formats.md) |
+| Image generation | [docs/image-generation.md](docs/image-generation.md) |
+| Troubleshooting | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) |
 
-Read [SECURITY.md](SECURITY.md) for responsible use, reporting vulnerabilities, and deployment hardening.
+## Security
 
----
+PeakUI can use files, shell commands, browsers, models, and external providers. It protects those capabilities with authentication, per-user permissions, tool approvals, session ownership checks, validated workspace paths, and an authenticated daemon gateway. Persistent Coder expands the guest's capabilities without granting it host root access.
 
-## Contributing
+Read [SECURITY.md](SECURITY.md) before exposing PeakUI beyond a trusted network.
 
-We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community standards, and [CHANGELOG.md](CHANGELOG.md) for release history.
+## License And Support
 
----
-
-## License
-
-Copyright © 2026 Muhammad Talha Raza / Peak Services INC.
-
-PeakUI is released under the [MIT License](LICENSE).
-
----
-
-## Support
-
-- Email: [info@peakservices-inc.com](mailto:info@peakservices-inc.com)
-- Website: [https://peakservices-inc.com](https://peakservices-inc.com)
+PeakUI is released under the [MIT License](LICENSE). For support, contact [info@peakservices-inc.com](mailto:info@peakservices-inc.com) or visit [peakservices-inc.com](https://peakservices-inc.com).

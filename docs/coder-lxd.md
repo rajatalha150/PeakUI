@@ -227,11 +227,16 @@ in bounded windows, so file and ZIP size is not capped or buffered wholly in
 the app. GitHub imports use a private daemon endpoint and do not expose the
 installation token in shell history or agent transcripts.
 
-Preview URLs such as `http://127.0.0.1:5173` map to the loopback-only origin
-`http://p5173.localhost:4172`. The proxy forwards HTTP paths and WebSocket
-upgrades into the guest. Preview screenshots use the same mapped origin. As
-with Docker Coder, a browser on another machine cannot use that machine's
-`localhost` to reach the PeakUI host.
+Preview URLs such as `http://127.0.0.1:5173` are approved by PeakUI and shown
+through its authenticated same-origin preview proxy at
+`/api/coder/preview-proxy/<port>/...`. The app-to-guest bridge remains private
+on loopback port 4172; the browser never needs to resolve a guest hostname or
+use its own `localhost`. This makes Preview work from another computer or phone
+on the same trusted network. The proxy rewrites root-relative HTML and Vite
+asset/API paths so production SPAs retain their expected routing inside the
+Preview iframe. Preview's **Log** action runs Chromium against the same
+approved target and exposes copyable console, page, request, and HTTP errors;
+Vision reviews include those diagnostics when available.
 
 ## Backups And Recovery
 

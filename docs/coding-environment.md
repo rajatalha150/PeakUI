@@ -1,9 +1,11 @@
-# Coding Environment — Design & Delivery Plan (Qwen Code as the brain)
+# Coding Environment — Current Architecture (Qwen Code as the brain)
 
 The optional persistent Linux server backend is documented in
 [Coder LXD/Incus](coder-lxd.md).
 
-**Status:** SHIPPED + hardening rounds complete (verified against the live daemon)
+**Status:** SHIPPED. This document retains implementation detail and historical
+delivery context; start with the visual [architecture overview](architecture.md)
+and the current [Persistent Coder guide](coder-lxd.md).
 **Owner:** Platform
 **Scope:** A "Coding" surface launched from Settings. A dedicated dev container
 runs the **Qwen Code** agent (the coding brain, pointed at our local Ollama
