@@ -87,6 +87,19 @@ install_supported_incus() {
   trap - EXIT HUP INT TERM
 }
 
+cleanup_orphaned_incus_proxies() {
+  # Ubuntu's older Incus package can leave forkproxy children reparented to
+  # PID 1 during a transition to the maintained package. They retain Coder's
+  # loopback ports and prevent the refreshed guest from starting. A healthy
+  # Incus daemon owns its proxies, so only reap the unmistakably orphaned
+  # legacy children; never kill a currently managed proxy.
+  command -v ps >/dev/null 2>&1 || return
+  stale_pids=$(ps -eo pid=,ppid=,args= | awk '$2 == 1 && $0 ~ /\/usr\/libexec\/incus\/incusd forkproxy --/ { print $1 }')
+  [ -n "$stale_pids" ] || return
+  log 'Removing orphaned legacy Incus proxy listeners after the runtime upgrade.'
+  run_as_root kill $stale_pids || true
+}
+
 install_incus() {
   log 'Incus is required. sudo may ask for your account password.'
   if command -v apt-get >/dev/null 2>&1; then
@@ -224,6 +237,7 @@ case "$runtime_cli" in
     # A maintained build includes the AppArmor/runc fixes necessary for Docker
     # to create OCI containers inside the unprivileged Coder guest.
     install_supported_incus
+    cleanup_orphaned_incus_proxies
     runtime_group=incus-admin
     start_incus
     ;;

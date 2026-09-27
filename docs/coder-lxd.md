@@ -119,6 +119,9 @@ It refreshes the guest after an Incus runtime upgrade, then runs `docker run --r
 This is a real OCI-runtime check, not a shallow `docker info` check. A failed
 probe keeps Docker Coder active, so a deployment cannot report a fully capable
 persistent environment when nested Docker is actually blocked.
+When upgrading from Ubuntu's older Incus package, the installer also removes
+only orphaned legacy loopback proxy children that can otherwise retain Coder's
+ports during the package handoff; managed Incus proxy processes are untouched.
 The bootstrap also verifies the standard sticky permissions on `/tmp` before
 using APT, allowing a failed earlier attempt to recover cleanly.
 After a successful toolchain build, it records the pinned Qwen version so an
