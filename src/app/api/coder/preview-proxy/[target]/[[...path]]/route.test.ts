@@ -54,4 +54,19 @@ describe('LXD preview proxy', () => {
     expect(response.status).toBe(400)
     expect(fetchSpy).not.toHaveBeenCalled()
   })
+
+  it('rewrites Vite root-relative API and dynamic asset paths in JavaScript', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(
+      'fetch("/api/me"); import("/assets/chunk.js");',
+      { headers: { 'content-type': 'application/javascript' } },
+    ))
+    const { GET } = await loadRoute()
+    const response = await GET(
+      new NextRequest('http://peakui.test/api/coder/preview-proxy/8081/assets/index.js'),
+      { params: Promise.resolve({ target: '8081', path: ['assets', 'index.js'] }) },
+    )
+    expect(await response.text()).toBe(
+      'fetch("/api/coder/preview-proxy/8081/api/me"); import("/api/coder/preview-proxy/8081/assets/chunk.js");',
+    )
+  })
 })

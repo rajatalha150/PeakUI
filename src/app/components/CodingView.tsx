@@ -414,6 +414,10 @@ export default function CodingView() {
   const agentPreviewRef = React.useRef<{ url: string; device?: PreviewDevice } | null>(null);
   const [previewReloadKey, setPreviewReloadKey] = React.useState(0);
   const [previewCapturing, setPreviewCapturing] = React.useState(false);
+  const [previewDiagnosticsLoading, setPreviewDiagnosticsLoading] = React.useState(false);
+  const [previewDiagnostics, setPreviewDiagnostics] = React.useState<Array<{ level: string; message: string }>>([]);
+  const [previewDiagnosticsOpen, setPreviewDiagnosticsOpen] = React.useState(false);
+  const [previewDiagnosticsCopied, setPreviewDiagnosticsCopied] = React.useState(false);
   const [previewError, setPreviewError] = React.useState('');
   const [previewWindowSize, setPreviewWindowSize] = React.useState({ width: 640, height: 760 });
   const [previewWindowPosition, setPreviewWindowPosition] = React.useState<{ x: number; y: number } | null>(null);
@@ -725,6 +729,8 @@ export default function CodingView() {
         }
         setPreviewUrl(approvedUrl);
         setPreviewCaptureUrl(typeof data.captureUrl === 'string' ? data.captureUrl : approvedUrl);
+        setPreviewDiagnostics([]);
+        setPreviewDiagnosticsOpen(false);
         setPreviewReloadKey(key => key + 1);
         setPreviewError('');
       } catch {
@@ -840,7 +846,10 @@ export default function CodingView() {
       }
       const width = typeof image.width === 'number' ? image.width : PREVIEW_VIEWPORTS[previewDevice].width;
       const height = typeof image.height === 'number' ? image.height : PREVIEW_VIEWPORTS[previewDevice].height;
-      const prompt = `Inspect the attached ${previewDevice} (${width}x${height}) screenshot of the running local preview at ${previewUrl}. Identify visual, responsive, usability, and functional defects. Then inspect the project, implement the fixes you find, and verify the result in the same viewport. Do not only describe issues: carry the work through to tested code changes.`;
+      const runtimeLog = previewDiagnostics.length
+        ? `\n\nBrowser diagnostics captured for this preview:\n${previewDiagnostics.map(entry => `[${entry.level}] ${entry.message}`).join('\n').slice(0, 12_000)}`
+        : '';
+      const prompt = `Inspect the attached ${previewDevice} (${width}x${height}) screenshot of the running local preview at ${previewUrl}. Identify visual, responsive, usability, and functional defects. Then inspect the project, implement the fixes you find, and verify the result in the same viewport. Do not only describe issues: carry the work through to tested code changes.${runtimeLog}`;
       const response = await fetch(`/api/coder/session/${dsid}/prompt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -855,6 +864,42 @@ export default function CodingView() {
       setLiveStatus('');
     } finally {
       setPreviewCapturing(false);
+    }
+  };
+
+  const inspectPreviewDiagnostics = async () => {
+    if (!previewUrl || previewDiagnosticsLoading) return;
+    setPreviewDiagnosticsLoading(true);
+    try {
+      const response = await fetch('/api/coder/preview/diagnostics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: previewCaptureUrl || previewUrl, device: previewDevice }),
+      });
+      const result = await response.json().catch(() => ({})) as { entries?: Array<{ level?: unknown; message?: unknown }>; error?: string };
+      if (!response.ok) throw new Error(result.error || 'Browser diagnostics failed');
+      const entries = Array.isArray(result.entries)
+        ? result.entries.filter((entry): entry is { level: string; message: string } => typeof entry?.level === 'string' && typeof entry?.message === 'string')
+        : [];
+      setPreviewDiagnostics(entries);
+      setPreviewDiagnosticsOpen(true);
+    } catch (error) {
+      setPreviewError(error instanceof Error ? error.message : 'Browser diagnostics failed');
+    } finally {
+      setPreviewDiagnosticsLoading(false);
+    }
+  };
+
+  const copyPreviewDiagnostics = async () => {
+    try {
+      const text = previewDiagnostics.length
+        ? previewDiagnostics.map(entry => `[${entry.level}] ${entry.message}`).join('\n')
+        : 'No browser diagnostics were recorded.';
+      await copyToClipboard(text);
+      setPreviewDiagnosticsCopied(true);
+      window.setTimeout(() => setPreviewDiagnosticsCopied(false), 1600);
+    } catch {
+      setPreviewError('Could not copy browser diagnostics.');
     }
   };
 
@@ -3561,6 +3606,9 @@ export default function CodingView() {
               <button onClick={() => void sendPreviewToVision()} disabled={!previewUrl || !activeSessionId || previewCapturing} title="Capture this viewport and ask the coding agent to inspect and fix it" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(34,211,238,0.1)', color: accent, border: '1px solid rgba(34,211,238,0.3)', borderRadius: 5, padding: '3px 6px', fontSize: '0.66rem', cursor: previewUrl && activeSessionId && !previewCapturing ? 'pointer' : 'default', opacity: previewUrl && activeSessionId && !previewCapturing ? 1 : 0.45 }}>
                 {previewCapturing ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Camera size={12} />} Vision
               </button>
+              <button onClick={() => void inspectPreviewDiagnostics()} disabled={!previewUrl || previewDiagnosticsLoading} title="Run the preview in Chromium and collect console, network, and page errors" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: previewDiagnosticsOpen ? 'rgba(245,158,11,0.14)' : 'transparent', color: previewDiagnosticsOpen ? '#fbbf24' : 'rgba(209,213,219,0.7)', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 5, padding: '3px 6px', fontSize: '0.66rem', cursor: previewUrl && !previewDiagnosticsLoading ? 'pointer' : 'default', opacity: previewUrl && !previewDiagnosticsLoading ? 1 : 0.45 }}>
+                {previewDiagnosticsLoading ? <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Terminal size={12} />} Log
+              </button>
               {!isPhone && <button onClick={() => setPreviewMaximized(value => !value)} title={previewMaximized ? 'Restore preview size' : 'Maximize preview'} style={{ display: 'inline-flex', alignItems: 'center', background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.6)', cursor: 'pointer', padding: 2 }}>{previewMaximized ? <Minimize2 size={13} /> : <Maximize2 size={13} />}</button>}
               <button onClick={() => setPreviewOpen(false)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.5)', cursor: 'pointer', padding: 0 }}><X size={13} /></button>
             </div>
@@ -3576,6 +3624,16 @@ export default function CodingView() {
               <button onClick={() => applyPreview(previewInput, 'manual')} style={{ background: 'rgba(34,211,238,0.12)', color: accent, border: `1px solid ${accent}`, borderRadius: '6px', padding: '4px 10px', fontSize: '0.72rem', cursor: 'pointer' }}>Go</button>
             </div>
             {previewError && <div role="alert" style={{ margin: '0 10px 8px', padding: '6px 8px', fontSize: '0.7rem', color: '#fca5a5', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5 }}>{previewError}</div>}
+            {previewDiagnosticsOpen && (
+              <div style={{ margin: '0 10px 8px', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 5, overflow: 'hidden', background: 'rgba(0,0,0,0.25)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 7px', borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'rgba(209,213,219,0.7)', fontSize: '0.66rem', fontFamily: 'ui-monospace, monospace' }}>
+                  <Terminal size={12} /> Runtime log {previewDiagnostics.length ? `(${previewDiagnostics.length})` : '(clean)'}
+                  <button onClick={() => void copyPreviewDiagnostics()} title="Copy runtime log" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4, border: 'none', background: 'transparent', color: accent, cursor: 'pointer', fontSize: '0.65rem', padding: 1 }}><ClipboardCopy size={12} /> {previewDiagnosticsCopied ? 'Copied' : 'Copy'}</button>
+                  <button onClick={() => setPreviewDiagnosticsOpen(false)} title="Close runtime log" style={{ display: 'inline-flex', border: 'none', background: 'transparent', color: 'rgba(209,213,219,0.55)', cursor: 'pointer', padding: 1 }}><X size={12} /></button>
+                </div>
+                <pre style={{ margin: 0, padding: '6px 8px', maxHeight: 142, overflow: 'auto', color: previewDiagnostics.length ? '#fcd34d' : 'rgba(209,213,219,0.48)', fontSize: '0.65rem', lineHeight: 1.45, fontFamily: 'ui-monospace, monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{previewDiagnostics.length ? previewDiagnostics.map(entry => `[${entry.level}] ${entry.message}`).join('\n') : 'No console, page, request, or HTTP errors were recorded.'}</pre>
+              </div>
+            )}
             <div ref={previewStageRef} style={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', overflow: 'auto', background: 'rgba(0,0,0,0.2)' }}>
               {previewUrl ? (
                 <div

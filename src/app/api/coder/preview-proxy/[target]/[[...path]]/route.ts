@@ -45,6 +45,17 @@ function rewriteHtml(html: string, prefix: string) {
     : `${base}${rewritten}`
 }
 
+function rewriteJavaScript(source: string, prefix: string) {
+  // Vite emits root-relative strings for API requests and lazily imported
+  // chunks. Without this, HTML renders but the client bundle talks to PeakUI's
+  // own `/api` routes (or loads chunks from PeakUI) and the preview becomes a
+  // misleading blank white page.
+  return source.replace(
+    /(['"])\/(api|assets)(?=\/|['"])/g,
+    `$1${prefix}/$2`,
+  )
+}
+
 function rewriteLocation(location: string, prefix: string) {
   if (location.startsWith('/')) return `${prefix}${location}`
   return location
@@ -87,6 +98,12 @@ async function handle(req: NextRequest, context: { params: Promise<{ target: str
     headers.set('content-type', contentType)
     headers.delete('content-length')
     return new NextResponse(html, { status: upstream.status, headers })
+  }
+  if (contentType.includes('javascript') || contentType.includes('ecmascript')) {
+    const script = rewriteJavaScript(await upstream.text(), prefix)
+    headers.set('content-type', contentType)
+    headers.delete('content-length')
+    return new NextResponse(script, { status: upstream.status, headers })
   }
   return new NextResponse(upstream.body, { status: upstream.status, headers })
 }
