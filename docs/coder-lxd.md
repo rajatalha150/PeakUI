@@ -55,6 +55,10 @@ fingerprint-checked before the source is added. Set
 `PEAKUI_INCUS_CHANNEL=distribution` only when the host distribution already
 ships a current, tested Incus build; `lts-7.0` is suitable where it contains
 the required fix, while `stable` remains the default for Coder.
+Once that verified channel's current package is installed, ordinary PeakUI
+redeployments do not ask for `sudo` or refresh host packages again. Set
+`PEAKUI_INCUS_REFRESH=1` when intentionally checking the selected channel for
+a newer Incus release.
 
 Access to the Incus/LXD administration socket is host-administrator equivalent.
 The Coding agent does not receive that socket, so it can control its nested

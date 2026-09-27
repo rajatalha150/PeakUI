@@ -48,6 +48,18 @@ apt_os_codename() {
   esac
 }
 
+incus_channel_is_current() {
+  channel=$1
+  source=/etc/apt/sources.list.d/zabbly-incus.sources
+  [ -r "$source" ] || return 1
+  grep -Fqx "URIs: https://pkgs.zabbly.com/incus/$channel" "$source" || return 1
+  command -v dpkg-query >/dev/null 2>&1 || return 1
+  command -v apt-cache >/dev/null 2>&1 || return 1
+  installed=$(dpkg-query -W -f='${Version}' incus 2>/dev/null || true)
+  candidate=$(apt-cache policy incus 2>/dev/null | awk '/Candidate:/ { print $2; exit }')
+  [ -n "$installed" ] && [ "$installed" = "$candidate" ]
+}
+
 install_supported_incus() {
   # Older LTS point releases can start Docker in an unprivileged guest but
   # fail every OCI launch due to an AppArmor/runc incompatibility. Zabbly
@@ -65,6 +77,14 @@ install_supported_incus() {
   suite=$(apt_os_codename 2>/dev/null || true)
   command -v dpkg >/dev/null 2>&1 || { install_incus; return; }
   [ -n "$suite" ] || { install_incus; return; }
+
+  # The installer re-enters through `sg` immediately after adding the user to
+  # incus-admin. That child preserves the group but cannot safely prompt for a
+  # second sudo password, so avoid APT entirely when the verified channel is
+  # already configured and its candidate is installed.
+  if [ "${PEAKUI_INCUS_REFRESH:-0}" != 1 ] && incus_channel_is_current "$channel"; then
+    return
+  fi
 
   log "Installing maintained Incus $channel packages for nested Docker support. sudo may ask for your account password."
   refresh_apt_indexes
@@ -95,7 +115,7 @@ cleanup_orphaned_incus_proxies() {
   # legacy children; never kill a currently managed proxy.
   command -v ps >/dev/null 2>&1 || return
   stale_pids=$(ps -eo pid=,ppid=,args= | awk '$2 == 1 && $0 ~ /\/usr\/libexec\/incus\/incusd forkproxy --/ { print $1 }')
-  [ -n "$stale_pids" ] || return
+  [ -n "$stale_pids" ] || return 0
   log 'Removing orphaned legacy Incus proxy listeners after the runtime upgrade.'
   run_as_root kill $stale_pids || true
 }
@@ -194,6 +214,16 @@ configure_instance_network() {
   esac
   bridge=${PEAKUI_INSTANCE_BRIDGE:-$default_bridge}
   "$runtime_cli" network show "$bridge" >/dev/null 2>&1 || return
+
+  # This persistent marker is written only after the host bridge helper is in
+  # place. Avoid another sudo round-trip on ordinary deploys and during the
+  # `sg` re-exec used to activate a newly added incus-admin membership.
+  network_config=/etc/peakui-instance-network.conf
+  if [ -r "$network_config" ] \
+    && grep -Fqx "PEAKUI_INSTANCE_BRIDGE=$bridge" "$network_config" \
+    && [ -x /usr/local/sbin/peakui-incus-network ]; then
+    return 0
+  fi
 
   log "Configuring host forwarding for the $bridge Incus bridge."
 
