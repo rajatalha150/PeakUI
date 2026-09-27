@@ -128,6 +128,14 @@ only orphaned legacy loopback proxy children that can otherwise retain Coder's
 ports during the package handoff; managed Incus proxy processes are untouched.
 The bootstrap also verifies the standard sticky permissions on `/tmp` before
 using APT, allowing a failed earlier attempt to recover cleanly.
+It installs the everyday system tools expected of a real development machine,
+including `rsync`, DNS diagnostics, `netcat`, `lsof`, and Docker Buildx. Docker
+is configured with stable upstream resolvers when its daemon configuration does
+not already define `dns`; this prevents an intermittent Incus bridge DNS lookup
+from making registry pulls or builds fail. Existing administrator-managed Docker
+resolver settings are preserved. Set `PEAKUI_DOCKER_DNS` to a comma-separated
+IP list before provisioning when a private network requires different
+resolvers.
 After a successful toolchain build, it records the pinned Qwen version so an
 interrupted cutover can resume without rebuilding the same source tree.
 Managed staging files are replaced explicitly on retry, including files first
@@ -177,6 +185,20 @@ advertised but unusable IPv6.
 The instance is a trusted local development environment. Its bridge rules let
 the guest contact the host and the Internet. Do not run untrusted workloads in
 the shared Coder instance; create a separate restricted Incus profile instead.
+
+When diagnosing a registry issue, distinguish the guest resolver from Docker's
+daemon resolver. Check both instead of retrying an image pull blindly:
+
+```bash
+sg incus-admin -c 'incus exec peakui-coder -- resolvectl status eth0'
+sg incus-admin -c 'incus exec peakui-coder -- cat /etc/docker/daemon.json'
+sg incus-admin -c 'incus exec peakui-coder -- docker pull hello-world'
+```
+
+If a pull reaches a registry and returns `401`, `404`, or an image-specific
+manifest error, DNS is working; update that project's image reference or its
+registry authentication instead. Do not replace `/etc/resolv.conf` or weaken
+the Incus security profile as a response.
 
 To return to Docker Coder deliberately:
 

@@ -83,7 +83,8 @@ Coder runs inside an unprivileged **Incus/LXD system container**. This is a
 real, persistent Linux guest rather than a disposable application container:
 the agent can work in `/workspace`, `/apps`, or any selected absolute guest
 directory; install OS packages; run systemd services; build with Java, Go,
-Node, Python, Gradle, and the Android SDK; use nested Docker; host development
+Node, Python, Gradle, and the Android SDK; use nested Docker with Buildx and
+reliable registry DNS; host development
 servers for Preview; and retain all of that state after a PeakUI update or host
 restart. Project trees, Git/SSH configuration, Qwen state, browser tooling,
 package caches, and agent-created services live with the guest instead of being

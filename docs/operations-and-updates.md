@@ -57,6 +57,20 @@ sg incus-admin -c 'incus exec peakui-coder -- docker run --rm hello-world'
 `hello-world` is deliberate: it proves the nested OCI runtime works, not just
 that the Docker daemon can start.
 
+Also confirm that the guest can build and pull through Docker's resolver:
+
+```bash
+sg incus-admin -c 'incus exec peakui-coder -- cat /etc/docker/daemon.json'
+sg incus-admin -c 'incus exec peakui-coder -- docker pull hello-world'
+sg incus-admin -c 'incus exec peakui-coder -- docker buildx version'
+```
+
+PeakUI supplies `1.1.1.1` and `8.8.8.8` as Docker daemon resolvers only when
+`/etc/docker/daemon.json` has no existing `dns` setting. This protects image
+pulls from transient bridge-DNS failures while respecting a managed private DNS
+configuration. Set `PEAKUI_DOCKER_DNS` before a persistent-Coder installation
+to use organization-specific resolver IPs.
+
 ## Back Up Before Risky Changes
 
 Use the application backup controls for normal database/content recovery. For
@@ -156,6 +170,13 @@ as routine cleanup.
 Inside persistent Coder, check free storage before large Android, native, or
 model builds. The managed readiness service protects a reserve, but it cannot
 recover data removed by an external host cleanup.
+
+Do not interpret every registry error as a Docker or DNS failure. A successful
+`docker pull hello-world` followed by a `401`, `404`, or manifest error for one
+specific image means the runtime path is healthy and that project's image tag,
+registry access, or image distribution must be corrected. Fix the project
+dependency and commit it; repeated daemon restarts cannot repair a retired
+image.
 
 ## Dependency Policy
 
