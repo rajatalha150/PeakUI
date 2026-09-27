@@ -90,7 +90,9 @@ Managed staging files are replaced explicitly on retry, including files first
 created by a cloud image's non-root default user under the sticky `/tmp` path.
 The persistent service explicitly sets `HOME=/root` so Git, SSH, Qwen, and
 their state directories behave the same under systemd as they do in an
-interactive Coder shell.
+interactive Coder shell. Its bounded stop timeout prevents a Qwen child process
+that ignores `SIGTERM` from making an update appear stuck; active jobs should
+be allowed to finish before deliberately redeploying Coder.
 On every instance boot, the service refreshes the managed QWEN.md, Git defaults,
 SSH host trust, and runtime readiness checks.
 
