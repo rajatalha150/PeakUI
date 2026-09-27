@@ -10,6 +10,30 @@ existing Coder Docker volumes into their original guest paths, so projects,
 SSH/Git state, Qwen state, Android SDK, and caches are retained. The old Docker
 volumes remain untouched for rollback.
 
+## Why A System Container
+
+The standard Docker Coder backend is excellent for a lightweight, reproducible
+coding daemon. The Incus/LXD backend is for work that benefits from a durable
+Linux server. It gives Coder an unprivileged system container with its own
+persistent `/`, package database, service manager, process tree, network
+namespace, and nested Docker capability. The agent can install build tools,
+start long-lived services, run native or Android builds, use any selected
+absolute directory in the guest root, and return to the same environment after
+an app update or host restart.
+
+This does not grant Coder the host root filesystem or the Incus administration
+socket. PeakUI remains in Docker; only the Coding runtime moves into the guest.
+That separation gives Coder more room to behave like a complete development
+machine while keeping host control in the hands of the installation owner.
+
+| Need | Docker Coder | Incus/LXD Coder |
+|---|---|---|
+| Fast, disposable coding daemon | Strong choice | Supported, but more infrastructure |
+| Durable packages, services, and build tools | Requires custom image/volume work | Native system-container behavior |
+| Long native, Android, or multi-service projects | Rebuild and cache constraints can get in the way | Persistent toolchains, caches, services, and nested Docker |
+| Workspace directories | Mounted project paths | Any validated absolute path in the isolated guest root |
+| Host protection | Container boundary | Unprivileged guest; no host root or Incus socket is exposed to Coder |
+
 ## Requirements
 
 - Linux host with Docker Compose. Windows and macOS continue using Docker Coder.
@@ -142,18 +166,16 @@ PEAKUI_CODER_BACKEND=docker ./scripts/install.sh
 
 ## Directories And Sessions
 
-The workspace router starts one Qwen runtime per selected **existing** absolute
-directory. This permits `/workspace` and `/workspace/vision-proxy` concurrently,
-even though a single Qwen daemon rejects nested workspace registrations. Each
-runtime has its own persistent `QWEN_HOME`; `/workspace` keeps the existing
+The workspace router starts one Qwen runtime per selected absolute directory.
+This permits `/workspace` and `/workspace/vision-proxy` concurrently, even
+though a single Qwen daemon rejects nested workspace registrations. Each runtime
+has its own persistent `QWEN_HOME`; `/workspace` keeps the existing
 `/root/.qwen` data. New runtimes copy model settings and historical project
 transcripts without copying debug caches. The session-to-directory map is
-persisted under `/var/lib/peakui/coder-router`. Create a directory before
-selecting it as a workspace. When you select a valid missing absolute directory
-such as `/workspace/data`, Coder creates it in the persistent guest root.
-Existing sessions remain bound to their original
-directory. The managed QWEN.md is refreshed when a runtime starts after an
-update.
+persisted under `/var/lib/peakui/coder-router`. A valid missing absolute
+directory such as `/workspace/data` is created in the persistent guest root
+when selected. Existing sessions remain bound to their original directory. The
+managed QWEN.md is refreshed when a runtime starts after an update.
 
 The instance root persists all directories, including `/workspace`, `/apps`,
 tool caches, and SSH/Qwen state. The agent can install

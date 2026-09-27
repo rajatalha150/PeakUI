@@ -36,7 +36,7 @@ Most AI chat interfaces send your prompts, documents, and browsing history to so
 | **Tools** | Shell, filesystem, code sandbox, public browser, UWAF Direct/Stealth browser, PDF/Word/Excel/PowerPoint/CSV/Email/Markdown/ZIP/ICS/Mermaid artifact generation, and URL fetch-summarize with approval gates. Tool calls are parsed from a **multi-format parser** that accepts the custom `<workspace_tool>` wrapper *and* the native syntax of Qwen, Gemma, Llama, Mistral, GLM, and Anthropic-style models — so local GGUF models that don't reliably emit the custom wrapper still work. |
 | **Automation** | Heartbeats, cron tasks, monitors, wake events, nudges, and guarded unattended local Ollama runs |
 | **Session intelligence** | Rolling summaries, context health, auto-continue modes, branches, branch compare, and analytics |
-| **Coding** | Dedicated Qwen Code workspace with persistent sessions, terminal, files, tasks, rewind, GitHub projects, floating responsive preview, native per-model context windows, and Main / Vision / Writer orchestration. Every coding turn reconciles its configured delegates before execution, so empty roles explicitly clear stale daemon state rather than inheriting a previous session's configuration. |
+| **Coding** | Dedicated Qwen Code workspace with persistent sessions, terminal, files, tasks, rewind, GitHub projects, floating responsive preview, native per-model context windows, and Main / Vision / Writer orchestration. On Linux, Coder can run in a persistent Incus/LXD system container: a full durable Linux environment where the agent can create directories anywhere in its guest root, install packages, run services, use nested Docker, build Android or web projects, and retain projects, SSH state, toolchains, caches, and long-session memory across updates. |
 
 ---
 
@@ -62,13 +62,45 @@ branch explicitly, set `PEAKUI_REF` before the command. Then jump to step 3
 below. The manual steps that follow are for when you prefer to clone and
 configure by hand.
 
-On Linux, Coding also has an opt-in persistent LXD/Incus system-container
-backend under development on `coder-lxd`. Its installer detects or installs
-Incus, initializes it, grants the existing login account access, and provisions
-the persistent Coding environment in one run. PeakUI and its data services
-remain in Docker. See [Coder LXD/Incus setup](docs/coder-lxd.md) for the command,
-directory routing, backups, and rollback. Windows and macOS continue to use the
-Docker Coding backend.
+On Linux, Coding has an opt-in persistent Incus/LXD system-container backend on
+`coder-lxd`. Its installer detects or installs Incus, initializes it, grants the
+existing login account access, and provisions the persistent Coding environment
+in one run. PeakUI and its data services remain in Docker. See [Persistent Linux
+Coder](#persistent-linux-coder) or [Coder LXD/Incus setup](docs/coder-lxd.md).
+Windows and macOS continue to use the Docker Coding backend.
+
+### Persistent Linux Coder
+
+For a serious, long-running coding environment on Linux, deploy the persistent
+Coder backend:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/coder-lxd/scripts/install.sh \
+  | PEAKUI_CODER_BACKEND=lxd sh
+```
+
+Coder runs inside an unprivileged **Incus/LXD system container**. This is a
+real, persistent Linux guest rather than a disposable application container:
+the agent can work in `/workspace`, `/apps`, or any selected absolute guest
+directory; install OS packages; run systemd services; build with Java, Go,
+Node, Python, Gradle, and the Android SDK; use nested Docker; host development
+servers for Preview; and retain all of that state after a PeakUI update or host
+restart. Project trees, Git/SSH configuration, Qwen state, browser tooling,
+package caches, and agent-created services live with the guest instead of being
+reconstructed for every coding session.
+
+| Capability | Docker Coder | Incus/LXD Coder |
+|---|---|---|
+| Runtime model | Application container | Persistent system container with its own Linux root |
+| OS packages and services | Image-defined; changes are transient or require image rebuilds | Install packages, use `systemd`, and keep services running in the guest |
+| Filesystem scope | Fixed mounted volumes | Any valid absolute path in the isolated guest root |
+| Complex builds | Good for ordinary repositories | Better for long Android, native, Docker, and multi-service builds with durable toolchains and caches |
+| Updates and recovery | Recreate the daemon container | Health-checked guest updates, persistent root filesystem, snapshots/exports, and Docker fallback volumes |
+| Isolation boundary | Shared container runtime model | Unprivileged guest separate from the PeakUI app and host root |
+
+Docker remains the simpler default for macOS, Windows, and lightweight Linux
+use. Incus/LXD is the better fit when Coding should behave like a durable Linux
+development server without giving the agent the host operating system.
 
 ### 1. Start Ollama
 
