@@ -89,6 +89,13 @@ restart. Project trees, Git/SSH configuration, Qwen state, browser tooling,
 package caches, and agent-created services live with the guest instead of being
 reconstructed for every coding session.
 
+The Linux installer verifies that nested Docker can actually start an OCI
+container before it switches PeakUI to persistent Coder. On supported Debian,
+Ubuntu, and Ubuntu-derived hosts it uses maintained Incus LTS packages for
+current Docker/runc and AppArmor behavior. “Docker available” therefore means
+a usable build capability, not merely a running daemon. Details, including the
+package channel override, are in [Coder LXD/Incus setup](docs/coder-lxd.md).
+
 | Capability | Docker Coder | Incus/LXD Coder |
 |---|---|---|
 | Runtime model | Application container | Persistent system container with its own Linux root |

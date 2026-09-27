@@ -35,6 +35,56 @@ refresh_apt_indexes() {
   fi
 }
 
+apt_os_codename() {
+  # Linux Mint and several Ubuntu derivatives keep their own VERSION_CODENAME
+  # but publish the compatible Ubuntu suite separately.
+  [ -r /etc/os-release ] || return 1
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  codename=${UBUNTU_CODENAME:-${DEBIAN_CODENAME:-${VERSION_CODENAME:-}}}
+  case "$codename" in
+    jammy|noble|plucky|questing|bookworm|trixie) printf '%s\n' "$codename" ;;
+    *) return 1 ;;
+  esac
+}
+
+install_supported_incus() {
+  # Older LTS point releases can start Docker in an unprivileged guest but
+  # fail every OCI launch due to an AppArmor/runc incompatibility. Zabbly
+  # publishes maintained Incus LTS builds for supported Debian/Ubuntu suites.
+  channel=${PEAKUI_INCUS_CHANNEL:-lts-6.0}
+  if [ "$channel" = distribution ]; then
+    command -v incus >/dev/null 2>&1 || install_incus
+    return
+  fi
+  case "$channel" in lts-6.0|lts-7.0|stable) ;; *) fail 'PEAKUI_INCUS_CHANNEL must be distribution, lts-6.0, lts-7.0, or stable.' ;; esac
+
+  command -v apt-get >/dev/null 2>&1 || { install_incus; return; }
+  suite=$(apt_os_codename 2>/dev/null || true)
+  command -v dpkg >/dev/null 2>&1 || { install_incus; return; }
+  [ -n "$suite" ] || { install_incus; return; }
+
+  log "Installing maintained Incus $channel packages for nested Docker support. sudo may ask for your account password."
+  refresh_apt_indexes
+  run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl gnupg
+  key_file=$(mktemp)
+  source_file=$(mktemp)
+  trap 'rm -f "$key_file" "$source_file"' EXIT HUP INT TERM
+  curl -fsSL https://pkgs.zabbly.com/key.asc -o "$key_file"
+  fingerprint=$(gpg --show-keys --with-colons "$key_file" 2>/dev/null | awk -F: '$1 == "fpr" { print $10; exit }')
+  [ "$fingerprint" = 4EFC590696CB15B87C73A3AD82CC8797C838DCFD ] || fail 'The Incus package-signing key fingerprint did not match the published Zabbly key.'
+  arch=$(dpkg --print-architecture)
+  printf 'Enabled: yes\nTypes: deb\nURIs: https://pkgs.zabbly.com/incus/%s\nSuites: %s\nComponents: main\nArchitectures: %s\nSigned-By: /etc/apt/keyrings/zabbly.asc\n' \
+    "$channel" "$suite" "$arch" > "$source_file"
+  run_as_root install -d -m 755 /etc/apt/keyrings /etc/apt/sources.list.d
+  run_as_root install -m 644 "$key_file" /etc/apt/keyrings/zabbly.asc
+  run_as_root install -m 644 "$source_file" /etc/apt/sources.list.d/zabbly-incus.sources
+  refresh_apt_indexes
+  run_as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y incus incus-client
+  rm -f "$key_file" "$source_file"
+  trap - EXIT HUP INT TERM
+}
+
 install_incus() {
   log 'Incus is required. sudo may ask for your account password.'
   if command -v apt-get >/dev/null 2>&1; then
@@ -169,7 +219,9 @@ configure_instance_network() {
 
 case "$runtime_cli" in
   incus)
-    command -v incus >/dev/null 2>&1 || install_incus
+    # A maintained build includes the AppArmor/runc fixes necessary for Docker
+    # to create OCI containers inside the unprivileged Coder guest.
+    install_supported_incus
     runtime_group=incus-admin
     start_incus
     ;;

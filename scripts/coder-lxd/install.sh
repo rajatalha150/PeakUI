@@ -75,6 +75,23 @@ push_guest_tree() {
   tar -C "$source" -cf - . | "$instance_cli" exec "$instance" -- tar -C "$destination" --no-same-owner -xpf -
 }
 
+verify_nested_docker() {
+  # `docker info` only proves that its daemon started. Exercise runc as well,
+  # because a host AppArmor/profile mismatch can make every OCI launch fail.
+  local output
+  if output=$("$instance_cli" exec "$instance" -- timeout 120 docker run --rm --pull=missing hello-world 2>&1); then
+    echo 'Nested Docker verified.'
+    return
+  fi
+
+  echo 'Nested Docker could not launch a container in the persistent Coder guest:' >&2
+  printf '%s\n' "$output" >&2
+  if [[ "$output" == *'net.ipv4.ip_unprivileged_port_start'* ]]; then
+    echo 'The host Incus/LXD AppArmor integration is too old for this runc. Re-run with the maintained Incus default (PEAKUI_INCUS_CHANNEL=lts-6.0), then retry.' >&2
+  fi
+  return 1
+}
+
 if ! "$instance_cli" info "$instance" >/dev/null 2>&1; then
   "$instance_cli" init "$image" "$instance" \
     -c limits.cpu="${CODER_LXD_CPUS:-4}" -c limits.memory="${CODER_LXD_MEMORY:-8GiB}" \
@@ -139,6 +156,7 @@ push_guest_file "$env_file" /etc/peakui-coder.env 600
 
 echo "Provisioning $instance (first run downloads the toolchain and browser)..."
 "$instance_cli" exec "$instance" -- bash /tmp/peakui-bootstrap.sh
+verify_nested_docker
 
 # Keep Docker data available for rollback, but make the Incus root filesystem
 # authoritative. Tar streaming preserves large workspaces without relying on

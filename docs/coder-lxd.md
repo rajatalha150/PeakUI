@@ -38,14 +38,23 @@ machine while keeping host control in the hands of the installation owner.
 
 - Linux host with Docker Compose. Windows and macOS continue using Docker Coder.
 - A supported package manager for automatic Incus installation: APT, DNF,
-  Zypper, Pacman, APK, XBPS, or Portage. Existing Incus or LXD installations
-  are detected and preserved. Distributions that do not package the Incus
-  server must install Incus or LXD first.
+  Zypper, Pacman, APK, XBPS, or Portage. Existing instances and storage are
+  preserved. Distributions that do not package the Incus server must install
+  Incus or LXD first.
 - The installer can ask for the current account's `sudo` password. It uses
   elevated access only to install the host runtime and add that same account to
   its administration group; it does not create or switch login users.
 - `python3`, `curl`, internet access for the Ubuntu image, Qwen source, Node,
   packages, and Chromium; free host loopback ports 4171 and 4172.
+
+On supported Debian/Ubuntu releases and Ubuntu derivatives such as Linux Mint,
+the installer configures the maintained Incus `lts-6.0` package channel. This
+avoids an older host AppArmor/runc interaction where Docker can be installed in
+the guest but cannot launch any OCI container. The package signing key is
+fingerprint-checked before the source is added. Set
+`PEAKUI_INCUS_CHANNEL=distribution` only when the host distribution already
+ships a current, tested Incus build; `lts-7.0` and `stable` are available for
+administrators deliberately tracking those channels.
 
 Access to the Incus/LXD administration socket is host-administrator equivalent.
 The Coding agent does not receive that socket, so it can control its nested
@@ -106,6 +115,10 @@ its volumes remain available for rollback and are not deleted.
 Provisioning assets are streamed through guest-root processes rather than the
 Incus file-push metadata API, which avoids a known permission-reporting quirk
 on some unprivileged Incus 6.0 hosts and supports large browser/tooling trees.
+It then runs `docker run --rm hello-world` inside the guest before cutover.
+This is a real OCI-runtime check, not a shallow `docker info` check. A failed
+probe keeps Docker Coder active, so a deployment cannot report a fully capable
+persistent environment when nested Docker is actually blocked.
 The bootstrap also verifies the standard sticky permissions on `/tmp` before
 using APT, allowing a failed earlier attempt to recover cleanly.
 After a successful toolchain build, it records the pinned Qwen version so an
