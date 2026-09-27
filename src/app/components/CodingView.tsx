@@ -338,6 +338,10 @@ export default function CodingView() {
   const [questionDrafts, setQuestionDrafts] = React.useState<Record<string, Record<string, string | string[]>>>({});
   const [questionNotes, setQuestionNotes] = React.useState<Record<string, string>>({});
   const [daemonSessionId, setDaemonSessionId] = React.useState<string | null>(null);
+  // Incremented when the persistent guest restarts and drops only its
+  // in-memory Qwen session. The matching ChatSession remains durable, so this
+  // triggers an automatic create/load rather than making the user refresh.
+  const [daemonRecoveryAttempt, setDaemonRecoveryAttempt] = React.useState(0);
   // The daemon MINTS its own client id on session create and returns it; every
   // per-session call (shell, permission votes) must echo THAT id, not one we
   // invented — the bridge rejects caller-supplied ids it never issued.
@@ -2223,6 +2227,7 @@ export default function CodingView() {
   React.useEffect(() => {
     if (!daemonSessionId) return;
     let cancelled = false;
+    const streamedSessionId = daemonSessionId;
     const note = (line: string) => setLiveStatus(line);
 
     const onFrame = (raw: string) => {
@@ -2306,7 +2311,23 @@ export default function CodingView() {
       frame => onFrame(frame.data),
       {
         onReconnecting: () => { if (!cancelled) note('reconnecting to agent stream…'); },
-        onError: status => { if (!cancelled) setError(`Agent stream unavailable (${status}). Reopen the session or sign in again.`); },
+        onError: status => {
+          if (cancelled) return;
+          // A guest/daemon restart has no durable in-memory Qwen session, so
+          // `/events` returns 404 even though the persistent ChatSession is
+          // still valid. Drop only this transient handle and let the eager
+          // reattach effect recreate/load the same session automatically.
+          if (status === 404) {
+            setError('');
+            note('agent runtime restarted — restoring session…');
+            clientIdRef.current = '';
+            ensurePromiseRef.current = null;
+            setDaemonSessionId(current => current === streamedSessionId ? null : current);
+            setDaemonRecoveryAttempt(attempt => attempt + 1);
+            return;
+          }
+          setError(`Agent stream unavailable (${status}). Sign in again if the problem persists.`);
+        },
       },
     );
 
@@ -2520,9 +2541,12 @@ export default function CodingView() {
     })();
   }, [transcriptEvents, busy, sessionStatus, daemonSessionId]);
 
-  // Persist the transcript + tool activity after each turn settles.
+  // Persist the transcript + tool activity as it changes. A persistent guest
+  // restart can occur mid-turn; waiting for idle would leave its latest work
+  // only in daemon memory. The signature below keeps this inexpensive on polls
+  // that do not add any new information.
   React.useEffect(() => {
-    if (!activeSessionId || busy || messages.length === 0 || !sessionResolved || !daemonSessionId || persistInFlightRef.current) return;
+    if (!activeSessionId || messages.length === 0 || !sessionResolved || !daemonSessionId || persistInFlightRef.current) return;
     // Respect an explicit user rename: once renamed, the title is fixed and
     // must not be re-derived from the first message.
     const renamed = renamedRef.current.get(activeSessionId);
@@ -2548,15 +2572,27 @@ export default function CodingView() {
     // Wait until the session's saved workspace binding has been resolved before
     // reattaching — otherwise a reopened session could reattach with the current
     // default workspace instead of the ORIGINAL project it was created against.
-    if (!activeSessionId || !settings || !sessionResolved) return;
+    if (daemonSessionId || !activeSessionId || !settings || !sessionResolved) return;
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
     (async () => {
       const id = await ensureDaemonSession();
-      if (!cancelled && id) setDaemonSessionId(id);
+      if (cancelled) return;
+      if (id) {
+        setDaemonRecoveryAttempt(0);
+        setLiveStatus(current => current === 'agent runtime restarted — restoring session…' ? 'reconnected' : current);
+        return;
+      }
+      // The guest may still be booting after a host/runtime restart. Keep the
+      // persistent session selected and retry automatically with a bounded
+      // backoff rather than asking the user to refresh or reopen it.
+      const delay = Math.min(1000 * 2 ** Math.min(daemonRecoveryAttempt, 4), 15_000);
+      setLiveStatus('waiting for coding runtime…');
+      retryTimer = setTimeout(() => setDaemonRecoveryAttempt(attempt => attempt + 1), delay);
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; if (retryTimer) clearTimeout(retryTimer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSessionId, settings, sessionResolved]);
+  }, [activeSessionId, settings, sessionResolved, daemonSessionId, daemonRecoveryAttempt]);
 
   // ---- Derived UI state ----------------------------------------------------
 
