@@ -29,6 +29,8 @@ export interface ToolActivity {
   title: string;
   status: string;
   detail: string;
+  startedAt?: number;
+  updatedAt?: number;
   toolName?: string;
   rawInput?: unknown;
   rawOutput?: string;
@@ -37,6 +39,9 @@ export interface ToolActivity {
 export interface CoderTranscriptEvent {
   type?: string;
   data?: Record<string, unknown>;
+  serverTimestamp?: number;
+  timestamp?: number | string;
+  _meta?: Record<string, unknown>;
 }
 
 /** A terminal background-agent (e.g. writer) completion notification. */
@@ -193,6 +198,32 @@ function toolNameOf(d: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+function timestampValue(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value !== 'string') return undefined;
+  if (/^\d+$/.test(value)) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : undefined;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+/** Read the daemon's timestamp across current and older transcript envelopes. */
+function timestampOf(event: CoderTranscriptEvent, data: Record<string, unknown>): number | undefined {
+  if (typeof event.serverTimestamp === 'number' && Number.isFinite(event.serverTimestamp)) return event.serverTimestamp;
+  const eventMeta = event._meta;
+  if (eventMeta && typeof eventMeta.serverTimestamp === 'number' && Number.isFinite(eventMeta.serverTimestamp)) return eventMeta.serverTimestamp;
+  const meta = data._meta;
+  const dataMeta = meta && typeof meta === 'object' ? meta as Record<string, unknown> : undefined;
+  const update = data.update;
+  const updateRecord = update && typeof update === 'object' ? update as Record<string, unknown> : undefined;
+  const updateMeta = updateRecord?._meta && typeof updateRecord._meta === 'object' ? updateRecord._meta as Record<string, unknown> : undefined;
+  const serverTimestamp = dataMeta?.serverTimestamp ?? updateMeta?.serverTimestamp;
+  if (typeof serverTimestamp === 'number' && Number.isFinite(serverTimestamp)) return serverTimestamp;
+  return timestampValue(updateMeta?.timestamp ?? updateRecord?.timestamp ?? dataMeta?.timestamp ?? data.timestamp ?? event.timestamp);
+}
+
 /**
  * Fold transcript events into ordered messages + a tool-activity feed.
  *
@@ -257,6 +288,7 @@ export function buildConversation(events: CoderTranscriptEvent[]): {
       const status = typeof d.status === 'string' ? d.status : (su === 'tool_call' ? 'in_progress' : 'update');
       const detail = contentText(d.content);
       const rawOutput = typeof d.rawOutput === 'string' ? d.rawOutput : '';
+      const timestamp = timestampOf(evt, d);
 
       if (su === 'tool_call') {
         activity.push({
@@ -264,6 +296,7 @@ export function buildConversation(events: CoderTranscriptEvent[]): {
           title,
           status,
           detail,
+          ...(timestamp !== undefined ? { startedAt: timestamp, updatedAt: timestamp } : {}),
           ...(toolName ? { toolName } : {}),
           ...(d.rawInput !== undefined ? { rawInput: d.rawInput } : {}),
         });
@@ -274,12 +307,14 @@ export function buildConversation(events: CoderTranscriptEvent[]): {
           if (detail) existing.detail = detail;
           if (rawOutput) existing.rawOutput = rawOutput;
           if (existing.rawInput === undefined && d.rawInput !== undefined) existing.rawInput = d.rawInput;
+          if (timestamp !== undefined) existing.updatedAt = timestamp;
         } else {
           activity.push({
             id,
             title,
             status,
             detail,
+            ...(timestamp !== undefined ? { startedAt: timestamp, updatedAt: timestamp } : {}),
             ...(toolName ? { toolName } : {}),
             ...(d.rawInput !== undefined ? { rawInput: d.rawInput } : {}),
             ...(rawOutput ? { rawOutput } : {}),

@@ -84,6 +84,15 @@ describe('buildConversation', () => {
     expect(messages[0].usage).toEqual({ inputTokens: 10, outputTokens: 3 });
   });
 
+  it('keeps daemon timestamps on merged tool activity', () => {
+    const { activity } = buildConversation([
+      { ...event('tool_call', { toolCallId: 'c1', title: 'Shell: pwd', status: 'in_progress' }), serverTimestamp: 1_700_000_000_000 },
+      { ...event('tool_call_update', { toolCallId: 'c1', status: 'completed' }), timestamp: '1700000005000' },
+    ]);
+
+    expect(activity[0]).toMatchObject({ startedAt: 1_700_000_000_000, updatedAt: 1_700_000_005_000 });
+  });
+
   it('separates complete agent status updates into readable paragraphs', () => {
     const { messages } = buildConversation([
       event('user_message_chunk', { content: { type: 'text', text: 'build it' } }),

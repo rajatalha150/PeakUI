@@ -46,6 +46,8 @@ interface ToolActivity {
   title: string;
   status: string;
   detail: string;
+  startedAt?: number;
+  updatedAt?: number;
   toolName?: string;
   rawInput?: unknown;
   rawOutput?: string;
@@ -329,10 +331,12 @@ export default function CodingView() {
   const [contextHandoffSaving, setContextHandoffSaving] = React.useState(false);
   const [toolActivity, setToolActivity] = React.useState<ToolActivity[]>([]);
   const [pending, setPending] = React.useState<PendingInteraction[]>([]);
-  // Per-interaction draft answers, keyed by requestId -> (answerKey -> label).
+  // Per-interaction draft answers, keyed by requestId -> (answerKey -> label
+  // or labels). Multi-select answers are serialized for the daemon on submit.
   // Lets the user pick an option for each question in a multi-question
   // `ask_user_question` before submitting them all at once.
-  const [questionDrafts, setQuestionDrafts] = React.useState<Record<string, Record<string, string>>>({});
+  const [questionDrafts, setQuestionDrafts] = React.useState<Record<string, Record<string, string | string[]>>>({});
+  const [questionNotes, setQuestionNotes] = React.useState<Record<string, string>>({});
   const [daemonSessionId, setDaemonSessionId] = React.useState<string | null>(null);
   // The daemon MINTS its own client id on session create and returns it; every
   // per-session call (shell, permission votes) must echo THAT id, not one we
@@ -481,7 +485,7 @@ export default function CodingView() {
     setSearchResults(null); setSearchLoading(false); setSearchError('');
     setRewindSnapshots(null); setRewindResult(null); setRewindLoading(false); setRewindError('');
     setShellOutput(''); setShellRunning(false); setPreviewUrl(''); setPreviewInput('');
-    setQuestionDrafts({}); nudgedNotificationRef.current = null;
+    setQuestionDrafts({}); setQuestionNotes({}); nudgedNotificationRef.current = null;
   };
 
   React.useEffect(() => {
@@ -2044,12 +2048,17 @@ export default function CodingView() {
     }
   };
 
-  /** Select an option for one question in a multi-question ask (draft only). */
-  const selectQuestionAnswer = (requestId: string, answerKey: string, label: string) => {
-    setQuestionDrafts(prev => ({
-      ...prev,
-      [requestId]: { ...(prev[requestId] || {}), [answerKey]: label },
-    }));
+  /** Select or toggle an option for one question (draft only). */
+  const selectQuestionAnswer = (requestId: string, answerKey: string, label: string, multiSelect = false) => {
+    setQuestionDrafts(prev => {
+      const current = prev[requestId]?.[answerKey];
+      if (!multiSelect) {
+        return { ...prev, [requestId]: { ...(prev[requestId] || {}), [answerKey]: label } };
+      }
+      const selected = Array.isArray(current) ? current : (current ? [current] : []);
+      const next = selected.includes(label) ? selected.filter(value => value !== label) : [...selected, label];
+      return { ...prev, [requestId]: { ...(prev[requestId] || {}), [answerKey]: next } };
+    });
   };
 
   /** Answer a permission ask / user question that is blocking the agent. */
@@ -2059,14 +2068,26 @@ export default function CodingView() {
     // while the vote is in flight; restore it if the vote is refused.
     setPending(prev => prev.filter(p => p.requestId !== item.requestId));
     setQuestionDrafts(prev => { const next = { ...prev }; delete next[item.requestId]; return next; });
+    const note = questionNotes[item.requestId]?.trim();
+    setQuestionNotes(prev => { const next = { ...prev }; delete next[item.requestId]; return next; });
     setError('');
     try {
       // For `ask_user_question`, the answers map is the whole point: each
       // question's `answerKey` -> chosen option label. A plain permission ask
       // sends no `answers` at all.
       const answers = item.questions?.length
-        ? Object.fromEntries(item.questions.map(q => [q.answerKey, questionDrafts[item.requestId]?.[q.answerKey] ?? '']))
+        ? Object.fromEntries(item.questions.map(q => {
+          const answer = questionDrafts[item.requestId]?.[q.answerKey] ?? '';
+          return [q.answerKey, Array.isArray(answer) ? answer.join(', ') : answer];
+        }))
         : undefined;
+      // The daemon accepts only question-keyed string answers. Attach the
+      // optional free-form note to the final answered question so it reaches
+      // the agent without inventing a non-protocol answer key.
+      if (answers && note) {
+        const finalQuestion = item.questions?.[item.questions.length - 1];
+        if (finalQuestion) answers[finalQuestion.answerKey] = `${answers[finalQuestion.answerKey]}\n\nAdditional note: ${note}`;
+      }
       const res = await fetch(`/api/coder/session/${daemonSessionId}/permission/${item.requestId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2527,6 +2548,7 @@ export default function CodingView() {
   const activityColor = (status: string) => status === 'failed' || status === 'error' ? '#ef4444'
     : status === 'completed' || status === 'success' ? '#34d399'
     : '#22d3ee';
+  const formatActivityTime = (timestamp?: number) => timestamp === undefined ? '' : new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const previewViewport = PREVIEW_VIEWPORTS[previewDevice];
   const previewScale = previewStageWidth ? Math.min(1, previewStageWidth / previewViewport.width) : 1;
 
@@ -3267,18 +3289,21 @@ export default function CodingView() {
                         )}
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                           {q.options.map(opt => {
-                            const selected = questionDrafts[item.requestId]?.[q.answerKey] === opt.label;
+                            const draft = questionDrafts[item.requestId]?.[q.answerKey];
+                            const selected = q.multiSelect ? Array.isArray(draft) && draft.includes(opt.label) : draft === opt.label;
                             return (
                               <button
                                 key={opt.label}
-                                onClick={() => selectQuestionAnswer(item.requestId, q.answerKey, opt.label)}
+                                onClick={() => selectQuestionAnswer(item.requestId, q.answerKey, opt.label, q.multiSelect)}
                                 title={opt.description || undefined}
+                                aria-pressed={selected}
                                 style={{
                                   ...(selected ? btnStyle(accent) : ghostBtnStyle()),
                                   ...(selected ? {} : { background: 'rgba(255,255,255,0.04)' }),
                                   textAlign: 'left',
                                 }}
                               >
+                                {q.multiSelect && (selected ? <CheckCircle2 size={13} /> : <Circle size={13} />)}
                                 {opt.label}
                               </button>
                             );
@@ -3286,11 +3311,27 @@ export default function CodingView() {
                         </div>
                       </div>
                     ))}
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '2px' }}>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#e5e7eb' }}>Add a note or comment</span>
+                      <textarea
+                        value={questionNotes[item.requestId] ?? ''}
+                        onChange={event => setQuestionNotes(prev => ({ ...prev, [item.requestId]: event.target.value }))}
+                        placeholder="Optional context for the agent"
+                        rows={3}
+                        style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', minHeight: 68, padding: '8px 9px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(0,0,0,0.2)', color: '#e5e7eb', font: 'inherit', fontSize: '0.8rem', lineHeight: 1.45 }}
+                      />
+                    </label>
                     <div style={{ display: 'flex', gap: '8px', marginTop: '2px' }}>
                       <button
                         onClick={() => void respondToInteraction(item, 'proceed_once')}
-                        disabled={!item.questions.every(q => questionDrafts[item.requestId]?.[q.answerKey])}
-                        style={{ ...btnStyle(accent), ...((!item.questions.every(q => questionDrafts[item.requestId]?.[q.answerKey])) ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }}
+                        disabled={!item.questions.every(q => {
+                          const answer = questionDrafts[item.requestId]?.[q.answerKey];
+                          return Array.isArray(answer) ? answer.length > 0 : Boolean(answer);
+                        })}
+                        style={{ ...btnStyle(accent), ...((!item.questions.every(q => {
+                          const answer = questionDrafts[item.requestId]?.[q.answerKey];
+                          return Array.isArray(answer) ? answer.length > 0 : Boolean(answer);
+                        })) ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }}
                       >
                         <Send size={13} /> Submit answers
                       </button>
@@ -3389,6 +3430,7 @@ export default function CodingView() {
                     <span style={{ color: activityColor(t.status), flexShrink: 0 }}>{activityGlyph(t.status)}</span>
                     <span style={{ color: '#e5e7eb', flexShrink: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
                     {t.toolName && <span style={{ color: 'rgba(209,213,219,0.35)', fontSize: '0.68rem' }}>{t.toolName}</span>}
+                    {t.startedAt !== undefined && <span title={`Started ${new Date(t.startedAt).toLocaleString()}${t.updatedAt && t.updatedAt !== t.startedAt ? `; updated ${new Date(t.updatedAt).toLocaleString()}` : ''}`} style={{ color: 'rgba(209,213,219,0.42)', fontSize: '0.68rem', flexShrink: 0 }}>{formatActivityTime(t.updatedAt ?? t.startedAt)}</span>}
                     <span style={{ marginLeft: 'auto', color: activityColor(t.status), fontSize: '0.68rem', flexShrink: 0 }}>{t.status}</span>
                   </div>
                   {expandedTool === t.id && (

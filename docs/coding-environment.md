@@ -483,8 +483,15 @@ silently fell back to "safe defaults" and proceeded anyway.
 header, full text, and clickable options (descriptions as tooltips), and sends
 all answers at once via `answers: { answerKey → option label }` — matching the
 daemon's own TUI (`AskUserQuestionDialog.tsx`, which uses `option.label` as the
-answer value). A "Submit answers" button is disabled until every question has a
-choice.
+answer value). Questions marked `multiSelect` render as toggleable choices and
+are submitted as the daemon's comma-separated label format. Each card also has
+an optional bottom note field; its text is delivered with the final answer so
+the agent receives any extra instruction without a second prompt. A "Submit
+answers" button is disabled until every question has a choice.
+
+The Tool activity drawer keeps each daemon tool call's start and latest-update
+timestamps, displays the latest time beside the status, and exposes both times
+on hover. Historical tool activity retains those times after a session reload.
 
 ### 10.5 Session delete nuked the whole surface
 
