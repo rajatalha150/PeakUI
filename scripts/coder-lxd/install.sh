@@ -49,6 +49,23 @@ volume_migrations=(
   'coder_android_sdk:/opt/android-sdk'
 )
 
+# Incus 6.0 on some hosts completes `file push` but returns Forbidden while
+# applying file metadata to an unprivileged guest. Stream bytes to a root
+# process in the guest instead; this also avoids an API-size limit for trees.
+push_guest_file() {
+  local source=$1 destination=$2 mode=$3
+  # mkdir -p leaves an existing directory's permissions intact. In particular,
+  # never turn the guest's sticky /tmp (1777) into a private staging directory.
+  "$instance_cli" exec "$instance" -- mkdir -p "$(dirname "$destination")"
+  "$instance_cli" exec "$instance" -- sh -c 'umask 022; cat > "$1"; chmod "$2" "$1"' sh "$destination" "$mode" < "$source"
+}
+
+push_guest_tree() {
+  local source=$1 destination=$2
+  "$instance_cli" exec "$instance" -- install -d -m 0755 "$destination"
+  tar -C "$source" -cf - . | "$instance_cli" exec "$instance" -- tar -C "$destination" --no-same-owner -xpf -
+}
+
 if ! "$instance_cli" info "$instance" >/dev/null 2>&1; then
   "$instance_cli" init "$image" "$instance" \
     -c limits.cpu="${CODER_LXD_CPUS:-4}" -c limits.memory="${CODER_LXD_MEMORY:-8GiB}" \
@@ -93,23 +110,23 @@ if [[ "$("$instance_cli" list "$instance" -f csv -c s)" != RUNNING ]]; then "$in
 
 "$instance_cli" exec "$instance" -- systemctl stop peakui-coder.service >/dev/null 2>&1 || true
 
-"$instance_cli" file push -p scripts/coder-storage/peakui-coder-start "$instance/usr/local/bin/peakui-coder-start"
-"$instance_cli" file push -p scripts/coder-storage/peakui-coder-readiness "$instance/usr/local/bin/peakui-coder-readiness"
-"$instance_cli" file push -p scripts/coder-storage/peakui-cleanup "$instance/usr/local/bin/peakui-cleanup"
-"$instance_cli" file push -p scripts/coder-lxd/prepare.sh "$instance/usr/local/bin/peakui-coder-prepare"
-"$instance_cli" file push -p scripts/sync-coder-models.mjs "$instance/tmp/peakui-sync-coder-models.mjs"
-"$instance_cli" file push -p scripts/coder-workspace/QWEN.md "$instance/tmp/peakui-workspace-QWEN.md"
-"$instance_cli" file push -r -p scripts/coder-browser "$instance/tmp/peakui-browser"
-"$instance_cli" file push -p scripts/coder-lxd/bootstrap.sh "$instance/tmp/peakui-bootstrap.sh"
-"$instance_cli" file push -p scripts/coder-lxd/workspace-router.mjs "$instance/opt/peakui/coder/workspace-router.mjs"
-"$instance_cli" file push -p scripts/coder-lxd/peakui-coder.service "$instance/etc/systemd/system/peakui-coder.service"
+push_guest_file scripts/coder-storage/peakui-coder-start /usr/local/bin/peakui-coder-start 755
+push_guest_file scripts/coder-storage/peakui-coder-readiness /usr/local/bin/peakui-coder-readiness 755
+push_guest_file scripts/coder-storage/peakui-cleanup /usr/local/bin/peakui-cleanup 755
+push_guest_file scripts/coder-lxd/prepare.sh /usr/local/bin/peakui-coder-prepare 755
+push_guest_file scripts/sync-coder-models.mjs /tmp/peakui-sync-coder-models.mjs 644
+push_guest_file scripts/coder-workspace/QWEN.md /tmp/peakui-workspace-QWEN.md 644
+push_guest_tree scripts/coder-browser /tmp/peakui-browser
+push_guest_file scripts/coder-lxd/bootstrap.sh /tmp/peakui-bootstrap.sh 755
+push_guest_file scripts/coder-lxd/workspace-router.mjs /opt/peakui/coder/workspace-router.mjs 644
+push_guest_file scripts/coder-lxd/peakui-coder.service /etc/systemd/system/peakui-coder.service 644
 
 env_file=$(mktemp)
 trap 'on_failure; rm -f "$env_file"' EXIT
 chmod 600 "$env_file"
 printf 'QWEN_SERVER_TOKEN=%s\nOPENAI_API_KEY=%s\nOPENAI_MODEL=%s\nOPENAI_BASE_URL=%s\nQWEN_DEBUG_LOG_FILE=1\nCODER_MIN_FREE_GB=%s\nPEAKUI_QWEN_VERSION=%s\n' \
   "$coder_token" "$coder_key" "$coder_model" "$coder_model_url" "${CODER_MIN_FREE_GB:-12}" "$qwen_version" > "$env_file"
-"$instance_cli" file push -p "$env_file" "$instance/etc/peakui-coder.env"
+push_guest_file "$env_file" /etc/peakui-coder.env 600
 
 echo "Provisioning $instance (first run downloads the toolchain and browser)..."
 "$instance_cli" exec "$instance" -- bash /tmp/peakui-bootstrap.sh

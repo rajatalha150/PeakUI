@@ -3,6 +3,10 @@
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
+# Cloud images require a world-writable sticky /tmp. Repair it defensively in
+# case a prior interrupted provisioner staged files there with a restrictive
+# parent directory mode.
+chmod 1777 /tmp
 # Some desktop networks advertise IPv6 but do not route it. Prefer a working
 # IPv4 path so apt, curl, and the initial image toolchain bootstrap don't wait
 # on repeated IPv6 connection timeouts.
@@ -45,8 +49,16 @@ else
   git -C /opt/qwen-code fetch --depth 1 origin "v${qwen_version}"
   git -C /opt/qwen-code checkout --detach FETCH_HEAD
 fi
-npm --prefix /opt/qwen-code ci
-npm --prefix /opt/qwen-code run build
+runtime_stamp=/opt/qwen-code/.peakui-runtime-version
+if [[ ! -f "$runtime_stamp" || "$(cat "$runtime_stamp")" != "$qwen_version" || ! -f /opt/qwen-code/packages/cli/dist/index.js ]]; then
+  npm --prefix /opt/qwen-code ci
+  # Qwen's prepare lifecycle normally builds the monorepo during npm ci. Keep
+  # an explicit fallback for package-manager versions that skip that hook.
+  if [[ ! -f /opt/qwen-code/packages/cli/dist/index.js ]]; then
+    npm --prefix /opt/qwen-code run build
+  fi
+  printf '%s\n' "$qwen_version" > "$runtime_stamp"
+fi
 cp /tmp/peakui-sync-coder-models.mjs /opt/qwen-code/sync-coder-models.mjs
 cp /tmp/peakui-workspace-QWEN.md /opt/qwen-code/workspace-qwen.md
 mkdir -p /opt/qwen-code/browser

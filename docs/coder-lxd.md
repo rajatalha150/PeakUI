@@ -77,6 +77,13 @@ it works across Incus-supported filesystems and distributions. It stops Docker
 Coder only at cutover, checks a real Qwen runtime health response, and
 reconnects PeakUI. If setup fails, it restores Docker Coder and the app's
 original daemon URL. It never removes the Docker volumes.
+Provisioning assets are streamed through guest-root processes rather than the
+Incus file-push metadata API, which avoids a known permission-reporting quirk
+on some unprivileged Incus 6.0 hosts and supports large browser/tooling trees.
+The bootstrap also verifies the standard sticky permissions on `/tmp` before
+using APT, allowing a failed earlier attempt to recover cleanly.
+After a successful toolchain build, it records the pinned Qwen version so an
+interrupted cutover can resume without rebuilding the same source tree.
 On every instance boot, the service refreshes the managed QWEN.md, Git defaults,
 SSH host trust, and runtime readiness checks.
 
