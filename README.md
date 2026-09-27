@@ -222,6 +222,7 @@ Open **Settings** inside WorkSpaces and set your provider, model, RAG, tool perm
 | [docs/development-section-plan.md](docs/development-section-plan.md) | Development section plan (draft) |
 | [docs/coding-environment.md](docs/coding-environment.md) | Coding environment architecture, deployment, long-session context, preview, projects, and multi-model orchestration |
 | [docs/coder-lxd.md](docs/coder-lxd.md) | Persistent Linux Coding backend with automatic Incus/LXD setup, backups, and rollback |
+| [docs/operations-and-updates.md](docs/operations-and-updates.md) | Operational runbook for PeakUI, Docker, Incus Coder, backups, host updates, and dependency maintenance |
 
 ---
 
