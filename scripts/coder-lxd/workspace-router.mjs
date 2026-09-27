@@ -151,11 +151,43 @@ function sendJson(res, status, data) {
 
 function previewTarget(req) {
   const host = (req.headers.host || '').split(':')[0].toLowerCase();
-  const match = /^p(s?)(\d{4,5})\.localhost$/.exec(host);
+  const match = /^p(s?)(\d{1,5})\.localhost$/.exec(host);
   if (!match) return null;
   const port = Number(match[2]);
-  if (port < 1024 || port > 65535 || previewBlockedPorts.has(port)) return null;
+  if (port < 1 || port > 65535 || previewBlockedPorts.has(port)) return null;
   return { secure: Boolean(match[1]), port };
+}
+
+function listeningPreviewPorts() {
+  const ports = new Set();
+  for (const path of ['/proc/net/tcp', '/proc/net/tcp6']) {
+    try {
+      for (const line of readFileSync(path, 'utf8').trim().split('\n').slice(1)) {
+        const fields = line.trim().split(/\s+/);
+        const local = fields[1];
+        const state = fields[3];
+        if (!local || state !== '0A') continue;
+        const port = Number.parseInt(local.split(':')[1], 16);
+        if (Number.isInteger(port) && port >= 1 && port <= 65535 && !previewBlockedPorts.has(port)) ports.add(port);
+      }
+    } catch { /* procfs may be unavailable in an unusual runtime */ }
+  }
+  // Prefer the ports developers conventionally use, while still returning
+  // every eligible listener so a project using port 80 or a custom port is
+  // never invisible to the Preview window.
+  const preferred = [5173, 3000, 4173, 4200, 8081, 8000, 80, 443];
+  return [...ports].sort((a, b) => {
+    const aRank = preferred.indexOf(a);
+    const bRank = preferred.indexOf(b);
+    return (aRank < 0 ? preferred.length : aRank) - (bRank < 0 ? preferred.length : bRank) || a - b;
+  });
+}
+
+function previewCandidates() {
+  return listeningPreviewPorts().map(port => ({
+    port,
+    url: `${port === 443 ? 'https' : 'http'}://localhost:${port}/`,
+  }));
 }
 
 function proxyPreview(req, res) {
@@ -284,6 +316,9 @@ async function handle(req, res) {
   if (url.pathname === '/health') {
     await startRuntime(defaultWorkspace);
     return sendJson(res, 200, { status: 'ok' });
+  }
+  if (url.pathname === '/peakui/preview/targets' && req.method === 'GET') {
+    return sendJson(res, 200, { targets: previewCandidates() });
   }
   const smallBody = req.method === 'POST' && (url.pathname === '/session' || url.pathname === '/workspaces' || url.pathname === '/peakui/projects/import' || /^\/session\/[^/]+\/load$/.test(url.pathname));
   const buffered = smallBody ? await readSmallBody(req) : null;

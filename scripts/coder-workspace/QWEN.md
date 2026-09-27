@@ -116,18 +116,25 @@ configured), write files directly as normal.
 
 ## Presenting work in the preview
 
-The Coding UI has a **Preview pane** the user can open. To show your work there:
+The Coding UI has a **Preview pane** the user can open. For any task that
+produces a runnable web UI, presenting the result there is a required part of
+completion, not an optional extra. Internal browser checks prove your work;
+the Preview pane lets the user inspect it.
 
-1. Start a dev server (e.g. `python3 -m http.server 8000` or the project's own
-   `npm run dev`) in the background.
+1. Start a dev server (e.g. `python3 -m http.server 8000`, the project's own
+   `npm run dev`, or an existing Docker Compose service) in the background.
 2. Write the URL to the file `.peakui-preview.json` at the workspace root, as
    JSON: `{"url":"http://localhost:8000","device":"mobile"}`.
    - `device` is optional and one of `desktop`, `tablet`, or `mobile`; omit it
      to leave the user's current device selection unchanged.
 
 The preview pane polls that file, so as soon as you write it the user sees your
-work there automatically — you are in control of what is presented. Update the
-file whenever the URL or the suggested device changes.
+work there automatically. Update the file whenever the URL or suggested device
+changes. Guest ports below 1024, including `http://localhost:80`, are supported
+when a project uses Caddy, Nginx, or a containerized service. Before your final
+response, verify the same URL you publish and state that the user-visible
+preview is ready. Do not finish a web task with only a headless/internal browser
+result while leaving the Preview pane unpublished.
 
 ## Conventions to respect
 

@@ -25,14 +25,22 @@ describe('parsePreviewUrl', () => {
     expect(parsePreviewUrl('javascript:alert(1)')).toHaveProperty('error')
   })
 
-  it('rejects missing, privileged, and non-numeric ports', () => {
-    expect(parsePreviewUrl('http://localhost/')).toHaveProperty('error')
-    expect(parsePreviewUrl('http://localhost:80/')).toHaveProperty('error')
+  it('uses safe protocol defaults and rejects non-numeric ports', () => {
+    expect(parsePreviewUrl('http://localhost/')).toEqual({
+      target: { host: 'localhost', port: 80, path: '/' },
+    })
+    expect(parsePreviewUrl('http://localhost:80/')).toEqual({
+      target: { host: 'localhost', port: 80, path: '/' },
+    })
+    expect(parsePreviewUrl('https://localhost:443/')).toEqual({
+      target: { host: 'localhost', port: 443, path: '/' },
+    })
     expect(parsePreviewUrl('http://localhost:notaport/')).toHaveProperty('error')
   })
 
   it('accepts an LXD preview origin without exposing host reserved ports', () => {
     expect(parsePreviewUrl('http://p3000.localhost:4172/app')).toEqual({ target: { host: 'p3000.localhost', port: 4172, path: '/app' } })
+    expect(parsePreviewUrl('http://p80.localhost:4172/')).toEqual({ target: { host: 'p80.localhost', port: 4172, path: '/' } })
     expect(parsePreviewUrl('http://p4170.localhost:4172/')).toHaveProperty('error')
     expect(parsePreviewUrl('http://127.0.0.1:3000/', { allowGuestPorts: true })).toHaveProperty('target')
   })

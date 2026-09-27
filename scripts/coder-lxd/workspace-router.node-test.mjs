@@ -82,6 +82,14 @@ test('routes parent and nested directories to independent persistent runtimes', 
     assert.equal((await request('/peakui/projects/import', { repositoryUrl: 'file:///tmp/repo', branch: 'main', destination: '/workspace/projects/nope' })).status, 400);
     const preview = await fetch(`http://p${appPort}.localhost:${previewPort}/hello`);
     assert.equal(await preview.text(), 'preview:/hello');
+    // Privileged guest ports such as 80 are valid preview targets. Whether a
+    // service happens to occupy this port on the test host is irrelevant here:
+    // a non-400 response proves the preview router accepted and proxied it.
+    const port80 = await fetch(`http://p80.localhost:${previewPort}/`);
+    assert.notEqual(port80.status, 400);
+    const discovered = await request('/peakui/preview/targets');
+    assert.equal(discovered.status, 200);
+    assert(discovered.data.targets.some(target => target.port === appPort));
     const ws = new WebSocket(`ws://p${appPort}.localhost:${previewPort}/hmr`);
     await new Promise((resolveOpen, rejectOpen) => {
       ws.onopen = resolveOpen;

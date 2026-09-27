@@ -722,6 +722,33 @@ export default function CodingView() {
     })();
   }, []);
 
+  // Agents normally publish `.peakui-preview.json`, but a running project
+  // should never remain invisible merely because that last small step was
+  // missed. The guest router reports safe local HTTP listeners, allowing the
+  // Preview window to select the most likely application automatically.
+  const discoverPreview = React.useCallback(async () => {
+    if (previewUrlManualRef.current) return;
+    try {
+      const res = await fetch('/api/coder/peakui/preview/targets');
+      const data = await res.json().catch(() => ({})) as { targets?: Array<{ url?: unknown }> };
+      if (!res.ok || !Array.isArray(data.targets)) return;
+      const candidate = data.targets.find(target => typeof target.url === 'string' && target.url.length > 0);
+      if (candidate && typeof candidate.url === 'string') applyPreview(candidate.url, 'agent');
+    } catch {
+      // Discovery is a convenience. The regular manual URL flow remains usable
+      // when the Coder daemon is still coming online.
+    }
+  }, [applyPreview]);
+
+  React.useEffect(() => {
+    if (!previewOpen || previewUrl || previewUrlManualRef.current) return;
+    void discoverPreview();
+    const timer = setInterval(() => {
+      if (!previewUrlManualRef.current) void discoverPreview();
+    }, 3_000);
+    return () => clearInterval(timer);
+  }, [previewOpen, previewUrl, discoverPreview]);
+
   // Poll the agent's preview file whenever the preview pane is open, so the
   // agent can (re)direct the preview without the user typing anything.
   React.useEffect(() => {
@@ -3502,6 +3529,7 @@ export default function CodingView() {
                 placeholder="http://127.0.0.1:5173"
                 style={{ flex: 1, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
               />
+              <button onClick={() => void discoverPreview()} title="Detect running local web servers" aria-label="Detect running local web servers" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: 'pointer' }}><RefreshCw size={13} /></button>
               <button onClick={() => applyPreview(previewInput, 'manual')} style={{ background: 'rgba(34,211,238,0.12)', color: accent, border: `1px solid ${accent}`, borderRadius: '6px', padding: '4px 10px', fontSize: '0.72rem', cursor: 'pointer' }}>Go</button>
             </div>
             {previewError && <div role="alert" style={{ margin: '0 10px 8px', padding: '6px 8px', fontSize: '0.7rem', color: '#fca5a5', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5 }}>{previewError}</div>}
