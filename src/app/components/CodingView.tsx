@@ -495,6 +495,7 @@ export default function CodingView() {
     setTasks([]); setTaskCommands({}); setTaskOutputs({}); setTaskRunning(null); setTaskError('');
     setSearchResults(null); setSearchLoading(false); setSearchError('');
     setRewindSnapshots(null); setRewindResult(null); setRewindLoading(false); setRewindError('');
+    previewUrlManualRef.current = false; previewDeviceManualRef.current = false; agentPreviewRef.current = null;
     setShellOutput(''); setShellRunning(false); setPreviewUrl(''); setPreviewCaptureUrl(''); setPreviewInput('');
     setQuestionDrafts({}); setQuestionNotes({}); nudgedNotificationRef.current = null;
   };
@@ -738,6 +739,27 @@ export default function CodingView() {
       }
     })();
   }, []);
+
+  const editPreviewInput = React.useCallback((value: string) => {
+    // Typing is an immediate ownership handoff from agent automation to the
+    // user. Otherwise the two-second preview-file poll can restore its URL in
+    // the middle of an edit and make the address field appear hardcoded.
+    previewUrlManualRef.current = true;
+    previewRequestRef.current += 1;
+    setPreviewInput(value);
+    setPreviewError('');
+    if (!value) {
+      setPreviewUrl('');
+      setPreviewCaptureUrl('');
+      setPreviewDiagnostics([]);
+      setPreviewDiagnosticsOpen(false);
+    }
+  }, []);
+
+  const clearPreview = React.useCallback(() => {
+    editPreviewInput('');
+    setPreviewReloadKey(key => key + 1);
+  }, [editPreviewInput]);
 
   // Agents normally publish `.peakui-preview.json`, but a running project
   // should never remain invisible merely because that last small step was
@@ -3615,12 +3637,13 @@ export default function CodingView() {
             <div style={{ display: 'flex', gap: '6px', padding: '8px 10px' }}>
               <input
                 value={previewInput}
-                onChange={e => setPreviewInput(e.target.value)}
+                onChange={e => editPreviewInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') applyPreview(previewInput, 'manual'); }}
                 placeholder="http://127.0.0.1:5173"
                 style={{ flex: 1, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
               />
-              <button onClick={() => void discoverPreview()} title="Detect running local web servers" aria-label="Detect running local web servers" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: 'pointer' }}><RefreshCw size={13} /></button>
+              {previewInput && <button onClick={clearPreview} title="Clear preview URL" aria-label="Clear preview URL" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: 'pointer' }}><X size={13} /></button>}
+              <button onClick={() => { previewUrlManualRef.current = false; setPreviewUrl(''); void discoverPreview(); }} title="Detect running local web servers" aria-label="Detect running local web servers" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: 'pointer' }}><RefreshCw size={13} /></button>
               <button onClick={() => applyPreview(previewInput, 'manual')} style={{ background: 'rgba(34,211,238,0.12)', color: accent, border: `1px solid ${accent}`, borderRadius: '6px', padding: '4px 10px', fontSize: '0.72rem', cursor: 'pointer' }}>Go</button>
               <button onClick={() => previewUrl && window.open(previewUrl, '_blank', 'noopener,noreferrer')} disabled={!previewUrl} title="Open this preview in a full browser tab" aria-label="Open preview in new tab" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: previewUrl ? 'pointer' : 'default', opacity: previewUrl ? 1 : 0.45 }}><ExternalLink size={13} /></button>
             </div>
