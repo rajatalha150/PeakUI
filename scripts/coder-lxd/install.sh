@@ -155,6 +155,10 @@ push_guest_tree scripts/coder-browser /tmp/peakui-browser
 push_guest_file scripts/coder-lxd/bootstrap.sh /tmp/peakui-bootstrap.sh 755
 push_guest_file scripts/coder-lxd/workspace-router.mjs /opt/peakui/coder/workspace-router.mjs 644
 push_guest_file scripts/coder-lxd/peakui-coder.service /etc/systemd/system/peakui-coder.service 644
+# The unit was just copied into a running systemd guest. Reload before starting
+# it so a redeploy cannot launch a stale cached definition and then silently
+# roll back to the Docker Coder service.
+"$instance_cli" exec "$instance" -- systemctl daemon-reload
 
 env_file=$(mktemp)
 trap 'on_failure; rm -f "$env_file"' EXIT

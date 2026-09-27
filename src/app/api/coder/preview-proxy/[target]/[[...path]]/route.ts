@@ -34,15 +34,15 @@ function responseHeaders(source: Headers) {
 }
 
 function rewriteHtml(html: string, prefix: string) {
-  const base = `<base href="${prefix}/">`
-  const withBase = /<head(?:\s[^>]*)?>/i.test(html)
-    ? html.replace(/<head(\s[^>]*)?>/i, match => `${match}${base}`)
-    : `${base}${html}`
   // Apps commonly emit absolute asset/API paths. Make those travel through the
   // same authenticated route too, instead of accidentally targeting PeakUI.
-  return withBase
+  const rewritten = html
     .replace(/\b(src|href|action)=(['"])\/(?!\/)/gi, `$1=$2${prefix}/`)
     .replace(/\b(srcset)=(['"])([^'"]*)/gi, (_match, attribute, quote, value) => `${attribute}=${quote}${value.replace(/(^|\s)\/(?!\/)/g, `$1${prefix}/`)}`)
+  const base = `<base href="${prefix}/">`
+  return /<head(?:\s[^>]*)?>/i.test(rewritten)
+    ? rewritten.replace(/<head(\s[^>]*)?>/i, match => `${match}${base}`)
+    : `${base}${rewritten}`
 }
 
 function rewriteLocation(location: string, prefix: string) {
