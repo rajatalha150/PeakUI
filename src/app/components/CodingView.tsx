@@ -397,6 +397,9 @@ export default function CodingView() {
   // Preview browser — a real, device-switchable preview the AI can drive.
   const [previewOpen, setPreviewOpen] = React.useState(false);
   const [previewUrl, setPreviewUrl] = React.useState('');
+  // The browser uses a same-origin proxy in LXD mode, while screenshot capture
+  // can use the private host-to-guest bridge directly.
+  const [previewCaptureUrl, setPreviewCaptureUrl] = React.useState('');
   const [previewInput, setPreviewInput] = React.useState('');
   const [previewDevice, setPreviewDevice] = React.useState<PreviewDevice>('desktop');
   // A user's device selection wins over the last device written by the agent.
@@ -484,7 +487,7 @@ export default function CodingView() {
     setTasks([]); setTaskCommands({}); setTaskOutputs({}); setTaskRunning(null); setTaskError('');
     setSearchResults(null); setSearchLoading(false); setSearchError('');
     setRewindSnapshots(null); setRewindResult(null); setRewindLoading(false); setRewindError('');
-    setShellOutput(''); setShellRunning(false); setPreviewUrl(''); setPreviewInput('');
+    setShellOutput(''); setShellRunning(false); setPreviewUrl(''); setPreviewCaptureUrl(''); setPreviewInput('');
     setQuestionDrafts({}); setQuestionNotes({}); nudgedNotificationRef.current = null;
   };
 
@@ -701,19 +704,23 @@ export default function CodingView() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: clean }),
         });
-        const data = (await res.json().catch(() => ({}))) as { error?: string; previewUrl?: string };
+        const data = (await res.json().catch(() => ({}))) as { error?: string; previewUrl?: string; captureUrl?: string };
         if (requestId !== previewRequestRef.current) return;
         if (!res.ok) {
           setPreviewError(data.error || 'Preview URL rejected by the server.');
           return;
         }
         const approvedUrl = data.previewUrl || clean;
-        const parsed = parsePreviewUrl(approvedUrl);
-        if ('error' in parsed) {
-          setPreviewError(parsed.error);
-          return;
+        const sameOriginProxy = /^\/api\/coder\/preview-proxy\/(?:s?\d{1,5})(?:\/|$)/.test(approvedUrl);
+        if (!sameOriginProxy) {
+          const parsed = parsePreviewUrl(approvedUrl);
+          if ('error' in parsed) {
+            setPreviewError(parsed.error);
+            return;
+          }
         }
         setPreviewUrl(approvedUrl);
+        setPreviewCaptureUrl(typeof data.captureUrl === 'string' ? data.captureUrl : approvedUrl);
         setPreviewReloadKey(key => key + 1);
         setPreviewError('');
       } catch {
@@ -821,7 +828,7 @@ export default function CodingView() {
       const capture = await fetch('/api/coder/preview/screenshot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: previewUrl, device: previewDevice }),
+        body: JSON.stringify({ url: previewCaptureUrl || previewUrl, device: previewDevice }),
       });
       const image = await capture.json().catch(() => ({})) as { data?: unknown; mimeType?: unknown; width?: unknown; height?: unknown; error?: unknown };
       if (!capture.ok || typeof image.data !== 'string' || typeof image.mimeType !== 'string') {

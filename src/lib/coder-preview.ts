@@ -17,6 +17,7 @@
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
 const LXD_PREVIEW_HOST = /^ps?(\d{1,5})\.localhost$/
 const LXD_GUEST_RESERVED_PORTS = new Set([2375, 2376, 4170, 4171, 4172, 11434])
+const LXD_PREVIEW_PROXY_TARGET = /^(s?)(\d{1,5})$/
 
 export type PreviewDevice = 'desktop' | 'tablet' | 'mobile'
 
@@ -43,6 +44,20 @@ export interface PreviewTarget {
   port: number
   /** Path component of the target URL, always leading with `/`. */
   path: string
+}
+
+/**
+ * Decode the opaque target segment used by the same-origin LXD preview proxy.
+ * `8081` means HTTP port 8081; `s443` means HTTPS port 443. Keeping this
+ * separate from a browser-visible hostname prevents `.localhost` from being
+ * resolved on a remote viewer's computer instead of on the PeakUI host.
+ */
+export function parseLxdPreviewProxyTarget(raw: string): { port: number; secure: boolean } | null {
+  const match = LXD_PREVIEW_PROXY_TARGET.exec(raw)
+  if (!match) return null
+  const port = Number(match[2])
+  if (!Number.isInteger(port) || port < 1 || port > 65535 || LXD_GUEST_RESERVED_PORTS.has(port)) return null
+  return { port, secure: match[1] === 's' }
 }
 
 /**

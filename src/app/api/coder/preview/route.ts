@@ -8,11 +8,10 @@
  * (defense in depth) so a URL that is not a safe loopback dev server is refused
  * at the API boundary too, not just in the UI.
  *
- * This is a *guard*, not a proxy: the browser still fetches the preview target
- * directly. A full authenticated proxy (which would also close the "anyone on
- * loopback can view the dev server" gap) is a separate, larger piece of work —
- * it must rewrite relative URLs and forward HMR/websockets, which is why it is
- * not shipped here.
+ * With the LXD backend, the browser receives an authenticated same-origin
+ * proxy path. `*.localhost` is deliberately not exposed to the browser: that
+ * hostname would resolve on a remote viewer's computer rather than on the
+ * PeakUI host.
  */
 
 import { NextResponse, type NextRequest } from 'next/server'
@@ -41,8 +40,12 @@ export async function POST(req: NextRequest) {
   }
 
   const original = new URL(url)
-  const previewUrl = process.env.CODER_BACKEND === 'lxd' && !original.hostname.toLowerCase().endsWith('.localhost')
-    ? `http://p${original.protocol === 'https:' ? 's' : ''}${parsed.target.port}.localhost:4172${original.pathname}${original.search}${original.hash}`
+  const lxdPreview = process.env.CODER_BACKEND === 'lxd' && !original.hostname.toLowerCase().endsWith('.localhost')
+  const bridgeUrl = lxdPreview
+    ? `http://p${original.protocol === 'https:' ? 's' : ''}${parsed.target.port}.localhost:4172${original.pathname}${original.search}`
     : url
-  return NextResponse.json({ ok: true, target: parsed.target, previewUrl })
+  const previewUrl = lxdPreview
+    ? `/api/coder/preview-proxy/${original.protocol === 'https:' ? 's' : ''}${parsed.target.port}${original.pathname}${original.search}${original.hash}`
+    : url
+  return NextResponse.json({ ok: true, target: parsed.target, previewUrl, captureUrl: bridgeUrl })
 }

@@ -44,12 +44,15 @@ describe('POST /api/coder/preview', () => {
     expect(await res.json()).toMatchObject({ ok: true, target: { host: '127.0.0.1', port: 5173 } })
   })
 
-  it('maps a guest dev server to the LXD preview origin', async () => {
+  it('maps a guest dev server through the same-origin LXD preview proxy', async () => {
     process.env.CODER_BACKEND = 'lxd'
     const { POST } = await loadRoute()
     const res = await POST(makeRequest({ url: 'http://127.0.0.1:3000/app?view=1' }))
     expect(res.status).toBe(200)
-    expect(await res.json()).toMatchObject({ previewUrl: 'http://p3000.localhost:4172/app?view=1' })
+    expect(await res.json()).toMatchObject({
+      previewUrl: '/api/coder/preview-proxy/3000/app?view=1',
+      captureUrl: 'http://p3000.localhost:4172/app?view=1',
+    })
   })
 
   it('rejects a non-loopback URL (SSRF guard)', async () => {
