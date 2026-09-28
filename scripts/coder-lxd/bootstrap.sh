@@ -104,6 +104,9 @@ if [[ ! -f "$runtime_stamp" || "$(cat "$runtime_stamp")" != "$coder_version" || 
 fi
 cp /tmp/peakui-sync-coder-models.mjs /opt/qwen-code/sync-coder-models.mjs
 cp /tmp/peakui-workspace-CODER.md /opt/qwen-code/workspace-coder.md
+mkdir -p /opt/qwen-code/skills /opt/qwen-code/memories
+cp -a /tmp/peakui-skills/. /opt/qwen-code/skills/
+cp -a /tmp/peakui-memories/. /opt/qwen-code/memories/
 mkdir -p /opt/qwen-code/browser
 cp -a /tmp/peakui-browser/. /opt/qwen-code/browser/
 export PUPPETEER_CACHE_DIR=/opt/puppeteer-cache

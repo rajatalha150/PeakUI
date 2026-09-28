@@ -16,6 +16,15 @@ The Coding surface's own naming now uses "Coder" throughout — comments, docs, 
 - Docker named volume `coder_qwen_state` → `coder_state` (existing `/root/.qwen` state migrates via a one-time volume copy).
 - Test fixture `mock-qwen.mjs` → `mock-coder.mjs`; seed dir `qwen-seed` → `coder-seed`.
 
+### Added — Agent "brain" (Hermes-style disciplines, skills, and memory)
+
+The Coder agent now inherits PeakUI's problem-solving discipline on every session, seeded into the engine's native skills + memory system at boot.
+
+- **CODER.md** now leads with a "How to solve problems" section: understand before you edit, fix the cause not the symptom, verify with real evidence, write the test first, plan multi-step work, review before "done", and stop-and-reread when a fix keeps failing.
+- **Native skills** (`~/.qwen/skills/`, seeded from `scripts/coder-workspace/skills/`): `systematic-debugging`, `test-driven-development`, `plan-first`, `code-review`, and `codebase-reconnaissance`.
+- **Pinned runtime memory** (`~/.qwen/memories/`, seeded from `scripts/coder-workspace/memories/`): durable environment, verification, and safety facts under `pinned/` plus a `MEMORY.md` index.
+- Seeding wired through all three deploy paths (`Dockerfile.coder`, `peakui-coder-start`, and the LXD `install.sh`/`bootstrap.sh`/`prepare.sh`) — idempotent, additive only.
+
 ### Fixed — Session intelligence audit
 
 - Context budgets include all system messages, retrieved context, native tool schemas, and Ollama backoff. Impossible active requests fail explicitly instead of silently overflowing.

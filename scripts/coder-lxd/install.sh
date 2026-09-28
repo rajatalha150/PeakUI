@@ -151,6 +151,8 @@ push_guest_file scripts/coder-storage/peakui-cleanup /usr/local/bin/peakui-clean
 push_guest_file scripts/coder-lxd/prepare.sh /usr/local/bin/peakui-coder-prepare 755
 push_guest_file scripts/sync-coder-models.mjs /tmp/peakui-sync-coder-models.mjs 644
 push_guest_file scripts/coder-workspace/CODER.md /tmp/peakui-workspace-CODER.md 644
+push_guest_tree scripts/coder-workspace/skills /tmp/peakui-skills
+push_guest_tree scripts/coder-workspace/memories /tmp/peakui-memories
 push_guest_tree scripts/coder-browser /tmp/peakui-browser
 push_guest_file scripts/coder-lxd/bootstrap.sh /tmp/peakui-bootstrap.sh 755
 push_guest_file scripts/coder-lxd/workspace-router.mjs /opt/peakui/coder/workspace-router.mjs 644

@@ -7,6 +7,11 @@ chmod 700 /root/.ssh
 cp /opt/qwen-code/workspace-coder.md /root/.qwen/QWEN.md
 cp /opt/qwen-code/workspace-coder.md /workspace/QWEN.md
 
+# Seed the agent "brain": managed skills + pinned runtime memory into ~/.qwen.
+mkdir -p /root/.qwen/skills /root/.qwen/memories/pinned
+cp -a /opt/qwen-code/skills/. /root/.qwen/skills/ 2>/dev/null || true
+cp -a /opt/qwen-code/memories/. /root/.qwen/memories/ 2>/dev/null || true
+
 if [[ -f /root/.ssh/id_ed25519 ]] && ! ssh-keygen -F github.com -f /root/.ssh/known_hosts >/dev/null 2>&1; then
   timeout 10 ssh-keyscan -H github.com >> /root/.ssh/known_hosts 2>/dev/null || true
   [[ ! -f /root/.ssh/known_hosts ]] || chmod 600 /root/.ssh/known_hosts

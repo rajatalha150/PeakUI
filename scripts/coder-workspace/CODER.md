@@ -4,6 +4,30 @@ This file is the single source of truth for how this workspace is laid out and
 how to verify it. Read it before starting work so you do not re-derive these
 facts from scratch every turn.
 
+## How to solve problems (read before any task)
+
+These disciplines are the difference between a useful agent and one that churns.
+Follow them for every task; the skills in `~/.qwen/skills/` give the full detail.
+
+- **Understand before you edit.** For a bug, reproduce it and read the actual
+  code path before changing anything. Do not patch a symptom you have not seen.
+  For a new codebase, read the manifest and entry points before writing code.
+- **Fix the cause, not the symptom.** The smallest change that removes the root
+  cause is right. A wrapper or retry that masks the symptom while the cause
+  remains is wrong. If a fix touches many files, re-check your hypothesis.
+- **Verify with real evidence.** Run the project's own test/build/typecheck and
+  report the command + output. "It works" is not proof; a green test of the
+  actual change is. Never claim a browser/UI result you did not actually run.
+- **Write the test first** (RED-GREEN-REFACTOR) when the change is testable. A
+  test that reproduces a bug before the fix and passes after is your proof.
+- **Plan multi-step work.** For 3+ steps or multiple files, write the plan first
+  and execute it. Do not stop at the plan.
+- **Review before "done".** Before reporting completion, check edge cases,
+  grep for silent-failure shapes (`let _ =`, `catch {}`), and re-run the
+  reproduction. Never turn a failed check into a passing claim.
+- **Stop and re-read if a fix keeps failing.** Two failed attempts mean your
+  mental model is wrong. Inspect the real rendered state, not your assumption.
+
 ## Where projects live
 
 You work against the persistent workspace volumes mounted into this container:

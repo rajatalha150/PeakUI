@@ -144,12 +144,19 @@ COPY scripts/coder-storage/peakui-cleanup /usr/local/bin/peakui-cleanup
 COPY scripts/coder-storage/peakui-coder-start /usr/local/bin/peakui-coder-start
 RUN chmod 755 /usr/local/bin/peakui-coder-readiness /usr/local/bin/peakui-cleanup /usr/local/bin/peakui-coder-start
 
-# Workspace context file (QWEN.md): the daemon auto-loads this into every
+# Workspace context file (CODER.md): the daemon auto-loads this into every
 # session so the agent doesn't re-derive the project layout + verify commands,
 # and knows to delegate writing to the `peakui-writer` subagent when one is
 # configured. Seeded to BOTH the global location (`~/.qwen/QWEN.md`, which the
 # daemon always loads regardless of the session cwd) and the primary workspace.
 COPY scripts/coder-workspace/CODER.md /opt/qwen-code/workspace-coder.md
+
+# Brain seeding: Hermes-style disciplines (skills) and pinned runtime memory.
+# These are copied into ~/.qwen/{skills,memories} at boot by peakui-coder-start
+# so the agent inherits systematic-debugging / TDD / code-review / plan-first /
+# codebase-reconnaissance and durable runtime facts on every session.
+COPY scripts/coder-workspace/skills /opt/qwen-code/skills
+COPY scripts/coder-workspace/memories /opt/qwen-code/memories
 
 # Entrypoint: refresh the context file, sync models, then run the daemon. Binds
 # loopback (secure, no token); host networking + the loopback port map expose

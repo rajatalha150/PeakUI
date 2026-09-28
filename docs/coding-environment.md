@@ -906,7 +906,18 @@ Everything below is baked by `Dockerfile.coder`:
   idempotently into `~/.qwen/QWEN.md` and `/workspace/QWEN.md` at boot) tells the
   agent to *discover* the project layout rather than assume one: read each
   project's own manifest/README, run its own verify commands, and delegate file
-  authoring to the `peakui-writer` subagent when configured.
+  authoring to the `peakui-writer` subagent when configured. It also carries the
+  "how to solve problems" discipline (understand before you edit, fix the cause
+  not the symptom, verify with real evidence, review before done).
+- **Agent skills** (`~/.qwen/skills/`): seeded at boot from
+  `scripts/coder-workspace/skills/` — systematic-debugging, test-driven-development,
+  plan-first, code-review, and codebase-reconnaissance. These are the engine's
+  native skill format (`SKILL.md` with `name`/`description` frontmatter), so the
+  main model can invoke them by name for disciplined work.
+- **Pinned runtime memory** (`~/.qwen/memories/`): seeded at boot from
+  `scripts/coder-workspace/memories/` — durable environment/verification/safety
+  facts under `pinned/` plus a `MEMORY.md` index, so future sessions orient
+  without re-deriving them.
 - **Git identity**: `git config --global` + `GIT_AUTHOR_*`/`GIT_COMMITTER_*`
   env vars.
 
