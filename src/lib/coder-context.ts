@@ -1,4 +1,4 @@
-/** Authoritative Qwen daemon context-usage normalization and policy. */
+/** Authoritative Coder daemon context-usage normalization and policy. */
 
 export type CoderContextTier = 'fresh' | 'warn' | 'auto' | 'hard' | 'unknown'
 

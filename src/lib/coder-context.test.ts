@@ -18,7 +18,7 @@ describe('coder context usage', () => {
     expect(normalizeCoderContextUsage({ usage: { totalTokens: 'a lot' } })).toBeNull()
   })
 
-  it('normalizes Qwen daemon versions that call the healthy tier safe', () => {
+  it('normalizes Coder daemon versions that call the healthy tier safe', () => {
     const usage = normalizeCoderContextUsage({ usage: {
       totalTokens: 100, contextWindowSize: 1000, breakdown: { currentTier: 'safe', thresholds: {} },
     } })

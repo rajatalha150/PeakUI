@@ -1,5 +1,5 @@
 /**
- * /api/coder/* — authenticated pass-through to the Qwen Code daemon.
+ * /api/coder/* — authenticated pass-through to the Coder daemon.
  *
  * This is the only browser-facing path to the coding brain. It requires
  * WorkSpaces access (same permission as the rest of the agent surface), then

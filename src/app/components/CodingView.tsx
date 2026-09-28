@@ -304,7 +304,7 @@ function reconcilePending(
  *
  * Session persistence copies the Hermes pattern: coding history lives in the
  * `ChatSession` table (surface `'coder'`) via `/api/chats`, so sessions survive
- * restarts and old transcripts reopen. The Qwen Code daemon session is a
+ * restarts and old transcripts reopen. The Coder daemon session is a
  * transient runtime handle; its transcript is mirrored into that store.
  *
  * Live updates come from the daemon's SSE stream (`/session/:id/events`)
@@ -339,7 +339,7 @@ export default function CodingView() {
   const [questionNotes, setQuestionNotes] = React.useState<Record<string, string>>({});
   const [daemonSessionId, setDaemonSessionId] = React.useState<string | null>(null);
   // Incremented when the persistent guest restarts and drops only its
-  // in-memory Qwen session. The matching ChatSession remains durable, so this
+  // in-memory Coder session. The matching ChatSession remains durable, so this
   // triggers an automatic create/load rather than making the user refresh.
   const [daemonRecoveryAttempt, setDaemonRecoveryAttempt] = React.useState(0);
   // The daemon MINTS its own client id on session create and returns it; every
@@ -370,7 +370,7 @@ export default function CodingView() {
   // Last persisted transcript signature, so an idle poll (which rebuilds
   // identical arrays every tick) does not rewrite the full history to the DB.
   const lastPersistSignatureRef = React.useRef<string>('');
-  // At most one side-channel handoff per pressure tier. Qwen's recap is an LLM
+  // At most one side-channel handoff per pressure tier. Coder's recap is an LLM
   // call, so repeatedly polling at the same tier must not multiply cost.
   const capturedContextTiersRef = React.useRef(new Set<string>());
   // The active session's BOUND workspace (from its persisted ChatSession row),
@@ -635,7 +635,7 @@ export default function CodingView() {
           const ok = res.ok && data.status === 'ok';
           setDaemonOnline(ok);
           setConnecting(false);
-          if (!ok) setError('Coding environment (Qwen Code daemon) is offline. Start the coder container.');
+          if (!ok) setError('Coding environment (Coder daemon) is offline. Start the coder container.');
         }
       } catch {
         if (!cancelled) {
@@ -1352,7 +1352,7 @@ export default function CodingView() {
         if (!current()) return null;
         if (!await applyApprovalMode(data.sessionId, settings?.coderApprovalMode || 'yolo', { quiet: true })) return null;
         if (!current()) return null;
-        // Always reconcile both delegates, including explicit blanks. The Qwen
+        // Always reconcile both delegates, including explicit blanks. The Coder
         // daemon is shared, so skipping an empty value would inherit another
         // session's old vision bridge or writer agent.
         await applyVisionModel(settings?.coderVisionModel ? toDaemonModelSelector(settings.coderVisionModel) : '');
@@ -2380,7 +2380,7 @@ export default function CodingView() {
         onReconnecting: () => { if (!cancelled) note('reconnecting to agent stream…'); },
         onError: status => {
           if (cancelled) return;
-          // A guest/daemon restart has no durable in-memory Qwen session, so
+          // A guest/daemon restart has no durable in-memory Coder session, so
           // `/events` returns 404 even though the persistent ChatSession is
           // still valid. Drop only this transient handle and let the eager
           // reattach effect recreate/load the same session automatically.
@@ -2419,7 +2419,7 @@ export default function CodingView() {
   }, [contextHandoffSaving]);
 
   /**
-   * Qwen exposes exact, model-native accounting including its auto-compact
+   * Coder exposes exact, model-native accounting including its auto-compact
    * thresholds. Poll slowly: this is operational state, not a chat event.
    */
   React.useEffect(() => {
@@ -2733,7 +2733,7 @@ export default function CodingView() {
         )}
         {coderContext && !isPhone && (
           <span
-            title={`Model-native context usage. Qwen will auto-compact at ${coderContext.thresholds.auto?.toLocaleString() || 'its configured threshold'} tokens.`}
+            title={`Model-native context usage. Coder will auto-compact at ${coderContext.thresholds.auto?.toLocaleString() || 'its configured threshold'} tokens.`}
             style={{
               fontSize: '0.7rem', padding: '2px 8px', borderRadius: '999px',
               border: `1px solid ${coderContext.tier === 'hard' ? '#ef4444' : coderContext.tier === 'auto' || coderContext.tier === 'warn' ? '#f59e0b' : '#34d399'}`,
@@ -2810,8 +2810,8 @@ export default function CodingView() {
             />
           </SettingField>
           <SettingField label="Context capacity" hint={settings.coderContextLength > 0
-            ? "Advanced cap is used by PeakUI's durable-memory budgeting. Qwen still uses the active model's own live window and native auto-compaction. Return to Model default unless you are deliberately testing a smaller budget."
-            : `Automatic uses the active model's reported window${coderContext ? ` (${coderContext.contextWindow.toLocaleString()} tokens right now)` : ''}. Qwen manages its native warn/auto/hard compaction thresholds; this is the recommended setting.`}>
+            ? "Advanced cap is used by PeakUI's durable-memory budgeting. Coder still uses the active model's own live window and native auto-compaction. Return to Model default unless you are deliberately testing a smaller budget."
+            : `Automatic uses the active model's reported window${coderContext ? ` (${coderContext.contextWindow.toLocaleString()} tokens right now)` : ''}. Coder manages its native warn/auto/hard compaction thresholds; this is the recommended setting.`}>
             <div role="group" aria-label="Context capacity mode" style={{ display: 'inline-flex', width: 'fit-content', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 6, overflow: 'hidden' }}>
               <button
                 type="button"
@@ -2846,7 +2846,7 @@ export default function CodingView() {
               />
             )}
           </SettingField>
-          <SettingField label="Tool-search budget" hint="Controls how much context Qwen reserves for tool discovery before it starts a session. Leave at 0 for Qwen's default. Raise it only when a smaller model repeatedly fails to find the right tool; restart the coder container after changing it.">
+          <SettingField label="Tool-search budget" hint="Controls how much context Coder reserves for tool discovery before it starts a session. Leave at 0 for Coder's default. Raise it only when a smaller model repeatedly fails to find the right tool; restart the coder container after changing it.">
             <input
               type="number"
               min={0}
@@ -2912,7 +2912,7 @@ export default function CodingView() {
               <div style={{ display: 'flex', gap: '16px', width: '100%' }}>
                 <ModelSlot
                   label="Vision"
-                  hint="Optional image specialist. Select a vision-capable model when you want screenshot or image analysis; leave empty to let Qwen use its default."
+                  hint="Optional image specialist. Select a vision-capable model when you want screenshot or image analysis; leave empty to let Coder use its default."
                   value={settings.coderVisionModel}
                   models={models}
                   loading={modelLoading}

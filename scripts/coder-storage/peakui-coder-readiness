@@ -27,7 +27,7 @@ else
 fi
 
 require_dir /workspace "workspace volume"
-require_dir /root/.qwen "Qwen state volume"
+require_dir /root/.qwen "Coder state volume"
 require_dir /root/.ssh "SSH state"
 require_dir /root/.gradle "Gradle cache volume"
 require_dir /root/.android "Android user state volume"

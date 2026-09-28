@@ -29,7 +29,7 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
 }
 
 /**
- * Capture Qwen's side-channel recap before native auto-compaction. It neither
+ * Capture Coder's side-channel recap before native auto-compaction. It neither
  * alters the daemon transcript nor substitutes for its own compaction logic.
  */
 export async function POST(request: NextRequest, context: { params: Promise<{ id: string }> }) {
@@ -58,6 +58,6 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     model = usage?.model || ''
     tokenEstimate = usage?.totalTokens || 0
   } catch { /* The recap remains useful if the optional usage refresh failed. */ }
-  await recordNativeContextHandoff({ sessionId: id, provider: 'qwen-daemon', model, summary, tokenEstimate })
+  await recordNativeContextHandoff({ sessionId: id, provider: 'coder-daemon', model, summary, tokenEstimate })
   return NextResponse.json({ summary: summary.trim(), model, tokenEstimate })
 }

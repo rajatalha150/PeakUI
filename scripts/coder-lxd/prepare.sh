@@ -4,8 +4,8 @@ set -euo pipefail
 
 mkdir -p /root/.qwen /root/.ssh /workspace
 chmod 700 /root/.ssh
-cp /opt/qwen-code/workspace-qwen.md /root/.qwen/QWEN.md
-cp /opt/qwen-code/workspace-qwen.md /workspace/QWEN.md
+cp /opt/qwen-code/workspace-coder.md /root/.qwen/QWEN.md
+cp /opt/qwen-code/workspace-coder.md /workspace/QWEN.md
 
 if [[ -f /root/.ssh/id_ed25519 ]] && ! ssh-keygen -F github.com -f /root/.ssh/known_hosts >/dev/null 2>&1; then
   timeout 10 ssh-keyscan -H github.com >> /root/.ssh/known_hosts 2>/dev/null || true

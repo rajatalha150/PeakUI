@@ -84,26 +84,26 @@ fi
 
 mkdir -p /opt /workspace /apps /root/.qwen /root/.ssh \
   /root/.gradle /root/.android /root/.npm /root/.cache/pip /opt/android-sdk
-qwen_version=$(sed -n 's/^PEAKUI_QWEN_VERSION=//p' /etc/peakui-coder.env | tail -n 1)
-[[ "$qwen_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Invalid pinned Qwen version.' >&2; exit 1; }
+coder_version=$(sed -n 's/^PEAKUI_CODER_VERSION=//p' /etc/peakui-coder.env | tail -n 1)
+[[ "$coder_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Invalid pinned Coder version.' >&2; exit 1; }
 if [[ ! -d /opt/qwen-code/.git ]]; then
-  git clone --depth 1 --branch "v${qwen_version}" https://github.com/QwenLM/qwen-code.git /opt/qwen-code
+  git clone --depth 1 --branch "v${coder_version}" https://github.com/QwenLM/qwen-code.git /opt/qwen-code
 else
-  git -C /opt/qwen-code fetch --depth 1 origin "v${qwen_version}"
+  git -C /opt/qwen-code fetch --depth 1 origin "v${coder_version}"
   git -C /opt/qwen-code checkout --detach FETCH_HEAD
 fi
 runtime_stamp=/opt/qwen-code/.peakui-runtime-version
-if [[ ! -f "$runtime_stamp" || "$(cat "$runtime_stamp")" != "$qwen_version" || ! -f /opt/qwen-code/packages/cli/dist/index.js ]]; then
+if [[ ! -f "$runtime_stamp" || "$(cat "$runtime_stamp")" != "$coder_version" || ! -f /opt/qwen-code/packages/cli/dist/index.js ]]; then
   npm --prefix /opt/qwen-code ci
-  # Qwen's prepare lifecycle normally builds the monorepo during npm ci. Keep
+  # Coder's prepare lifecycle normally builds the monorepo during npm ci. Keep
   # an explicit fallback for package-manager versions that skip that hook.
   if [[ ! -f /opt/qwen-code/packages/cli/dist/index.js ]]; then
     npm --prefix /opt/qwen-code run build
   fi
-  printf '%s\n' "$qwen_version" > "$runtime_stamp"
+  printf '%s\n' "$coder_version" > "$runtime_stamp"
 fi
 cp /tmp/peakui-sync-coder-models.mjs /opt/qwen-code/sync-coder-models.mjs
-cp /tmp/peakui-workspace-QWEN.md /opt/qwen-code/workspace-qwen.md
+cp /tmp/peakui-workspace-CODER.md /opt/qwen-code/workspace-coder.md
 mkdir -p /opt/qwen-code/browser
 cp -a /tmp/peakui-browser/. /opt/qwen-code/browser/
 export PUPPETEER_CACHE_DIR=/opt/puppeteer-cache

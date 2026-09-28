@@ -9,7 +9,7 @@ not a request for another proposal. Work through the phases in dependency order.
 Do not claim completion when only the UI, mocks, or a subset of the phases works.
 
 Preserve existing projects, user files, accounts, credentials, conversations,
-settings, and unrelated PeakUI features. Keep Qwen Code as the agent execution
+settings, and unrelated PeakUI features. Keep Coder as the agent execution
 engine. Reuse its verified capabilities instead of building a competing agent
 loop. Add the application-side ownership, persistence, supervision, and IDE
 interfaces needed to make that engine dependable.
@@ -85,10 +85,10 @@ The assessment on 2026-09-21 found this architecture:
 Browser: /coder -> CodingView
     | authenticated /api/coder/*
 Next.js gateway
-    | Qwen HTTP API / SSE
-Qwen Code daemon in coder container
+    | Coder HTTP API / SSE
+Coder daemon in coder container
     | model providers, agent tools, filesystem, subprocesses
-Persistent workspace / apps / Qwen state / home volumes
+Persistent workspace / apps / Coder state / home volumes
 
 Browser also saves a conversation projection through /api/chats to PostgreSQL.
 User coder preferences are stored through /api/settings.
@@ -110,7 +110,7 @@ the code has remained unchanged.
 | Conversation persistence | `src/app/api/chats/route.ts`, `src/app/api/chats/[id]/route.ts`, `src/lib/chat-sessions.ts` |
 | Configuration and schema | `src/lib/settings.ts`, `src/app/api/settings/route.ts`, `prisma/schema.prisma`, `prisma/migrations/` |
 | Runtime and deployment | `Dockerfile.coder`, `Dockerfile`, `docker-compose.yml`, `docker-compose.windows.yml` |
-| Model sync and context | `scripts/sync-coder-models.mjs`, `scripts/coder-workspace/QWEN.md` |
+| Model sync and context | `scripts/sync-coder-models.mjs`, `scripts/coder-workspace/CODER.md` |
 | Browser verification | `scripts/coder-browser/verify-site.mjs`, `scripts/coder-browser/package.json` |
 | Existing file UI | `src/app/components/workspace-files/`, `docs/workspace-files-panel.md` |
 | Intent and CI | `docs/coding-environment.md`, `.github/workflows/ci.yml`, `package.json` |
@@ -141,7 +141,7 @@ at host WorkSpaces paths or assume their ownership model is interchangeable.
   success. UI selections can disagree with effective daemon configuration.
 - Tool-search budget is persisted but not applied to the daemon. Other coder
   fields, including base URL/API key/tools-enabled, need an end-to-end audit.
-- The global QWEN.md injects specific sample-project assumptions and capability
+- The global CODER.md injects specific sample-project assumptions and capability
   claims into sessions for unrelated repositories.
 - Preview embeds raw URLs in the viewer's browser. Server-side localhost is not
   the viewer's localhost. Some preview polling branches schedule duplicate timers.
@@ -152,7 +152,7 @@ at host WorkSpaces paths or assume their ownership model is interchangeable.
 - The Windows compose file inspected during the assessment has no coder service.
   Do not claim Windows coder support without implementing and testing it.
 
-The installed Qwen source contained SSE resume support, persisted-session load
+The installed Coder source contained SSE resume support, persisted-session load
 paths, session rewind, branches/worktrees, and language-server infrastructure.
 Inspect the pinned version's source, `/capabilities`, SDK, and official docs to
 establish exact contracts. Existing infrastructure does not prove a feature is
@@ -244,7 +244,7 @@ secrets. Resource exhaustion is contained and produces a useful status.
 - Bind each coder session to its original project, canonical workspace/worktree,
   runtime, and effective model/approval configuration. Changing a default setting
   must not move an existing session to another project.
-- Preserve the relationship between PeakUI session IDs and Qwen storage/runtime
+- Preserve the relationship between PeakUI session IDs and Coder storage/runtime
   IDs explicitly; do not assume every upstream identifier is interchangeable.
 - Migrate legacy sessions conservatively. Use verified daemon metadata where
   possible; mark ambiguous bindings for resolution without opening the wrong
@@ -267,10 +267,10 @@ secrets. Resource exhaustion is contained and produces a useful status.
 
 ### Recovery and Persistence
 
-- Use Qwen's verified restore paths for persisted history. Do not fabricate agent
+- Use Coder's verified restore paths for persisted history. Do not fabricate agent
   memory by showing a database transcript over a fresh unrelated daemon session.
 - Move essential continuation/recovery supervision out of React effects. Reuse
-  Qwen's own mechanisms first; add a server supervisor only for proven gaps.
+  Coder's own mechanisms first; add a server supervisor only for proven gaps.
 - Make continuation idempotent with durable task/notification identities. Prevent
   two tabs or workers from resuming the same notification twice. Bound retries,
   use backoff, and report terminal failure without losing the pending task.
@@ -365,7 +365,7 @@ session or another project. Desktop/mobile layouts remain usable with panes open
 
 ## Phase 5: Reversible Work and Verification Evidence
 
-- Expose Qwen rewind/checkpoint/worktree capabilities after verifying their exact
+- Expose Coder rewind/checkpoint/worktree capabilities after verifying their exact
   semantics. Conversation rewind, file restore, Git reset, and external side
   effects are different operations and must not be conflated.
 - Capture a task's starting file state, including relevant uncommitted/untracked
@@ -406,7 +406,7 @@ Use familiar controls and icons, keyboard accessibility, and responsive layouts.
 - Add project explorer, open-file tabs, dirty indicators, save/reload, create,
   rename, move, delete, text search, and file/symbol navigation.
 - Add syntax support, diagnostics, go-to-definition, references, rename, formatting,
-  and completion through verified language services. Reuse Qwen LSP facilities
+  and completion through verified language services. Reuse Coder LSP facilities
   only if their contract is appropriate for interactive editing.
 - Synchronize agent edits, external file changes, and editor buffers with version
   checks. Never silently overwrite unsaved human edits. Present conflicts clearly.

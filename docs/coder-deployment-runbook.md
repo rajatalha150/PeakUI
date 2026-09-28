@@ -24,7 +24,7 @@ features — no volume reset, no credential rotation, no `docker compose down -v
 - **Shared-runtime access boundary**: because the current daemon is one root,
   host-network runtime, coder routes are restricted to `ADMIN` users until
   per-user runtimes and bridge networking are implemented.
-- **Persistent build runtime**: Java 17 is image-managed; workspace, Qwen and
+- **Persistent build runtime**: Java 17 is image-managed; workspace, Coder and
   SSH state, Gradle, Android SDK/NDK, Android user state, npm, and pip each use
   named volumes. Recreating the Coder container therefore does not discard
   projects, session state, credentials, or downloaded build dependencies.
@@ -121,7 +121,7 @@ docker inspect peakui-coder-1 --format '{{range .Mounts}}{{println .Destination}
 
 Preview capture uses an isolated Chromium page in the app container. It permits
 only requests back to the approved preview origin, caps the JPEG at 3 MiB, and
-passes the capture to Qwen as a native image block; it does not expose a general
+passes the capture to Coder as a native image block; it does not expose a general
 server-side browser or external URL fetcher.
 
 ## Rollback

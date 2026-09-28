@@ -23,7 +23,7 @@ Docker services there; `/workspace` and `/apps` live in that persistent root.
 
 ## Runtime storage and cleanup safety
 
-The runtime has protected persistent storage for Qwen state, SSH/Git identity,
+The runtime has protected persistent storage for Coder state, SSH/Git identity,
 Gradle, Android SDK/NDK, npm, and pip caches. Java 17 is provisioned in the
 image or guest OS and is available at `$JAVA_HOME`; Android tooling uses
 `$ANDROID_SDK_ROOT`.

@@ -438,7 +438,7 @@ async function persistContextLedger(
     const settings = await getUserSettings(userId);
     const isCoder = surface === 'coder';
     const profile: ContextModelProfile = {
-      provider: isCoder ? 'qwen-daemon' : settings.workspaceToolProvider,
+      provider: isCoder ? 'coder-daemon' : settings.workspaceToolProvider,
       model: isCoder ? settings.coderModel : settings.workspaceToolModel,
       contextWindow: isCoder && settings.coderContextLength > 0
         ? settings.coderContextLength

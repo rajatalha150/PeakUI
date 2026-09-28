@@ -1,7 +1,7 @@
 /**
  * Multi-model orchestration for the Coding surface.
  *
- * The daemon (Qwen Code) natively supports the three roles the UI exposes:
+ * The daemon (Coder) natively supports the three roles the UI exposes:
  *
  *  - **Main** (`coderModel`)        — planner/executor, the session's own model.
  *  - **Vision** (`coderVisionModel`) — the daemon's *vision bridge*: when a

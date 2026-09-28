@@ -1,5 +1,5 @@
 /**
- * Rebuild a coding conversation from the Qwen Code daemon's transcript.
+ * Rebuild a coding conversation from the Coder daemon's transcript.
  *
  * The daemon emits the whole turn as a flat list of `session_update` events:
  * `user_message_chunk`, `agent_thought_chunk`, `agent_message_chunk`,

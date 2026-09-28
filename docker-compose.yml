@@ -46,7 +46,7 @@ services:
       context: .
       dockerfile: Dockerfile.coder
     restart: always
-    # The coding environment: Qwen Code daemon (brain) + dev toolchain.
+    # The coding environment: Coder daemon (brain) + dev toolchain.
     # Host networking (like the app) so it binds loopback directly and reaches
     # the host's Ollama at 127.0.0.1:11434 — no token, no host.docker.internal.
     network_mode: host
@@ -103,7 +103,7 @@ services:
     volumes:
       - coder_workspace:/workspace
       - coder_apps:/apps
-      - coder_qwen_state:/root/.qwen
+      - coder_state:/root/.qwen
       # Explicit protected cache/toolchain volumes. These survive image
       # recreation and are intentionally outside any supported cleanup target.
       - coder_gradle_cache:/root/.gradle
@@ -115,7 +115,7 @@ services:
       # and any dotfile the agent writes survive redeploys. Mounting /root — NOT
       # / — keeps the image-managed tooling (/opt/qwen-code, /usr, Chrome libs)
       # rebuildable so fixes keep flowing, while all runtime state is retained.
-      # (Nested coder_qwen_state at /root/.qwen still wins for that subtree.)
+      # (Nested coder_state at /root/.qwen still wins for that subtree.)
       - coder_root_home:/root
 
   app:
@@ -182,7 +182,7 @@ volumes:
   searxng_cache:
   coder_workspace:
   coder_apps:
-  coder_qwen_state:
+  coder_state:
   coder_root_home:
   coder_gradle_cache:
   coder_android_home:

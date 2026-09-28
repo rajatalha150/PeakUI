@@ -156,7 +156,7 @@ model UserSettings {
   imageGenVaeName                                 String   @default("")
   hfToken                                         String   @default("")
   // ---------------------------------------------------------------------------
-  // Coding environment (Qwen Code daemon). These drive the "Coding" surface:
+  // Coding environment (Coder daemon). These drive the "Coding" surface:
   // which model the agent brain uses, how much context it gets, and how
   // freely it may act. The daemon itself is shared, so model selection is
   // applied per session; context/tool-search knobs are workspace-level.

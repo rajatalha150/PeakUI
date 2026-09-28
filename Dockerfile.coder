@@ -1,4 +1,4 @@
-# Coder container: Qwen Code coding environment (brain = Qwen Code, model = local Ollama)
+# Coder container: Coder coding environment (brain = Coder, model = local Ollama)
 
 # Node 22 base (qwen-code requires Node >= 22). Debian-based so we can apt the
 # full dev toolchain.
@@ -78,20 +78,20 @@ ENV PATH="/usr/local/go/bin:${PATH}" \
     ANDROID_HOME="/opt/android-sdk" \
     ANDROID_SDK_ROOT="/opt/android-sdk"
 
-# --- Qwen Code (built from pinned source, not the npm registry) -------------
+# --- Coder (built from pinned source, not the npm registry) -------------
 # The npm package name is flagged by a heuristic scanner (false positive for
 # this heavy agentic CLI); we clone the official pinned source and build it so
 # the image is fully auditable.
-ARG QWEN_CODE_VERSION=0.23.4
+ARG CODER_ENGINE_VERSION=0.23.4
 WORKDIR /opt/qwen-code
-RUN git clone --depth 1 --branch "v${QWEN_CODE_VERSION}" \
+RUN git clone --depth 1 --branch "v${CODER_ENGINE_VERSION}" \
       https://github.com/QwenLM/qwen-code.git /opt/qwen-code \
     && npm ci \
     && npm run build \
     && npm cache clean --force
 
 # --- Workspace (persistent project dir) --------------------------------------
-# Mounted as a volume so projects + qwen's ~/.qwen state survive restarts.
+# Mounted as a volume so projects + the engine's ~/.qwen state survive restarts.
 RUN mkdir -p /workspace /opt/android-sdk /root/.gradle /root/.android /root/.npm /root/.cache/pip
 WORKDIR /workspace
 
@@ -149,7 +149,7 @@ RUN chmod 755 /usr/local/bin/peakui-coder-readiness /usr/local/bin/peakui-cleanu
 # and knows to delegate writing to the `peakui-writer` subagent when one is
 # configured. Seeded to BOTH the global location (`~/.qwen/QWEN.md`, which the
 # daemon always loads regardless of the session cwd) and the primary workspace.
-COPY scripts/coder-workspace/QWEN.md /opt/qwen-code/workspace-qwen.md
+COPY scripts/coder-workspace/CODER.md /opt/qwen-code/workspace-coder.md
 
 # Entrypoint: refresh the context file, sync models, then run the daemon. Binds
 # loopback (secure, no token); host networking + the loopback port map expose

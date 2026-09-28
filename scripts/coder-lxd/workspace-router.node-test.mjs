@@ -24,7 +24,7 @@ test('routes parent and nested directories to independent persistent runtimes', 
   const workspace = join(root, 'workspace');
   const child = join(workspace, 'vision-proxy');
   const created = join(workspace, 'data');
-  const seed = join(root, 'qwen-seed');
+  const seed = join(root, 'coder-seed');
   await mkdir(child, { recursive: true });
   await mkdir(seed);
   const port = await freePort();
@@ -42,8 +42,8 @@ test('routes parent and nested directories to independent persistent runtimes', 
     CODER_DEFAULT_WORKSPACE: workspace,
     CODER_PREVIEW_PORT: String(previewPort),
     CODER_ROUTER_STATE_DIR: join(root, 'state'),
-    CODER_QWEN_SEED_HOME: seed,
-    CODER_QWEN_ENTRY: new URL('./mock-qwen.mjs', import.meta.url).pathname,
+    CODER_SEED_HOME: seed,
+    CODER_ENTRY: new URL('./mock-coder.mjs', import.meta.url).pathname,
     QWEN_SERVER_TOKEN: 'test-token',
   };
   let router;

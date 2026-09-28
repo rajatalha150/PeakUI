@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — Coding environment renamed "Qwen" → "Coder"
+
+The Coding surface's own naming now uses "Coder" throughout — comments, docs, README, UI strings, and internal identifiers — while the underlying Qwen Code engine's protocol names (the `qwen serve` daemon, `~/.qwen` state dir, `x-qwen-*` headers, `QWEN_*` env vars, and standard Qwen model IDs) are intentionally left intact so the integration keeps working.
+
+- Seed workspace-context file renamed `scripts/coder-workspace/QWEN.md` → `CODER.md` (still deployed to the daemon's magic `~/.qwen/QWEN.md` destination).
+- Identifiers renamed: `QWEN_CODE_VERSION`/`PEAKUI_QWEN_VERSION` → `CODER_ENGINE_VERSION`/`PEAKUI_CODER_VERSION`, `CODER_QWEN_SEED_HOME`/`CODER_QWEN_ENTRY` → `CODER_SEED_HOME`/`CODER_ENTRY`, `qwen-daemon` → `coder-daemon`, `qwenTag`/`qwenXml` parser locals, and `qwen_version`/`qwen_pid`/`qwenEntry` shell vars.
+- Docker named volume `coder_qwen_state` → `coder_state` (existing `/root/.qwen` state migrates via a one-time volume copy).
+- Test fixture `mock-qwen.mjs` → `mock-coder.mjs`; seed dir `qwen-seed` → `coder-seed`.
+
 ### Fixed — Session intelligence audit
 
 - Context budgets include all system messages, retrieved context, native tool schemas, and Ollama backoff. Impossible active requests fail explicitly instead of silently overflowing.

@@ -1,4 +1,4 @@
-# Coding Environment — Current Architecture (Qwen Code as the brain)
+# Coding Environment — Current Architecture (Coder as the brain)
 
 The optional persistent Linux server backend is documented in
 [Coder LXD/Incus](coder-lxd.md).
@@ -8,22 +8,22 @@ delivery context; start with the visual [architecture overview](architecture.md)
 and the current [Persistent Coder guide](coder-lxd.md).
 **Owner:** Platform
 **Scope:** A "Coding" surface launched from Settings. A dedicated dev container
-runs the **Qwen Code** agent (the coding brain, pointed at our local Ollama
+runs the **Coder** agent (the coding brain, pointed at our local Ollama
 model). PeakUI provides the futuristic TUI/GUI hybrid UI — chat, session
 sidebar, terminal, interactive preview browser, and project selection. We do
-**not** build a coding-agent engine; Qwen Code already is one.
+**not** build a coding-agent engine; Coder already is one.
 
 ---
 
 ## 1. The key change from the previous plan
 
 The previous plan reused PeakUI's own WorkSpaces agent loop as the coding brain.
-That was wrong-headed: Qwen Code is a Claude-Code-parity agentic framework
+That was wrong-headed: Coder is a Claude-Code-parity agentic framework
 (subagents, plan mode, LSP, MCP, file edits, terminal, git, session management)
 that already talks to **local Ollama models** and ships a **daemon
 (`qwen serve`) exposing an HTTP + SSE (ACP) API**.
 
-So the brain is **Qwen Code**, running inside the coder container, pointed at
+So the brain is **Coder**, running inside the coder container, pointed at
 our local Ollama. PeakUI's job shrinks to three things:
 
 1. **A container** with the dev toolchain + `qwen-code` CLI/daemon.
@@ -32,11 +32,11 @@ our local Ollama. PeakUI's job shrinks to three things:
    selector — speaking to the daemon over ACP.
 
 This removes ~70% of the prior build (no new agent loop, no new tool registry,
-no reimplemented file/git/terminal tools — Qwen Code has them).
+no reimplemented file/git/terminal tools — Coder has them).
 
 ---
 
-## 2. What we verified about Qwen Code
+## 2. What we verified about Coder
 
 From the repo (README + `docs/developers/qwen-serve-protocol.md`):
 
@@ -101,7 +101,7 @@ A new `docker-compose.yml` service:
 - **Daemon**: runs `qwen serve` on `0.0.0.0:4170` (or loopback + Docker
   port-map), configured to talk to the host's **Ollama** (`host.docker.internal`
   or the host-network IP) so the brain uses our local models.
-- **Persistent runtime volumes**: projects, Qwen session state, SSH/Git state,
+- **Persistent runtime volumes**: projects, Coder session state, SSH/Git state,
   Gradle, Android SDK/NDK, npm, and pip caches survive container recreation.
   Java 17 and system libraries are immutable image dependencies so cleanup can
   never silently remove the compiler baseline.
@@ -124,13 +124,13 @@ daemon token server-side and to bridge SSE + auth cleanly.
 
 ### 3.3 The Coding UI
 
-- **Chat** (center) — the Qwen Code conversation, streamed from the daemon.
+- **Chat** (center) — the Coder conversation, streamed from the daemon.
   Reuses the existing markdown/drip/thinking renderers.
 - **Session sidebar** (right) — list sessions (`GET /workspaces/:workspace/sessions`),
   switch, create, rename — like Hermes.
 - **Terminal pane** (bottom, collapsible) — the agent's shell output, plus a
   manual command line (via `POST /session/:id/prompt` with a shell command, or
-  Qwen Code's own terminal tool output).
+  Coder's own terminal tool output).
 - **Preview browser** (expandable) — an iframe pointed at a dev-server port the
   agent exposes; interactive (click/scroll/type). The AI can navigate it to
   demonstrate running apps.
@@ -154,7 +154,7 @@ daemon token server-side and to bridge SSE + auth cleanly.
   against the owner’s Coder session and its persisted workspace binding. Every
   requested path must be a normalized child of that workspace before it reaches
   the daemon shell or file API.
-- **Agent progress** — Qwen’s adjacent, complete status messages are rendered
+- **Agent progress** — Coder’s adjacent, complete status messages are rendered
   as separate Markdown paragraphs. Normal token streaming remains contiguous,
   while long-running work becomes scannable instead of accumulating as one
   unbroken block of prose.
@@ -183,13 +183,13 @@ so text stays readable and accessibility is preserved.
   entrypoint (env-driven model/endpoint).
 - Implement `coder-gateway` routes: session create/list/prompt/transcript, file
   read/list, with server-side token injection + SSE relay.
-- **Exit:** from a curl (or a hidden test page), the app can drive a full Qwen
+- **Exit:** from a curl (or a hidden test page), the app can drive a full Coder
   Code session in the container.
 
 ### Phase 2 — Coding UI shell
 - "Coding" button under Settings → launches the surface.
 - Chat (streamed) + session sidebar (list/switch/create) + terminal pane.
-- **Exit:** the user can chat with the Qwen Code agent, watch it work, and
+- **Exit:** the user can chat with the Coder agent, watch it work, and
   switch sessions.
 
 ### Phase 3 — Preview browser + project selection
@@ -198,7 +198,7 @@ so text stays readable and accessibility is preserved.
 - **Exit:** the agent starts a dev server and the user sees + interacts with it.
 
 ### Phase 4 — Tool install + hardening + skin
-- "Install a tool" from the UI/chat (delegated to Qwen Code's terminal tool, or
+- "Install a tool" from the UI/chat (delegated to Coder's terminal tool, or
   a direct package-install route with confirmation).
 - Security envelope, resource caps, cyberpunk skin, docs.
 - **Exit:** feature complete.
@@ -568,7 +568,7 @@ sessions.
 ## 12. Wire-contract reference (verified against the live daemon)
 
 The shapes below are the ones the UI actually depends on, verified by
-interrogating the running `qwen serve` and the pinned Qwen Code source. They are
+interrogating the running `qwen serve` and the pinned Coder source. They are
 the canonical answers to "what does the daemon really send?" — kept here so a
 future reader does not have to re-derive them.
 
@@ -842,24 +842,24 @@ session running so in-flight work survives); only `delete` tears the daemon
 session down. See §16.
 
 **Long-session context** — at Coder startup, PeakUI copies each Ollama model's
-authoritative `/api/tags` `details.context_length` into Qwen's per-model
-configuration, so an unknown local or cloud model does not inherit Qwen's
-generic 200k fallback. The Coding UI then reads Qwen's authoritative
+authoritative `/api/tags` `details.context_length` into Coder's per-model
+configuration, so an unknown local or cloud model does not inherit Coder's
+generic 200k fallback. The Coding UI then reads Coder's authoritative
 `GET /session/:id/context-usage` state through the authenticated gateway. This
-reports the actual model window, used/free tokens, and Qwen's native warn,
+reports the actual model window, used/free tokens, and Coder's native warn,
 auto-compact, and hard thresholds rather than estimating from character count.
 At each pressure tier PeakUI captures at most one non-mutating
 `POST /session/:id/recap` handoff and stores it as a source-linked Postgres
-`ContextSnapshot`. Qwen performs its own native auto-compaction; PeakUI keeps
+`ContextSnapshot`. Coder performs its own native auto-compaction; PeakUI keeps
 the durable ledger, episode history, and handoffs for recovery after restarts.
 The context pill shows that native state, and the disk icon captures a manual
 handoff checkpoint without changing the visible transcript or live context.
 
 **Context capacity setting** — Coding Settings defaults to **Model default**
-(`coderContextLength = 0`). It follows the active Qwen model's reported window
+(`coderContextLength = 0`). It follows the active Coder model's reported window
 and is the correct choice for nearly every session. **Advanced cap** is for
 operators deliberately testing a smaller PeakUI durable-memory budget; it does
-not override Qwen's live model context or its native compaction policy. The UI
+not override Coder's live model context or its native compaction policy. The UI
 states this explicitly so a local-model user does not accidentally expect a
 larger input field to create memory their model cannot support.
 
@@ -902,7 +902,7 @@ Everything below is baked by `Dockerfile.coder`:
   (deployed to `/opt/qwen-code/browser/verify-site.mjs`) serves a site dir and
   reports title/h1/landmarks/errors + light/dark screenshots. It replaces the
   hand-written `/tmp` harness the agent used to recreate every session.
-- **Workspace context**: `scripts/coder-workspace/QWEN.md` (deployed + seeded
+- **Workspace context**: `scripts/coder-workspace/CODER.md` (deployed + seeded
   idempotently into `~/.qwen/QWEN.md` and `/workspace/QWEN.md` at boot) tells the
   agent to *discover* the project layout rather than assume one: read each
   project's own manifest/README, run its own verify commands, and delegate file
@@ -995,7 +995,7 @@ The Coding brain can split work across three specialised models, configured in
 the Settings drawer as a triangle — **Main** on top, **Vision** (bottom-left)
 and **Writer** (bottom-right) below.
 
-The daemon (Qwen Code) natively supports both delegation mechanisms, so this is
+The daemon (Coder) natively supports both delegation mechanisms, so this is
 thin wiring over existing capability, not a new orchestrator:
 
 - **Main** (`coderModel`) — the planner/executor. It receives the user request
@@ -1047,7 +1047,7 @@ non-vision model for Vision. Capability discovery remains best-effort while
 Ollama is unavailable, so the daemon remains the final authority.
 
 **Current shared-daemon limit.** Reconciliation prevents stale inheritance but
-does not make daemon-global Qwen settings safely concurrent across different
+does not make daemon-global Coder settings safely concurrent across different
 users or active workspaces. Fully isolated concurrent role selection requires
 per-user daemon state (or trusted workspace-scoped agents); it is an
 infrastructure boundary, not something a browser setting can solve.

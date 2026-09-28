@@ -92,7 +92,7 @@ services:
     volumes:
       - coder_workspace:/workspace
       - coder_apps:/apps
-      - coder_qwen_state:/root/.qwen
+      - coder_state:/root/.qwen
       - coder_gradle_cache:/root/.gradle
       - coder_android_home:/root/.android
       - coder_npm_cache:/root/.npm
@@ -179,7 +179,7 @@ volumes:
   searxng_cache:
   coder_workspace:
   coder_apps:
-  coder_qwen_state:
+  coder_state:
   coder_root_home:
   coder_gradle_cache:
   coder_android_home:

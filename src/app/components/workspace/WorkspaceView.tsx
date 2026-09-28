@@ -958,7 +958,7 @@ const workspaceToolChrome = isMobileViewport ? (
                     type="button"
                     className="workspace-tool-mode-action"
                     onClick={() => { setHeaderModeMenuOpen(null); onNavigateToCoding(); }}
-                    title="Open the Coding environment (Qwen Code agent in a dedicated container)"
+                    title="Open the Coding environment (Coder agent in a dedicated container)"
                   >
                     <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <Terminal size={15} color="#22d3ee" />

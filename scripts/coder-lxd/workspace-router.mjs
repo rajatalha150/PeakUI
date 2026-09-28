@@ -12,8 +12,8 @@ import { promisify } from 'node:util';
 const stateDir = process.env.CODER_ROUTER_STATE_DIR || '/var/lib/peakui/coder-router';
 const stateFile = join(stateDir, 'sessions.json');
 const defaultWorkspace = process.env.CODER_DEFAULT_WORKSPACE || '/workspace';
-const seedHome = process.env.CODER_QWEN_SEED_HOME || '/root/.qwen';
-const qwenEntry = process.env.CODER_QWEN_ENTRY || '/opt/qwen-code/scripts/cli-entry.js';
+const seedHome = process.env.CODER_SEED_HOME || '/root/.qwen';
+const coderEntry = process.env.CODER_ENTRY || '/opt/qwen-code/scripts/cli-entry.js';
 const token = process.env.QWEN_SERVER_TOKEN || '';
 const listenPort = Number(process.env.CODER_ROUTER_PORT || 4170);
 const previewPort = Number(process.env.CODER_PREVIEW_PORT || 4172);
@@ -36,7 +36,7 @@ export async function canonicalDirectory(value) {
   const requested = resolve(value);
   // A selected workspace is an intent to work there. Creating a missing
   // directory lets Coder use any valid path in its persistent Linux root while
-  // realpath below still resolves symlinks before a Qwen runtime is started.
+  // realpath below still resolves symlinks before a Coder runtime is started.
   await mkdir(requested, { recursive: true, mode: 0o755 });
   const canonical = await realpath(requested);
   return canonical;
@@ -77,12 +77,12 @@ function unusedPort() {
   });
 }
 
-async function prepareQwenHome(cwd) {
+async function prepareCoderHome(cwd) {
   if (cwd === defaultWorkspace) return seedHome;
   const hash = createHash('sha256').update(cwd).digest('hex').slice(0, 24);
-  const home = join(stateDir, 'qwen', hash);
+  const home = join(stateDir, 'coder', hash);
   if (!existsSync(home)) {
-    await mkdir(join(stateDir, 'qwen'), { recursive: true, mode: 0o700 });
+    await mkdir(join(stateDir, 'coder'), { recursive: true, mode: 0o700 });
     const staging = `${home}.${process.pid}.tmp`;
     await mkdir(staging, { recursive: true, mode: 0o700 });
     // Preserve model/auth settings and historical transcripts without cloning
@@ -109,15 +109,15 @@ async function startRuntime(cwd) {
   if (existing && existing.child.exitCode === null) return existing;
   if (starts.has(cwd)) return starts.get(cwd);
   const start = (async () => {
-    const home = await prepareQwenHome(cwd);
-    if (qwenEntry === '/opt/qwen-code/scripts/cli-entry.js') {
+    const home = await prepareCoderHome(cwd);
+    if (coderEntry === '/opt/qwen-code/scripts/cli-entry.js') {
       await execFileAsync(process.execPath, ['/opt/qwen-code/sync-coder-models.mjs'], {
         env: { ...process.env, QWEN_HOME: home }, timeout: 30_000,
       });
     }
     const port = await unusedPort();
     const child = spawn(process.execPath, [
-      qwenEntry, 'serve',
+      coderEntry, 'serve',
       '--hostname', '127.0.0.1', '--port', String(port), '--workspace', cwd,
       '--no-web', '--enable-session-shell',
     ], { env: { ...process.env, QWEN_HOME: home }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -129,7 +129,7 @@ async function startRuntime(cwd) {
     runtimes.set(cwd, runtime);
     child.once('exit', () => { if (runtimes.get(cwd) === runtime) runtimes.delete(cwd); });
     for (let attempt = 0; attempt < 120; attempt++) {
-      if (child.exitCode !== null) throw new Error(`Qwen exited while opening ${cwd}; see ${logPath}`);
+      if (child.exitCode !== null) throw new Error(`Coder exited while opening ${cwd}; see ${logPath}`);
       try {
         const health = await fetch(`http://127.0.0.1:${port}/health`, {
           headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(1000),
@@ -139,7 +139,7 @@ async function startRuntime(cwd) {
       await new Promise(done => setTimeout(done, 500));
     }
     child.kill('SIGTERM');
-    throw new Error(`Qwen did not become ready for ${cwd}; see ${logPath}`);
+    throw new Error(`Coder did not become ready for ${cwd}; see ${logPath}`);
   })();
   starts.set(cwd, start);
   try { return await start; } finally { starts.delete(cwd); }

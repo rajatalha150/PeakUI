@@ -1,5 +1,5 @@
 /**
- * Fetch-based SSE client with cursor/epoch resume for the Qwen Code event
+ * Fetch-based SSE client with cursor/epoch resume for the Coder event
  * stream.
  *
  * The daemon frames each event as `id: <decimal>\n` (a bus event id, when one

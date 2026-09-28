@@ -34,8 +34,8 @@ compose_project=$(docker compose config --format json | python3 -c 'import json,
 coder_key=$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["coder"]["environment"]["OPENAI_API_KEY"])')
 coder_model=$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["coder"]["environment"]["OPENAI_MODEL"])')
 coder_model_url=$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["coder"]["environment"]["OPENAI_BASE_URL"])')
-qwen_version=$(sed -n 's/^ARG QWEN_CODE_VERSION=//p' Dockerfile.coder | head -n 1)
-[[ -n "$qwen_version" ]] || { echo 'Could not determine pinned Qwen version.' >&2; exit 1; }
+coder_version=$(sed -n 's/^ARG CODER_ENGINE_VERSION=//p' Dockerfile.coder | head -n 1)
+[[ -n "$coder_version" ]] || { echo 'Could not determine pinned Coder version.' >&2; exit 1; }
 python3 -c 'import pathlib,secrets; p=pathlib.Path(".env"); lines=p.read_text().splitlines(); matches=[s.split("=",1)[1] for s in lines if s.startswith("CODER_SERVER_TOKEN=")]; token=matches[-1] if matches else ""; p.open("a").write("\nCODER_SERVER_TOKEN="+secrets.token_urlsafe(48)+"\n") if not token else None'
 coder_token=$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["services"]["coder"]["environment"]["QWEN_SERVER_TOKEN"])')
 [[ -n "$coder_token" ]] || { echo 'Coder token is empty.' >&2; exit 1; }
@@ -47,7 +47,7 @@ volume_migrations=(
   'coder_root_home:/root'
   'coder_workspace:/workspace'
   'coder_apps:/apps'
-  'coder_qwen_state:/root/.qwen'
+  'coder_state:/root/.qwen'
   'coder_gradle_cache:/root/.gradle'
   'coder_android_home:/root/.android'
   'coder_npm_cache:/root/.npm'
@@ -103,7 +103,7 @@ fi
 # Older previews of this backend attached Docker's internal volume paths with
 # shift=true. Remove those devices so startup works on every Incus-supported
 # filesystem; the data itself remains untouched in Docker.
-for name in workspace apps qwen home gradle android-home npm pip android-sdk shift-test; do
+for name in workspace apps coder home gradle android-home npm pip android-sdk shift-test; do
   if "$instance_cli" config device get "$instance" "$name" path >/dev/null 2>&1; then
     "$instance_cli" config device remove "$instance" "$name"
   fi
@@ -150,7 +150,7 @@ push_guest_file scripts/coder-storage/peakui-coder-readiness /usr/local/bin/peak
 push_guest_file scripts/coder-storage/peakui-cleanup /usr/local/bin/peakui-cleanup 755
 push_guest_file scripts/coder-lxd/prepare.sh /usr/local/bin/peakui-coder-prepare 755
 push_guest_file scripts/sync-coder-models.mjs /tmp/peakui-sync-coder-models.mjs 644
-push_guest_file scripts/coder-workspace/QWEN.md /tmp/peakui-workspace-QWEN.md 644
+push_guest_file scripts/coder-workspace/CODER.md /tmp/peakui-workspace-CODER.md 644
 push_guest_tree scripts/coder-browser /tmp/peakui-browser
 push_guest_file scripts/coder-lxd/bootstrap.sh /tmp/peakui-bootstrap.sh 755
 push_guest_file scripts/coder-lxd/workspace-router.mjs /opt/peakui/coder/workspace-router.mjs 644
@@ -163,8 +163,8 @@ push_guest_file scripts/coder-lxd/peakui-coder.service /etc/systemd/system/peaku
 env_file=$(mktemp)
 trap 'on_failure; rm -f "$env_file"' EXIT
 chmod 600 "$env_file"
-printf 'QWEN_SERVER_TOKEN=%s\nOPENAI_API_KEY=%s\nOPENAI_MODEL=%s\nOPENAI_BASE_URL=%s\nQWEN_DEBUG_LOG_FILE=1\nCODER_MIN_FREE_GB=%s\nPEAKUI_QWEN_VERSION=%s\n' \
-  "$coder_token" "$coder_key" "$coder_model" "$coder_model_url" "${CODER_MIN_FREE_GB:-12}" "$qwen_version" > "$env_file"
+printf 'QWEN_SERVER_TOKEN=%s\nOPENAI_API_KEY=%s\nOPENAI_MODEL=%s\nOPENAI_BASE_URL=%s\nQWEN_DEBUG_LOG_FILE=1\nCODER_MIN_FREE_GB=%s\nPEAKUI_CODER_VERSION=%s\n' \
+  "$coder_token" "$coder_key" "$coder_model" "$coder_model_url" "${CODER_MIN_FREE_GB:-12}" "$coder_version" > "$env_file"
 push_guest_file "$env_file" /etc/peakui-coder.env 600
 
 echo "Provisioning $instance (first run downloads the toolchain and browser)..."

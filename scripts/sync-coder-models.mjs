@@ -1,5 +1,5 @@
 /**
- * Syncs Ollama's live model list into the Qwen Code daemon's settings.json.
+ * Syncs Ollama's live model list into the Coder daemon's settings.json.
  *
  * The daemon only routes to models declared in its `modelProviders` config
  * (~/.qwen/settings.json). Ollama exposes its full list (local + cloud) at
@@ -24,10 +24,10 @@ const OLLAMA_BASE_URL = process.env.OPENAI_BASE_URL || 'http://127.0.0.1:11434/v
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || '';
 const SETTINGS_PATH = path.join(process.env.QWEN_HOME || path.join(homedir(), '.qwen'), 'settings.json');
 
-// Qwen falls back to a generic 200k window for an OpenAI-compatible model it
+// Coder falls back to a generic 200k window for an OpenAI-compatible model it
 // does not recognize by name. Ollama already exposes the actual model limit in
-// /api/tags, so carry it into Qwen's per-model generation configuration.
-// Qwen accepts positive integers up to 10 million here; reject bad provider
+// /api/tags, so carry it into Coder's per-model generation configuration.
+// Coder accepts positive integers up to 10 million here; reject bad provider
 // metadata rather than accidentally replacing its own fallback with nonsense.
 function contextWindowSize(value) {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= 10_000_000

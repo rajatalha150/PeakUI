@@ -177,7 +177,7 @@ export interface AppSettings {
   imageGenVaeName: string
   hfToken: string
   /**
-   * Coding environment (Qwen Code daemon) — the "Coding" surface's brain.
+   * Coding environment (Coder daemon) — the "Coding" surface's brain.
    * Empty `coderModel` means "use the daemon's configured default".
    */
   coderModel: string

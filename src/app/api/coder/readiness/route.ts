@@ -5,7 +5,7 @@
  * Process liveness (the container is up) says nothing about whether the coding
  * stack can actually do work. This probes the two things the Coding UI depends
  * on beyond the app process itself: the database (which stores sessions and the
- * daemon-session binding) and the Qwen Code daemon (which runs the agent).
+ * daemon-session binding) and the Coder daemon (which runs the agent).
  *
  * It is intentionally separate from `/api/health` (which covers the chat/Ollama
  * side) and from the daemon's own `/health` pass-through (which only reports the

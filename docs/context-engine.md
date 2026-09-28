@@ -48,7 +48,7 @@ Provider-native context management can sit above it:
   snapshots while PeakUI retains its ledger for retrieval and audit.
 - Anthropic context editing should clear stale tool/thinking blocks before
   PeakUI rebuilds a prompt from durable memories.
-- The Coding/Qwen daemon keeps its live session, while PeakUI's ledger provides
+- The Coding/Coder daemon keeps its live session, while PeakUI's ledger provides
   the verified handoff for a new or restored daemon session.
 
 ## Operational notes

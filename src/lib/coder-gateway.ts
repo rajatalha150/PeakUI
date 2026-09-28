@@ -1,5 +1,5 @@
 /**
- * Server-side gateway to the Qwen Code daemon (the Coding environment's brain).
+ * Server-side gateway to the Coder daemon (the Coding environment's brain).
  *
  * The `coder` container runs `qwen serve` on loopback (host networking). This
  * module is the only path from the browser to the daemon: it resolves the daemon

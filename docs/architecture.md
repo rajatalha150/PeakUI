@@ -18,7 +18,7 @@ flowchart TB
   App --> WS[WorkSpaces agent and tools]
   App --> Canvas[Canvas artifacts]
   App --> Coder[Coder gateway]
-  Coder --> Runtime[Qwen Code runtime]
+  Coder --> Runtime[Coder runtime]
 ```
 
 ## Coder Runtimes
@@ -27,7 +27,7 @@ flowchart TB
 flowchart LR
   UI[Coding UI] --> Gateway[Authenticated /api/coder gateway]
   Gateway --> Choice{Backend}
-  Choice -->|Docker default| Docker[Qwen Code Docker container]
+  Choice -->|Docker default| Docker[Coder Docker container]
   Choice -->|Linux persistent| Bridge[Loopback bridge :4171]
   Bridge --> Guest[Incus guest: peakui-coder]
   Guest --> Router[Workspace router]
@@ -35,7 +35,7 @@ flowchart LR
   Router --> Project[Per-project runtime]
 ```
 
-The browser never receives the Qwen daemon token. Gateway authorization binds each daemon session to its PeakUI owner and its selected workspace.
+The browser never receives the Coder daemon token. Gateway authorization binds each daemon session to its PeakUI owner and its selected workspace.
 
 ## Preview Flow
 
@@ -56,7 +56,7 @@ The browser never uses `p<port>.localhost` directly. That address would resolve 
 | State | Durable location | Recovery behavior |
 |---|---|---|
 | Users, settings, chats, context ledger, Canvas metadata | Postgres | Survives app/container restart |
-| Coder project filesystem, package installs, services, caches, SSH, Qwen data | Incus guest root on persistent Coder | Survives guest/app restart and PeakUI updates |
+| Coder project filesystem, package installs, services, caches, SSH, Coder data | Incus guest root on persistent Coder | Survives guest/app restart and PeakUI updates |
 | Live SSE subscription | Browser connection | Reconnects with cursor/epoch resume; 404 from a recreated guest session triggers same-session restoration |
 | Preview server | Guest process/service | Auto-discovered when listening; agent can publish `.peakui-preview.json` for an exact URL/device |
 

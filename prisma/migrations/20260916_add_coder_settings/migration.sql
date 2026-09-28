@@ -1,4 +1,4 @@
--- Coding environment (Qwen Code daemon) settings, persisted per user so the
+-- Coding environment (Coder daemon) settings, persisted per user so the
 -- model / approval mode / context knobs survive reloads and container restarts
 -- instead of living only in transient daemon state.
 

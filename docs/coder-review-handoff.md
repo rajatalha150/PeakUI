@@ -23,7 +23,7 @@ documented as gaps. This is a deliberate honest-partial handoff, per the spec.
 
 - Tests: **1001 passing / 91 files** (`npm test`), `npx tsc --noEmit` clean;
   production browser smoke also passes against the deployed app.
-- Daemon: Qwen Code `v0.23.4` live at `127.0.0.1:4170`; key wire contracts
+- Daemon: Coder `v0.23.4` live at `127.0.0.1:4170`; key wire contracts
   re-verified against the running daemon and its pinned source under
   `/opt/qwen-code/dist`.
 
@@ -76,7 +76,7 @@ documented as gaps. This is a deliberate honest-partial handoff, per the spec.
 - `coderContextLength` audited — no daemon key (read-only, already disabled in UI).
 - `coderToolsEnabled` audited — no single master key (per-tool `tools.*.enabled`).
 - `coderBaseUrl`/`coderApiKey` audited — persisted but unused by the pass-through.
-- QWEN.md de-sample-ified: now generic discovery guidance (`scripts/coder-workspace/QWEN.md`).
+- CODER.md de-sample-ified: now generic discovery guidance (`scripts/coder-workspace/CODER.md`).
 - **Not done:** persisted-vs-effective UI separation (beyond the restart hint);
   writer/vision scoped to a runtime instead of daemon-global (documented in §17.1).
 
@@ -94,7 +94,7 @@ documented as gaps. This is a deliberate honest-partial handoff, per the spec.
   agent again. The preview shows the real active viewport dimensions and scales
   its frame without changing the iframe's CSS viewport. **Vision** captures that
   selected viewport through `POST /api/coder/preview/screenshot`, then sends the
-  isolated JPEG as a native Qwen image prompt with instructions to inspect, fix,
+  isolated JPEG as a native Coder image prompt with instructions to inspect, fix,
   and verify the project. Capture allows only the already-approved loopback
   origin, blocks subrequests to every other origin, caps output at 3 MiB, and is
   concurrency-limited. Tests: screenshot route + production smoke.

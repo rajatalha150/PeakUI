@@ -695,16 +695,16 @@ function findForeignToolBlock(content: string): { toolName: string; rawBlock: st
   // 1. Qwen / Hermes: <tool_call>{"name":"web","arguments":{...}}</tool_call>
   //    (tolerates a missing </tool_call>). Distinguished from GLM by the `{`
   //    immediately after the tag.
-  const qwenTag = /<tool_call>/i.exec(content)
-  if (qwenTag) {
-    const bodyStart = qwenTag.index + qwenTag[0].length
+  const coderTag = /<tool_call>/i.exec(content)
+  if (coderTag) {
+    const bodyStart = coderTag.index + coderTag[0].length
     const balanced = extractBalancedJsonAt(content, bodyStart)
     if (balanced) {
       const envelope = foreignEnvelopeToArgs(parseToolJson(balanced.json))
       if (envelope) {
         return {
           toolName: envelope.name,
-          rawBlock: content.slice(qwenTag.index, balanced.end),
+          rawBlock: content.slice(coderTag.index, balanced.end),
           rawJson: JSON.stringify(envelope.args),
         }
       }
@@ -795,19 +795,19 @@ function findForeignToolBlock(content: string): { toolName: string; rawBlock: st
   // 7. Qwen3.5 XML: <function=web><parameter>query</parameter>x</parameter></function>
   //    (also the attribute form <function name="web">). The user runs several
   //    Qwen3.5 models, which emit this natively.
-  const qwenXml = /<function(?:=([\w.\-]+)|\s+name=["']([\w.\-]+)["'])\s*>([\s\S]*?)(?:<\/function>|$)/i.exec(content)
-  if (qwenXml) {
-    const name = normalizeForeignToolName(qwenXml[1] ?? qwenXml[2])
+  const coderXml = /<function(?:=([\w.\-]+)|\s+name=["']([\w.\-]+)["'])\s*>([\s\S]*?)(?:<\/function>|$)/i.exec(content)
+  if (coderXml) {
+    const name = normalizeForeignToolName(coderXml[1] ?? coderXml[2])
     if (name) {
       const args: Record<string, unknown> = {}
       const paramRe = /<parameter(?:=([\w.\-]+)|\s+name=["']([\w.\-]+)["'])\s*>([\s\S]*?)<\/parameter>/gi
       let m: RegExpExecArray | null
-      while ((m = paramRe.exec(qwenXml[3])) !== null) {
+      while ((m = paramRe.exec(coderXml[3])) !== null) {
         const key = (m[1] ?? m[2]).trim()
         if (key) args[key] = parseForeignScalar(m[3])
       }
       if (Object.keys(args).length > 0) {
-        return { toolName: name, rawBlock: qwenXml[0], rawJson: JSON.stringify(args) }
+        return { toolName: name, rawBlock: coderXml[0], rawJson: JSON.stringify(args) }
       }
     }
   }

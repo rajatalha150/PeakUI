@@ -7,7 +7,7 @@ agent is the instance's root, never the host's root. Packages installed with
 `apt`, systemd services, `/etc`, `/usr/local`, and Docker containers created
 inside the instance survive restart. On first cutover, the installer copies the
 existing Coder Docker volumes into their original guest paths, so projects,
-SSH/Git state, Qwen state, Android SDK, and caches are retained. The old Docker
+SSH/Git state, Coder state, Android SDK, and caches are retained. The old Docker
 volumes remain untouched for rollback.
 
 ## Why A System Container
@@ -44,7 +44,7 @@ machine while keeping host control in the hands of the installation owner.
 - The installer can ask for the current account's `sudo` password. It uses
   elevated access only to install the host runtime and add that same account to
   its administration group; it does not create or switch login users.
-- `python3`, `curl`, internet access for the Ubuntu image, Qwen source, Node,
+- `python3`, `curl`, internet access for the Ubuntu image, Coder source, Node,
   packages, and Chromium; free host loopback ports 4171 and 4172.
 
 On supported Debian/Ubuntu releases and Ubuntu derivatives such as Linux Mint,
@@ -107,11 +107,11 @@ from 4171; Preview uses 4172. `CODER_LXD_INSTANCE` changes the instance name
 from `peakui-coder` and is saved for updates, backups, and rollback.
 
 The installer creates an unprivileged Ubuntu 24.04 instance with nested Docker
-support, installs Qwen and the current development/browser toolchain, migrates
+support, installs Coder and the current development/browser toolchain, migrates
 the nine existing Coder volumes through portable tar streams, then starts a
 systemd service. The migration does not depend on host bind-mount idmapping, so
 it works across Incus-supported filesystems and distributions. It stops Docker
-Coder only at cutover, checks a real Qwen runtime health response, and
+Coder only at cutover, checks a real Coder runtime health response, and
 reconnects PeakUI. If setup fails, it restores Docker Coder and the app's
 original daemon URL. It never removes the Docker volumes.
 After a successful cutover the temporary Docker Coder container is stopped;
@@ -136,16 +136,16 @@ from making registry pulls or builds fail. Existing administrator-managed Docker
 resolver settings are preserved. Set `PEAKUI_DOCKER_DNS` to a comma-separated
 IP list before provisioning when a private network requires different
 resolvers.
-After a successful toolchain build, it records the pinned Qwen version so an
+After a successful toolchain build, it records the pinned Coder version so an
 interrupted cutover can resume without rebuilding the same source tree.
 Managed staging files are replaced explicitly on retry, including files first
 created by a cloud image's non-root default user under the sticky `/tmp` path.
-The persistent service explicitly sets `HOME=/root` so Git, SSH, Qwen, and
+The persistent service explicitly sets `HOME=/root` so Git, SSH, Coder, and
 their state directories behave the same under systemd as they do in an
-interactive Coder shell. Its bounded stop timeout prevents a Qwen child process
+interactive Coder shell. Its bounded stop timeout prevents a Coder child process
 that ignores `SIGTERM` from making an update appear stuck; active jobs should
 be allowed to finish before deliberately redeploying Coder.
-On every instance boot, the service refreshes the managed QWEN.md, Git defaults,
+On every instance boot, the service refreshes the managed CODER.md, Git defaults,
 SSH host trust, and runtime readiness checks.
 
 When installing through a pipe, place the deployment variables on the `sh`
@@ -208,19 +208,19 @@ PEAKUI_CODER_BACKEND=docker ./scripts/install.sh
 
 ## Directories And Sessions
 
-The workspace router starts one Qwen runtime per selected absolute directory.
+The workspace router starts one Coder runtime per selected absolute directory.
 This permits `/workspace` and `/workspace/vision-proxy` concurrently, even
-though a single Qwen daemon rejects nested workspace registrations. Each runtime
+though a single Coder daemon rejects nested workspace registrations. Each runtime
 has its own persistent `QWEN_HOME`; `/workspace` keeps the existing
 `/root/.qwen` data. New runtimes copy model settings and historical project
 transcripts without copying debug caches. The session-to-directory map is
 persisted under `/var/lib/peakui/coder-router`. A valid missing absolute
 directory such as `/workspace/data` is created in the persistent guest root
 when selected. Existing sessions remain bound to their original directory. The
-managed QWEN.md is refreshed when a runtime starts after an update.
+managed CODER.md is refreshed when a runtime starts after an update.
 
 The instance root persists all directories, including `/workspace`, `/apps`,
-tool caches, and SSH/Qwen state. The agent can install
+tool caches, and SSH/Coder state. The agent can install
 packages, start systemd services, build projects, and use nested `docker` and
 `docker compose`. PeakUI streams downloads from the authenticated Coder daemon
 in bounded windows, so file and ZIP size is not capped or buffered wholly in

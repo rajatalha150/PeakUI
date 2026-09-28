@@ -26,7 +26,7 @@ flowchart LR
   W --> K[Knowledge Base]
   W --> T[Tools and browser]
   W --> A[Canvas and automation]
-  C --> Q[Qwen Code agent]
+  C --> Q[Coder agent]
   C --> P[Preview and runtime logs]
   C --> G[GitHub projects]
 ```
@@ -82,14 +82,14 @@ flowchart LR
     DB[(Postgres)]
     subgraph Guest[peakui-coder, unprivileged Incus guest]
       Router[Workspace router]
-      Qwen[Qwen Code runtimes]
+      Coder[Coder runtimes]
       Toolchain[Node, Python, Java, Go, Android SDK]
       Docker[Guest Docker and services]
       Files[Persistent guest filesystem]
-      Router --> Qwen
-      Qwen --> Toolchain
-      Qwen --> Docker
-      Qwen --> Files
+      Router --> Coder
+      Coder --> Toolchain
+      Coder --> Docker
+      Coder --> Files
     end
     App -->|authenticated loopback bridge| Router
     App --> DB
@@ -175,7 +175,7 @@ mindmap
       Preview and download
       Bundles and lineage
     Coding
-      Qwen Code
+      Coder
       Files and tasks
       GitHub projects
       Preview and Vision

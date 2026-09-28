@@ -16,7 +16,7 @@ runtime and has evidence, not that a mock or a subset works.
     src/lib/settings-coder.test.ts 'src/app/api/coder/[...path]/route.test.ts' \
     src/app/api/chats/route.test.ts
   ```
-- Daemon: Qwen Code `v0.23.4` (built from pinned Git source), loopback `127.0.0.1:4170`.
+- Daemon: Coder `v0.23.4` (built from pinned Git source), loopback `127.0.0.1:4170`.
 - Compose services: `searxng`, `db`, `tor-proxy`, `coder`, `app` (Linux host networking).
 
 ## Phases
@@ -62,7 +62,7 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 - [x] Apply `coderToolsEnabled` to the daemon — no single master key; individual `tools.*.enabled` keys exist (documented)
 - [x] Audit `coderBaseUrl`/`coderApiKey` (persisted but never applied) — documented unsupported in pass-through
 - [ ] Separate persisted vs requested vs confirmed-effective values in UI
-- [x] Generic QWEN.md context (remove sample-project assumptions)
+- [x] Generic CODER.md context (remove sample-project assumptions)
 - [ ] Writer/vision scoped to correct runtime/project (not daemon-global) — global scope is deliberate; workspace scope needs trust + per-workspace agents (documented)
 
 ## Phase 4 — Managed previews & dev processes
@@ -71,7 +71,7 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 - [ ] Authenticated, browser-reachable preview proxy (no raw iframe URLs) — deferred: a correct proxy needs HTML/CSS/JS URL rewriting + WS/HMR upgrade; documented
 - [x] Isolate preview origin from PeakUI auth origin/cookies — reserved-port guard keeps the preview off the app origin; iframe sandbox hardened to drop `allow-same-origin` (preview runs in an opaque origin)
 - [x] Restrict preview to approved destinations/ports (no SSRF/traversal) — `parsePreviewUrl` loopback + reserved-port validation, now enforced at **both** boundaries: the client before framing, and the server via `POST /api/coder/preview` (defense in depth)
-- [x] Capture selected preview viewport for vision review — `POST /api/coder/preview/screenshot` renders the approved loopback origin only in isolated Chromium, blocks other network origins, caps JPEG bytes, and sends the selected Desktop/Tablet/Mobile image as a native Qwen image prompt
+- [x] Capture selected preview viewport for vision review — `POST /api/coder/preview/screenshot` renders the approved loopback origin only in isolated Chromium, blocks other network origins, caps JPEG bytes, and sends the selected Desktop/Tablet/Mobile image as a native Coder image prompt
 - [x] Single-instance cancellable preview polling — `setTimeout` chaining (already single-flight)
 
 ## Phase 5 — Reversible work & verification evidence
@@ -95,7 +95,7 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 - [x] Replace `prisma db push --accept-data-loss` with reviewed migrations — startup now runs fail-closed `migrate deploy`; the live database reports all 16 committed migrations applied
 - [x] Readiness beyond process health — `GET /api/coder/readiness` probes DB (`SELECT 1`) and daemon (`/health`) and returns 503 when either is down
 - [x] Durable Coder runtime baseline — Java 17 is baked into the Coder image;
-  workspace, Qwen/SSH state, Gradle, Android SDK/NDK, npm and pip caches are
+  workspace, Coder/SSH state, Gradle, Android SDK/NDK, npm and pip caches are
   named volumes; guarded `peakui-cleanup` cannot target protected paths and
   `peakui-coder-readiness --strict` gates disk-heavy work on prerequisites and
   configured free-space headroom
