@@ -25,6 +25,13 @@ The Coder agent now inherits PeakUI's problem-solving discipline on every sessio
 - **Pinned runtime memory** (`~/.qwen/memories/`, seeded from `scripts/coder-workspace/memories/`): durable environment, verification, and safety facts under `pinned/` plus a `MEMORY.md` index.
 - Seeding wired through all three deploy paths (`Dockerfile.coder`, `peakui-coder-start`, and the LXD `install.sh`/`bootstrap.sh`/`prepare.sh`) — idempotent, additive only.
 
+### Fixed — Coder context recall (write-only gap closed)
+
+The Coder surface recorded durable context into PeakUI's ledger but never read it back, so a reattached session could not recall compacted earlier work. The prompt path now injects a clearly-marked background note summarizing matching episodes, mirroring the WorkSpaces surface.
+
+- New `src/lib/coder-context-recall.ts`: `enrichCoderPromptWithRecall` prepends a `[Prior context …]` note (with episode ids) to the daemon prompt when matching episodes exist; recall misses/errors never block a prompt.
+- Wired into `POST /api/coder/[...path]` for `/session/:id/prompt` after model orchestration, reusing the existing `recallContextEpisodes` retriever. 6 new tests.
+
 ### Fixed — Session intelligence audit
 
 - Context budgets include all system messages, retrieved context, native tool schemas, and Ollama backoff. Impossible active requests fail explicitly instead of silently overflowing.
