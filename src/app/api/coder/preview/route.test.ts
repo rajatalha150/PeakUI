@@ -4,7 +4,6 @@ import { NextRequest } from 'next/server'
 const mocks = vi.hoisted(() => ({
   requireCurrentAuthWithPermissions: vi.fn(),
 }))
-const originalBackend = process.env.CODER_BACKEND
 
 vi.mock('@/lib/request-auth', () => ({
   requireCurrentAuthWithPermissions: mocks.requireCurrentAuthWithPermissions,
@@ -31,8 +30,6 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  if (originalBackend === undefined) delete process.env.CODER_BACKEND
-  else process.env.CODER_BACKEND = originalBackend
   vi.restoreAllMocks()
 })
 
@@ -46,25 +43,14 @@ describe('POST /api/coder/preview', () => {
     expect(body.previewUrl).toMatch(/^http:\/\/localhost:4173\/__peakui\/open\?ticket=/)
   })
 
-  it('maps a guest dev server through the isolated Preview origin', async () => {
-    process.env.CODER_BACKEND = 'lxd'
+  it('maps a local dev server through the isolated Preview origin', async () => {
     const { POST } = await loadRoute()
-    const res = await POST(makeRequest({ url: 'http://127.0.0.1:3000/app?view=1' }))
+    const res = await POST(makeRequest({ url: 'http://127.0.0.1:5173/app?view=1' }))
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.previewUrl).toMatch(/^http:\/\/localhost:4173\/__peakui\/open\?ticket=/)
     expect(body.previewUrl).toContain('path=%2Fapp%3Fview%3D1')
     expect(body.captureUrl).toMatch(/^http:\/\/127\.0\.0\.1:4173\/__peakui\/open\?ticket=/)
-  })
-
-  it('upgrades a legacy LXD localhost bridge URL to the isolated Preview origin', async () => {
-    process.env.CODER_BACKEND = 'lxd'
-    const { POST } = await loadRoute()
-    const res = await POST(makeRequest({ url: 'http://p8081.localhost:4172/login' }))
-    expect(res.status).toBe(200)
-    const body = await res.json()
-    expect(body.previewUrl).toMatch(/^http:\/\/localhost:4173\/__peakui\/open\?ticket=/)
-    expect(body.previewUrl).toContain('path=%2Flogin')
   })
 
   it('rejects a non-loopback URL (SSRF guard)', async () => {

@@ -8,10 +8,9 @@
  * (defense in depth) so a URL that is not a safe loopback dev server is refused
  * at the API boundary too, not just in the UI.
  *
- * The browser receives a signed launch URL on the isolated Preview origin.
- * The private bridge hostname never reaches the browser, because its
- * `localhost` would resolve on a remote viewer's computer rather than on the
- * PeakUI host.
+ * The browser receives a signed launch URL on the isolated Preview origin, so
+ * the private dev-server hostname never reaches the browser and cannot be
+ * resolved on a remote viewer's computer instead of on the PeakUI host.
  */
 
 import { NextResponse, type NextRequest } from 'next/server'
@@ -40,7 +39,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Preview URL is required.', code: 'bad_request' }, { status: 400 })
   }
 
-  const parsed = parsePreviewUrl(url, { allowGuestPorts: process.env.CODER_BACKEND === 'lxd', allowRemote: true })
+  const parsed = parsePreviewUrl(url, { allowRemote: true })
   if ('error' in parsed) {
     return NextResponse.json({ error: parsed.error, code: 'invalid_preview_url' }, { status: 400 })
   }
@@ -55,12 +54,8 @@ export async function POST(req: NextRequest) {
       remote: true,
     })
   }
-  // Accept preview values saved by the prior `p<port>.localhost:4172` scheme
-  // too, then immediately return the durable same-origin route. This makes an
-  // existing open Preview window self-heal after the upgrade.
-  const legacyHost = /^p(s?)(\d{1,5})\.localhost$/i.exec(original.hostname)
-  const targetPort = legacyHost ? Number(legacyHost[2]) : parsed.target.port
-  const secure = legacyHost ? legacyHost[1].toLowerCase() === 's' : original.protocol === 'https:'
+  const targetPort = parsed.target.port
+  const secure = original.protocol === 'https:'
   const ticket = signPreviewTicket({ port: targetPort, secure, userId: auth.userId })
   const gatewayPort = Number(process.env.CODER_PREVIEW_GATEWAY_PORT || 4173)
   const launch = `/__peakui/open?ticket=${encodeURIComponent(ticket)}&path=${encodeURIComponent(`${original.pathname}${original.search}${original.hash}`)}`

@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 The Coding preview pane now stays in lock-step with the agent's edits: when the agent re-publishes the same URL to `.peakui-preview.json` after editing files, the preview iframe refreshes in place — so plain dev servers without hot-module reload still show the new work. A dedicated reload button was added to the preview toolbar for manual refreshes.
 
+### Removed — dead LXD preview paths
+
+The preview now runs single-hop (gateway → loopback dev server) over the shared host network, so the leftover LXD-specific parsing is gone: `parseLxdPreviewProxyTarget`, `LXD_PREVIEW_HOST` / `LXD_PREVIEW_PROXY_TARGET`, `LXD_GUEST_RESERVED_PORTS`, and the `allowGuestPorts` option were removed from `coder-preview.ts`, along with the legacy `p<port>.localhost:4172` host upgrade in `POST /api/coder/preview`. The discovery poll cadence was also relaxed from 3 s to 10 s.
+
 ### Changed — Coding environment renamed "Qwen" → "Coder"
 
 The Coding surface's own naming now uses "Coder" throughout — comments, docs, README, UI strings, and internal identifiers — while the underlying Qwen Code engine's protocol names (the `qwen serve` daemon, `~/.qwen` state dir, `x-qwen-*` headers, `QWEN_*` env vars, and standard Qwen model IDs) are intentionally left intact so the integration keeps working.

@@ -103,7 +103,7 @@ guides.
 The instance defaults to four CPUs and 8 GiB of RAM; set `CODER_LXD_CPUS` and
 `CODER_LXD_MEMORY` before its first creation to change them. `CODER_LXD_IMAGE`
 selects a compatible Ubuntu image. `CODER_LXD_PORT` changes the host API port
-from 4171; Preview uses 4172. `CODER_LXD_INSTANCE` changes the instance name
+from 4171. `CODER_LXD_INSTANCE` changes the instance name
 from `peakui-coder` and is saved for updates, backups, and rollback.
 
 The installer creates an unprivileged Ubuntu 24.04 instance with nested Docker
@@ -234,8 +234,8 @@ HttpOnly routing cookie and redirects to the app's real `/` path. It then
 passes routes, application cookies, redirects, request bodies, assets, and
 WebSockets through unchanged. React Router, OAuth-style callbacks, root-relative
 assets, CSP, and authenticated APIs therefore see a normal origin instead of a
-PeakUI path prefix. The private app-to-guest bridge remains on loopback port
-4172 and cannot be selected as a preview target.
+PeakUI path prefix. The gateway connects straight to the approved dev-server
+port over the host's shared loopback — there is no separate bridge hop.
 
 The browser must be able to reach TCP 4173 on the same PeakUI host. When PeakUI
 is published through HTTPS, route a separate TLS hostname to port 4173 and set

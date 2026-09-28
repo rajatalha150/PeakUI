@@ -41,15 +41,23 @@ The browser never receives the Coder daemon token. Gateway authorization binds e
 
 ```mermaid
 flowchart LR
-  Agent[Agent starts server] --> GuestPort[Guest app port]
-  GuestPort --> Bridge[Private preview bridge :4172]
-  Bridge --> PreviewGateway[Signed isolated preview origin :4173]
+  Agent[Agent starts server] --> DevServer[Loopback dev server]
+  DevServer --> PreviewGateway[Signed isolated preview origin :4173]
   PreviewGateway --> PreviewFrame[Preview iframe at real root paths]
   PreviewFrame --> Log[Chromium diagnostics]
   Frame --> Vision[Viewport screenshot review]
 ```
 
-The browser never uses `p<port>.localhost` directly. That address would resolve on the viewer's device, which breaks remote/LAN use. PeakUI proxies the approved guest port through its own authenticated origin and rewrites root-relative HTML and Vite asset/API paths.
+The preview is a single hop: the gateway connects straight to the dev server's
+loopback port (`127.0.0.1:<port>`) over the shared host network. A signed,
+short-lived ticket (minted by `POST /api/coder/preview`) is the only thing that
+opens a route and names the single port the gateway may proxy, so a crafted page
+cannot reach arbitrary internal services (SSRF guard). The browser never uses
+`p<port>.localhost` directly — that address would resolve on the viewer's device,
+which breaks remote/LAN use. PeakUI proxies the approved port through its own
+isolated origin and rewrites root-relative HTML and Vite asset/API paths. When the
+agent re-publishes the same URL after editing files, the preview refreshes in
+place.
 
 ## Persistence Boundaries
 

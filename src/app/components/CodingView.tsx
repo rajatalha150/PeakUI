@@ -786,9 +786,12 @@ export default function CodingView() {
   React.useEffect(() => {
     if (!previewOpen || previewUrl || previewUrlManualRef.current) return;
     void discoverPreview();
+    // Discovery is a convenience that only runs while no URL is set yet. A
+    // slower cadence is plenty — it avoids hammering the targets route while
+    // the daemon is still coming online or the user is mid-typing a URL.
     const timer = setInterval(() => {
       if (!previewUrlManualRef.current) void discoverPreview();
-    }, 3_000);
+    }, 10_000);
     return () => clearInterval(timer);
   }, [previewOpen, previewUrl, discoverPreview]);
 
