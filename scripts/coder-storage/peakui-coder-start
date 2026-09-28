@@ -24,12 +24,10 @@ git config --global core.sshCommand 'ssh -o BatchMode=yes -o ConnectTimeout=10 -
 
 /usr/local/bin/peakui-coder-readiness --startup
 node /opt/qwen-code/sync-coder-models.mjs
-node /opt/peakui/coder-preview-bridge.mjs &
-preview_pid=$!
 node /opt/qwen-code/scripts/cli-entry.js serve --hostname 127.0.0.1 --port 4170 --workspace /workspace --no-web --enable-session-shell &
 coder_pid=$!
 stop() {
-  kill "$coder_pid" "$preview_pid" 2>/dev/null || true
+  kill "$coder_pid" 2>/dev/null || true
 }
 trap stop EXIT INT TERM
 wait "$coder_pid"

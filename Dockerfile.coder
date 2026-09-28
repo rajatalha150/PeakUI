@@ -133,12 +133,11 @@ RUN git config --global user.name "PeakUI Coding Agent" \
 # token is required on non-loopback binds (QWEN_SERVER_TOKEN).
 ENV QWEN_SERVER_TOKEN=""
 
-EXPOSE 4170 4172
+EXPOSE 4170
 
 # Model-list sync: mirror Ollama's live models into ~/.qwen/settings.json so the
 # daemon can route to every model (local + cloud) the UI offers.
 COPY scripts/sync-coder-models.mjs /opt/qwen-code/sync-coder-models.mjs
-COPY scripts/coder-preview-bridge.mjs /opt/peakui/coder-preview-bridge.mjs
 COPY scripts/coder-storage/peakui-coder-readiness /usr/local/bin/peakui-coder-readiness
 COPY scripts/coder-storage/peakui-cleanup /usr/local/bin/peakui-cleanup
 COPY scripts/coder-storage/peakui-coder-start /usr/local/bin/peakui-coder-start

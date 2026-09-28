@@ -61,7 +61,6 @@ export async function POST(req: NextRequest) {
   const legacyHost = /^p(s?)(\d{1,5})\.localhost$/i.exec(original.hostname)
   const targetPort = legacyHost ? Number(legacyHost[2]) : parsed.target.port
   const secure = legacyHost ? legacyHost[1].toLowerCase() === 's' : original.protocol === 'https:'
-  const bridgeUrl = `http://p${secure ? 's' : ''}${targetPort}.localhost:4172${original.pathname}${original.search}`
   const ticket = signPreviewTicket({ port: targetPort, secure, userId: auth.userId })
   const gatewayPort = Number(process.env.CODER_PREVIEW_GATEWAY_PORT || 4173)
   const launch = `/__peakui/open?ticket=${encodeURIComponent(ticket)}&path=${encodeURIComponent(`${original.pathname}${original.search}${original.hash}`)}`
@@ -72,6 +71,5 @@ export async function POST(req: NextRequest) {
     target: parsed.target,
     previewUrl: `${publicOrigin}${launch}`,
     captureUrl: `http://127.0.0.1:${gatewayPort}${launch}`,
-    bridgeUrl,
   })
 }

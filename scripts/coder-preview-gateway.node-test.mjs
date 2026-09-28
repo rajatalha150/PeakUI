@@ -6,9 +6,9 @@ import net from 'node:net'
 import { after, before, test } from 'node:test'
 
 const secret = 'test-preview-secret-that-is-long-enough-for-production'
-let bridge
+let devServer
+let devPort
 let gateway
-let bridgePort
 let gatewayPort
 
 function freePort() {
@@ -22,7 +22,7 @@ function freePort() {
   })
 }
 
-function ticket(port = 8081) {
+function ticket(port = devPort) {
   const payload = Buffer.from(JSON.stringify({ p: port, s: false, e: Math.floor(Date.now() / 1000) + 300, u: 'admin-1' })).toString('base64url')
   const signature = createHmac('sha256', secret).update(`peakui-preview:${payload}`).digest('base64url')
   return `${payload}.${signature}`
@@ -41,10 +41,9 @@ function waitForPort(port) {
 }
 
 before(async () => {
-  bridgePort = await freePort()
-  gatewayPort = await freePort()
-  bridge = http.createServer((req, res) => {
-    assert.equal(req.headers.host, `p8081.localhost:${bridgePort}`)
+  // A mock dev server the gateway will proxy to directly (single-hop).
+  devPort = await freePort()
+  devServer = http.createServer((req, res) => {
     if (req.url === '/login') {
       res.writeHead(200, { 'content-type': 'text/html', 'set-cookie': 'app_session=abc; Domain=localhost; HttpOnly; Path=/' })
       res.end('<h1>Login</h1>')
@@ -59,14 +58,15 @@ before(async () => {
     res.writeHead(302, { location: '/login' })
     res.end()
   })
-  await new Promise(resolve => bridge.listen(bridgePort, '127.0.0.1', resolve))
+  await new Promise(resolve => devServer.listen(devPort, '127.0.0.1', resolve))
+
+  gatewayPort = await freePort()
   gateway = spawn(process.execPath, ['scripts/coder-preview-gateway.mjs'], {
     cwd: process.cwd(),
     env: {
       ...process.env,
       JWT_SECRET: secret,
       CODER_PREVIEW_GATEWAY_PORT: String(gatewayPort),
-      CODER_PREVIEW_BRIDGE_URL: `http://127.0.0.1:${bridgePort}`,
     },
     stdio: 'inherit',
   })
@@ -75,10 +75,10 @@ before(async () => {
 
 after(async () => {
   gateway?.kill('SIGTERM')
-  await new Promise(resolve => bridge?.close(resolve))
+  await new Promise(resolve => devServer?.close(resolve))
 })
 
-test('launches at a clean root and preserves application authentication cookies', async () => {
+test('proxies the dev server directly and preserves application cookies', async () => {
   const launch = await fetch(`http://127.0.0.1:${gatewayPort}/__peakui/open?ticket=${encodeURIComponent(ticket())}&path=%2F`, { redirect: 'manual' })
   assert.equal(launch.status, 302)
   assert.equal(launch.headers.get('location'), '/')

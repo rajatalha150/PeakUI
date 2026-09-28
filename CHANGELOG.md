@@ -32,6 +32,14 @@ The Coder surface recorded durable context into PeakUI's ledger but never read i
 - New `src/lib/coder-context-recall.ts`: `enrichCoderPromptWithRecall` prepends a `[Prior context …]` note (with episode ids) to the daemon prompt when matching episodes exist; recall misses/errors never block a prompt.
 - Wired into `POST /api/coder/[...path]` for `/session/:id/prompt` after model orchestration, reusing the existing `recallContextEpisodes` retriever. 6 new tests.
 
+### Fixed — Coder preview white screen (single-hop proxy, bridge removed)
+
+Every project showed a blank preview because the preview pane routed through a fragile bridge hop (`:4172`) that was dead in the Docker runtime (`EADDRINUSE` from a leftover LXD guest proxy), leaving the iframe a bare JSON error instead of HTML. The preview is now a single hop: the isolated gateway (`:4173`) proxies straight to the dev server on the shared loopback.
+
+- `scripts/coder-preview-gateway.mjs` now connects directly to `127.0.0.1:<port>`; the `CODER_PREVIEW_BRIDGE_URL` env and the `coder-preview-bridge.mjs` process/COPY are removed.
+- `POST /api/coder/preview` no longer returns the unused `bridgeUrl`.
+- Gateway still serves on its own origin (cookie isolation intact) and still enforces the signed-ticket SSRF guard. Gateway node-test rewritten for the single-hop topology.
+
 ### Fixed — Session intelligence audit
 
 - Context budgets include all system messages, retrieved context, native tool schemas, and Ollama backoff. Impossible active requests fail explicitly instead of silently overflowing.

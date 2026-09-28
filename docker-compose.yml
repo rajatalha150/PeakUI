@@ -145,7 +145,6 @@ services:
       - CODER_DAEMON_URL=${CODER_DAEMON_URL:-http://127.0.0.1:4170}
       - CODER_SERVER_TOKEN=${CODER_SERVER_TOKEN:-}
       - CODER_PREVIEW_GATEWAY_PORT=${CODER_PREVIEW_GATEWAY_PORT:-4173}
-      - CODER_PREVIEW_BRIDGE_URL=http://127.0.0.1:4172
       - CODER_PREVIEW_PUBLIC_ORIGIN=${CODER_PREVIEW_PUBLIC_ORIGIN:-}
       # GitHub App credentials remain server-side. The App's setup URL must be
       # https://<PeakUI host>/api/integrations/github/callback.
