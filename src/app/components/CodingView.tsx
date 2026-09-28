@@ -413,6 +413,10 @@ export default function CodingView() {
   const previewRequestRef = React.useRef(0);
   const agentPreviewRef = React.useRef<{ url: string; device?: PreviewDevice } | null>(null);
   const [previewReloadKey, setPreviewReloadKey] = React.useState(0);
+  // Last raw content of `.peakui-preview.json`. When the agent re-publishes the
+  // SAME url (after editing files) this lets us refresh the iframe without a
+  // full re-navigation, so a plain dev server (no HMR) still shows new work.
+  const previewFileRawRef = React.useRef('');
   const [previewCapturing, setPreviewCapturing] = React.useState(false);
   const [previewDiagnosticsLoading, setPreviewDiagnosticsLoading] = React.useState(false);
   const [previewDiagnostics, setPreviewDiagnostics] = React.useState<Array<{ level: string; message: string }>>([]);
@@ -495,7 +499,7 @@ export default function CodingView() {
     setTasks([]); setTaskCommands({}); setTaskOutputs({}); setTaskRunning(null); setTaskError('');
     setSearchResults(null); setSearchLoading(false); setSearchError('');
     setRewindSnapshots(null); setRewindResult(null); setRewindLoading(false); setRewindError('');
-    previewUrlManualRef.current = false; previewDeviceManualRef.current = false; agentPreviewRef.current = null;
+    previewUrlManualRef.current = false; previewDeviceManualRef.current = false; agentPreviewRef.current = null; previewFileRawRef.current = '';
     setShellOutput(''); setShellRunning(false); setPreviewUrl(''); setPreviewCaptureUrl(''); setPreviewInput('');
     setQuestionDrafts({}); setQuestionNotes({}); nudgedNotificationRef.current = null;
   };
@@ -806,6 +810,11 @@ export default function CodingView() {
         const data = await res.json().catch(() => ({}));
         const raw = typeof data.content === 'string' ? data.content : '';
         if (cancelled || !raw) { timer = setTimeout(tick, 2000); return; }
+        // The agent re-writes this file to (re)publish its work. A content
+        // change to the SAME url means it edited files and wants the preview
+        // refreshed — plain dev servers (no HMR) would otherwise stay stale.
+        const changed = raw !== previewFileRawRef.current;
+        previewFileRawRef.current = raw;
         try {
           const parsed = JSON.parse(raw);
           const url = typeof parsed.url === 'string' ? parsed.url : (typeof parsed === 'string' ? parsed : '');
@@ -816,6 +825,9 @@ export default function CodingView() {
           if (url && url !== previewInput && !previewUrlManualRef.current) {
             previewDeviceManualRef.current = false;
             applyPreview(url, 'agent');
+          } else if (changed && url && url === previewInput && !previewUrlManualRef.current) {
+            // Same URL re-published after edits: refresh in place.
+            setPreviewReloadKey(key => key + 1);
           }
           if (!previewUrlManualRef.current && !previewDeviceManualRef.current && device) {
             setPreviewDevice(device);
@@ -3645,6 +3657,7 @@ export default function CodingView() {
               {previewInput && <button onClick={clearPreview} title="Clear preview URL" aria-label="Clear preview URL" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: 'pointer' }}><X size={13} /></button>}
               <button onClick={() => { previewUrlManualRef.current = false; setPreviewUrl(''); void discoverPreview(); }} title="Detect running local web servers" aria-label="Detect running local web servers" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: 'pointer' }}><RefreshCw size={13} /></button>
               <button onClick={() => applyPreview(previewInput, 'manual')} style={{ background: 'rgba(34,211,238,0.12)', color: accent, border: `1px solid ${accent}`, borderRadius: '6px', padding: '4px 10px', fontSize: '0.72rem', cursor: 'pointer' }}>Go</button>
+              <button onClick={() => setPreviewReloadKey(key => key + 1)} disabled={!previewUrl} title="Reload the preview" aria-label="Reload preview" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: previewUrl ? 'pointer' : 'default', opacity: previewUrl ? 1 : 0.45 }}><RotateCcw size={13} /></button>
               <button onClick={() => previewUrl && window.open(previewUrl, '_blank', 'noopener,noreferrer')} disabled={!previewUrl} title="Open this preview in a full browser tab" aria-label="Open preview in new tab" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: previewUrl ? 'pointer' : 'default', opacity: previewUrl ? 1 : 0.45 }}><ExternalLink size={13} /></button>
             </div>
             {previewError && <div role="alert" style={{ margin: '0 10px 8px', padding: '6px 8px', fontSize: '0.7rem', color: '#fca5a5', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5 }}>{previewError}</div>}

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Preview auto-refresh and reload control
+
+The Coding preview pane now stays in lock-step with the agent's edits: when the agent re-publishes the same URL to `.peakui-preview.json` after editing files, the preview iframe refreshes in place — so plain dev servers without hot-module reload still show the new work. A dedicated reload button was added to the preview toolbar for manual refreshes.
+
 ### Changed — Coding environment renamed "Qwen" → "Coder"
 
 The Coding surface's own naming now uses "Coder" throughout — comments, docs, README, UI strings, and internal identifiers — while the underlying Qwen Code engine's protocol names (the `qwen serve` daemon, `~/.qwen` state dir, `x-qwen-*` headers, `QWEN_*` env vars, and standard Qwen model IDs) are intentionally left intact so the integration keeps working.
