@@ -92,7 +92,11 @@ const BROWSER_WIDTH = parseInt(process.env.LIVE_BROWSER_WIDTH || '1280', 10)
 const BROWSER_HEIGHT = parseInt(process.env.LIVE_BROWSER_HEIGHT || '720', 10)
 const CONTEXT_TTL_MS = 10 * 60 * 1000
 const DISPLAY_START = parseInt(process.env.LIVE_BROWSER_DISPLAY_START || '110', 10)
-const MAX_DISPLAY_CANDIDATES = parseInt(process.env.LIVE_BROWSER_MAX_DISPLAYS || '200', 10)
+// The shared display is sized to fit the widest/tallest stealth fingerprint
+// viewport (up to 1920x1080 and 1728x1117) so any session's Chromium window can
+// be raised on it without off-screen clipping.
+const SHARED_DISPLAY_WIDTH = 1920
+const SHARED_DISPLAY_HEIGHT = 1200
 const STARTUP_TIMEOUT_MS = parseInt(process.env.LIVE_BROWSER_STARTUP_TIMEOUT_MS || '15000', 10)
 const FINGERPRINT_REGRESSION_TTL_MS = 10 * 60 * 1000
 const MAX_MANAGED_SESSIONS = parseInt(process.env.UWAF_MAX_MANAGED_SESSIONS || '16', 10)
@@ -152,24 +156,40 @@ interface ManagedSession {
   mode: BrowserMode
   stealthProfile: StealthProfile
   fingerprint?: StealthFingerprint
-  display: number
+  createdAt: number
+  lastUsed: number
+}
+
+/**
+ * A single Xvfb display + x11vnc server shared by every managed browser
+ * session. Headed Chromium windows render onto this one virtual screen, and a
+ * single x11vnc mirrors it for the noVNC live view. Each session's window is
+ * raised via `page.bringToFront()`; window isolation is by Chromium raise, not
+ * by per-session displays. This removes the N-sessions × (Xvfb + x11vnc + VNC
+ * port) process bloat that previously leaked and starved the app.
+ */
+interface SharedDisplay {
+  env: string
   vncPort: number
   xvfbProcess: ChildProcess
   x11vncProcess: ChildProcess
-  createdAt: number
-  lastUsed: number
+  refCount: number
 }
 
 const globalForUwafPool = globalThis as typeof globalThis & {
   __peakuiUwafPool?: {
     sessions: Map<string, ManagedSession>
     launchPromises: Map<string, Promise<ManagedSession>>
+    sharedDisplay: SharedDisplay | null
+    sharedDisplayPromise: Promise<SharedDisplay> | null
   }
 }
 
 const uwafPoolState = globalForUwafPool.__peakuiUwafPool ??= {
   sessions: new Map<string, ManagedSession>(),
   launchPromises: new Map<string, Promise<ManagedSession>>(),
+  sharedDisplay: null,
+  sharedDisplayPromise: null,
 }
 
 let managedSessionCleanupInterval: ReturnType<typeof setInterval> | null = null
@@ -309,21 +329,69 @@ async function allocateVncPort(): Promise<number> {
   })
 }
 
-async function allocateDisplayNumber(): Promise<number> {
-  const usedDisplays = new Set(Array.from(uwafPoolState.sessions.values()).map((session) => session.display))
+/**
+ * Start the single shared Xvfb + x11vnc pair. The screen is sized to fit the
+ * widest fingerprint viewport so every session's Chromium window can be
+ * positioned/raised on it without off-screen clipping.
+ */
+async function startSharedDisplay(): Promise<SharedDisplay> {
+  const env = `:${DISPLAY_START}`
+  const vncPort = await allocateVncPort()
+  const xvfbProcess = spawnProcess('Xvfb', [
+    env,
+    '-screen', '0', `${SHARED_DISPLAY_WIDTH}x${SHARED_DISPLAY_HEIGHT}x24`,
+    '-ac',
+    '-nolisten', 'tcp',
+  ])
+  logChildProcess(`Xvfb ${env}`, xvfbProcess)
+  await waitForDisplay(DISPLAY_START)
 
-  for (let offset = 0; offset < MAX_DISPLAY_CANDIDATES; offset += 1) {
-    const display = DISPLAY_START + offset
-    if (usedDisplays.has(display)) continue
+  const x11vncProcess = spawnProcess('x11vnc', [
+    '-display', env,
+    '-rfbport', String(vncPort),
+    '-forever',
+    '-shared',
+    '-xkb',
+    '-noxdamage',
+    '-nowf',
+    '-nowcr',
+    '-noscr',
+    '-cursor', 'arrow',
+    '-localhost',
+    '-nopw',
+  ])
+  logChildProcess(`x11vnc ${env}`, x11vncProcess)
+  await waitForTcpPort(vncPort)
 
-    try {
-      await access(`/tmp/.X11-unix/X${display}`)
-    } catch {
+  return { env, vncPort, xvfbProcess, x11vncProcess, refCount: 0 }
+}
+
+async function ensureSharedDisplay(): Promise<SharedDisplay> {
+  const existing = uwafPoolState.sharedDisplay
+  if (existing) return existing
+  if (uwafPoolState.sharedDisplayPromise) return uwafPoolState.sharedDisplayPromise
+
+  const promise = startSharedDisplay()
+    .then((display) => {
+      uwafPoolState.sharedDisplay = display
       return display
-    }
-  }
+    })
+    .finally(() => {
+      uwafPoolState.sharedDisplayPromise = null
+    })
+  uwafPoolState.sharedDisplayPromise = promise
+  return promise
+}
 
-  throw new Error('No free Xvfb display numbers available')
+async function releaseSharedDisplay(): Promise<void> {
+  const display = uwafPoolState.sharedDisplay
+  if (!display) return
+  display.refCount -= 1
+  if (display.refCount > 0) return
+
+  uwafPoolState.sharedDisplay = null
+  await terminateChildProcess(display.x11vncProcess)
+  await terminateChildProcess(display.xvfbProcess)
 }
 
 async function buildContextOptions(
@@ -951,8 +1019,7 @@ async function closeManagedSession(contextId: string): Promise<void> {
 
   await managed.context.close().catch(() => {})
   await managed.browser.close().catch(() => {})
-  await terminateChildProcess(managed.x11vncProcess)
-  await terminateChildProcess(managed.xvfbProcess)
+  await releaseSharedDisplay()
 }
 
 async function focusPage(managed: ManagedSession, page: Page): Promise<Page> {
@@ -974,33 +1041,24 @@ async function createManagedSession(
   const fingerprint = mode === 'stealth'
     ? buildStealthFingerprint(stealthProfile, contextId)
     : undefined
-  const display = await allocateDisplayNumber()
-  const vncPort = await allocateVncPort()
-  const displayEnv = `:${display}`
   const browserWidth = fingerprint?.viewport.width || BROWSER_WIDTH
   const browserHeight = fingerprint?.viewport.height || BROWSER_HEIGHT
 
-  const xvfbProcess = spawnProcess('Xvfb', [
-    displayEnv,
-    '-screen', '0', `${browserWidth}x${browserHeight}x24`,
-    '-ac',
-    '-nolisten', 'tcp',
-  ])
-  logChildProcess(`Xvfb ${displayEnv}`, xvfbProcess)
-
   let browser: Browser | null = null
   let context: BrowserContext | null = null
-  let x11vncProcess: ChildProcess | null = null
+  let displayAcquired = false
 
   try {
-    await waitForDisplay(display)
+    const sharedDisplay = await ensureSharedDisplay()
+    sharedDisplay.refCount += 1
+    displayAcquired = true
 
     browser = await chromium.launch({
       executablePath: CHROMIUM_PATH,
       headless: false,
       env: {
         ...process.env,
-        DISPLAY: displayEnv,
+        DISPLAY: sharedDisplay.env,
       },
       args: [
         ...buildChromiumLaunchArgs(mode, stealthProfile),
@@ -1054,23 +1112,6 @@ async function createManagedSession(
 
     await page.bringToFront().catch(() => {})
 
-    x11vncProcess = spawnProcess('x11vnc', [
-      '-display', displayEnv,
-      '-rfbport', String(vncPort),
-      '-forever',
-      '-shared',
-      '-xkb',
-      '-noxdamage',
-      '-nowf',
-      '-nowcr',
-      '-noscr',
-      '-cursor', 'arrow',
-      '-localhost',
-      '-nopw',
-    ])
-    logChildProcess(`x11vnc ${displayEnv}`, x11vncProcess)
-    await waitForTcpPort(vncPort)
-
     const managed: ManagedSession = {
       browser,
       context,
@@ -1083,10 +1124,6 @@ async function createManagedSession(
       mode,
       stealthProfile,
       fingerprint,
-      display,
-      vncPort,
-      xvfbProcess,
-      x11vncProcess,
       createdAt: Date.now(),
       lastUsed: Date.now(),
     }
@@ -1107,8 +1144,9 @@ async function createManagedSession(
   } catch (error) {
     await context?.close().catch(() => {})
     await browser?.close().catch(() => {})
-    await terminateChildProcess(x11vncProcess)
-    await terminateChildProcess(xvfbProcess)
+    if (displayAcquired) {
+      await releaseSharedDisplay()
+    }
     throw error
   }
 }
@@ -1176,8 +1214,9 @@ export async function getLiveBrowserInfo(contextId: string, mode: BrowserMode): 
 }> {
   const managed = await ensureManagedSession(contextId, mode)
   managed.lastUsed = Date.now()
+  const sharedDisplay = uwafPoolState.sharedDisplay
   return {
-    vncPort: managed.vncPort,
+    vncPort: sharedDisplay?.vncPort ?? 0,
     viewport: {
       width: managed.fingerprint?.viewport.width || BROWSER_WIDTH,
       height: managed.fingerprint?.viewport.height || BROWSER_HEIGHT,

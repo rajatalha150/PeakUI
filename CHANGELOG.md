@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — Live browser: shared Xvfb/VNC display instead of per-session
+
+- **One Xvfb + one x11vnc server shared across all live-browser sessions**, replacing the previous per-session (Xvfb + x11vnc + dedicated VNC port + display number) allocation. Each session still gets its own headed Chromium, but windows render onto a single 1920×1200 virtual display mirrored by a single x11vnc; window isolation is by Chromium raise (`page.bringToFront()`), not by per-session displays. This removes the N-sessions × (Xvfb + x11vnc) process bloat that previously leaked and starved the app, and eliminates per-session display/VNC port exhaustion.
+- Display lifecycle is ref-counted: the shared pair starts on first session and tears down when the last session closes or TTLs out.
+
 ### Added — WorkSpaces live context meter + narration tool-recovery
 
 - **Live context meter** in the WorkSpaces header, mirroring the Coder side: a `tokens / window (tier)` pill (green/amber/red by pressure tier) that polls `GET /api/workspace-tool/session/:id/context` every 15s. It computes the same `buildContextBudget` occupancy the chat pipeline already applies each turn against the stored transcript + `settings.contextLength`.
