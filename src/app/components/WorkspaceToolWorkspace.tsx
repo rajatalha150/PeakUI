@@ -754,7 +754,10 @@ export function useWorkspaceController({
       if (running) return;
       running = true;
       try {
-        const res = await fetch(`/api/workspace-tool/session/${encodeURIComponent(currentSessionId)}/context`);
+        // Pass the live selected model so the meter reflects the picker's
+        // current value immediately (the persisted setting can lag a switch).
+        const modelParam = selectedModel ? `&model=${encodeURIComponent(selectedModel)}` : '';
+        const res = await fetch(`/api/workspace-tool/session/${encodeURIComponent(currentSessionId)}/context${modelParam}`);
         const data = await res.json().catch(() => ({})) as { usage?: WorkspaceContextUsage };
         if (!res.ok || cancelled || !data.usage) return;
         setWorkspaceContextUsage(data.usage);
@@ -767,7 +770,7 @@ export function useWorkspaceController({
     void tick();
     const timer = setInterval(tick, 15_000);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [currentSessionId]);
+  }, [currentSessionId, selectedModel]);
   // Map of canvas artifact filename → relative download URL. Used to rewrite
   // markdown links the model emits with the wrong absolute URL (e.g. it
   // substitutes the user's deployment hostname instead of using
@@ -2341,7 +2344,7 @@ export function useWorkspaceController({
       ? session.messages
       : (await fetchSessionDetail(session.id))?.messages || [];
     const text = sanitizeWorkspaceToolMessages(sourceMessages)
-      .filter(messageItem => messageItem?.role !== 'system')
+      .filter(messageItem => messageItem?.role !== 'system' && !messageItem.hidden && !messageItem.transient)
       .map(messageItem => {
         const attachments = messageItem.attachments?.length
           ? `\nFiles: ${messageItem.attachments.map(attachment => attachment.name).join(', ')}`

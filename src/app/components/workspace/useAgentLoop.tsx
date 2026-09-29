@@ -1066,6 +1066,22 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
             ? detectMalformedToolWrapper(assistantMessage.content)
             : null;
 
+          // A narration/malformed/duplicate turn is mid-action plumbing, not an
+          // answer — hide the assistant bubble so the user never sees
+          // "Deep research mode…", "Running parallel research…", or
+          // "Acknowledged…" as if it were a delivered response. The synthesized
+          // dispatch (below) and the recovery-nudge paths both act on it, but it
+          // must not surface as visible chat.
+          if (promisedToolButStopped || invalidToolBlock || Boolean(malformedWrapperFormat)) {
+            updateChatMessage(nextAssistantId, current => ({
+              ...current,
+              hidden: true,
+            }));
+            sessionHistory = sessionHistory.map(message => (
+              message.id === nextAssistantId ? { ...message, hidden: true } : message
+            ));
+          }
+
           // Best-effort recovery: if the model described a tool call in prose
           // but dropped the wrapper, synthesize the call ourselves from the
           // narration and dispatch it directly. Saves the second model
