@@ -121,8 +121,8 @@ function buildListPrompt(): string {
 function buildTablePrompt(): string {
   return [
     'The user wants a table or comparison.',
-    'Return only the table content with short headers and aligned columns.',
-    'Use plain text unless the user requested markdown.',
+    'Return the table as a markdown table: a header row, a | --- | separator row, then data rows. Keep headers short and cells concise.',
+    'Present the table inline in the chat; do not generate a spreadsheet or CSV file unless the user explicitly asks to download or export one.',
   ].join(' ');
 }
 

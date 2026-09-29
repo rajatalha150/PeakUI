@@ -124,6 +124,16 @@ describe('buildWorkspaceToolSystemPrompt', () => {
     expect(prompt).toContain('use the `web` tool')
     expect(prompt).toContain('NEVER use shell with curl/wget')
   })
+
+  it('includes the ANSWER INLINE FIRST directive in every tier', () => {
+    const prompt = buildWorkspaceToolSystemPrompt({
+      ...baseContext,
+      promptTier: 'minimal',
+      latestUserQuery: 'compare these two options',
+    })
+    expect(prompt).toContain('ANSWER INLINE FIRST')
+    expect(prompt).toContain('do NOT generate a spreadsheet, PDF, or CSV unless the user explicitly asks')
+  })
 })
 
 describe('buildWorkspaceToolSystemPrompt — graduated prompt tiers', () => {
