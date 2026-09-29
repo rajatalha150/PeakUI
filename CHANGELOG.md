@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — WorkSpaces live context meter + narration tool-recovery
+
+- **Live context meter** in the WorkSpaces header, mirroring the Coder side: a `tokens / window (tier)` pill (green/amber/red by pressure tier) that polls `GET /api/workspace-tool/session/:id/context` every 15s. It computes the same `buildContextBudget` occupancy the chat pipeline already applies each turn against the stored transcript + `settings.contextLength`.
+- **Narration→tool recovery** for the prose-only turns that previously burned recovery nudges and stalled with a "reply continue" notice. The synthesizer now recognizes `Researching the web for: \`query\``, `UWAF Stealth Search: \`query\`` (routed to `unified_browser` in `stealth` mode), and `Fetch and summarize: <url>`.
+
 ### Added — Preview auto-refresh and reload control
 
 The Coding preview pane now stays in lock-step with the agent's edits: when the agent re-publishes the same URL to `.peakui-preview.json` after editing files, the preview iframe refreshes in place — so plain dev servers without hot-module reload still show the new work. A dedicated reload button was added to the preview toolbar for manual refreshes.

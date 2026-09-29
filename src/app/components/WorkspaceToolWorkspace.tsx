@@ -47,6 +47,7 @@ import React,{ useCallback,useDeferredValue,useEffect,useMemo,useRef,useState } 
 import { MAX_EXPANDED_PANELS,readExpandedPanels,writeExpandedPanels,type PanelId } from './panelIconButton';
 import { useAgentLoop } from './workspace/useAgentLoop';
 import { useWorkspaceTools } from './workspace/useWorkspaceTools';
+import { type WorkspaceContextUsage } from '@/lib/workspace-context-usage';
 import { AutomationExecutionRunState,AutomationHeartbeatState,AutomationMonitorState,AutomationNotificationState,AutomationScheduleState,AutomationWorkerState,DEFAULT_AUTOMATION_HEARTBEAT_STATE,DEFAULT_AUTOMATION_WORKER_STATE,ImageAttachmentMode,MOBILE_BREAKPOINT,PendingToolApproval,ShellOutputEntry,ToolApprovalResolution,WORKSPACE_TOOL_ACCOUNTANT_STORAGE,WORKSPACE_TOOL_AGENT_STORAGE,WORKSPACE_TOOL_API_KEY_STORAGE,WORKSPACE_TOOL_CURRENT_SESSION_STORAGE,WORKSPACE_TOOL_CURRENT_WORKSPACE_STORAGE,WORKSPACE_TOOL_DRAFT_TASK_ID,WORKSPACE_TOOL_IMAGE_GEN_STORAGE,WORKSPACE_TOOL_INTERNET_STORAGE,WORKSPACE_TOOL_PERSONA_STORAGE,WORKSPACE_TOOL_RAG_STORAGE,WORKSPACE_TOOL_RAIL_STORAGE,WORKSPACE_TOOL_TASK_STATE_STORAGE,WORKSPACE_TOOL_UNCENSORED_STORAGE,WORKSPACE_TOOL_UNRESTRICTED_STORAGE,WORKSPACE_TOOL_USER_PROFILE_STORAGE,WorkspaceToolFileAttachment,WorkspaceToolFolder,WorkspaceToolImageAttachment,WorkspaceToolMessage,WorkspaceToolModel,WorkspaceToolProvider,WorkspaceToolSession,WorkspaceToolSettings,WorkspaceToolTag,WorkspaceToolWorkspaceProps,WorkspaceToolWorkspaceRecord,formatTimestamp,getChatTitle,getImageAttachmentSummary,normalizeWorkspaceToolSession,parseAutomationStateResponse,parseWorkspaceToolSettingsResponse,pruneInterruptedMessages,sanitizeWorkspaceToolMessages,sanitizeWorkspaceToolSessions,splitFolderPrefix,stripAttachmentVisionData } from './workspace/workspace-support';
 import { WorkspaceView } from './workspace/WorkspaceView';
 export function useWorkspaceController({
@@ -226,6 +227,7 @@ export function useWorkspaceController({
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamPhase, setStreamPhase] = useState<UiStreamPhase | null>(null);
   const [liveStats, setLiveStats] = useState<{ tps: number; tokens: number } | null>(null);
+  const [workspaceContextUsage, setWorkspaceContextUsage] = useState<WorkspaceContextUsage | null>(null);
   const [selectedModel, setSelectedModel] = useState('');
   const [favoriteModels, setFavoriteModels] = useState<string[]>([]);
   // Favorites are server-authoritative and per-user (UserSettings.workspaceToolFavoriteModels),
@@ -737,6 +739,35 @@ export function useWorkspaceController({
     if (!currentSessionId) return null;
     return sanitizeWorkspaceToolSessions(sessions).find(session => session.id === currentSessionId) ?? null;
   }, [currentSessionId, sessions]);
+
+  // Live context-usage meter (mirrors the Coder side's 15s poll). Reads the
+  // session's transcript + the user's context length server-side and returns a
+  // compact "tokens / window (tier)" snapshot for the header pill.
+  useEffect(() => {
+    if (!currentSessionId) {
+      setWorkspaceContextUsage(null);
+      return;
+    }
+    let cancelled = false;
+    let running = false;
+    const tick = async () => {
+      if (running) return;
+      running = true;
+      try {
+        const res = await fetch(`/api/workspace-tool/session/${encodeURIComponent(currentSessionId)}/context`);
+        const data = await res.json().catch(() => ({})) as { usage?: WorkspaceContextUsage };
+        if (!res.ok || cancelled || !data.usage) return;
+        setWorkspaceContextUsage(data.usage);
+      } catch {
+        // The meter is operational telemetry; the session stays usable without it.
+      } finally {
+        running = false;
+      }
+    };
+    void tick();
+    const timer = setInterval(tick, 15_000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [currentSessionId]);
   // Map of canvas artifact filename → relative download URL. Used to rewrite
   // markdown links the model emits with the wrong absolute URL (e.g. it
   // substitutes the user's deployment hostname instead of using
@@ -2752,6 +2783,7 @@ export function useWorkspaceController({
     isStreaming,
     liveStats,
     streamPhase,
+    workspaceContextUsage,
     handleBranchFromMessage,
     handleCopyMessage,
     canvasArtifactNames,

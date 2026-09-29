@@ -122,6 +122,36 @@ describe('synthesizeToolCallFromNarration — web', () => {
     const r = synthesizeToolCallFromNarration('Looking up a.')
     expect(r).toBeNull()
   })
+
+  it('matches "Researching the web for: `query`" (the transcript failure mode)', () => {
+    const r = synthesizeToolCallFromNarration(
+      'Researching the web for: `cheapest cloud VPS providers 2026 pricing comparison`',
+    )
+    expect(r?.toolName).toBe('web')
+    expect((r?.args as { query: string }).query).toBe(
+      'cheapest cloud VPS providers 2026 pricing comparison',
+    )
+  })
+})
+
+describe('synthesizeToolCallFromNarration — stealth search', () => {
+  it('maps "UWAF Stealth Search: `query`" to unified_browser stealth mode', () => {
+    const r = synthesizeToolCallFromNarration(
+      'UWAF Stealth Search: `cheapest cloud and VPS providers 2026 pricing comparison`',
+    )
+    expect(r?.toolName).toBe('unified_browser')
+    expect((r?.args as { action: string; browserMode: string }).action).toBe('search')
+    expect((r?.args as { browserMode: string }).browserMode).toBe('stealth')
+    expect(r?.matchedPattern).toBe('unified_browser.stealth_search')
+  })
+
+  it('maps "Stealth Search for `query`" to unified_browser stealth mode', () => {
+    const r = synthesizeToolCallFromNarration(
+      'Stealth Search for dark web chatter about the leak',
+    )
+    expect(r?.toolName).toBe('unified_browser')
+    expect((r?.args as { browserMode: string }).browserMode).toBe('stealth')
+  })
 })
 
 describe('synthesizeToolCallFromNarration — fetch_summarize', () => {
@@ -131,6 +161,14 @@ describe('synthesizeToolCallFromNarration — fetch_summarize', () => {
     )
     expect(r?.toolName).toBe('fetch_summarize')
     expect((r?.args as { url: string }).url).toBe('https://example.com/article')
+  })
+
+  it('matches "Fetch and summarize: <url>" (the transcript failure mode)', () => {
+    const r = synthesizeToolCallFromNarration(
+      'Fetch and summarize: https://getdeploying.com/reference/compute-prices',
+    )
+    expect(r?.toolName).toBe('fetch_summarize')
+    expect((r?.args as { url: string }).url).toBe('https://getdeploying.com/reference/compute-prices')
   })
 
   it('rejects non-http URLs', () => {

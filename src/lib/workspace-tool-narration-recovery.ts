@@ -80,14 +80,17 @@ const REGENERATE_KEYWORDS = new RegExp(
 )
 
 const FETCH_SUMMARIZE_RE =
-  /\b(?:fetch(?:ing)?|grab(?:bing)?|pull(?:ing)?|load(?:ing)?|open(?:ing)?|visit(?:ing)?)\s+(?:the (?:page|article|URL|link|website|site)|(?:for\s+)?(?:a|the|an)?\s*(?:summary of|details about|information on|info on))?\s*(?:<url>)?(https?:\/\/[^\s<>"'`]+)/i
+  /\b(?:fetch(?:ing)?|grab(?:bing)?|pull(?:ing)?|load(?:ing)?|open(?:ing)?|visit(?:ing)?)\s+(?:(?:and\s+)?summariz(?:e|ing)?\s*:?\s*)?(?:the (?:page|article|URL|link|website|site|web\s+page)|(?:for\s+)?(?:a|the|an)?\s*(?:summary of|details about|information on|info on))?\s*(?:<url>)?(https?:\/\/[^\s<>"'`]+)/i
 
 const WEB_QUERY_RE_LIST: ReadonlyArray<RegExp> = [
   /\b(?:let me|i'?ll|now|i'll|i will|proceed(?:ing)? to|going to|about to|want to|need to)?\s*search(?:ing)?\s+(?:the web|online|the internet|for)\s+["“”'`]*([^\n"“”'`]+?)[.)\]"'`<,!?:;\s]*$/i,
   /\bsearch(?:ing)?\s+(?:the web\s+)?for\s+["“”'`]*([^\n"“”'`]+?)[.)\]"'`<,!?:;\s]*$/i,
   /\b(?:let me|i'?ll|i will|now|proceed(?:ing)? to|going to|about to)?\s*look(?:ing)?\s+up\s+["“”'`]*([^\n"“”'`]+?)[.)\]"'`<,!?:;\s]*$/i,
   /\b(?:let me|i'?ll|i will|now|proceed(?:ing)? to|going to)?\s*google\s+["“”'`]*([^\n"“”'`]+?)[.)\]"'`<,!?:;\s]*$/i,
+  // "Researching the web for: `query`" — the model's most common web narration.
+  /\bresearch(?:ing)?\s+(?:the\s+)?web\s+(?:for|on|about)?\s*:?\s*["“”'`]*([^\n"“”'`]+?)[.)\]"'`<,!?:;\s]*$/i,
 ]
+
 
 const SHELL_COMMAND_RE_LIST: ReadonlyArray<RegExp> = [
   // Back-quoted command (single or double backticks). No trailing \b because
@@ -111,7 +114,11 @@ const UNIFIED_BROWSER_URL_RE_3 = /\b(?:let me|i'?ll|i will|now|proceed(?:ing)? t
 const UNIFIED_BROWSER_SEARCH_RE_LIST: ReadonlyArray<RegExp> = [
   /\b(?:let me|i'?ll|i will|now|proceed(?:ing)? to|going to|about to|want to|need to)?\s*(?:run\s+)?(?:a\s+)?(?:unified(?:_|-|\s+)?browser|shared browser|live browser)\s+search\s+(?:for\s+)?["“”'`]*([^\n"“”'`]+?)[.)\]"'`<,!?:;\s]*$/i,
   /\bsearch(?:ing)?\s+(?:the\s+)?(?:shared|live|unified(?:_|-|\s+)?)?browser\s+(?:for\s+)?["“”'`]*([^\n"“”'`]+?)[.)\]"'`<,!?:;\s]*$/i,
+  // "UWAF Stealth Search: `query`" — a stealth search must go to unified_browser
+  // in stealth mode (Tor-routed), never the clear-web `web` tool.
+  /\b(?:uwaf\s+)?stealth\s+search\s*(?:for)?\s*:?\s*["“”'`]*([^\n"“”'`]+?)[.)\]"'`<,!?:;\s]*$/i,
 ]
+
 
 const TAX_YEAR_RE = /\b(?:generat(?:e|ing)|build(?:ing)?|creat(?:e|ing)|prepar(?:e|ing)|run(?:ning)?)\s+(?:a |the )?(?:tax\s+return|tax\s+form|tax\s+document)\s+for\s+(\d{4})\b/i
 
@@ -420,14 +427,23 @@ function synthesizeUnifiedBrowserSearch(content: string): NarrationRecovery | nu
     if (!match) continue
     const query = (match[1] || '').trim()
     if (!query || query.length < 2 || query.length > 256) continue
+    // The stealth pattern (last in the list) routes through Tor; everything else
+    // is a direct clear-web search.
+    const isStealth = pattern === UNIFIED_BROWSER_SEARCH_RE_LIST[UNIFIED_BROWSER_SEARCH_RE_LIST.length - 1]
     return {
       toolName: 'unified_browser',
-      args: { action: 'search', query, browserMode: 'direct', description: 'auto-recovered unified browser search from prose narration' },
-      matchedPattern: 'unified_browser.search',
+      args: {
+        action: 'search',
+        query,
+        browserMode: isStealth ? 'stealth' : 'direct',
+        description: `auto-recovered ${isStealth ? 'stealth' : 'unified browser'} search from prose narration`,
+      },
+      matchedPattern: isStealth ? 'unified_browser.stealth_search' : 'unified_browser.search',
     }
   }
   return null
 }
+
 
 function synthesizeUnifiedBrowser(content: string): NarrationRecovery | null {
   const m1 = content.match(UNIFIED_BROWSER_URL_RE)
