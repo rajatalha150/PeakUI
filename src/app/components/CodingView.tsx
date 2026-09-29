@@ -325,6 +325,10 @@ export default function CodingView() {
   const [error, setError] = React.useState('');
   const [workspace, setWorkspace] = React.useState('/workspace');
   const [workspaceDraft, setWorkspaceDraft] = React.useState('/workspace');
+  // Inline notice shown when the user edits the workspace while a session is
+  // active — the active session stays bound to its original folder, so we tell
+  // them to start a new session instead of silently ignoring the change.
+  const [workspaceNotice, setWorkspaceNotice] = React.useState('');
   const [daemonOnline, setDaemonOnline] = React.useState(false);
   const [sessionStatus, setSessionStatus] = React.useState<CoderSessionStatus | null>(null);
   const [coderContext, setCoderContext] = React.useState<CoderContextUsage | null>(null);
@@ -502,6 +506,7 @@ export default function CodingView() {
     previewUrlManualRef.current = false; previewDeviceManualRef.current = false; agentPreviewRef.current = null; previewFileRawRef.current = '';
     setShellOutput(''); setShellRunning(false); setPreviewUrl(''); setPreviewCaptureUrl(''); setPreviewInput('');
     setQuestionDrafts({}); setQuestionNotes({}); nudgedNotificationRef.current = null;
+    setWorkspaceNotice('');
   };
 
   React.useEffect(() => {
@@ -2011,6 +2016,18 @@ export default function CodingView() {
     // This edits the default for NEW sessions, never the active session's cwd.
     setWorkspace(sessionWorkspaceRef.current || clean);
     await saveSettings({ coderWorkspace: clean || '/workspace' });
+
+    // If a session is already active (and bound to a different folder), the
+    // change only affects FUTURE sessions. Tell the user plainly rather than
+    // letting them think the running session just moved folders.
+    const activeBound = sessionWorkspaceRef.current;
+    if (activeSessionId && activeBound && activeBound !== clean) {
+      setWorkspaceNotice(
+        `The workspace change only applies to new sessions. This session is still bound to "${activeBound}" — start a new session to open "${clean}".`,
+      );
+    } else {
+      setWorkspaceNotice('');
+    }
   };
 
   const loadGitHubIntegration = async () => {
@@ -2823,6 +2840,12 @@ export default function CodingView() {
               placeholder="/workspace"
               style={inputStyle()}
             />
+            {workspaceNotice && (
+              <span role="status" style={{ display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 6, padding: '7px 9px', borderRadius: 6, fontSize: '0.7rem', lineHeight: 1.45, color: '#fbbf24', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.28)', maxWidth: 320 }}>
+                <AlertCircle size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+                <span>{workspaceNotice}</span>
+              </span>
+            )}
           </SettingField>
           <SettingField label="Context capacity" hint={settings.coderContextLength > 0
             ? "Advanced cap is used by PeakUI's durable-memory budgeting. Coder still uses the active model's own live window and native auto-compaction. Return to Model default unless you are deliberately testing a smaller budget."
