@@ -3642,6 +3642,16 @@ export default function CodingView() {
                     onClick={() => {
                       previewDeviceManualRef.current = true;
                       setPreviewDevice(d);
+                      // Auto-size the window to the selected device's viewport so
+                      // the frame renders at full size instead of being scaled
+                      // down inside a fixed window.
+                      const vp = PREVIEW_VIEWPORTS[d];
+                      const chromeH = 88; // header toolbar + address bar
+                      const chromeW = 28; // window border + padding
+                      setPreviewWindowSize({
+                        width: Math.max(360, Math.min(window.innerWidth - 16, vp.width + chromeW)),
+                        height: Math.max(360, Math.min(window.innerHeight - 16, vp.height + chromeH)),
+                      });
                     }}
                     title={`${d} viewport`}
                     aria-pressed={previewDevice === d}
@@ -3683,7 +3693,6 @@ export default function CodingView() {
               {previewInput && <button onClick={clearPreview} title="Clear preview URL" aria-label="Clear preview URL" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: 'pointer' }}><X size={13} /></button>}
               <button onClick={() => { previewUrlManualRef.current = false; setPreviewUrl(''); void discoverPreview(); }} title="Detect running local web servers" aria-label="Detect running local web servers" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: 'pointer' }}><RefreshCw size={13} /></button>
               <button onClick={() => applyPreview(previewInput, 'manual')} style={{ background: 'rgba(34,211,238,0.12)', color: accent, border: `1px solid ${accent}`, borderRadius: '6px', padding: '4px 10px', fontSize: '0.72rem', cursor: 'pointer' }}>Go</button>
-              <button onClick={() => setPreviewReloadKey(key => key + 1)} disabled={!previewUrl} title="Reload the preview" aria-label="Reload preview" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: previewUrl ? 'pointer' : 'default', opacity: previewUrl ? 1 : 0.45 }}><RotateCcw size={13} /></button>
               <button onClick={() => previewUrl && window.open(previewUrl, '_blank', 'noopener,noreferrer')} disabled={!previewUrl} title="Open this preview in a full browser tab" aria-label="Open preview in new tab" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: previewUrl ? 'pointer' : 'default', opacity: previewUrl ? 1 : 0.45 }}><ExternalLink size={13} /></button>
             </div>
             {previewError && <div role="alert" style={{ margin: '0 10px 8px', padding: '6px 8px', fontSize: '0.7rem', color: '#fca5a5', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5 }}>{previewError}</div>}

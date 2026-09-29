@@ -1,27 +1,9 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import http from 'node:http'
-import https from 'node:https'
 import net from 'node:net'
-import tls from 'node:tls'
-
-/**
- * PeakUI preview gateway — single-hop, isolated preview origin.
- *
- * The preview pane frames a dev server the coding agent started inside the
- * coder container. Both the app and the coder container run with host
- * networking, so the dev server's loopback port is reachable from the app
- * directly. This gateway serves that dev server on its own port (:4173) so
- * the previewed page lives on a SEPARATE origin from PeakUI (:3000) and its
- * `allow-same-origin` iframe can never reach PeakUI's cookies/localStorage.
- *
- * A signed ticket (minted by `POST /api/coder/preview`) is the only thing that
- * opens a route: it names the single port the gateway may proxy, so a crafted
- * page cannot use this origin to reach arbitrary internal services (SSRF
- * guard). There is intentionally NO bridge hop — the gateway connects straight
- * to `127.0.0.1:<port>`, which is the same loopback the dev server bound.
- */
 
 const listenPort = Number(process.env.CODER_PREVIEW_GATEWAY_PORT || 4173)
+const bridge = new URL(process.env.CODER_PREVIEW_BRIDGE_URL || 'http://127.0.0.1:4172')
 const secret = (process.env.JWT_SECRET || '').trim()
 const routeCookie = '__peakui_preview_route'
 const blockedPorts = new Set([2375, 2376, 4170, 4171, 4172, 4173, 4318, 5432, 6379, 9050, 9150, 11434])
@@ -63,30 +45,27 @@ function routeFor(req) {
   return verify(cookies(req.headers.cookie)[routeCookie])
 }
 
+function bridgeHeaders(req, target) {
+  const headers = { ...req.headers, host: `p${target.secure ? 's' : ''}${target.port}.localhost:${bridge.port}` }
+  const cookie = appCookieHeader(req.headers.cookie)
+  if (cookie) headers.cookie = cookie
+  else delete headers.cookie
+  delete headers.connection
+  delete headers['content-length']
+  return headers
+}
+
 function rewriteSetCookie(value) {
   return value.replace(/;\s*Domain=(?:\.?localhost|127\.0\.0\.1)(?=;|$)/ig, '')
 }
 
-/**
- * Forward the request straight to the dev server on the shared loopback. The
- * route cookie already proves the caller is authorized for this specific port.
- */
 function proxy(req, res, target) {
-  const transport = target.secure ? https : http
-  // Strip the gateway's own route cookie before forwarding, so the dev server
-  // only sees its own application cookies (and the cookie header matches what a
-  // direct visit would send).
-  const cookie = appCookieHeader(req.headers.cookie)
-  const headers = { ...req.headers, host: `localhost:${target.port}` }
-  if (cookie) headers.cookie = cookie
-  else delete headers.cookie
-  const upstream = transport.request({
-    hostname: '127.0.0.1',
-    port: target.port,
+  const upstream = http.request({
+    hostname: bridge.hostname,
+    port: Number(bridge.port),
     method: req.method,
     path: req.url,
-    rejectUnauthorized: false,
-    headers,
+    headers: bridgeHeaders(req, target),
   }, incoming => {
     const headers = { ...incoming.headers }
     if (Array.isArray(headers['set-cookie'])) headers['set-cookie'] = headers['set-cookie'].map(rewriteSetCookie)
@@ -112,13 +91,14 @@ function proxy(req, res, target) {
 }
 
 function upgrade(req, socket, head, target) {
-  const upstream = target.secure
-    ? tls.connect({ host: '127.0.0.1', port: target.port, rejectUnauthorized: false })
-    : net.connect({ host: '127.0.0.1', port: target.port })
+  const upstream = net.connect({ host: bridge.hostname, port: Number(bridge.port) })
   upstream.on('error', () => socket.destroy())
   socket.on('error', () => upstream.destroy())
-  upstream.once(target.secure ? 'secureConnect' : 'connect', () => {
-    const headers = { ...req.headers, host: `localhost:${target.port}` }
+  upstream.once('connect', () => {
+    const headers = { ...req.headers, host: `p${target.secure ? 's' : ''}${target.port}.localhost:${bridge.port}` }
+    const cookie = appCookieHeader(req.headers.cookie)
+    if (cookie) headers.cookie = cookie
+    else delete headers.cookie
     const lines = Object.entries(headers).flatMap(([name, value]) => Array.isArray(value)
       ? value.map(item => `${name}: ${item}`)
       : value === undefined ? [] : [`${name}: ${value}`])
