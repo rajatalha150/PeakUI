@@ -7,9 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — WorkSpaces chat leak + model-aware context meter
+
+- **Clipboard export no longer dumps internal plumbing.** The "Copy session" action previously copied every hidden/transient message — raw `<untrusted_tool_result>` web context, scraped HTML/CSS, tool-result scaffolding, and the model's own meta-narration ("Deep research mode…", "Running parallel research…", "Acknowledged…"). It now filters `hidden` + `transient` messages so only real user/assistant turns are copied.
+- **Narration-only assistant turns are hidden from the visible chat.** When the model announces tool intent in prose but never emits a wrapper, that meta-commentary was rendered as a visible "AI:" bubble. These mid-action turns are now marked hidden (the recovery/synthesis paths still act on them), so the user only sees delivered answers.
+- **The context meter is now model-aware.** It previously reported the fixed per-user `settings.contextLength` (e.g. a static `131072`), so the `tokens / window (tier)` pill never changed when switching models. The endpoint now resolves the selected model's actual context window the same way the chat pipeline does (via `getModelCapacityProfile` against Ollama `/api/show`), and the client passes the live picker selection and re-polls immediately on model change.
+
+### Changed — Answer inline first (stop defaulting to spreadsheet/PDF output)
+
+The WorkSpaces model was eagerly generating downloadable Excel/PDF/CSV files for questions that should be answered in the chat. Two always-on prompt biases now make it present results inline as markdown instead: an `ANSWER INLINE FIRST` directive (present in every prompt tier) telling the model to render data/comparisons as markdown tables or lists and only produce a file when the user explicitly asks to download/export/save, and `buildTablePrompt` now emits markdown tables rather than "plain text unless markdown requested".
+
 ### Added — WorkSpaces live context meter + narration tool-recovery
 
-- **Live context meter** in the WorkSpaces header, mirroring the Coder side: a `tokens / window (tier)` pill (green/amber/red by pressure tier) that polls `GET /api/workspace-tool/session/:id/context` every 15s. It computes the same `buildContextBudget` occupancy the chat pipeline already applies each turn against the stored transcript + `settings.contextLength`.
+- **Live context meter** in the WorkSpaces header, mirroring the Coder side: a `tokens / window (tier)` pill (green/amber/red by pressure tier) that polls `GET /api/workspace-tool/session/:id/context` every 15s. It computes the same `buildContextBudget` occupancy the chat pipeline already applies each turn against the stored transcript, with the window resolved per-model (see the model-aware fix above).
 - **Narration→tool recovery** for the prose-only turns that previously burned recovery nudges and stalled with a "reply continue" notice. The synthesizer now recognizes `Researching the web for: \`query\``, `UWAF Stealth Search: \`query\`` (routed to `unified_browser` in `stealth` mode), and `Fetch and summarize: <url>`.
 
 ### Added — Preview auto-refresh and reload control

@@ -3,10 +3,12 @@
  *
  * Mirrors `coder-context.ts` for the Coder surface: the Coder side reads an
  * exact, model-native token count from the daemon, while the WorkSpaces surface
- * drives the model directly and already budgets every turn against
- * `settings.contextLength` via `buildContextBudget`. This module turns that
- * budget's pressure/occupancy into the same compact "tokens / window (tier)"
- * shape the Coder meter renders, so the two surfaces look and behave alike.
+ * drives the model directly and budgets every turn against the model's resolved
+ * context window. The API endpoint (`/api/workspace-tool/session/[id]/context`)
+ * resolves that window per-model (via `getModelCapacityProfile`), then runs it
+ * through `buildContextBudget`; this module turns the resulting pressure/
+ * occupancy into the same compact "tokens / window (tier)" shape the Coder
+ * meter renders, so the two surfaces look and behave alike.
  */
 
 export type WorkspaceContextTier = 'fresh' | 'prepare' | 'compact' | 'rebuild' | 'emergency'
