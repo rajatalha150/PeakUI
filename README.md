@@ -117,28 +117,28 @@ sequenceDiagram
   A->>G: Start app on a guest port
   A->>G: Publish .peakui-preview.json
   B->>S: Open Preview
-  S-->>B: Short-lived signed launch ticket
-  B->>S: Open isolated Preview origin on :4173
-  S->>G: Private preview bridge on :4172
-  G-->>B: HTML, routes, cookies, APIs, assets, WebSockets
+  S->>G: Open persistent Chromium session
+  G->>G: Browse app through guest localhost
+  G-->>S: Browser frames and console logs
+  S-->>B: Authenticated browser display
+  B->>G: Click, type, scroll through PeakUI API
 ```
 
-Preview uses a dedicated origin instead of placing an arbitrary application
-under PeakUI's `/api/...` path. A signed launch ticket authorizes one validated
-guest port; the gateway then redirects to the application's real root. React
-Router, authenticated cookies, redirects, CSP, absolute assets, API paths, and
-WebSockets behave as they do in production, while the guest bridge remains
-private. Port `4173` must be reachable anywhere port `3000` is reachable. For
-an HTTPS deployment, set `CODER_PREVIEW_PUBLIC_ORIGIN` to a separate TLS
-hostname that reverse-proxies to `4173`.
+Preview runs Chromium inside the persistent Coder guest and displays its frames
+through the authenticated PeakUI API. `localhost` belongs to the guest, so its
+apps can use the same ports as host applications without conflicts. Sites keep
+their real URLs, cookies, redirects, CSS and WebSockets. The popup no longer
+requires public port `4173` or a separate preview hostname. Browser profiles
+persist in the guest; Vision and console logs inspect the same live page you see.
+See [Coder Browser](docs/coder-browser.md) for architecture and current limits.
 
 The Preview window provides:
 
 - Desktop, tablet, and mobile viewport frames.
 - Resize, move, maximize, reload, and automatic running-port discovery.
-- Public HTTP(S) URLs, plus a full-tab button for sites that prohibit framing.
+- Guest-local and public HTTP(S) URLs, including sites that prohibit framing.
 - `Vision` screenshot review for the selected viewport.
-- `Log` diagnostics: Chromium console output, page errors, failed requests, and HTTP failures with one-click copy. Vision receives the captured log with the screenshot when available. Public capture resolves every requested hostname and refuses private or literal IP targets; `.onion` AI capture uses the configured Tor proxy.
+- `Log` diagnostics: timestamped console output, page errors, failed requests, and HTTP failures with one-click copy. Vision receives the captured log with the screenshot when available.
 
 ## Durable Agent Sessions
 

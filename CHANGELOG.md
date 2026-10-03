@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed - Guest-local Coder browser
+
+- Replaced the Coder preview iframe with persistent Chromium in the Incus/LXD guest, using authenticated frames and input through PeakUI.
+- Guest localhost ports no longer need application proxy rewriting or host publication. Navigation, keyboard/paste, pointer input, scrolling and device sizes control the same page.
+- Vision and console diagnostics now inspect the displayed browser session, with persistent user/session profiles and idle browser cleanup.
+- Documented architecture and current limits in `docs/coder-browser.md`.
+
 ### Fixed — WorkSpaces chat leak + model-aware context meter
 
 - **Clipboard export no longer dumps internal plumbing.** The "Copy session" action previously copied every hidden/transient message — raw `<untrusted_tool_result>` web context, scraped HTML/CSS, tool-result scaffolding, and the model's own meta-narration ("Deep research mode…", "Running parallel research…", "Acknowledged…"). It now filters `hidden` + `transient` messages so only real user/assistant turns are copied.

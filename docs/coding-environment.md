@@ -131,9 +131,9 @@ daemon token server-side and to bridge SSE + auth cleanly.
 - **Terminal pane** (bottom, collapsible) — the agent's shell output, plus a
   manual command line (via `POST /session/:id/prompt` with a shell command, or
   Coder's own terminal tool output).
-- **Preview browser** (expandable) — an iframe pointed at a dev-server port the
-  agent exposes; interactive (click/scroll/type). The AI can navigate it to
-  demonstrate running apps.
+- **Preview browser** (expandable) - persistent Chromium inside the Coder guest,
+  controlled through authenticated frames and input. Vision and logs use this
+  same page. See [Coder Browser](coder-browser.md).
 - **Project selector** — pick the `cwd` for a new session from the mounted
   `/workspace` (or host-mounted project dir).
 
@@ -211,8 +211,8 @@ so text stays readable and accessibility is preserved.
   beyond the mounted project dir; no access to the DB/searxng/tor-proxy.
 - The daemon bearer token lives server-side in the app; the browser never sees
   it. The gateway is the only path to the daemon.
-- The preview browser is restricted to the coder container's dev-server ports;
-  it cannot reach the host or other services.
+- Preview uses guest networking: localhost refers to the guest. Other HTTP(S)
+  destinations follow the guest's network access, including reachable LAN sites.
 - Destructive/install commands require confirmation (mirror the existing shell
   tool's guard).
 
@@ -421,8 +421,8 @@ The rewritten `CodingView`:
   app uses SSE exclusively; the gateway does not relay WS. If WS is ever enabled,
   an `Origin` allow-list must be enforced at the gateway (same-origin only),
   because WS has no equivalent of the SSE resume headers to scope it.
-- The preview browser is still a plain iframe; the security envelope in §5
-  (restricting it to the coder container's dev-server ports) is not enforced.
+- Preview now uses a guest browser with session ownership checks; see
+  [Coder Browser](coder-browser.md). Older proxy routes below are legacy APIs.
 
 ---
 

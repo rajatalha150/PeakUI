@@ -321,6 +321,12 @@ async function handle(req, res) {
   if (url.pathname === '/peakui/preview/targets' && req.method === 'GET') {
     return sendJson(res, 200, { targets: previewCandidates() });
   }
+  if (url.pathname === '/peakui/browser' && req.method === 'POST') {
+    const body = JSON.parse((await readSmallBody(req)).toString('utf8'));
+    if (typeof body.key !== 'string' || !/^[a-f0-9]{64}$/.test(body.key)) throw new Error('Invalid browser session.');
+    const { browserAction } = await import('/opt/qwen-code/browser/session.mjs');
+    return sendJson(res, 200, await browserAction(body.key, body));
+  }
   const smallBody = req.method === 'POST' && (url.pathname === '/session' || url.pathname === '/workspaces' || url.pathname === '/peakui/projects/import' || /^\/session\/[^/]+\/load$/.test(url.pathname));
   const buffered = smallBody ? await readSmallBody(req) : null;
   const body = buffered?.length ? JSON.parse(buffered.toString('utf8')) : null;
@@ -359,6 +365,7 @@ export function startServer() {
   const shutdown = () => {
     server.close();
     previewServer.close();
+    void import('/opt/qwen-code/browser/session.mjs').then(module => module.closeBrowsers()).catch(() => {});
     for (const { child } of runtimes.values()) child.kill('SIGTERM');
   };
   process.once('SIGTERM', shutdown);

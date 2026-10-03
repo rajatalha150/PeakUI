@@ -1,11 +1,12 @@
 "use client";
 
 import React from 'react';
+import CoderBrowser, { coderBrowserRequest } from './CoderBrowser';
 import { AlertCircle, Bot, Camera, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardCopy, Download, ExternalLink, FileText, Folder, GitBranch, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
 import { buildConversation, fetchFullTranscript, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from '@/lib/coder-transcript';
 import { streamSessionEvents } from '@/lib/coder-sse';
-import { parsePreviewUrl, PREVIEW_VIEWPORTS, type PreviewDevice } from '@/lib/coder-preview';
+import { PREVIEW_VIEWPORTS, type PreviewDevice } from '@/lib/coder-preview';
 import { parseRewindResult, parseRewindSnapshots, type RewindResult, type RewindSnapshot } from '@/lib/coder-rewind';
 import { parseFileContent, parseFileList, parseFileWriteResult, reconcileFileSave, type FileEntry } from '@/lib/coder-files';
 import { buildDefaultTasks, detectPackageManager, parseShellResult, type PackageManager, type Task } from '@/lib/coder-tasks';
@@ -717,28 +718,12 @@ export default function CodingView() {
     if (source === 'manual') previewUrlManualRef.current = true;
     void (async () => {
       try {
-        const res = await fetch('/api/coder/preview', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: clean }),
-        });
-        const data = (await res.json().catch(() => ({}))) as { error?: string; previewUrl?: string; captureUrl?: string | null };
+        const parsed = new URL(/^[a-z][a-z\d+.-]*:\/\//i.test(clean) ? clean : `http://${clean}`);
+        if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new Error('Enter an HTTP or HTTPS URL.');
         if (requestId !== previewRequestRef.current) return;
-        if (!res.ok) {
-          setPreviewError(data.error || 'Preview URL rejected by the server.');
-          return;
-        }
-        const approvedUrl = data.previewUrl || clean;
-        const signedPreviewOrigin = approvedUrl.includes('/__peakui/open?ticket=');
-        if (!signedPreviewOrigin) {
-          const parsed = parsePreviewUrl(approvedUrl, { allowRemote: true });
-          if ('error' in parsed) {
-            setPreviewError(parsed.error);
-            return;
-          }
-        }
+        const approvedUrl = parsed.href;
         setPreviewUrl(approvedUrl);
-        setPreviewCaptureUrl(typeof data.captureUrl === 'string' ? data.captureUrl : '');
+        setPreviewCaptureUrl(approvedUrl);
         setPreviewDiagnostics([]);
         setPreviewDiagnosticsOpen(false);
         setPreviewReloadKey(key => key + 1);
@@ -851,7 +836,11 @@ export default function CodingView() {
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, [previewOpen, daemonSessionId, previewInput, applyPreview, workspace]);
 
-  const openPreview = (initialUrl?: string) => {
+  const openPreview = async (initialUrl?: string) => {
+    if (!activeSessionIdRef.current) {
+      await newSession();
+      if (!activeSessionIdRef.current) return;
+    }
     if (initialUrl) applyPreview(initialUrl, 'manual');
     setPreviewOpen(o => !o);
   };
@@ -877,21 +866,17 @@ export default function CodingView() {
     try {
       const dsid = await ensureDaemonSession();
       if (!dsid) throw new Error('Failed to start daemon session');
-      const capture = await fetch('/api/coder/preview/screenshot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: previewCaptureUrl, device: previewDevice }),
-      });
-      const image = await capture.json().catch(() => ({})) as { data?: unknown; mimeType?: unknown; width?: unknown; height?: unknown; error?: unknown };
-      if (!capture.ok || typeof image.data !== 'string' || typeof image.mimeType !== 'string') {
+      const image = await coderBrowserRequest(activeSessionId, { action: 'screenshot' });
+      if (typeof image.data !== 'string' || typeof image.mimeType !== 'string') {
         throw new Error(typeof image.error === 'string' ? image.error : 'Preview capture failed');
       }
       const width = typeof image.width === 'number' ? image.width : PREVIEW_VIEWPORTS[previewDevice].width;
       const height = typeof image.height === 'number' ? image.height : PREVIEW_VIEWPORTS[previewDevice].height;
-      const runtimeLog = previewDiagnostics.length
-        ? `\n\nBrowser diagnostics captured for this preview:\n${previewDiagnostics.map(entry => `[${entry.level}] ${entry.message}`).join('\n').slice(0, 12_000)}`
+      const imageLogs: Array<{ level: string; message: string }> = Array.isArray(image.entries) ? image.entries : previewDiagnostics;
+      const runtimeLog = imageLogs.length
+        ? `\n\nBrowser diagnostics captured for this preview:\n${imageLogs.map(entry => `[${entry.level}] ${entry.message}`).join('\n').slice(0, 12_000)}`
         : '';
-      const prompt = `Inspect the attached ${previewDevice} (${width}x${height}) screenshot of the running local preview at ${previewUrl}. Identify visual, responsive, usability, and functional defects. Then inspect the project, implement the fixes you find, and verify the result in the same viewport. Do not only describe issues: carry the work through to tested code changes.${runtimeLog}`;
+      const prompt = `Inspect the attached ${previewDevice} (${width}x${height}) screenshot of the running preview at ${image.url || previewUrl}. Identify visual, responsive, usability, and functional defects. Then inspect the project, implement the fixes you find, and verify the result in the same viewport. Do not only describe issues: carry the work through to tested code changes.${runtimeLog}`;
       const response = await fetch(`/api/coder/session/${dsid}/prompt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -913,13 +898,8 @@ export default function CodingView() {
     if (!previewUrl || !previewCaptureUrl || previewDiagnosticsLoading) return;
     setPreviewDiagnosticsLoading(true);
     try {
-      const response = await fetch('/api/coder/preview/diagnostics', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: previewCaptureUrl, device: previewDevice }),
-      });
-      const result = await response.json().catch(() => ({})) as { entries?: Array<{ level?: unknown; message?: unknown }>; error?: string };
-      if (!response.ok) throw new Error(result.error || 'Browser diagnostics failed');
+      if (!activeSessionId) throw new Error('Open a coding session first.');
+      const result = await coderBrowserRequest(activeSessionId, { action: 'diagnostics' }) as { entries?: Array<{ level?: unknown; message?: unknown }>; error?: string };
       const entries = Array.isArray(result.entries)
         ? result.entries.filter((entry): entry is { level: string; message: string } => typeof entry?.level === 'string' && typeof entry?.message === 'string')
         : [];
@@ -3693,7 +3673,6 @@ export default function CodingView() {
               {previewInput && <button onClick={clearPreview} title="Clear preview URL" aria-label="Clear preview URL" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: 'pointer' }}><X size={13} /></button>}
               <button onClick={() => { previewUrlManualRef.current = false; setPreviewUrl(''); void discoverPreview(); }} title="Detect running local web servers" aria-label="Detect running local web servers" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: 'pointer' }}><RefreshCw size={13} /></button>
               <button onClick={() => applyPreview(previewInput, 'manual')} style={{ background: 'rgba(34,211,238,0.12)', color: accent, border: `1px solid ${accent}`, borderRadius: '6px', padding: '4px 10px', fontSize: '0.72rem', cursor: 'pointer' }}>Go</button>
-              <button onClick={() => previewUrl && window.open(previewUrl, '_blank', 'noopener,noreferrer')} disabled={!previewUrl} title="Open this preview in a full browser tab" aria-label="Open preview in new tab" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 28, padding: 0, background: 'transparent', color: 'rgba(209,213,219,0.65)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', cursor: previewUrl ? 'pointer' : 'default', opacity: previewUrl ? 1 : 0.45 }}><ExternalLink size={13} /></button>
             </div>
             {previewError && <div role="alert" style={{ margin: '0 10px 8px', padding: '6px 8px', fontSize: '0.7rem', color: '#fca5a5', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 5 }}>{previewError}</div>}
             {previewDiagnosticsOpen && (
@@ -3717,24 +3696,7 @@ export default function CodingView() {
                     height: previewViewport.height * previewScale,
                   }}
                 >
-                  <iframe
-                    key={`${previewDevice}-${previewUrl}-${previewReloadKey}`}
-                    src={previewUrl}
-                    title="App preview"
-                    style={{
-                      position: 'absolute', top: 0, left: 0, display: 'block',
-                      border: '1px solid rgba(255,255,255,0.12)',
-                      borderRadius: previewDevice === 'mobile' ? 22 : previewDevice === 'tablet' ? 14 : 6,
-                      background: '#fff',
-                      flexShrink: 0,
-                      width: previewViewport.width,
-                      height: previewViewport.height,
-                      boxShadow: '0 12px 40px rgba(0,0,0,0.45)',
-                      transform: `scale(${previewScale})`,
-                      transformOrigin: 'top left',
-                    }}
-                    sandbox="allow-scripts allow-forms allow-popups allow-same-origin allow-downloads allow-modals allow-pointer-lock"
-                  />
+                  {activeSessionId && <CoderBrowser sessionId={activeSessionId} url={previewUrl} device={previewDevice} reloadKey={previewReloadKey} />}
                 </div>
               ) : (
                 <div style={{ margin: 'auto', textAlign: 'center', color: 'rgba(209,213,219,0.4)', fontSize: '0.8rem', padding: 20 }}>
