@@ -839,7 +839,9 @@ tools-capable models are what drive the agent.
 
 **Sessions** can be renamed inline in the sidebar (click the title or its
 pencil icon); the rename is a `PATCH /api/chats {id, title}` and survives the
-auto-title derivation.
+auto-title derivation. The trash button opens a confirmation dialog showing the
+session title. Cancel or Escape leaves the session intact; Delete session stops
+the daemon session and removes its saved conversation.
 
 **Session lifecycle** — a persistent `ChatSession` (surface `'coder'`) maps 1:1 to
 a daemon session keyed by the **same UUID**. `POST /session {sessionId, cwd}`

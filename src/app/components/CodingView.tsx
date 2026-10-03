@@ -2,7 +2,7 @@
 
 import React from 'react';
 import CoderBrowser, { coderBrowserRequest } from './CoderBrowser';
-import { AlertCircle, Bot, Camera, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardCopy, Download, ExternalLink, FileText, Folder, GitBranch, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
+import { AlertCircle, Bot, Camera, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardCopy, Download, FileText, Folder, GitBranch, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
 import { buildConversation, fetchFullTranscript, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from '@/lib/coder-transcript';
 import { streamSessionEvents } from '@/lib/coder-sse';
@@ -443,6 +443,8 @@ export default function CodingView() {
   // Inline rename state for the session sidebar.
   const [renamingId, setRenamingId] = React.useState<string | null>(null);
   const [renameValue, setRenameValue] = React.useState('');
+  const [sessionToDelete, setSessionToDelete] = React.useState<{ id: string; title: string } | null>(null);
+  const [deletingSessionId, setDeletingSessionId] = React.useState<string | null>(null);
   // Session ids the user explicitly renamed -> new title, so the auto-persist
   // effect (which otherwise re-derives the title from the first message)
   // doesn't clobber the rename.
@@ -3778,7 +3780,7 @@ export default function CodingView() {
                   >
                     <Pencil size={12} />
                   </button>
-                  <button onClick={e => { e.stopPropagation(); void deleteSession(session.id); }} style={{ background: 'transparent', border: 'none', color: 'rgba(239,68,68,0.6)', cursor: 'pointer', padding: 0 }}><Trash2 size={13} /></button>
+                  <button onClick={e => { e.stopPropagation(); setSessionToDelete({ id: session.id, title: session.title || session.id.slice(0, 8) }); }} title={`Delete ${session.title || 'session'}`} aria-label={`Delete ${session.title || 'session'}`} style={{ background: 'transparent', border: 'none', color: 'rgba(239,68,68,0.6)', cursor: 'pointer', padding: 0 }}><Trash2 size={13} /></button>
                 </div>
                 <div style={{ fontSize: '0.68rem', color: 'rgba(209,213,219,0.4)', marginTop: '2px', fontFamily: 'ui-monospace, monospace' }}>{new Date(session.updatedAt || session.createdAt).toLocaleString()}</div>
               </div>
@@ -3787,6 +3789,28 @@ export default function CodingView() {
         </div>
         )}
       </div>
+
+      {sessionToDelete && (
+        <div onClick={() => { if (!deletingSessionId) setSessionToDelete(null); }} style={{ position: 'fixed', inset: 0, zIndex: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.65)' }}>
+          <div role="alertdialog" aria-modal="true" aria-labelledby="delete-session-title" aria-describedby="delete-session-description" onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === 'Escape' && !deletingSessionId) setSessionToDelete(null); }} style={{ width: 'min(420px, 100%)', padding: 20, border: '1px solid rgba(255,255,255,0.16)', borderRadius: 8, background: '#111827', color: '#e5e7eb', boxShadow: '0 20px 60px rgba(0,0,0,0.55)' }}>
+            <h2 id="delete-session-title" style={{ margin: 0, fontSize: '1rem' }}>Delete session?</h2>
+            <p id="delete-session-description" style={{ margin: '12px 0 20px', fontSize: '0.85rem', lineHeight: 1.5, overflowWrap: 'anywhere', color: 'rgba(229,231,235,0.72)' }}>
+              <strong style={{ color: '#e5e7eb' }}>{sessionToDelete.title}</strong> and its conversation history will be permanently deleted.
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button autoFocus disabled={Boolean(deletingSessionId)} onClick={() => setSessionToDelete(null)} style={{ padding: '8px 12px', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 5, background: 'transparent', color: '#e5e7eb', cursor: deletingSessionId ? 'default' : 'pointer' }}>Cancel</button>
+              <button disabled={Boolean(deletingSessionId)} onClick={() => {
+                const id = sessionToDelete.id;
+                if (!sessions.some(session => session.id === id)) { setSessionToDelete(null); return; }
+                setDeletingSessionId(id);
+                void deleteSession(id).finally(() => { setDeletingSessionId(null); setSessionToDelete(null); });
+              }} style={{ padding: '8px 12px', border: '1px solid #dc2626', borderRadius: 5, background: '#b91c1c', color: '#fff', cursor: deletingSessionId ? 'default' : 'pointer' }}>
+                {deletingSessionId ? 'Deleting…' : 'Delete session'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* On-demand terminal pop-up — direct shell into the isolated container */}
       {shellOpen && (

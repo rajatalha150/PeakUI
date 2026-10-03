@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - Coder session deletion confirmation
+
+- The Sessions trash button now asks for confirmation before deleting a coding session and its conversation history. Cancel, Escape, or dismissing the dialog leaves it intact; the confirm button is disabled while deletion runs.
+
 ### Changed - Guest-local Coder browser
 
 - Replaced the Coder preview iframe with persistent Chromium in the Incus/LXD guest, using authenticated frames and input through PeakUI.
