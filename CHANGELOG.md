@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - Coder settings drawer close control
+
+- Added a labeled header and X button to the Coding Settings drawer, matching the Files drawer so it can be closed directly.
+
 ### Fixed - Coder session deletion confirmation
 
 - The Sessions trash button now asks for confirmation before deleting a coding session and its conversation history. Cancel, Escape, or dismissing the dialog leaves it intact; the confirm button is disabled while deletion runs.

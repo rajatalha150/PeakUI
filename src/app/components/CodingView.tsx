@@ -2812,7 +2812,11 @@ export default function CodingView() {
 
       {/* Coder settings drawer */}
       {settingsOpen && settings && (
-        <div style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.25)', display: 'flex', flexWrap: 'wrap', gap: '18px', alignItems: 'flex-start' }}>
+        <div role="region" aria-label="Coder settings" style={{ padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(0,0,0,0.25)', display: 'flex', flexWrap: 'wrap', gap: '18px', alignItems: 'flex-start' }}>
+          <div style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#d1d5db' }}>Settings</span>
+            <button type="button" onClick={() => setSettingsOpen(false)} title="Close settings" aria-label="Close settings" style={ghostBtnStyle()}><X size={13} /></button>
+          </div>
           <SettingField label="Workspace" hint="The folder a new Coding session opens in. Use an absolute container path such as /workspace or /apps/project. Existing sessions stay bound to their original project so work cannot jump folders unexpectedly.">
             <input
               value={workspaceDraft}

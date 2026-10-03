@@ -128,6 +128,8 @@ daemon token server-side and to bridge SSE + auth cleanly.
   Reuses the existing markdown/drip/thinking renderers.
 - **Session sidebar** (right) — list sessions (`GET /workspaces/:workspace/sessions`),
   switch, create, rename — like Hermes.
+- **Settings drawer** (beneath the navbar) — opens from the sidebar and has a
+  labeled header with an X button to close it, matching the Files drawer.
 - **Terminal pane** (bottom, collapsible) — the agent's shell output, plus a
   manual command line (via `POST /session/:id/prompt` with a shell command, or
   Coder's own terminal tool output).
