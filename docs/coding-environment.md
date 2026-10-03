@@ -1074,11 +1074,16 @@ users or active workspaces. Fully isolated concurrent role selection requires
 per-user daemon state (or trusted workspace-scoped agents); it is an
 infrastructure boundary, not something a browser setting can solve.
 
-### 17.3 Triangle UI
+### 17.3 Model pickers
 
-`CodingView` renders the three dropdowns in the Settings drawer, populated from
-the daemon's authoritative `/workspace/models` and annotated with capability
-hints (`⚠ no vision` for the vision slot, `⚠ no tools` for main/writer).
+`CodingView` uses the same theme-aware model picker in the header and for the
+Main, Vision, and Writer roles in Settings. The three Settings roles are stacked
+at full width. Both selected names and menu options wrap instead of truncating,
+including long provider-qualified model IDs on a phone. The menu follows the
+Midnight, ChatGPT-inspired, or Sage palette and supports arrow keys, Enter, and
+Escape. Models come from the daemon's authoritative `/workspace/models`;
+unavailable options remain visible with `no vision` or `no tools` hints but
+cannot be selected.
 
 ---
 

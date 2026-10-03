@@ -2,6 +2,7 @@
 
 import React from 'react';
 import CoderBrowser, { coderBrowserRequest } from './CoderBrowser';
+import CoderModelPicker, { type CoderModelOption } from './CoderModelPicker';
 import { AlertCircle, Bot, Camera, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardCopy, Download, FileText, Folder, GitBranch, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
 import { buildConversation, fetchFullTranscript, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from '@/lib/coder-transcript';
@@ -389,7 +390,7 @@ export default function CodingView() {
   const baselineRef = React.useRef<CoderChatMessage[]>([]);
   const [copied, setCopied] = React.useState(false);
   // Model + coder settings (server-persisted).
-  const [models, setModels] = React.useState<Array<{ id: string; name: string; toolsCapable: boolean; visionCapable: boolean }>>([]);
+  const [models, setModels] = React.useState<CoderModelOption[]>([]);
   const [modelLoading, setModelLoading] = React.useState(false);
   const [settings, setSettings] = React.useState<CoderSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
@@ -2767,20 +2768,20 @@ export default function CodingView() {
         >
           {APPROVAL_MODES.map(m => (<option key={m.id} value={m.id} style={{ color: '#111' }} title={m.hint}>{m.label}</option>))}
         </select>
-        <select
-          value={settings?.coderModel || ''}
-          onChange={e => void switchModel(e.target.value)}
-          disabled={modelLoading || models.length === 0}
-          title="Model for the coding brain"
-          style={{ maxWidth: isPhone ? undefined : 230, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '5px 8px', fontSize: '0.72rem', fontFamily: 'ui-monospace, monospace', outline: 'none', ...(isPhone ? { order: 2, flex: '1 1 220px', minWidth: 0, fontSize: '0.7rem' } : {}) }}
-        >
-          <option value="">{modelLoading ? 'loading models…' : 'select model'}</option>
-          {models.map(m => (
-            <option key={m.id} value={m.id} disabled={!m.toolsCapable} style={{ color: '#111' }}>
-              {m.name}{m.toolsCapable ? '' : '  ⚠ no tools'}
-            </option>
-          ))}
-        </select>
+        <div style={{ flex: isPhone ? '1 0 100%' : '0 1 340px', order: isPhone ? 3 : undefined, minWidth: 0, maxWidth: isPhone ? '100%' : 420 }}>
+          <CoderModelPicker
+            value={settings?.coderModel || ''}
+            onChange={id => void switchModel(id)}
+            models={models}
+            loading={modelLoading}
+            label="Main coding model"
+            placeholder="Select model"
+            allowClear={false}
+            theme={coderTheme}
+            accent={accent}
+            align="right"
+          />
+        </div>
         <div style={{ position: 'relative', zIndex: 1, display: 'flex', order: isPhone ? 0 : undefined }}>
           <button
             onClick={() => setHeaderActionsOpen(open => !open)}
@@ -2911,14 +2912,12 @@ export default function CodingView() {
             </div>
           </SettingField>
 
-          {/* Multi-model orchestration — triangle: main on top, vision (left) and
-              writer (right) below. */}
+          {/* Model orchestration */}
           <div style={{ flexBasis: '100%', marginTop: '6px' }}>
             <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'rgba(209,213,219,0.55)', marginBottom: '10px' }}>
               Model orchestration
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', maxWidth: 460 }}>
-              {/* Main (top) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16, width: '100%', maxWidth: 620 }}>
               <ModelSlot
                 label="Main"
                 hint="Plans, executes, and reviews the session. Choose a capable coding model here first; its own reported context window is used automatically."
@@ -2926,32 +2925,31 @@ export default function CodingView() {
                 models={models}
                 loading={modelLoading}
                 onChange={id => void switchModel(id)}
+                allowClear={false}
+                theme={coderTheme}
+                accent={accent}
               />
-              {/* Triangle connector lines */}
-              <div style={{ display: 'flex', width: '100%', justifyContent: 'space-between', padding: '0 40px' }}>
-                <div style={{ width: 1, height: 14, background: 'rgba(34,211,238,0.35)', transform: 'rotate(30deg)' }} />
-                <div style={{ width: 1, height: 14, background: 'rgba(34,211,238,0.35)', transform: 'rotate(-30deg)' }} />
-              </div>
-              {/* Bottom row: vision (left), writer (right) */}
-              <div style={{ display: 'flex', gap: '16px', width: '100%' }}>
-                <ModelSlot
-                  label="Vision"
-                  hint="Optional image specialist. Select a vision-capable model when you want screenshot or image analysis; leave empty to let Coder use its default."
-                  value={settings.coderVisionModel}
-                  models={models}
-                  loading={modelLoading}
-                  onChange={id => void switchVisionModel(id)}
-                  requireVision
-                />
-                <ModelSlot
-                  label="Writer"
-                  hint="Optional implementation delegate. Use a faster or cheaper model for file authoring while the Main model keeps planning and review responsibility."
-                  value={settings.coderWriterModel}
-                  models={models}
-                  loading={modelLoading}
-                  onChange={id => void switchWriterModel(id)}
-                />
-              </div>
+              <ModelSlot
+                label="Vision"
+                hint="Optional image specialist. Select a vision-capable model when you want screenshot or image analysis; leave empty to let Coder use its default."
+                value={settings.coderVisionModel}
+                models={models}
+                loading={modelLoading}
+                onChange={id => void switchVisionModel(id)}
+                requireVision
+                theme={coderTheme}
+                accent={accent}
+              />
+              <ModelSlot
+                label="Writer"
+                hint="Optional implementation delegate. Use a faster or cheaper model for file authoring while the Main model keeps planning and review responsibility."
+                value={settings.coderWriterModel}
+                models={models}
+                loading={modelLoading}
+                onChange={id => void switchWriterModel(id)}
+                theme={coderTheme}
+                accent={accent}
+              />
             </div>
           </div>
 
@@ -3872,35 +3870,38 @@ function ModelSlot({
   loading,
   onChange,
   requireVision = false,
+  allowClear = true,
+  theme,
+  accent,
 }: {
   label: string;
   hint: string;
   value: string;
-  models: Array<{ id: string; name: string; toolsCapable: boolean; visionCapable: boolean }>;
+  models: CoderModelOption[];
   loading: boolean;
   onChange: (id: string) => void;
   requireVision?: boolean;
+  allowClear?: boolean;
+  theme: 'midnight' | 'chatgpt' | 'sage';
+  accent: string;
 }) {
+  const muted = theme === 'sage' ? '#587065' : '#9ca3af';
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0 }}>
-      <span style={{ fontSize: '0.72rem', fontWeight: 600, color: '#a5f3fc', letterSpacing: '0.04em' }}>{label}</span>
-      <select
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5, width: '100%', minWidth: 0 }}>
+      <span style={{ fontSize: '0.72rem', fontWeight: 650, color: accent }}>{label}</span>
+      <CoderModelPicker
         value={value}
-        onChange={e => onChange(e.target.value)}
-        disabled={loading || models.length === 0}
-        title={hint}
-        style={{ width: '100%', background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.12)', borderRadius: '8px', padding: '6px 8px', fontSize: '0.74rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
-      >
-        <option value="">{loading ? 'loading…' : requireVision ? 'auto (same provider)' : 'same as main'}</option>
-        {models.map(m => (
-          <option key={m.id} value={m.id} disabled={requireVision ? !m.visionCapable : !m.toolsCapable} style={{ color: '#111' }}>
-            {m.name}
-            {requireVision && !m.visionCapable ? '  ⚠ no vision' : ''}
-            {!requireVision && !m.toolsCapable ? '  ⚠ no tools' : ''}
-          </option>
-        ))}
-      </select>
-      <span style={{ fontSize: '0.66rem', color: 'rgba(209,213,219,0.35)' }}>{hint}</span>
+        onChange={onChange}
+        models={models}
+        loading={loading}
+        label={`${label} model`}
+        placeholder={requireVision ? 'Auto (same provider)' : 'Same as main'}
+        allowClear={allowClear}
+        requireVision={requireVision}
+        theme={theme}
+        accent={accent}
+      />
+      <span style={{ fontSize: '0.68rem', color: muted, lineHeight: 1.4 }}>{hint}</span>
     </div>
   );
 }
