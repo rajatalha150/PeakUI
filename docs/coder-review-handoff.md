@@ -1,5 +1,9 @@
 # Coder Review Handoff
 
+> Historical review snapshot. For the current Coder preview architecture and
+> verification, see [Coder Browser](coder-browser.md). The iframe and proxy
+> status below reflects the earlier implementation, not the current popup.
+
 Honest state of the `prompt-ai.md` hardening + IDE work, for the reviewing AI.
 An unfinished item is marked unfinished; nothing here is dressed up as complete.
 

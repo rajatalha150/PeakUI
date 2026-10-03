@@ -67,6 +67,10 @@ Legend: ✅ done · 🔶 partial · ⬜ not started
 
 ## Phase 4 — Managed previews & dev processes
 
+Current LXD Preview implementation: [Coder Browser](coder-browser.md). The
+proxy and iframe checklist below records the earlier implementation and its
+remaining managed-process work; it does not describe the active popup.
+
 - [ ] Project-owned preview registration (command/cwd/port/owner/readiness/logs)
 - [ ] Authenticated, browser-reachable preview proxy (no raw iframe URLs) — deferred: a correct proxy needs HTML/CSS/JS URL rewriting + WS/HMR upgrade; documented
 - [x] Isolate preview origin from PeakUI auth origin/cookies — reserved-port guard keeps the preview off the app origin; iframe sandbox hardened to drop `allow-same-origin` (preview runs in an opaque origin)

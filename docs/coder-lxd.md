@@ -227,31 +227,22 @@ in bounded windows, so file and ZIP size is not capped or buffered wholly in
 the app. GitHub imports use a private daemon endpoint and do not expose the
 installation token in shell history or agent transcripts.
 
-Preview URLs such as `http://127.0.0.1:5173` are approved by PeakUI, exchanged
-for a short-lived signed launch ticket, and opened on the dedicated Preview
-origin at host port 4173. The gateway stores the approved guest target in an
-HttpOnly routing cookie and redirects to the app's real `/` path. It then
-passes routes, application cookies, redirects, request bodies, assets, and
-WebSockets through unchanged. React Router, OAuth-style callbacks, root-relative
-assets, CSP, and authenticated APIs therefore see a normal origin instead of a
-PeakUI path prefix. The gateway connects straight to the approved dev-server
-port over the host's shared loopback — there is no separate bridge hop.
+The Coder Preview popup controls Chromium in this same persistent guest.
+`http://127.0.0.1:5173`, port 80, and any other guest-local address resolve
+there, without publishing the application's port on the host. The guest and
+host can run unrelated services on the same port. Public and private HTTP(S)
+sites are also reachable when the guest network allows them. Pages keep their
+normal root paths, cookies, CSP, redirects, assets and WebSockets because
+Chromium navigates to the original URL directly, including sites that forbid
+iframe embedding.
 
-The browser must be able to reach TCP 4173 on the same PeakUI host. When PeakUI
-is published through HTTPS, route a separate TLS hostname to port 4173 and set
-`CODER_PREVIEW_PUBLIC_ORIGIN=https://preview.example.com`; this avoids mixed
-content while preserving the isolated origin. Never point that hostname at
-the main PeakUI port. Preview's **Log** and **Vision** actions use the same
-signed gateway path from server-side Chromium, so their result matches the
-transport shown in the iframe rather than a private direct URL.
-
-Preview also accepts named public HTTP(S) sites such as
-`https://apps.example.com`. Those load directly in the isolated iframe, and
-the external-tab button handles applications whose `frame-ancestors` CSP or
-`X-Frame-Options` deliberately forbids embedding. Server-side Log and Vision
-capture resolve each public hostname and reject private, link-local, literal-IP,
-or DNS-failing targets. An `.onion` capture is accepted only when
-`TOR_PROXY_URL` is configured and Chromium can use that SOCKS endpoint.
+The authenticated `POST /api/coder/browser` endpoint checks coding-session
+ownership and forwards browser actions over the private Coder API. The popup
+shows frames from that browser; **Log** and **Vision** inspect its current page.
+Browser profiles live in `/var/lib/peakui/browser` inside the guest and survive
+restarts. No public port 4173 or extra Preview hostname is needed for this
+popup. The older signed proxy routes are retained for compatibility only.
+See [Coder Browser](coder-browser.md) for controls, verification and limits.
 
 ## Backups And Recovery
 

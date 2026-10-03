@@ -193,7 +193,7 @@ so text stays readable and accessibility is preserved.
   switch sessions.
 
 ### Phase 3 — Preview browser + project selection
-- Interactive preview iframe (port mapping from the agent's dev servers).
+- Interactive guest Chromium preview with session-owned frames and input.
 - Project/directory selector feeding `POST /session` `cwd`.
 - **Exit:** the agent starts a dev server and the user sees + interacts with it.
 
@@ -763,9 +763,14 @@ architecture decision (a PTY/DAP broker in the app server), not a thin UI slice.
 
 ### 12.12 App-level routes (preview re-validation + readiness)
 
-Two routes sit on the app side rather than the daemon pass-through:
+These routes sit on the app side rather than the daemon pass-through:
 
-- **`POST /api/coder/preview`** re-validates a preview URL at the API boundary,
+- **`POST /api/coder/browser`** checks coding-session ownership and forwards
+  navigation, input, viewport, frame, screenshot and diagnostics actions to
+  Chromium inside the Coder guest. The browser profile is persistent and the
+  Coder bearer token stays server-side. This is the active Preview popup path.
+
+- **`POST /api/coder/preview`** is the older compatibility proxy route. It re-validates a preview URL at the API boundary,
   using the same loopback-only, reserved-port validation as the client before
   anything is framed. It then
   signs a short-lived target ticket, and launches the app on the isolated
@@ -802,6 +807,8 @@ Two routes sit on the app side rather than the daemon pass-through:
 | `src/lib/settings-coder.test.ts` | `auto`/`yolo` enum, `yolo` default, legacy modes normalised, context/tool-search sentinels |
 | `src/app/api/coder/[...path]/route.test.ts` | 204/205/304 null-body relay, route passthrough (status/approval-mode/workspace/rewind), unowned-session deny |
 | `src/app/api/coder/preview/route.test.ts` | server-side preview-URL re-validation (loopback/reserved-port), SSRF rejection, malformed body, 403 unauth |
+| `src/app/api/coder/browser/route.test.ts` | browser action authorization and per-user session identity |
+| `scripts/coder-browser/session.node-test.mjs` | guest Chromium navigation, iframe-denied page rendering, state recovery, screenshots, console, viewport isolation |
 | `src/app/api/coder/readiness/route.test.ts` | db/daemon probe → 200 when both up, 503 when either down, 403 unauth |
 | `src/app/api/chats/route.test.ts` | id-wins-over-surface on DELETE, surface-wide only when bare |
 
