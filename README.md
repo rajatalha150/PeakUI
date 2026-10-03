@@ -188,6 +188,7 @@ mindmap
 - **Tools:** gated shell/filesystem operations, public and stealth browser modes, document generation, and fetch/summarize.
 - **Automation:** schedules, heartbeats, monitors, wake events, and guarded unattended local runs.
 - **GitHub:** connect in Coding settings, import repositories, retain the project in the persistent workspace, and use the normal agent/terminal workflow.
+- **Coding model roles:** choose Main from the header or configure Main, Vision, and Writer in Coding settings. The theme-matched menus show complete model names on desktop and phone, support keyboard selection, and identify incompatible models without hiding them.
 
 ## First Run
 
