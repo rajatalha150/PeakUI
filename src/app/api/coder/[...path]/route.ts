@@ -293,6 +293,29 @@ export async function POST(req: NextRequest) {
   const denied = await authorizeCoderRequest(access.userId, access.auth.user.role, target, body)
   if (denied) return denied
 
+  if (/^\/session\/[^/]+\/model$/.test(target.path)) {
+    const id = extractCoderSessionId(target.path)
+    if (!id) return notFound()
+    const statusResult = await proxyToCoderDaemon(`/session/${encodeURIComponent(id)}/status`, { method: 'GET' })
+    if (statusResult.status < 200 || statusResult.status >= 300) return relay(statusResult)
+    let status: unknown
+    try {
+      status = JSON.parse(statusResult.body)
+    } catch {
+      return NextResponse.json({ error: 'Cannot verify whether the coding turn is idle.' }, { status: 502 })
+    }
+    if (!status || typeof status !== 'object') {
+      return NextResponse.json({ error: 'Cannot verify whether the coding turn is idle.' }, { status: 502 })
+    }
+    const state = status as Record<string, unknown>
+    if (typeof state.hasActivePrompt !== 'boolean') {
+      return NextResponse.json({ error: 'Cannot verify whether the coding turn is idle.' }, { status: 502 })
+    }
+    if (state.hasActivePrompt === true || state.isWaitingForPermission === true || state.isWaitingForUserQuestion === true) {
+      return NextResponse.json({ error: 'The current turn is still active. Switch models after it finishes.', code: 'turn_active' }, { status: 409 })
+    }
+  }
+
   if (/^\/session\/[^/]+\/prompt$/.test(target.path)) {
     const sessionId = extractCoderSessionId(target.path)
     if (!sessionId) return notFound()

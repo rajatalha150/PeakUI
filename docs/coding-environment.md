@@ -839,6 +839,18 @@ curl -s http://127.0.0.1:4170/capabilities  # session_shell_command: true
 `/workspace/models` is the authoritative list for the dropdown, and
 tools-capable models are what drive the agent.
 
+Changing the Main model during an active turn queues a choice for that session;
+it does not replace the model halfway through the turn. The choice survives a
+page refresh in the same tab and applies after a fresh idle check. While it is
+pending, the composer keeps drafts but does not submit new prompts under the
+old model. The UI shows the pending model with Cancel and, after a failed
+switch, Retry. The gateway independently checks daemon status before forwarding
+`POST /session/:id/model` and returns 409 if the turn is still active. An
+accepted switch updates the saved Main-model preference and refreshes the
+model-native context meter. Reattaching to an active session does not force its
+saved default model onto the turn. This is a turn-boundary switch within the
+same transcript, not a separate summarization handoff.
+
 **Sessions** can be renamed inline in the sidebar (click the title or its
 pencil icon); the rename is a `PATCH /api/chats {id, title}` and survives the
 auto-title derivation. The trash button opens a confirmation dialog showing the

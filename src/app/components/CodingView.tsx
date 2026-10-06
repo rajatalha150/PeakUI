@@ -96,6 +96,19 @@ interface CoderSessionStatus {
   hasTurnError?: boolean;
 }
 
+interface PendingModelSwitch {
+  sessionId: string;
+  modelId: string;
+}
+
+const pendingModelKey = (sessionId: string) => `peakui-coder-pending-model:${sessionId}`;
+
+function isTurnActive(status: CoderSessionStatus): boolean {
+  return status.hasActivePrompt === true
+    || status.isWaitingForPermission === true
+    || status.isWaitingForUserQuestion === true;
+}
+
 /** A persistent coding session (stored in the Hermes ChatSession table). */
 interface CoderSession {
   id: string;
@@ -392,6 +405,11 @@ export default function CodingView() {
   // Model + coder settings (server-persisted).
   const [models, setModels] = React.useState<CoderModelOption[]>([]);
   const [modelLoading, setModelLoading] = React.useState(false);
+  const [pendingModelSwitch, setPendingModelSwitch] = React.useState<PendingModelSwitch | null>(null);
+  const [modelSwitching, setModelSwitching] = React.useState(false);
+  const [modelSwitchBlocked, setModelSwitchBlocked] = React.useState(false);
+  const modelSwitchInFlightRef = React.useRef(false);
+  const flushPendingModelSwitchRef = React.useRef<(sessionId: string, choice: PendingModelSwitch) => Promise<boolean>>(async () => false);
   const [settings, setSettings] = React.useState<CoderSettings | null>(null);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [settingsSaving, setSettingsSaving] = React.useState(false);
@@ -1030,6 +1048,18 @@ export default function CodingView() {
   React.useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
     lastPersistSignatureRef.current = '';
+    if (!activeSessionId) {
+      setPendingModelSwitch(null);
+      setModelSwitchBlocked(false);
+      return;
+    }
+    try {
+      const modelId = sessionStorage.getItem(pendingModelKey(activeSessionId));
+      setPendingModelSwitch(modelId ? { sessionId: activeSessionId, modelId } : null);
+    } catch {
+      setPendingModelSwitch(null);
+    }
+    setModelSwitchBlocked(false);
   }, [activeSessionId]);
 
   const persistMessages = React.useCallback(async (
@@ -1361,7 +1391,16 @@ export default function CodingView() {
         // the session. Vision and writer are daemon-global (not per-session), but
         // re-applying them here guarantees a reattached/old session still runs
         // with the user's saved orchestration — not a stale daemon default.
-        if (settings?.coderModel) {
+        // Reattaching must never reconfigure a model mid-turn. A pending choice
+        // (including one restored after refresh) takes precedence over the old
+        // saved default and is applied by the idle-status poll below.
+        const statusResponse = await fetch(`/api/coder/session/${data.sessionId}/status`);
+        const liveStatus = statusResponse.ok
+          ? await statusResponse.json().catch(() => null) as CoderSessionStatus | null
+          : null;
+        let pendingChoice: string | null = null;
+        try { pendingChoice = sessionStorage.getItem(pendingModelKey(data.sessionId)); } catch { /* Storage is optional. */ }
+        if (settings?.coderModel && liveStatus && !isTurnActive(liveStatus) && !pendingChoice) {
           await applyModel(data.sessionId, settings.coderModel, { quiet: true });
         }
         if (!current()) return null;
@@ -1402,9 +1441,13 @@ export default function CodingView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ modelId: suffixed }),
       });
-      const data = await res.json().catch(() => ({})) as { error?: string };
+      const data = await res.json().catch(() => ({})) as { error?: string; _meta?: { qwenModelSwitch?: { modelId?: string } } };
       if (!res.ok) {
+        if (res.status === 409) return null;
         setError(`Model switch failed: ${data.error || res.status}`);
+        return false;
+      } else if (data._meta?.qwenModelSwitch?.modelId && data._meta.qwenModelSwitch.modelId !== modelId.replace(/\([^)]*\)$/, '')) {
+        setError(`Model switch returned a different model: ${data._meta.qwenModelSwitch.modelId}`);
         return false;
       } else if (!opts.quiet) {
         setLiveStatus(`model → ${modelId}`);
@@ -1443,8 +1486,21 @@ export default function CodingView() {
       setError('Choose a tools-capable model for the Main role.');
       return;
     }
-    if (daemonSessionId && !await applyModel(daemonSessionId, modelId)) return;
-    await saveSettings({ coderModel: modelId });
+    if (modelSwitchInFlightRef.current) return;
+    if (!activeSessionId) {
+      await saveSettings({ coderModel: modelId });
+      return;
+    }
+    if (modelId === settings?.coderModel) {
+      try { sessionStorage.removeItem(pendingModelKey(activeSessionId)); } catch { /* Storage is optional. */ }
+      setPendingModelSwitch(null);
+      setModelSwitchBlocked(false);
+      return;
+    }
+    try { sessionStorage.setItem(pendingModelKey(activeSessionId), modelId); } catch { /* Storage is optional. */ }
+    setPendingModelSwitch({ sessionId: activeSessionId, modelId });
+    setModelSwitchBlocked(false);
+    setLiveStatus(!daemonSessionId || isTurnActive(sessionStatus || {}) ? 'model switch queued for the next idle moment' : 'switching model…');
   };
 
   const switchApprovalMode = async (mode: string) => {
@@ -2026,6 +2082,57 @@ export default function CodingView() {
     }
   };
 
+  const flushPendingModelSwitch = async (sessionId: string, choice: PendingModelSwitch): Promise<boolean> => {
+    if (modelSwitchInFlightRef.current || activeSessionIdRef.current !== sessionId || choice.sessionId !== sessionId) return false;
+    modelSwitchInFlightRef.current = true;
+    setModelSwitching(true);
+    try {
+      // Recheck at the boundary: the 4-second status poll can be stale by the
+      // time the model endpoint is called, especially with multiple tabs.
+      const statusResponse = await fetch(`/api/coder/session/${sessionId}/status`);
+      if (!statusResponse.ok) throw new Error(`Cannot verify agent state (HTTP ${statusResponse.status}).`);
+      const status = await statusResponse.json() as CoderSessionStatus;
+      if (isTurnActive(status)) return false;
+      if (activeSessionIdRef.current !== sessionId) return false;
+      const applied = await applyModel(sessionId, choice.modelId);
+      if (applied === null) return false;
+      if (!applied) {
+        setModelSwitchBlocked(true);
+        return false;
+      }
+      if (activeSessionIdRef.current !== sessionId) return false;
+      if (!await saveSettings({ coderModel: choice.modelId })) {
+        setModelSwitchBlocked(true);
+        return false;
+      }
+      if (activeSessionIdRef.current !== sessionId) return false;
+      try { sessionStorage.removeItem(pendingModelKey(sessionId)); } catch { /* Storage is optional. */ }
+      setPendingModelSwitch(current => current?.sessionId === sessionId && current.modelId === choice.modelId ? null : current);
+      setModelSwitchBlocked(false);
+      setLiveStatus(`model → ${choice.modelId}`);
+      try {
+        const contextResponse = await fetch(`/api/coder/session/${sessionId}/context`);
+        if (contextResponse.ok) {
+          const context = await contextResponse.json().catch(() => ({})) as { usage?: CoderContextUsage };
+          if (context.usage) setCoderContext(context.usage);
+        }
+      } catch {
+        // Context polling will refresh later; the accepted switch stays applied.
+      }
+      return true;
+    } catch (cause) {
+      if (activeSessionIdRef.current === sessionId) {
+        setError(`Model switch pending: ${cause instanceof Error ? cause.message : String(cause)}`);
+        setModelSwitchBlocked(true);
+      }
+      return false;
+    } finally {
+      modelSwitchInFlightRef.current = false;
+      setModelSwitching(false);
+    }
+  };
+  flushPendingModelSwitchRef.current = flushPendingModelSwitch;
+
   /**
    * Change the workspace cwd. Persists the setting AND tears down the current
    * daemon session so the next send re-creates it against the new directory.
@@ -2150,6 +2257,10 @@ export default function CodingView() {
   const send = async () => {
     const prompt = composer.trim();
     if (!prompt || !activeSessionId) return;
+    if (pendingModelSwitch?.sessionId === activeSessionId || modelSwitching) {
+      setLiveStatus('model switch pending — your message is still in the composer');
+      return;
+    }
     const current = captureSession();
     setError('');
     setComposer('');
@@ -2541,6 +2652,9 @@ export default function CodingView() {
         if (res.ok && !cancelled) {
           const status = await res.json().catch(() => ({})) as CoderSessionStatus;
           setSessionStatus(status);
+          if (pendingModelSwitch?.sessionId === daemonSessionId && !modelSwitchBlocked && !isTurnActive(status)) {
+            void flushPendingModelSwitchRef.current(daemonSessionId, pendingModelSwitch);
+          }
           // Reconcile the prompt cards from the authoritative status payload.
           // Without this, a permission ask raised while the SSE stream was
           // reconnecting (or before a page reload) left the status pill saying
@@ -2557,7 +2671,7 @@ export default function CodingView() {
     void tick();
     const timer = setInterval(tick, 4000);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [daemonSessionId, recoverMissingDaemonSession]);
+  }, [daemonSessionId, recoverMissingDaemonSession, pendingModelSwitch, modelSwitchBlocked]);
 
   /**
    * Transcript poll — the authoritative source for the chat surface.
@@ -2845,7 +2959,7 @@ export default function CodingView() {
         </select>
         <div style={{ flex: isPhone ? '1 0 100%' : '0 1 340px', order: isPhone ? 3 : undefined, minWidth: 0, maxWidth: isPhone ? '100%' : 420 }}>
           <CoderModelPicker
-            value={settings?.coderModel || ''}
+            value={pendingModelSwitch?.sessionId === activeSessionId ? pendingModelSwitch.modelId : settings?.coderModel || ''}
             onChange={id => void switchModel(id)}
             models={models}
             loading={modelLoading}
@@ -2996,7 +3110,7 @@ export default function CodingView() {
               <ModelSlot
                 label="Main"
                 hint="Plans, executes, and reviews the session. Choose a capable coding model here first; its own reported context window is used automatically."
-                value={settings.coderModel}
+                value={pendingModelSwitch?.sessionId === activeSessionId ? pendingModelSwitch.modelId : settings.coderModel}
                 models={models}
                 loading={modelLoading}
                 onChange={id => void switchModel(id)}
@@ -3621,18 +3735,35 @@ export default function CodingView() {
 
           {/* Composer */}
           <div style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            {pendingModelSwitch?.sessionId === activeSessionId && (
+              <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 9, color: modelSwitchBlocked ? '#fca5a5' : accent, fontSize: '0.74rem' }}>
+                {modelSwitching ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Bot size={13} />}
+                <span style={{ flex: 1, overflowWrap: 'anywhere' }}>
+                  {modelSwitchBlocked ? 'Model switch needs attention' : modelSwitching ? 'Switching model…' : 'Switching when this turn finishes'}: {pendingModelSwitch.modelId}
+                </span>
+                {modelSwitchBlocked && (
+                  <button type="button" onClick={() => setModelSwitchBlocked(false)} style={ghostBtnStyle()} title="Retry model switch"><RefreshCw size={13} /> Retry</button>
+                )}
+                <button type="button" onClick={() => {
+                  if (modelSwitchInFlightRef.current || !activeSessionId) return;
+                  try { sessionStorage.removeItem(pendingModelKey(activeSessionId)); } catch { /* Storage is optional. */ }
+                  setPendingModelSwitch(null);
+                  setModelSwitchBlocked(false);
+                }} disabled={modelSwitching} style={ghostBtnStyle()} title="Cancel model switch" aria-label="Cancel model switch"><X size={13} /></button>
+              </div>
+            )}
             <div style={{ display: 'flex', gap: '10px' }}>
               <textarea
                 value={composer}
                 onChange={e => setComposer(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
-                placeholder={activeSessionId ? (busy ? 'Agent is working — type to queue the next command…' : 'Tell the agent what to build…') : 'Create a session first'}
+                placeholder={activeSessionId ? (pendingModelSwitch?.sessionId === activeSessionId ? 'Write your next message while the model switches…' : busy ? 'Agent is working — type to queue the next command…' : 'Tell the agent what to build…') : 'Create a session first'}
                 disabled={!activeSessionId}
                 rows={2}
                 style={{ flex: 1, resize: 'none', background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '10px 12px', fontSize: '0.88rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
               />
-              <button onClick={() => void send()} disabled={!activeSessionId || !composer.trim()} style={{ ...btnStyle(accent), alignSelf: 'flex-end' }}>
-                <Send size={14} /> {busy ? 'Queue' : 'Run'}
+              <button onClick={() => void send()} disabled={!activeSessionId || !composer.trim() || pendingModelSwitch?.sessionId === activeSessionId || modelSwitching} style={{ ...btnStyle(accent), alignSelf: 'flex-end' }} title={pendingModelSwitch?.sessionId === activeSessionId ? 'Available after the model switch completes' : undefined}>
+                <Send size={14} /> {pendingModelSwitch?.sessionId === activeSessionId ? 'Waiting' : busy ? 'Queue' : 'Run'}
               </button>
             </div>
           </div>

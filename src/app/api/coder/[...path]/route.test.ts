@@ -181,6 +181,59 @@ describe('coder gateway route — response relay', () => {
     ])
   })
 
+  it('defers a model switch while the daemon reports an active turn', async () => {
+    const seen: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      seen.push(String(url))
+      return new Response(JSON.stringify({ hasActivePrompt: true }), { headers: { 'content-type': 'application/json' } })
+    }))
+    const { POST } = await loadRoute()
+    const result = await POST(makeRequest('/session/abc/model', {
+      method: 'POST', body: JSON.stringify({ modelId: 'new-model(openai)' }),
+    }))
+    expect(result.status).toBe(409)
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toContain('/session/abc/status')
+  })
+
+  it('does not switch while a turn is waiting for permission', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ hasActivePrompt: false, isWaitingForPermission: true }), {
+      headers: { 'content-type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { POST } = await loadRoute()
+    const result = await POST(makeRequest('/session/abc/model', {
+      method: 'POST', body: JSON.stringify({ modelId: 'new-model(openai)' }),
+    }))
+    expect(result.status).toBe(409)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('switches models only after a fresh idle status', async () => {
+    const seen: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      seen.push(String(url))
+      return new Response(JSON.stringify({ hasActivePrompt: false }), { headers: { 'content-type': 'application/json' } })
+    }))
+    const { POST } = await loadRoute()
+    const result = await POST(makeRequest('/session/abc/model', {
+      method: 'POST', body: JSON.stringify({ modelId: 'new-model(openai)' }),
+    }))
+    expect(result.status).toBe(200)
+    expect(seen.map(url => url.slice(url.indexOf('/session/')))).toEqual(['/session/abc/status', '/session/abc/model'])
+  })
+
+  it('fails closed when daemon status cannot establish idleness', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { headers: { 'content-type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { POST } = await loadRoute()
+    const result = await POST(makeRequest('/session/abc/model', {
+      method: 'POST', body: JSON.stringify({ modelId: 'new-model(openai)' }),
+    }))
+    expect(result.status).toBe(502)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('proxies the reversible-work (rewind) routes the UI depends on', async () => {
     // Guards the Phase 5 rewind exposure: list snapshots (GET) and rewind to a
     // snapshot (POST) must reach the daemon through the pass-through, with the
