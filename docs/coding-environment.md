@@ -866,6 +866,14 @@ the durable ledger, episode history, and handoffs for recovery after restarts.
 The context pill shows that native state, and the disk icon captures a manual
 handoff checkpoint without changing the visible transcript or live context.
 
+PeakUI does **not** prepend ledger recall to ordinary Coder prompts. The daemon
+already owns the live conversation; injecting a note on every turn recorded it
+as a visible user message, then indexed that same note again in the ledger.
+The ledger now stores only newly completed, non-overlapping episodes and
+excludes legacy injected notes from new summaries. Explicit context lookup
+remains available through the session context API. Existing injected messages
+in a daemon transcript are preserved rather than silently rewriting history.
+
 **Context capacity setting** — Coding Settings defaults to **Model default**
 (`coderContextLength = 0`). It follows the active Coder model's reported window
 and is the correct choice for nearly every session. **Advanced cap** is for
@@ -1013,9 +1021,8 @@ persistence — a separate, larger effort.
 
 ## 17. Multi-model orchestration (main / vision / writer)
 
-The Coding brain can split work across three specialised models, configured in
-the Settings drawer as a triangle — **Main** on top, **Vision** (bottom-left)
-and **Writer** (bottom-right) below.
+The Coding brain can split work across three specialised models, configured as
+full-width **Main**, **Vision**, and **Writer** controls in the Settings drawer.
 
 The daemon (Coder) natively supports both delegation mechanisms, so this is
 thin wiring over existing capability, not a new orchestrator:

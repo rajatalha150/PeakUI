@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildContextBudget, deriveEpisodeRange, scoreContextMemory } from './context-engine'
+import { buildContextBudget, deriveEpisodeRange, deriveNextEpisodeRange, scoreContextMemory } from './context-engine'
 
 describe('context engine budgeting', () => {
   it('compacts before the advertised context window is nearly full', () => {
@@ -23,6 +23,9 @@ describe('context engine budgeting', () => {
       { role: 'user' as const, content: 'active request' },
     ]
     expect(deriveEpisodeRange(messages, 2)).toEqual({ startOrdinal: 0, endOrdinal: 1 })
+    expect(deriveNextEpisodeRange(messages, 2, null)).toEqual({ startOrdinal: 0, endOrdinal: 1 })
+    expect(deriveNextEpisodeRange(messages, 1, 1)).toEqual({ startOrdinal: 2, endOrdinal: 3 })
+    expect(deriveNextEpisodeRange(messages, 1, 3)).toBeNull()
   })
 
   it('ranks memory by concrete request terms', () => {

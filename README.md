@@ -155,6 +155,7 @@ stateDiagram-v2
 ```
 
 Coding sessions use a durable PeakUI session ID, persistent transcript records, context handoffs, and a reconnecting SSE stream. If a guest restart removes the daemon's in-memory session, PeakUI automatically restores the same session and resumes its stream instead of requiring a new tab or a new chat.
+Coder's own transcript and compaction govern live turns; PeakUI no longer pastes saved episode summaries into every user prompt. Its Postgres ledger remains available for explicit history lookup and handoff checkpoints.
 
 ## Core Capabilities
 

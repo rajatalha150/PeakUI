@@ -47,7 +47,6 @@ import {
   proxyToCoderDaemon,
   streamCoderSse,
 } from '@/lib/coder-gateway'
-import { enrichCoderPromptWithRecall } from '@/lib/coder-context-recall'
 
 /**
  * Daemon API roots we allow through. Everything the daemon serves lives under
@@ -289,7 +288,7 @@ export async function POST(req: NextRequest) {
   const target = toDaemonPath(req)
   if (!target) return notFound()
 
-  let body = await req.json().catch(() => undefined)
+  const body = await req.json().catch(() => undefined)
 
   const denied = await authorizeCoderRequest(access.userId, access.auth.user.role, target, body)
   if (denied) return denied
@@ -301,14 +300,9 @@ export async function POST(req: NextRequest) {
     if (orchestrationError) {
       return NextResponse.json({ error: orchestrationError, code: 'orchestration_unavailable' }, { status: 503 })
     }
-    // Close the coder surface's write-only recall gap: prepend a clearly-marked
-    // background note summarizing matching compacted episodes from this
-    // project, so a reattached session can continue earlier work without the
-    // daemon's in-memory transcript. Never blocks the prompt on a recall miss.
-    const recall = await enrichCoderPromptWithRecall(sessionId, body?.prompt)
-    if (recall) {
-      body = { ...body, prompt: recall.prompt }
-    }
+    // The daemon owns the live conversation and its native compaction. Adding
+    // ledger recall to every prompt makes that note a visible user message,
+    // which is then saved back into the ledger and recursively recalled.
   }
 
   // A prompt can legitimately run for minutes on a local model; stream it when

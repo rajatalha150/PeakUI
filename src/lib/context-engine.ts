@@ -92,6 +92,18 @@ export function deriveEpisodeRange(messages: ContextSourceMessage[], preserveTur
   return { startOrdinal: start, endOrdinal: boundaryUserOrdinal - 1 }
 }
 
+/** Capture only work completed since the previous episode, not another copy of the entire prefix. */
+export function deriveNextEpisodeRange(
+  messages: ContextSourceMessage[],
+  preserveTurns: number,
+  previousEndOrdinal: number | null,
+): ContextEpisodeRange | null {
+  const eligible = deriveEpisodeRange(messages, preserveTurns)
+  if (!eligible) return null
+  const startOrdinal = Math.max(eligible.startOrdinal, (previousEndOrdinal ?? -1) + 1)
+  return startOrdinal <= eligible.endOrdinal ? { startOrdinal, endOrdinal: eligible.endOrdinal } : null
+}
+
 /**
  * Scores a source-linked memory against a new request. This remains useful on
  * deployments without pgvector; Postgres full-text/vector retrieval can replace

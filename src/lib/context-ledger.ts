@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto'
 import { prisma } from './prisma'
 import { buildSessionContextSummary } from './session-intelligence'
-import { deriveEpisodeRange, estimateContextMessages, scoreContextMemory, type ContextModelProfile, type ContextSourceMessage } from './context-engine'
+import { deriveNextEpisodeRange, estimateContextMessages, scoreContextMemory, type ContextModelProfile, type ContextSourceMessage } from './context-engine'
 import type { StoredChatMessage } from './chat-sessions'
 
 const MAX_RECALLED_EPISODES = 3
 const MAX_RECALLED_CHARS = 5_000
+export const CODER_RECALL_NOTE_PREFIX = '[Prior context from earlier in this project — background, not the current task]'
 
 function digest(value: string) {
   return createHash('sha256').update(value).digest('hex')
@@ -73,11 +74,22 @@ export async function recordContextLedger(input: RecordContextLedgerInput): Prom
     skipDuplicates: true,
   })
 
-  const episodeRange = deriveEpisodeRange(messages, input.preserveTurns)
+  const previousEpisode = await prisma.contextEpisode.findFirst({
+    where: { sessionId: input.sessionId },
+    orderBy: { endOrdinal: 'desc' },
+    select: { endOrdinal: true },
+  })
+  const episodeRange = deriveNextEpisodeRange(messages, input.preserveTurns, previousEpisode?.endOrdinal ?? null)
   if (!episodeRange) return
 
   const episodeMessages = messages.slice(episodeRange.startOrdinal, episodeRange.endOrdinal + 1)
-  const episodeSummary = buildSessionContextSummary(episodeMessages, { preserveTurns: 0 }) || input.workingMemory || 'Completed earlier work. Open its source events before relying on details.'
+  // Legacy Coder recall was recorded as a user message. Keep the immutable
+  // source event, but do not summarize or index that generated note as work.
+  const memoryMessages = episodeMessages.map(message => message.role === 'user' && message.content.startsWith(CODER_RECALL_NOTE_PREFIX)
+    ? { ...message, content: '', hidden: true }
+    : message)
+  const episodeSummary = buildSessionContextSummary(memoryMessages, { preserveTurns: 0 }) || input.workingMemory || 'Completed earlier work. Open its source events before relying on details.'
+  const searchText = `${episodeSummary}\n${memoryMessages.filter(message => !message.hidden).map(message => message.content).join('\n')}`.slice(0, 80_000)
   const episode = await prisma.contextEpisode.upsert({
     where: {
       sessionId_startOrdinal_endOrdinal: {
@@ -91,13 +103,13 @@ export async function recordContextLedger(input: RecordContextLedgerInput): Prom
       startOrdinal: episodeRange.startOrdinal,
       endOrdinal: episodeRange.endOrdinal,
       summary: episodeSummary,
-      searchText: `${episodeSummary}\n${episodeMessages.map(message => message.content).join('\n')}`.slice(0, 80_000),
-      tokenEstimate: estimateContextMessages(episodeMessages),
+      searchText,
+      tokenEstimate: estimateContextMessages(memoryMessages),
     },
     update: {
       summary: episodeSummary,
-      searchText: `${episodeSummary}\n${episodeMessages.map(message => message.content).join('\n')}`.slice(0, 80_000),
-      tokenEstimate: estimateContextMessages(episodeMessages),
+      searchText,
+      tokenEstimate: estimateContextMessages(memoryMessages),
     },
   })
 
@@ -179,11 +191,16 @@ export async function recallContextEpisodes(sessionId: string, query: string): P
       searchText: true,
     },
   })
-  const selected = episodes
+  const ranked = episodes
     .map(episode => ({ ...episode, score: scoreContextMemory(query, episode.searchText) }))
     .filter(episode => episode.score > 0)
-    .sort((left, right) => right.score - left.score)
-    .slice(0, MAX_RECALLED_EPISODES)
+    .sort((left, right) => right.score - left.score || right.endOrdinal - left.endOrdinal)
+  const selected: typeof ranked = []
+  for (const episode of ranked) {
+    if (selected.some(existing => episode.startOrdinal <= existing.endOrdinal && existing.startOrdinal <= episode.endOrdinal)) continue
+    selected.push(episode)
+    if (selected.length === MAX_RECALLED_EPISODES) break
+  }
 
   if (selected.length === 0) return { content: '', episodeIds: [] }
   let remaining = MAX_RECALLED_CHARS

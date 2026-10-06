@@ -227,6 +227,19 @@ describe('coder gateway route — response relay', () => {
     ])
   })
 
+  it('forwards a live prompt without injecting ledger recall as a user message', async () => {
+    let forwarded: unknown
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/session/abc/prompt')) forwarded = JSON.parse(String(init?.body))
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }))
+    const { POST } = await loadRoute()
+    const prompt = [{ type: 'text', text: 'Continue the Android build' }]
+
+    expect((await POST(makeRequest('/session/abc/prompt', { method: 'POST', body: JSON.stringify({ prompt }) }) as never)).status).toBe(200)
+    expect(forwarded).toEqual({ prompt })
+  })
+
   it('actively clears global delegates for a user with blank role settings', async () => {
     const seen: string[] = []
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
