@@ -1,6 +1,6 @@
 # PeakUI one-command installer — Windows (PowerShell).
 #
-#   irm https://raw.githubusercontent.com/rajatalha150/PeakUI/trimmer/scripts/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.ps1 | iex
 #
 # Or, after a manual clone, from the repo root:
 #   .\scripts\install.ps1 [-TargetDir <path>]
@@ -18,7 +18,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Repo = "https://github.com/rajatalha150/PeakUI.git"
-if (-not $Ref) { $Ref = "trimmer" }
+if (-not $Ref) { $Ref = "main" }
 $Branch = $Ref
 $ComposeFile = "docker-compose.windows.yml"
 

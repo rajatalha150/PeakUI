@@ -18,9 +18,10 @@ curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/in
 irm https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.ps1 | iex
 ```
 
-The installer is idempotent — re-running it `git pull`s the latest code and
-rebuilds, so the same command upgrades an existing deployment. It auto-selects
-the right compose file per OS (host networking on Linux, bridge networking on
+The installer is idempotent — re-running it fetches the selected branch and
+rebuilds, so the same command upgrades an existing deployment. Fresh installs use
+`main`; existing Linux/macOS checkouts retain their branch unless `PEAKUI_REF=main`
+is set. It auto-selects the right Compose file per OS (host networking on Linux, bridge networking on
 macOS/Windows) and writes OS-appropriate `DATABASE_URL` / `OLLAMA_HOST` values.
 
 The only hard prerequisite is Docker. Ollama is a soft prerequisite: the stack
@@ -30,7 +31,7 @@ after first login. To clone manually instead, run `./scripts/install.sh`
 
 ### Persistent Linux Coding Environment
 
-The `coder-lxd` branch can run Coding in a persistent Incus/LXD system
+On Linux, `main` can run Coding in a persistent Incus/LXD system
 container, where installed packages, services, nested Docker data, and the
 guest root filesystem survive updates. From an existing checkout, run:
 
@@ -50,8 +51,7 @@ password; the system `sudo` prompt reads it directly. See the complete
 ## Requirements
 
 - Docker and Docker Compose
-- Ollama installed locally
-- At least one Ollama chat model pulled
+- An Ollama installation or an OpenAI-compatible model provider for AI features
 - (Optional) An embedding model for semantic RAG
 
 ## Linux / macOS / Docker Desktop

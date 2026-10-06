@@ -56,10 +56,10 @@ The default on all supported platforms. It is a good fit for ordinary repositori
 
 ```bash
 # Linux / macOS
-curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/trimmer/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.sh | sh
 
 # Windows PowerShell
-irm https://raw.githubusercontent.com/rajatalha150/PeakUI/trimmer/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.ps1 | iex
 ```
 
 ### Persistent Linux Coder
@@ -67,7 +67,7 @@ irm https://raw.githubusercontent.com/rajatalha150/PeakUI/trimmer/scripts/instal
 For long-running engineering work, native/Android builds, package installation, system services, nested Docker, and projects that must outlive app updates.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/coder-lxd/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.sh \
   | PEAKUI_CODER_BACKEND=lxd sh
 ```
 
@@ -126,7 +126,8 @@ sequenceDiagram
   G->>G: Browse app through guest localhost
   G-->>S: Browser frames and console logs
   S-->>B: Authenticated browser display
-  B->>G: Click, type, scroll through PeakUI API
+  B->>S: Click, type, scroll
+  S->>G: Forward authenticated browser actions
 ```
 
 Preview runs Chromium inside the persistent Coder guest and displays its frames
@@ -149,17 +150,19 @@ The Preview window provides:
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Working
-  Working --> Persisted: transcript and tools change
-  Persisted --> Streaming: SSE healthy
-  Streaming --> Recovering: guest or daemon restart
-  Recovering --> Streaming: same session recreated or loaded
-  Recovering --> Waiting: runtime still booting
-  Waiting --> Recovering: bounded retry
-  Streaming --> Complete: turn finishes
+  [*] --> Attached
+  Attached --> Working: send prompt
+  Working --> Waiting: agent asks a question
+  Waiting --> Working: user responds
+  Working --> Attached: turn finishes
+  Attached --> Recovering: guest or daemon restart
+  Working --> Recovering: stream unavailable
+  Recovering --> Attached: load same session ID
+  Recovering --> Recovering: runtime still booting
 ```
 
 Coding sessions use a durable PeakUI session ID, persistent transcript records, context handoffs, and a reconnecting SSE stream. If a guest restart removes the daemon's in-memory session, PeakUI automatically restores the same session and resumes its stream instead of requiring a new tab or a new chat.
+Long sessions probe the transcript tail before fetching history, so idle sessions do not repeatedly download every page. Active updates merge with the cached history when they overlap.
 Coder's own transcript and compaction govern live turns; PeakUI no longer pastes saved episode summaries into every user prompt. Its Postgres ledger remains available for explicit history lookup and handoff checkpoints.
 
 ## Core Capabilities
@@ -200,14 +203,14 @@ mindmap
 
 ```mermaid
 flowchart LR
-  A[Start Ollama] --> B[Start PeakUI]
-  B --> C[Open localhost:3000]
-  C --> D[Create admin]
+  A[Install PeakUI] --> B[Open localhost:3000]
+  B --> C[Create admin]
+  C --> D[Configure Ollama or a remote provider]
   D --> E[Choose model]
   E --> F[Start in WorkSpaces or Coding]
 ```
 
-1. Start Ollama and pull at least one model:
+1. For local models, start Ollama and pull at least one model. You can instead configure a compatible remote provider in Settings:
 
    ```bash
    ollama serve
@@ -229,12 +232,17 @@ docker compose logs -f app
 # Persistent Linux Coder update
 PEAKUI_CODER_BACKEND=lxd ./scripts/install.sh
 
-# Tests
+# Verification
 npm test
-npm run bundle:check
+npm run build
 ```
 
+`npm run bundle:check` is an optional size audit, not a release gate at the
+moment: its older budget counts every generated route chunk, including
+on-demand views, rather than the JavaScript needed for first load.
+
 Use the installer for updates, especially when persistent Coder is enabled. It preserves the selected backend and supplies the necessary LXD Compose overlay. Do not run a base-only Compose recreation of `app` on an LXD deployment; it omits the guest daemon bridge configuration.
+Fresh installs use `main`. Existing Linux/macOS checkouts keep their current branch; set `PEAKUI_REF=main` once to move an older `trimmer` or `coder-lxd` checkout to the public release branch.
 
 Back up a persistent Coder guest and Postgres together:
 

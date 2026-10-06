@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # PeakUI one-command installer — Linux / macOS.
 #
-#   curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/trimmer/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.sh | sh
 #
 # Or, after a manual clone, from the repo root:
 #   ./scripts/install.sh [target_dir]
@@ -29,17 +29,14 @@ else
 fi
 
 # An explicit ref wins. Otherwise preserve the active branch of an existing
-# checkout. A fresh persistent-Coder install selects its implementation branch
-# automatically, so the documented piped command has no hidden ref argument.
+# checkout. Fresh installs use main for either Coder backend.
 if [ -n "${PEAKUI_REF:-}" ]; then
   BRANCH=$PEAKUI_REF
 elif git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   BRANCH=$(git -C "$TARGET" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-  BRANCH=${BRANCH:-trimmer}
-elif [ "${PEAKUI_CODER_BACKEND:-docker}" = lxd ]; then
-  BRANCH=coder-lxd
+  BRANCH=${BRANCH:-main}
 else
-  BRANCH=trimmer
+  BRANCH=main
 fi
 
 if [ -t 1 ]; then
@@ -57,7 +54,7 @@ OS="$(uname -s 2>/dev/null || echo unknown)"
 case "$OS" in
   Linux*)  COMPOSE_FILE="docker-compose.yml";           DB_HOST="localhost";            OLLAMA_HOST="http://127.0.0.1:11434"; TOR_URL="socks5://localhost:9050" ;;
   Darwin*) COMPOSE_FILE="docker-compose.windows.yml";    DB_HOST="db";                   OLLAMA_HOST="http://host.docker.internal:11434"; TOR_URL="socks5://tor-proxy:9150" ;;
-  *) die "Unsupported OS '$OS'. Use Windows PowerShell: irm https://raw.githubusercontent.com/rajatalha150/PeakUI/trimmer/scripts/install.ps1 | iex" ;;
+  *) die "Unsupported OS '$OS'. Use Windows PowerShell: irm https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.ps1 | iex" ;;
 esac
 
 # --- 2. Verify Docker -------------------------------------------------------

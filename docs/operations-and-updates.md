@@ -5,6 +5,12 @@ Keep the checkout on its intended branch, use the installer as the normal
 update path, and back up persistent data before changes that affect the host,
 database, or Incus runtime.
 
+Fresh installs use `main`. Existing Linux/macOS checkouts retain their
+selected branch; to move a deployment from the older `trimmer` or `coder-lxd`
+branch to the public release, back up first and run the installer once with
+`PEAKUI_REF=main` (and `PEAKUI_CODER_BACKEND=lxd` if using the persistent guest).
+This changes the application checkout, not the guest filesystem or database.
+
 ## What Updates What
 
 | Component | Supported update path | Persistent data |

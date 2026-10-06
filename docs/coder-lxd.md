@@ -192,13 +192,13 @@ When installing through a pipe, place the deployment variables on the `sh`
 side so they reach the installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/coder-lxd/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/main/scripts/install.sh \
   | PEAKUI_CODER_BACKEND=lxd sh
 ```
 
-The persistent-Coder flag selects the `coder-lxd` branch automatically on a
-fresh installation. Set `PEAKUI_REF` only when intentionally deploying a
-different branch.
+Fresh installations use `main` for both Coder backends. An existing Linux
+checkout keeps its current branch; set `PEAKUI_REF=main` once to move an older
+`coder-lxd` checkout to the public release branch.
 
 Run this from an interactive terminal so `sudo` can request the password. The
 password is read by `sudo`; PeakUI never reads or stores it.

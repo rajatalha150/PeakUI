@@ -1,15 +1,15 @@
 # Coder Implementation Status
 
-Live checklist for the `prompt-ai.md` hardening + IDE work. Updated as phases
-land. **Honest status only** — a check means the thing works against the real
-runtime and has evidence, not that a mock or a subset works.
+Historical checklist for the `prompt-ai.md` hardening + IDE work. The baseline
+and phase counts below describe the earlier `trimmer` implementation, not the
+current `main` release. For current Coder architecture and operation, see
+[Coding Environment](coding-environment.md) and [Persistent Coder](coder-lxd.md).
 
 ## Baseline (Phase 0)
 
-- Branch: `trimmer` (review hardening is in the current worktree; commit after
-  final verification)
+- Historical branch: `trimmer`
 - Historical baseline test command passed **59 tests / 7 files** (re-run
-  2026-09-21); the current full suite is recorded at the bottom of this file:
+  2026-09-21); this snapshot's later test run is recorded at the bottom:
   ```
   npm test -- --run src/lib/coder-gateway.test.ts src/lib/coder-orchestration.test.ts \
     src/lib/coder-transcript.test.ts src/lib/coder-permission-vote.test.ts \
@@ -23,7 +23,7 @@ runtime and has evidence, not that a mock or a subset works.
 
 | Phase | Status | Notes |
 |---|---|---|
-| 0 Baseline | ✅ | Historical baseline: 59/59 tests; current suite: 1,030 tests across 96 files |
+| 0 Baseline | ✅ | Historical baseline: 59/59 tests; later snapshot: 1,030 tests across 96 files |
 | 1 Ownership & runtime boundaries | 🔶 partial | authz + workspace binding + resource limits landed; non-root/bridge deferred to Phase 7 |
 | 2 Sessions, recovery, event persistence | ✅ | all 8 landed; SSE resume + no-overlap polling complete |
 | 3 Effective settings & project context | 🔶 partial | toolSearch threshold applied (restart-gated); context/tools audited & documented |
@@ -114,4 +114,4 @@ remaining managed-process work; it does not describe the active popup.
 - Browser harness: `scripts/coder-browser/verify-site.mjs`
 - Runbook: `docs/coder-deployment-runbook.md`
 - Handoff: `docs/coder-review-handoff.md`
-- Current suite: **1026 passing / 96 files** (`npm test`); production smoke: `scripts/coder-review-smoke.mjs`
+- Snapshot test run: **1026 passing / 96 files** (`npm test`); production smoke: `scripts/coder-review-smoke.mjs`
