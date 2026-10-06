@@ -5,7 +5,7 @@ import CoderBrowser, { coderBrowserRequest } from './CoderBrowser';
 import CoderModelPicker, { type CoderModelOption } from './CoderModelPicker';
 import { AlertCircle, Bot, Camera, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardCopy, Download, FileText, Folder, GitBranch, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
 import { buildPermissionVoteBody } from '@/lib/coder-permission-vote';
-import { buildConversation, fetchFullTranscript, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from '@/lib/coder-transcript';
+import { buildConversation, fetchFullTranscript, mergeTranscriptTail, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from '@/lib/coder-transcript';
 import { streamSessionEvents } from '@/lib/coder-sse';
 import { PREVIEW_VIEWPORTS, type PreviewDevice } from '@/lib/coder-preview';
 import { parseRewindResult, parseRewindSnapshots, type RewindResult, type RewindSnapshot } from '@/lib/coder-rewind';
@@ -1287,12 +1287,28 @@ export default function CodingView() {
         const cwd = sessionWorkspaceRef.current || workspace;
         const mkBody = (cwd: string) => ({ sessionId, cwd });
 
-        let res = await fetch('/api/coder/session', {
+        // A persisted workspace binding means this session has been attached
+        // before. Load it directly: a create-first request always returns 409
+        // for a live session and needlessly repeats on every reconnect.
+        const loadExisting = () => fetch(`/api/coder/session/${sessionId}/load`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cwd }),
+        });
+        const createSession = () => fetch('/api/coder/session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(mkBody(cwd)),
         });
+        let res = sessionWorkspaceRef.current ? await loadExisting() : await createSession();
         let data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string; code?: string };
+
+        // A stale DB binding can outlive a deleted guest transcript. Recreate
+        // under the same persistent id; the DB conversation remains available.
+        if (!res.ok && res.status === 404 && sessionWorkspaceRef.current) {
+          res = await createSession();
+          data = await res.json().catch(() => ({})) as typeof data;
+        }
 
         // The daemon is bound to a primary workspace and rejects a session for any
         // other path with `workspace_mismatch` until that path is registered.
@@ -1306,11 +1322,7 @@ export default function CodingView() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ cwd, persist: true }),
           }).catch(() => {});
-          res = await fetch('/api/coder/session', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(mkBody(cwd)),
-          });
+          res = await createSession();
           data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string; code?: string };
         }
 
@@ -1322,11 +1334,7 @@ export default function CodingView() {
           // (e.g. /apps) is routed by `resolveRuntimeForSessionRestore` using the
           // cwd; without it the daemon 404s "No session with id" even though the
           // session exists in another runtime.
-          res = await fetch(`/api/coder/session/${sessionId}/load`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cwd }),
-          });
+          res = await loadExisting();
           data = await res.json().catch(() => ({})) as { sessionId?: string; clientId?: string; error?: string; code?: string };
         }
 
@@ -1344,16 +1352,20 @@ export default function CodingView() {
 
         // The gateway has already persisted this binding atomically.
         sessionWorkspaceRef.current = cwd;
+        // Binding must not depend on optional preference writes. An active turn
+        // can reject a model/mode switch, but the user must still be able to
+        // watch and control that turn without a create/load retry loop.
+        setDaemonSessionId(data.sessionId);
 
         // Apply the persisted model + approval mode + orchestration delegates to
         // the session. Vision and writer are daemon-global (not per-session), but
         // re-applying them here guarantees a reattached/old session still runs
         // with the user's saved orchestration — not a stale daemon default.
         if (settings?.coderModel) {
-          if (!await applyModel(data.sessionId, settings.coderModel, { quiet: true })) return null;
+          await applyModel(data.sessionId, settings.coderModel, { quiet: true });
         }
         if (!current()) return null;
-        if (!await applyApprovalMode(data.sessionId, settings?.coderApprovalMode || 'yolo', { quiet: true })) return null;
+        await applyApprovalMode(data.sessionId, settings?.coderApprovalMode || 'yolo', { quiet: true });
         if (!current()) return null;
         // Always reconcile both delegates, including explicit blanks. The Coder
         // daemon is shared, so skipping an empty value would inherit another
@@ -1364,7 +1376,6 @@ export default function CodingView() {
           await applyToolSearchThreshold(settings.coderToolSearchThreshold);
         }
         if (!current()) return null;
-        setDaemonSessionId(data.sessionId);
         return data.sessionId;
       } catch (e) {
         if (current()) setError(e instanceof Error ? e.message : 'Failed to start daemon session');
@@ -2333,6 +2344,16 @@ export default function CodingView() {
 
   // ---- Live status + tool activity (SSE, with poll fallback) --------------
 
+  const recoverMissingDaemonSession = React.useCallback((missingId: string) => {
+    if (activeSessionIdRef.current !== missingId) return;
+    setError('');
+    setLiveStatus('agent runtime restarted — restoring session…');
+    clientIdRef.current = '';
+    ensurePromiseRef.current = null;
+    setDaemonSessionId(current => current === missingId ? null : current);
+    setDaemonRecoveryAttempt(attempt => attempt + 1);
+  }, []);
+
   /**
    * Subscribe to the daemon's event stream for the active session. This drives
    * the live status line, the tool-activity feed, and the permission prompts —
@@ -2432,12 +2453,7 @@ export default function CodingView() {
           // still valid. Drop only this transient handle and let the eager
           // reattach effect recreate/load the same session automatically.
           if (status === 404) {
-            setError('');
-            note('agent runtime restarted — restoring session…');
-            clientIdRef.current = '';
-            ensurePromiseRef.current = null;
-            setDaemonSessionId(current => current === streamedSessionId ? null : current);
-            setDaemonRecoveryAttempt(attempt => attempt + 1);
+            recoverMissingDaemonSession(streamedSessionId);
             return;
           }
           setError(`Agent stream unavailable (${status}). Sign in again if the problem persists.`);
@@ -2449,7 +2465,7 @@ export default function CodingView() {
       cancelled = true;
       close();
     };
-  }, [daemonSessionId]);
+  }, [daemonSessionId, recoverMissingDaemonSession]);
 
   const captureContextHandoff = React.useCallback(async (sessionId: string) => {
     if (contextHandoffSaving) return;
@@ -2518,6 +2534,10 @@ export default function CodingView() {
       running = true;
       try {
         const res = await fetch(`/api/coder/session/${daemonSessionId}/status`);
+        if (res.status === 404 && !cancelled) {
+          recoverMissingDaemonSession(daemonSessionId);
+          return;
+        }
         if (res.ok && !cancelled) {
           const status = await res.json().catch(() => ({})) as CoderSessionStatus;
           setSessionStatus(status);
@@ -2537,7 +2557,7 @@ export default function CodingView() {
     void tick();
     const timer = setInterval(tick, 4000);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [daemonSessionId]);
+  }, [daemonSessionId, recoverMissingDaemonSession]);
 
   /**
    * Transcript poll — the authoritative source for the chat surface.
@@ -2557,16 +2577,38 @@ export default function CodingView() {
     // multi-page history) could overlap the next tick and reorder/duplicate
     // state writes. Skip a tick when one is already in flight instead.
     let running = false;
+    let lastUpdated: string | null = null;
     const tick = async () => {
       if (running) return;
       running = true;
       try {
+        // The full transcript can span dozens of megabyte-sized pages. A
+        // backward probe reads only its tail; replay history only after its
+        // on-disk mtime changes, including while a turn is streaming.
+        const probe = await fetch(`/api/coder/session/${daemonSessionId}/transcript?direction=backward&limit=1`);
+        if (probe.status === 404 && !cancelled) {
+          recoverMissingDaemonSession(daemonSessionId);
+          return;
+        }
+        if (!probe.ok) throw new Error(`transcript probe ${probe.status}`);
+        const head = await probe.json().catch(() => ({})) as { lastUpdated?: string };
+        const version = typeof head.lastUpdated === 'string' ? head.lastUpdated : null;
+        if (version && version === lastUpdated) return;
+        let events: CoderTranscriptEvent[] | null = null;
+        if (lastUpdated !== null) {
+          const tailResponse = await fetch(`/api/coder/session/${daemonSessionId}/transcript?direction=backward&limit=500`);
+          if (!tailResponse.ok) throw new Error(`transcript tail ${tailResponse.status}`);
+          const tailPage = await tailResponse.json().catch(() => ({})) as { events?: CoderTranscriptEvent[] };
+          if (Array.isArray(tailPage.events)) {
+            events = mergeTranscriptTail(transcriptRef.current, tailPage.events);
+          }
+        }
         // `qwen serve` paginates the transcript at 100 events/page by default
         // and returns `{ hasMore, nextCursor }`. A single unpaginated fetch
         // silently dropped every message after the first couple of turns.
         // Request the daemon's hard cap (500) and follow the cursor if a
         // conversation ever grows past one page.
-        const events = await fetchFullTranscript(async (cursor) => {
+        events ??= await fetchFullTranscript(async (cursor) => {
           const qs = new URLSearchParams({ limit: '500' });
           if (cursor) qs.set('cursor', cursor);
           const res = await fetch(`/api/coder/session/${daemonSessionId}/transcript?${qs.toString()}`);
@@ -2579,6 +2621,7 @@ export default function CodingView() {
           };
         });
         if (cancelled) return;
+        lastUpdated = version;
         transcriptRef.current = events;
         setTranscriptEvents(events);
         const built = buildConversation(events);
@@ -2595,9 +2638,9 @@ export default function CodingView() {
       }
     };
     void tick();
-    const timer = setInterval(tick, 1500);
+    const timer = setInterval(tick, 2000);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [daemonSessionId]);
+  }, [daemonSessionId, recoverMissingDaemonSession]);
 
   // ---- Auto-continue on writer completion ----------------------------------
   //

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildConversation, fetchFullTranscript, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from './coder-transcript'
+import { buildConversation, fetchFullTranscript, mergeTranscriptTail, serializeConversation, trailingBackgroundNotification, type CoderTranscriptEvent } from './coder-transcript'
 
 const event = (sessionUpdate: string, data: Record<string, unknown>): CoderTranscriptEvent => ({
   type: 'session_update',
@@ -176,6 +176,28 @@ describe('fetchFullTranscript', () => {
     const e1 = [event('agent_message_chunk', { content: { type: 'text', text: 'x' } })];
     const result = await fetchFullTranscript(async () => ({ events: e1, hasMore: true }));
     expect(result).toEqual(e1);
+  });
+});
+
+describe('mergeTranscriptTail', () => {
+  const one = event('agent_message_chunk', { content: { text: 'one' } });
+  const two = event('agent_message_chunk', { content: { text: 'two' } });
+  const three = event('agent_message_chunk', { content: { text: 'three' } });
+
+  it('appends only new records from an overlapping tail', () => {
+    expect(mergeTranscriptTail([one, two], [two, three])).toEqual([one, two, three]);
+  });
+
+  it('does not duplicate an unchanged tail', () => {
+    expect(mergeTranscriptTail([one, two], [one, two])).toEqual([one, two]);
+  });
+
+  it('requires a full replay if there is no overlap', () => {
+    expect(mergeTranscriptTail([one], [three])).toBeNull();
+  });
+
+  it('accepts an initial page', () => {
+    expect(mergeTranscriptTail([], [one])).toEqual([one]);
   });
 });
 

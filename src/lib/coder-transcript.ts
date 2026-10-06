@@ -137,6 +137,23 @@ export async function fetchFullTranscript(
   return events;
 }
 
+/** Append a recent backward page only when it overlaps the history we have. */
+export function mergeTranscriptTail(
+  existing: CoderTranscriptEvent[],
+  tail: CoderTranscriptEvent[],
+): CoderTranscriptEvent[] | null {
+  if (!existing.length) return tail;
+  if (!tail.length) return null;
+  const oldKeys = existing.slice(-tail.length).map(event => JSON.stringify(event));
+  const tailKeys = tail.map(event => JSON.stringify(event));
+  for (let overlap = Math.min(oldKeys.length, tailKeys.length); overlap > 0; overlap--) {
+    if (oldKeys.slice(-overlap).every((key, index) => key === tailKeys[index])) {
+      return existing.concat(tail.slice(overlap));
+    }
+  }
+  return null;
+}
+
 /** Pull readable text out of the daemon's content-block shapes. */
 function contentText(content: unknown): string {
   if (typeof content === 'string') return content;

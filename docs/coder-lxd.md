@@ -259,6 +259,18 @@ directory such as `/workspace/data` is created in the persistent guest root
 when selected. Existing sessions remain bound to their original directory. The
 managed CODER.md is refreshed when a runtime starts after an update.
 
+The Coder UI attaches an existing session with `/session/:id/load` rather than
+attempting to create it again (which returns a routine 409 conflict). If the
+guest restarts and its in-memory session disappears, a 404 from either the
+event stream, status, or transcript triggers automatic reattachment under the
+same persistent session ID. A saved model or approval-mode write failing must
+not prevent the chat from binding to an otherwise healthy session. For long
+histories, the UI checks the transcript's last-updated timestamp and merges a
+recent backward page while the agent is active. It replays the complete
+transcript only on first attach or if the recent page has no overlap with the
+cached history. This keeps large sessions from flooding the gateway with a
+full multi-page replay every polling interval.
+
 The instance root persists all directories, including `/workspace`, `/apps`,
 tool caches, and SSH/Coder state. The agent can install
 packages, start systemd services, build projects, and use nested `docker` and
