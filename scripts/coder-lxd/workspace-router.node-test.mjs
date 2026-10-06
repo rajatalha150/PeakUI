@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { access, mkdtemp, mkdir, rm } from 'node:fs/promises';
+import { execFileSync, spawn } from 'node:child_process';
+import { access, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import net from 'node:net';
 import http from 'node:http';
 import { createHash } from 'node:crypto';
@@ -79,6 +79,38 @@ test('routes parent and nested directories to independent persistent runtimes', 
     await access(created);
     assert.equal((await request('/session/parent/status')).data.cwd, workspace);
     assert.equal((await request('/session/child/status')).data.cwd, child);
+    const artifact = join(child, 'build.apk');
+    const bytes = Buffer.alloc(2 * 1024 * 1024, 0x5a);
+    await writeFile(artifact, bytes);
+    const fileQuery = new URLSearchParams({ workspace: child, path: artifact });
+    const downloaded = await fetch(`http://127.0.0.1:${port}/peakui/files/stream?${fileQuery}`, {
+      headers: { Authorization: 'Bearer test-token' },
+    });
+    assert.equal(downloaded.status, 200);
+    assert.equal(downloaded.headers.get('content-length'), String(bytes.length));
+    assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), bytes);
+    const docs = join(child, 'docs');
+    await mkdir(docs);
+    await writeFile(join(docs, 'note.txt'), 'folder download');
+    const archived = await fetch(`http://127.0.0.1:${port}/peakui/files/archive`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer test-token', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace: child, paths: [artifact, docs] }),
+    });
+    assert.equal(archived.status, 200);
+    assert.equal(archived.headers.get('content-type'), 'application/zip');
+    const zipPath = join(root, 'download.zip');
+    await writeFile(zipPath, Buffer.from(await archived.arrayBuffer()));
+    assert.match(execFileSync('unzip', ['-Z1', zipPath], { encoding: 'utf8' }), /docs\/note\.txt/);
+    execFileSync('unzip', ['-tq', zipPath]);
+    const outside = join(root, 'outside.txt');
+    await writeFile(outside, 'secret');
+    const link = join(child, 'outside-link');
+    await symlink(outside, link);
+    const escaped = await fetch(`http://127.0.0.1:${port}/peakui/files/stream?${new URLSearchParams({ workspace: child, path: link })}`, {
+      headers: { Authorization: 'Bearer test-token' },
+    });
+    assert.equal(escaped.status, 400);
     assert.equal((await request('/peakui/projects/import', { repositoryUrl: 'file:///tmp/repo', branch: 'main', destination: '/workspace/projects/nope' })).status, 400);
     const preview = await fetch(`http://p${appPort}.localhost:${previewPort}/hello`);
     assert.equal(await preview.text(), 'preview:/hello');

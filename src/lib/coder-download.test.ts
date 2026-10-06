@@ -7,11 +7,16 @@ import {
   hostRootForWorkspaceFile,
   sanitizeDownloadFilename,
   streamDaemonFileWindowed,
+  streamGuestDownload,
   streamLocalDownload,
 } from './coder-download'
 
 const mocks = vi.hoisted(() => ({ proxyToCoderDaemon: vi.fn() }))
-vi.mock('@/lib/coder-gateway', () => ({ proxyToCoderDaemon: mocks.proxyToCoderDaemon }))
+vi.mock('@/lib/coder-gateway', () => ({
+  proxyToCoderDaemon: mocks.proxyToCoderDaemon,
+  getCoderDaemonBaseUrl: () => 'http://coder.test',
+  getCoderDaemonToken: () => 'test-token',
+}))
 
 describe('hostPathForWorkspaceFile', () => {
   it('maps a /workspace file onto the app mount', () => {
@@ -133,5 +138,42 @@ describe('streamDaemonFileWindowed', () => {
     })
     await streamDaemonFileWindowed('/apps/foo.bin', 'foo.bin', 'application/octet-stream', cleanup).arrayBuffer()
     expect(cleanup).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('streamGuestDownload', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('passes a large file stream through without buffering it', async () => {
+    const upstream = new Response(new ReadableStream({
+      pull(controller) { controller.enqueue(new Uint8Array([1, 2, 3])); controller.close() },
+    }), { headers: { 'Content-Length': '3' } })
+    const buffered = vi.spyOn(upstream, 'arrayBuffer')
+    const fetchMock = vi.fn().mockResolvedValue(upstream)
+    vi.stubGlobal('fetch', fetchMock)
+    const response = await streamGuestDownload('/workspace', ['/workspace/build.apk'], false)
+    expect(response.headers.get('Content-Disposition')).toContain('build.apk')
+    expect(response.headers.get('Content-Length')).toBe('3')
+    expect(fetchMock.mock.calls[0][0]).toContain('/peakui/files/stream?')
+    expect(fetchMock.mock.calls[0][1].method).toBe('GET')
+    expect(buffered).not.toHaveBeenCalled()
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(Buffer.from([1, 2, 3]))
+  })
+
+  it('streams an archive request with all selected paths', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('PK'))
+    vi.stubGlobal('fetch', fetchMock)
+    const response = await streamGuestDownload('/workspace', ['/workspace/a', '/workspace/b'], true)
+    expect(response.headers.get('Content-Type')).toBe('application/zip')
+    expect(response.headers.get('Content-Disposition')).toContain('peakui-download.zip')
+    expect(fetchMock.mock.calls[0][0]).toBe('http://coder.test/peakui/files/archive')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      workspace: '/workspace', paths: ['/workspace/a', '/workspace/b'],
+    })
+  })
+
+  it('reports guest errors before starting the browser download', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"error":"File not found."}', { status: 404 })))
+    await expect(streamGuestDownload('/workspace', ['/workspace/missing'], false)).rejects.toThrow('File not found.')
   })
 })

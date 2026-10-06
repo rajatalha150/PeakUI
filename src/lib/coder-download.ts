@@ -15,7 +15,7 @@ import { open, realpath } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { Readable } from 'node:stream'
-import { proxyToCoderDaemon } from '@/lib/coder-gateway'
+import { getCoderDaemonBaseUrl, getCoderDaemonToken, proxyToCoderDaemon } from '@/lib/coder-gateway'
 
 /**
  * Daemon workspace roots the app container can read directly (shared volumes).
@@ -172,4 +172,40 @@ export function streamDaemonFileWindowed(
       'Content-Disposition': `attachment; filename="${sanitizeDownloadFilename(filename)}"`,
     },
   })
+}
+
+/** Stream directly from the persistent guest, without daemon read windows. */
+export async function streamGuestDownload(
+  workspace: string,
+  paths: string[],
+  archive: boolean,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const endpoint = archive ? '/peakui/files/archive' : '/peakui/files/stream'
+  const query = archive ? '' : `?${new URLSearchParams({ workspace, path: paths[0] })}`
+  const upstream = await fetch(`${getCoderDaemonBaseUrl()}${endpoint}${query}`, {
+    method: archive ? 'POST' : 'GET',
+    headers: {
+      Authorization: `Bearer ${getCoderDaemonToken()}`,
+      ...(archive ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(archive ? { body: JSON.stringify({ workspace, paths }) } : {}),
+    signal,
+  })
+  if (!upstream.ok || !upstream.body) {
+    const failure = await upstream.text().catch(() => '')
+    let message = 'Coder could not prepare the download.'
+    try { message = (JSON.parse(failure) as { error?: string }).error || message } catch { /* non-JSON upstream */ }
+    throw new Error(message)
+  }
+  const filename = archive ? 'peakui-download.zip' : paths[0].split('/').pop() || 'download'
+  const headers = new Headers({
+    'Content-Type': archive ? 'application/zip' : 'application/octet-stream',
+    'Content-Disposition': `attachment; filename="${sanitizeDownloadFilename(filename)}"`,
+    'Cache-Control': 'private, no-store',
+    'X-Accel-Buffering': 'no',
+  })
+  const length = upstream.headers.get('content-length')
+  if (length) headers.set('Content-Length', length)
+  return new Response(upstream.body, { headers })
 }

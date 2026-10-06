@@ -7,6 +7,7 @@ import {
   hostRootForWorkspaceFile,
   sanitizeDownloadFilename,
   streamDaemonFileWindowed,
+  streamGuestDownload,
   streamLocalDownload,
 } from '@/lib/coder-download'
 import { proxyToCoderDaemon } from '@/lib/coder-gateway'
@@ -38,7 +39,18 @@ async function runShell(sessionId: string, command: string, clientId: string) {
 export async function POST(request: NextRequest) {
   const access = await requireCoderAccess(request)
   if ('response' in access) return access.response
-  const body = await request.json().catch(() => null) as Record<string, unknown> | null
+  const isForm = request.headers.get('content-type')?.includes('application/x-www-form-urlencoded')
+  const body = isForm
+    ? await request.formData().then(form => ({
+        action: form.get('action'),
+        sessionId: form.get('sessionId'),
+        workspace: form.get('workspace'),
+        paths: form.getAll('paths'),
+        archive: form.get('archive') === 'true',
+        clientId: form.get('clientId'),
+        targetName: form.get('targetName'),
+      })).catch(() => null)
+    : await request.json().catch(() => null) as Record<string, unknown> | null
   if (!body || typeof body.sessionId !== 'string' || typeof body.workspace !== 'string') {
     return NextResponse.json({ error: 'A session and workspace are required.' }, { status: 400 })
   }
@@ -49,7 +61,7 @@ export async function POST(request: NextRequest) {
   }
   const paths = parsePaths(body.paths, workspace)
   if (!paths) return NextResponse.json({ error: 'Selected paths must stay inside the active workspace.' }, { status: 400 })
-  const clientId = request.headers.get('x-qwen-client-id') || ''
+  const clientId = request.headers.get('x-qwen-client-id') || (isForm && typeof body.clientId === 'string' ? body.clientId : '')
 
   const requireDaemonClient = () => {
     if (clientId) return null
@@ -79,6 +91,9 @@ export async function POST(request: NextRequest) {
 
     if (body.action === 'download') {
       const isSingleFileDownload = paths.length === 1 && body.archive !== true
+      if (process.env.CODER_SHARED_VOLUMES === 'false') {
+        return await streamGuestDownload(workspace, paths, !isSingleFileDownload, request.signal)
+      }
       if (isSingleFileDownload) {
         const filename = sanitizeDownloadFilename(paths[0].split('/').pop() || 'download')
         // Stream straight from the shared volume when the workspace is mounted

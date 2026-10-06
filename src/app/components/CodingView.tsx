@@ -1682,23 +1682,55 @@ export default function CodingView() {
     setFileActionRunning(true);
     setFileError('');
     try {
+      if (action === 'download') {
+        // A native form download lets the browser stream large APKs/ZIPs to
+        // disk without holding the entire response in a JavaScript Blob.
+        const frame = document.createElement('iframe');
+        frame.name = `peakui-download-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        frame.hidden = true;
+        frame.addEventListener('load', () => {
+          const text = frame.contentDocument?.body?.textContent?.trim();
+          if (!text) return;
+          try {
+            const result = JSON.parse(text) as { error?: string };
+            setFileError(result.error || 'Download failed.');
+          } catch {
+            setFileError('Download failed.');
+          }
+          frame.remove();
+        });
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '/api/coder/file-actions';
+        form.target = frame.name;
+        form.hidden = true;
+        const addField = (name: string, value: string) => {
+          const input = document.createElement('input');
+          input.type = 'hidden';
+          input.name = name;
+          input.value = value;
+          form.appendChild(input);
+        };
+        addField('action', 'download');
+        addField('sessionId', sessionId);
+        addField('workspace', workspace);
+        addField('archive', String(options.archive === true));
+        addField('clientId', clientIdRef.current);
+        paths.forEach(path => addField('paths', path));
+        document.body.append(frame, form);
+        form.submit();
+        form.remove();
+        return;
+      }
       const response = await fetch('/api/coder/file-actions', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'x-qwen-client-id': clientIdRef.current },
         body: JSON.stringify({ action, sessionId, workspace, paths, archive: options.archive === true, targetName }),
       });
-      if (action === 'download' && response.ok) {
-        const blob = await response.blob();
-        const href = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = href;
-        link.download = paths.length === 1 && !options.archive ? paths[0].split('/').pop() || 'download' : 'peakui-download.zip';
-        link.click();
-        URL.revokeObjectURL(href);
-      } else if (!response.ok) {
+      if (!response.ok) {
         const data = await response.json().catch(() => ({})) as { error?: string };
         throw new Error(data.error || `File action failed (${response.status})`);
       }
-      if (action !== 'download') await loadDir(fileDir);
+      await loadDir(fileDir);
     } catch (error) {
       setFileError(error instanceof Error ? error.message : 'File action failed');
     } finally {

@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { cp, mkdir, realpath, rename, rm } from 'node:fs/promises';
+import { constants, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { cp, mkdir, open, realpath, rename, rm, stat } from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
 import net from 'node:net';
@@ -254,6 +254,70 @@ function readSmallBody(req) {
   });
 }
 
+async function downloadRoot(workspace) {
+  if (typeof workspace !== 'string' || !workspace.startsWith('/') || /[\\%\x00-\x1f\x7f]/.test(workspace)) {
+    throw new Error('Invalid download workspace.');
+  }
+  const root = await realpath(workspace);
+  if (!(await stat(root)).isDirectory()) throw new Error('Download workspace is not a directory.');
+  return root;
+}
+
+async function downloadPath(root, value) {
+  if (typeof value !== 'string' || !value.startsWith('/') || /[\\%\x00-\x1f\x7f]/.test(value)) {
+    throw new Error('Invalid download path.');
+  }
+  const absolute = resolve(value);
+  if (!containsPath(root, absolute)) throw new Error('Download path is outside the workspace.');
+  const canonical = await realpath(absolute);
+  if (!containsPath(root, canonical)) throw new Error('Download target resolves outside the workspace.');
+  return absolute;
+}
+
+async function streamDownloadFile(req, res, url) {
+  const root = await downloadRoot(url.searchParams.get('workspace'));
+  const path = await downloadPath(root, url.searchParams.get('path'));
+  const resolved = await realpath(path);
+  const handle = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const info = await handle.stat();
+  if (!info.isFile()) {
+    await handle.close();
+    throw new Error('Download target is not a file.');
+  }
+  const source = handle.createReadStream();
+  res.writeHead(200, {
+    'Content-Type': 'application/octet-stream',
+    'Content-Length': info.size,
+    'X-Accel-Buffering': 'no',
+  });
+  source.on('error', error => res.destroy(error));
+  res.on('close', () => source.destroy());
+  source.pipe(res);
+}
+
+async function streamDownloadArchive(req, res) {
+  const body = JSON.parse((await readSmallBody(req)).toString('utf8'));
+  const root = await downloadRoot(body?.workspace);
+  if (!Array.isArray(body?.paths) || body.paths.length === 0 || body.paths.length > 100) {
+    throw new Error('Choose one to 100 files or folders.');
+  }
+  const paths = await Promise.all(body.paths.map(path => downloadPath(root, path)));
+  const relative = paths.map(path => path === root ? '.' : path.slice(root.length + (root === '/' ? 0 : 1)));
+  // -y stores symlinks as links, preventing a nested link from leaking files
+  // outside the selected workspace while zip traverses a directory.
+  const zip = spawn('zip', ['-q', '-r', '-y', '-', '--', ...relative], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+  let stderr = '';
+  zip.stderr.on('data', chunk => { stderr = (stderr + chunk.toString()).slice(-4096); });
+  res.writeHead(200, { 'Content-Type': 'application/zip', 'X-Accel-Buffering': 'no' });
+  zip.stdout.pipe(res, { end: false });
+  zip.on('error', error => res.destroy(error));
+  zip.on('close', code => {
+    if (code === 0) res.end();
+    else res.destroy(new Error(stderr || `ZIP exited with code ${code}.`));
+  });
+  res.on('close', () => { if (zip.exitCode === null) zip.kill('SIGTERM'); });
+}
+
 async function importProject(body) {
   const repositoryUrl = typeof body?.repositoryUrl === 'string' ? body.repositoryUrl : '';
   const branch = typeof body?.branch === 'string' ? body.branch : '';
@@ -326,6 +390,12 @@ async function handle(req, res) {
     if (typeof body.key !== 'string' || !/^[a-f0-9]{64}$/.test(body.key)) throw new Error('Invalid browser session.');
     const { browserAction } = await import('/opt/qwen-code/browser/session.mjs');
     return sendJson(res, 200, await browserAction(body.key, body));
+  }
+  if (url.pathname === '/peakui/files/stream' && req.method === 'GET') {
+    return streamDownloadFile(req, res, url);
+  }
+  if (url.pathname === '/peakui/files/archive' && req.method === 'POST') {
+    return streamDownloadArchive(req, res);
   }
   const smallBody = req.method === 'POST' && (url.pathname === '/session' || url.pathname === '/workspaces' || url.pathname === '/peakui/projects/import' || /^\/session\/[^/]+\/load$/.test(url.pathname));
   const buffered = smallBody ? await readSmallBody(req) : null;

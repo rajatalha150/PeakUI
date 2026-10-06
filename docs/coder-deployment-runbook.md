@@ -32,14 +32,13 @@ features — no volume reset, no credential rotation, no `docker compose down -v
   Java baseline, writable persistent locations, and build disk headroom.
   `peakui-cleanup` accepts only `status` and `prune-tmp`; it never accepts an
   arbitrary path and never deletes protected runtime locations.
-- **Large-file explorer downloads**: the app mounts both coder workspace
-  volumes (`coder_workspace`→`/coder-workspace`, `coder_apps`→`/coder-apps`) and
-  streams both individual files and generated ZIP archives directly from them,
-  with no application-memory download-size cap. The same mounts and environment
-  are present in the Linux and Windows Compose files. Shared-volume paths are
-  resolved through symlinks and rejected if their final target leaves the
-  workspace root. Unknown roots fall back to validated, incrementally streamed
-  256 KiB daemon reads rather than buffering an entire artifact.
+- **Large-file explorer downloads**: the Files UI hands attachments to the
+  browser's download manager rather than assembling Blobs. Persistent LXD
+  streams files directly from the guest and ZIPs as they are generated. Docker
+  Coder streams mounted workspace files from the app's shared volumes; unknown
+  roots use validated 256 KiB daemon windows. All modes reject paths or final
+  symlink targets outside the selected workspace and do not impose an APK/ZIP
+  size cap in application memory.
 
 ## Prerequisites (secrets — all via `.env`, never committed)
 

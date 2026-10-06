@@ -109,6 +109,7 @@ flowchart LR
 | Host access | Isolated from host root | Still isolated: no host root or Incus socket is exposed to the agent |
 
 The guest behaves like a durable development server, not an unrestricted host shell. Its `/` is the guest filesystem, never the host filesystem.
+The Files panel downloads large APKs directly through the browser's download manager and streams folders or multiple selections as ZIPs from the guest, without a browser Blob or application-memory size cap.
 
 ## Preview That Works From Any Device
 

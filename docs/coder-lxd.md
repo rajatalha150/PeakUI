@@ -262,9 +262,11 @@ managed CODER.md is refreshed when a runtime starts after an update.
 The instance root persists all directories, including `/workspace`, `/apps`,
 tool caches, and SSH/Coder state. The agent can install
 packages, start systemd services, build projects, and use nested `docker` and
-`docker compose`. PeakUI streams downloads from the authenticated Coder daemon
-in bounded windows, so file and ZIP size is not capped or buffered wholly in
-the app. GitHub imports use a private daemon endpoint and do not expose the
+`docker compose`. Files downloads stream directly from the guest to the
+browser; directories and multi-selections are streamed as ZIPs without
+creating temporary archives or buffering APKs in the app. Paths and symlink
+targets are checked against the selected workspace. GitHub imports use a
+private daemon endpoint and do not expose the
 installation token in shell history or agent transcripts.
 
 The Coder Preview popup controls Chromium in this same persistent guest.

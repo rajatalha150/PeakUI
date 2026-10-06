@@ -145,13 +145,13 @@ daemon token server-side and to bridge SSE + auth cleanly.
   A right-click menu provides open/view, download, rename, and delete. Single
   files download directly; a folder or any multi-selection downloads as a ZIP.
   Delete always requires a browser confirmation.
-- **Large-file downloads** — downloads stream straight from the coder's shared
-  volumes mounted into the app (`/workspace`→`/coder-workspace`,
-  `/apps`→`/coder-apps`), so individual files and generated ZIP downloads have
-  no application-memory size cap. Build artifacts like multi-hundred-MB APKs
-  arrive whole. Final symlink targets must remain inside the mapped volume.
-  Any workspace root not mounted into the app falls back to validated,
-  incrementally streamed 256 KiB daemon reads.
+- **Large-file downloads** — the Files UI uses native browser attachment
+  downloads, not an in-memory Blob. In persistent LXD, individual files stream
+  directly from the guest and folders/multi-selection stream as ZIPs while
+  they are built; neither requires 256 KiB daemon windows or a temporary ZIP.
+  Docker Coder streams mounted workspace files directly from shared volumes;
+  an unmounted Docker workspace falls back to validated daemon windows. Final
+  symlink targets must remain inside the selected workspace.
 - **Workspace isolation** — explorer mutations and downloads are authorized
   against the owner’s Coder session and its persisted workspace binding. Every
   requested path must be a normalized child of that workspace before it reaches
@@ -802,7 +802,7 @@ These routes sit on the app side rather than the daemon pass-through:
 | `src/lib/coder-preview.test.ts` | preview-URL loopback/reserved-port validation |
 | `src/lib/coder-rewind.test.ts` | rewind snapshot-list + result parsing, malformed-payload rejection |
 | `src/lib/coder-files.test.ts` | directory-listing / file-content / write-result parsing, malformed-payload rejection |
-| `src/lib/coder-download.test.ts` | workspace→host volume mapping, filename sanitisation, streamed downloads with content length, symlink-boundary rejection, validated windowed daemon streaming and cleanup |
+| `src/lib/coder-download.test.ts` | workspace→host volume mapping, filename sanitisation, direct guest streaming, content length, symlink-boundary rejection, and Docker fallback windows |
 | `src/lib/coder-tasks.test.ts` | lockfile→package-manager detection, default task commands, shell-result parsing |
 | `src/lib/coder-search.test.ts` | glob-response parsing, bounded case-insensitive line search, workspace-relative→absolute path join |
 | `src/lib/coder-verification.test.ts` | mutating-vs-read-only tool classification (default-deny), staleness from the mutation counter, record construction |
