@@ -903,7 +903,8 @@ fresh VM needs zero runtime surgery.
 
 Everything below is baked by `Dockerfile.coder`:
 
-- **Dev toolchain**: git, curl, build-essential, python3(+venv/pip), go, jq,
+- **Dev toolchain**: git, Git LFS, curl, build-essential, Clang/LLD,
+  CMake/Ninja, python3(+venv/pip), Node/Corepack, JDK 17, go, jq,
   ripgrep, unzip, openssh-client, sqlite3, `procps` (required for clean ACP
   shutdown).
 - **Browser verification (real Chrome)**: the font stack (`fontconfig`,

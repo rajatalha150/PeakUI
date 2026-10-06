@@ -147,6 +147,7 @@ fi
 
 push_guest_file scripts/coder-storage/peakui-coder-start /usr/local/bin/peakui-coder-start 755
 push_guest_file scripts/coder-storage/peakui-coder-readiness /usr/local/bin/peakui-coder-readiness 755
+push_guest_file scripts/coder-storage/peakui-install-android /usr/local/bin/peakui-install-android 755
 push_guest_file scripts/coder-storage/peakui-cleanup /usr/local/bin/peakui-cleanup 755
 push_guest_file scripts/coder-lxd/prepare.sh /usr/local/bin/peakui-coder-prepare 755
 push_guest_file scripts/sync-coder-models.mjs /tmp/peakui-sync-coder-models.mjs 644
@@ -188,6 +189,9 @@ if [[ "$saved_backend" != lxd ]]; then
       tar -C /source -cf - . | "$instance_cli" exec "$instance" -- tar -C "$destination" -xpf -
   done
 fi
+# A migrated Docker SDK volume may be empty or incomplete. Verify the final
+# guest filesystem after migration, before switching the app to this runtime.
+"$instance_cli" exec "$instance" -- /usr/local/bin/peakui-install-android
 "$instance_cli" exec "$instance" -- systemctl start peakui-coder.service
 for i in {1..60}; do
   if curl -fsS --max-time 5 -H "Authorization: Bearer $coder_token" "http://127.0.0.1:${host_port}/health" >/dev/null 2>&1; then break; fi

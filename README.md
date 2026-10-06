@@ -73,6 +73,8 @@ curl -fsSL https://raw.githubusercontent.com/rajatalha150/PeakUI/coder-lxd/scrip
 
 The installer can install and initialize Incus, ask for `sudo` only when host setup requires it, provision the guest, verify nested Docker with a real container run, migrate existing Coder state, and switch PeakUI to the guest only after its authenticated health check succeeds.
 
+On Linux x86_64, a fresh Coder guest now includes JDK 17, Node/Corepack, Go, Python, CMake/Ninja/Clang, Git LFS and everyday file/network tools, plus a verified Android SDK baseline (API 35/36, build tools, platform tools, NDK 27.3, and CMake 3.22.1). The Docker Coder image gets the same baseline on Linux x86_64, including fresh Docker deployments on macOS and Windows hosts. The SDK is persisted and repaired on update; an Android emulator is not included because running one requires additional host virtualization/device access. See [Android toolchain setup and checks](docs/coder-lxd.md#android-build-toolchain).
+
 ## Why Persistent Coder Is Different
 
 ```mermaid

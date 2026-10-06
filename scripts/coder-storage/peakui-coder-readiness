@@ -34,6 +34,17 @@ require_dir /root/.android "Android user state volume"
 require_dir /root/.npm "npm cache volume"
 require_dir /root/.cache/pip "pip cache volume"
 require_dir "${ANDROID_SDK_ROOT:-/opt/android-sdk}" "Android SDK volume"
+if [ "$(uname -m)" = x86_64 ]; then
+  if [ ! -x /usr/local/bin/peakui-install-android ] || ! /usr/local/bin/peakui-install-android --check; then
+    echo "FAIL: Android SDK baseline is incomplete (platforms 35/36, build tools, NDK, CMake, or adb missing)." >&2
+    failed=1
+  else
+    echo "OK: Android SDK build baseline is installed"
+  fi
+else
+  echo "WARN: the pinned Android toolchain is only supported on Linux x86_64; this guest cannot guarantee Android builds." >&2
+  warnings=1
+fi
 
 available_kb=$(df -Pk /workspace | awk 'NR == 2 { print $4 }')
 available_gb=$((available_kb / 1024 / 1024))

@@ -1,6 +1,15 @@
 #!/bin/sh
 set -eu
 
+if [ -z "${JAVA_HOME:-}" ] || [ ! -x "$JAVA_HOME/bin/java" ]; then
+  JAVA_HOME=$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")
+  export JAVA_HOME
+fi
+export ANDROID_HOME="${ANDROID_HOME:-/opt/android-sdk}"
+export ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+export PATH="$ANDROID_SDK_ROOT/platform-tools:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/cmake/3.22.1/bin:$PATH"
+/usr/local/bin/peakui-install-android
+
 mkdir -p /root/.qwen /root/.ssh /root/.gradle /root/.android /root/.npm /root/.cache/pip /opt/android-sdk
 chmod 700 /root/.ssh
 cp /opt/qwen-code/workspace-coder.md /root/.qwen/QWEN.md

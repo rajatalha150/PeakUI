@@ -45,7 +45,10 @@ machine while keeping host control in the hands of the installation owner.
   elevated access only to install the host runtime and add that same account to
   its administration group; it does not create or switch login users.
 - `python3`, `curl`, internet access for the Ubuntu image, Coder source, Node,
-  packages, and Chromium; free host loopback ports 4171 and 4172.
+  packages, Chromium, and Google's Android SDK downloads; free host loopback
+  ports 4171 and 4172. Allow at least 12 GiB free on the guest SDK filesystem
+  during Android provisioning; 25 GiB or more free is recommended for native
+  Android builds and Gradle caches.
 
 On supported Debian/Ubuntu releases and Ubuntu derivatives such as Linux Mint,
 the installer configures the maintained Incus `stable` package channel. The
@@ -130,6 +133,9 @@ The bootstrap also verifies the standard sticky permissions on `/tmp` before
 using APT, allowing a failed earlier attempt to recover cleanly.
 It installs the everyday system tools expected of a real development machine,
 including `rsync`, DNS diagnostics, `netcat`, `lsof`, and Docker Buildx. Docker
+Coder and the Incus guest also include JDK 17, Node/Corepack, Go, Python,
+Git LFS, CMake, Ninja, Clang, LLD, `pkg-config`, `file`, `patch`, and `xz`.
+The Android SDK baseline is installed and verified as described below. Docker
 is configured with stable upstream resolvers when its daemon configuration does
 not already define `dns`; this prevents an intermittent Incus bridge DNS lookup
 from making registry pulls or builds fail. Existing administrator-managed Docker
@@ -147,6 +153,37 @@ that ignores `SIGTERM` from making an update appear stuck; active jobs should
 be allowed to finish before deliberately redeploying Coder.
 On every instance boot, the service refreshes the managed CODER.md, Git defaults,
 SSH host trust, and runtime readiness checks.
+
+## Android Build Toolchain
+
+On Linux x86_64, fresh installations provision Android command-line tools,
+platform tools (`adb`), Android APIs 35 and 36, matching build tools, NDK
+27.3.13750724, CMake 3.22.1, and JDK 17. The command-line tools download is
+checksum-verified and the SDK licenses are accepted non-interactively during
+provisioning. The SDK lives at `/opt/android-sdk`; Gradle and Android user
+state also persist across guest restarts and PeakUI updates. Docker Coder uses
+the same baseline in its image and repairs older SDK volumes at startup. An
+LXD cutover checks the SDK *after* migrating any old Docker volume, so an empty
+volume cannot masquerade as an installed toolchain.
+
+```bash
+# Inside the Coder guest (or use `incus exec peakui-coder --` before each command):
+peakui-install-android --check
+peakui-coder-readiness --strict
+java -version
+adb version
+sdkmanager --list_installed
+```
+
+`peakui-install-android` is idempotent: run it to repair missing baseline
+packages. For a project's different API/NDK requirement, use
+`sdkmanager --install 'platforms;android-<API>' 'ndk;<VERSION>'` inside Coder.
+The default does **not** install an Android emulator or provide hardware
+acceleration; instrumented/device tests need an attached device, emulator
+configuration with host virtualization support, or external CI. Google's pinned
+Linux Android toolchain here supports x86_64; on other guest architectures,
+provisioning warns and strict readiness fails instead of claiming Android
+build readiness. See Google's [SDK manager guide](https://developer.android.com/tools/sdkmanager).
 
 When installing through a pipe, place the deployment variables on the `sh`
 side so they reach the installer:

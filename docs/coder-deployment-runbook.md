@@ -95,12 +95,21 @@ docker inspect peakui-coder-1 \
 # other disk-heavy work; it exits nonzero below CODER_MIN_FREE_GB (12 by default).
 docker compose exec coder peakui-coder-readiness --strict
 docker compose exec coder peakui-cleanup status
+docker compose exec coder peakui-install-android --check
 
 # Confirm the immutable Java baseline and protected volumes are mounted.
 docker compose exec coder sh -lc 'java -version && echo "$JAVA_HOME" && echo "$ANDROID_SDK_ROOT"'
 docker inspect peakui-coder-1 --format '{{range .Mounts}}{{println .Destination}}{{end}}' \
   | grep -E '^/(workspace|apps|root/.qwen|root/.ssh|root/.gradle|root/.android|root/.npm|root/.cache/pip|opt/android-sdk)$'
 ```
+
+For Incus/LXD Coder, run the same `peakui-install-android --check` and
+`peakui-coder-readiness --strict` inside the guest with
+`incus exec peakui-coder --`. A fresh Linux x86_64 deployment provisions
+Android APIs 35/36, build tools, platform tools, NDK 27.3, and CMake 3.22.1.
+The SDK check tests actual package files, not just an existing directory.
+See [Android build toolchain](coder-lxd.md#android-build-toolchain) for disk,
+architecture, and emulator requirements.
 
 ## Functional smoke test (in the UI)
 

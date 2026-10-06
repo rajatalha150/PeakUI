@@ -10,6 +10,7 @@ Environment=HOME=/root
 Environment=PUPPETEER_CACHE_DIR=/opt/puppeteer-cache
 Environment=ANDROID_HOME=/opt/android-sdk
 Environment=ANDROID_SDK_ROOT=/opt/android-sdk
+Environment=PATH=/opt/android-sdk/platform-tools:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/cmake/3.22.1/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 WorkingDirectory=/workspace
 ExecStartPre=/usr/local/bin/peakui-coder-prepare
 ExecStartPre=/usr/local/bin/peakui-coder-readiness --startup

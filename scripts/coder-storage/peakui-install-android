@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Provision the shared Android build baseline. Safe on a persistent SDK volume.
+set -euo pipefail
+
+sdk_root=${PEAKUI_ANDROID_SDK_ROOT:-${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/opt/android-sdk}}}
+tools_version=15859902
+tools_sha256=4e4c464f145a7512b57d088ac6c278c03c9eea610886b35a5e0804e74eedf583
+sdkmanager="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
+
+android_ready() {
+  [[ -x "$sdkmanager" && -x "$sdk_root/platform-tools/adb" ]] || return 1
+  local api
+  for api in 35 36; do
+    [[ -f "$sdk_root/platforms/android-$api/android.jar" ]] || return 1
+    [[ -x "$sdk_root/build-tools/$api.0.0/aapt2" ]] || return 1
+  done
+  [[ -x "$sdk_root/ndk/27.3.13750724/ndk-build" && -x "$sdk_root/cmake/3.22.1/bin/cmake" ]]
+}
+
+if [[ ${1:-} == --check ]]; then
+  android_ready
+  exit $?
+fi
+[[ ${1:-} == '' ]] || { echo 'Usage: peakui-install-android [--check]' >&2; exit 2; }
+
+if [[ $(uname -m) != x86_64 ]]; then
+  echo 'WARN: Google does not publish this pinned Linux Android build-tool baseline for this architecture; Android provisioning skipped.' >&2
+  exit 0
+fi
+if android_ready; then
+  echo "Android SDK baseline is ready at $sdk_root."
+  exit 0
+fi
+
+for tool in curl unzip sha256sum java; do
+  command -v "$tool" >/dev/null || { echo "Missing $tool for Android provisioning." >&2; exit 1; }
+done
+if [[ -z ${JAVA_HOME:-} || ! -x $JAVA_HOME/bin/java ]]; then
+  JAVA_HOME=$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")
+  export JAVA_HOME
+fi
+mkdir -p "$sdk_root/cmdline-tools"
+free_kb=$(df -Pk "$sdk_root" | awk 'NR == 2 { print $4 }')
+if (( free_kb < 12 * 1024 * 1024 )); then
+  echo "Android provisioning needs at least 12 GiB free on the SDK filesystem ($sdk_root)." >&2
+  exit 1
+fi
+
+if [[ ! -x "$sdkmanager" ]]; then
+  staging=$(mktemp -d)
+  trap 'rm -rf "$staging"' EXIT
+  archive="$staging/commandlinetools.zip"
+  curl -fL --retry 4 --retry-all-errors --connect-timeout 20 \
+    "https://dl.google.com/android/repository/commandlinetools-linux-${tools_version}_latest.zip" -o "$archive"
+  printf '%s  %s\n' "$tools_sha256" "$archive" | sha256sum -c -
+  unzip -q "$archive" -d "$staging"
+  [[ -x "$staging/cmdline-tools/bin/sdkmanager" ]] || { echo 'Android command-line tools archive is incomplete.' >&2; exit 1; }
+  if [[ -e "$sdk_root/cmdline-tools/latest" ]]; then
+    mv "$sdk_root/cmdline-tools/latest" "$sdk_root/cmdline-tools/latest.previous.$(date +%s)"
+  fi
+  mv "$staging/cmdline-tools" "$sdk_root/cmdline-tools/latest"
+fi
+
+packages=(
+  platform-tools
+  'platforms;android-35' 'platforms;android-36'
+  'build-tools;35.0.0' 'build-tools;36.0.0'
+  'cmake;3.22.1' 'ndk;27.3.13750724'
+)
+# sdkmanager is interactive for license grants on headless machines. Preserve
+# its exit code, not the expected SIGPIPE from `yes` after it closes stdin.
+set +o pipefail
+yes | "$sdkmanager" --sdk_root="$sdk_root" --licenses >/dev/null
+license_status=$?
+set -o pipefail
+(( license_status == 0 )) || { echo 'Android SDK licenses were not accepted.' >&2; exit 1; }
+set +o pipefail
+yes | "$sdkmanager" --sdk_root="$sdk_root" --install "${packages[@]}"
+install_status=$?
+set -o pipefail
+(( install_status == 0 )) || { echo 'Android SDK package installation failed.' >&2; exit 1; }
+android_ready || { echo 'Android SDK installation finished without all required tools.' >&2; exit 1; }
+echo "Android SDK baseline installed at $sdk_root."

@@ -19,6 +19,7 @@ apt-get install -y --no-install-recommends \
   ca-certificates curl git build-essential openjdk-17-jdk-headless python3 \
   python3-pip python3-venv procps jq ripgrep unzip zip openssh-client sqlite3 \
   rsync dnsutils netcat-openbsd lsof docker-buildx \
+  cmake ninja-build clang lld pkg-config git-lfs file patch xz-utils \
   fontconfig fontconfig-config fonts-dejavu-core fonts-liberation \
   libglib2.0-0 libnss3 libnspr4 libatk1.0-0t64 libatk-bridge2.0-0t64 \
   libatspi2.0-0t64 libdbus-1-3 libgbm1 libx11-6 libxcb1 libxcomposite1 \
@@ -81,9 +82,11 @@ if ! command -v node >/dev/null || [[ "$(node --version)" != "v${NODE_VERSION}" 
   (cd /tmp && grep "  ${node_archive}$" node-sha256sums | sha256sum -c -)
   tar -xJf "/tmp/${node_archive}" -C /usr/local --strip-components=1
 fi
+corepack enable
 
 mkdir -p /opt /workspace /apps /root/.qwen /root/.ssh \
   /root/.gradle /root/.android /root/.npm /root/.cache/pip /opt/android-sdk
+/usr/local/bin/peakui-install-android
 coder_version=$(sed -n 's/^PEAKUI_CODER_VERSION=//p' /etc/peakui-coder.env | tail -n 1)
 [[ "$coder_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Invalid pinned Coder version.' >&2; exit 1; }
 if [[ ! -d /opt/qwen-code/.git ]]; then
