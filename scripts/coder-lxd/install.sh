@@ -94,10 +94,17 @@ verify_nested_docker() {
 
 if ! "$instance_cli" info "$instance" >/dev/null 2>&1; then
   "$instance_cli" init "$image" "$instance" \
-    -c limits.cpu="${CODER_LXD_CPUS:-4}" -c limits.memory="${CODER_LXD_MEMORY:-8GiB}" \
+    -c limits.cpu="${CODER_LXD_CPUS:-4}" -c limits.memory="${CODER_LXD_MEMORY:-12GiB}" \
     -c limits.processes=4096 -c security.nesting=true \
     -c security.syscalls.intercept.mknod=true \
     -c security.syscalls.intercept.setxattr=true
+fi
+current_memory=$("$instance_cli" config get "$instance" limits.memory)
+if [[ -n "${CODER_LXD_MEMORY:-}" && "$current_memory" != "$CODER_LXD_MEMORY" ]]; then
+  "$instance_cli" config set "$instance" limits.memory="$CODER_LXD_MEMORY"
+elif [[ -z "${CODER_LXD_MEMORY:-}" && "$current_memory" == 8GiB ]]; then
+  # Upgrade only the previous installer default; preserve custom guest limits.
+  "$instance_cli" config set "$instance" limits.memory=12GiB
 fi
 
 # Older previews of this backend attached Docker's internal volume paths with

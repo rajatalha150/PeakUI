@@ -103,8 +103,11 @@ See the official [Incus installation](https://linuxcontainers.org/incus/docs/mai
 and [initialization](https://linuxcontainers.org/incus/docs/main/howto/initialize/)
 guides.
 
-The instance defaults to four CPUs and 8 GiB of RAM; set `CODER_LXD_CPUS` and
-`CODER_LXD_MEMORY` before its first creation to change them. `CODER_LXD_IMAGE`
+The instance defaults to four CPUs and 12 GiB of RAM. Set `CODER_LXD_CPUS`
+before its first creation to change its CPU count. Set `CODER_LXD_MEMORY` to
+choose a different memory limit, including on an existing guest. On update,
+the installer raises guests still using its former 8 GiB default to 12 GiB;
+other custom limits are preserved. `CODER_LXD_IMAGE`
 selects a compatible Ubuntu image. `CODER_LXD_PORT` changes the host API port
 from 4171. `CODER_LXD_INSTANCE` changes the instance name
 from `peakui-coder` and is saved for updates, backups, and rollback.
