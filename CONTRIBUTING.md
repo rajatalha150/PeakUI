@@ -4,11 +4,11 @@ Thank you for your interest in PeakUI. This document explains how to contribute 
 
 ## How to Contribute
 
-1. **Open an issue first** for bug reports, feature requests, or large refactors so we can agree on direction before you invest time.
-2. **Fork the repository** and create a feature branch.
+1. **Choose an issue** or open one before a feature or large refactor. Small documentation and test fixes can go directly to a pull request.
+2. **Fork the repository** and create a branch from `main`.
 3. **Make your changes** with clear commits.
-4. **Run tests and lint** before opening a pull request.
-5. **Open a pull request** with a concise description and reference the issue.
+4. **Run tests, lint on changed files, and the build** before opening a pull request. See the exact commands in [DEVELOPMENT.md](DEVELOPMENT.md).
+5. **Open a pull request against `main`** with a concise description, verification, and a linked issue when one exists. Include screenshots for UI changes and migration/rollback notes for data or deployment changes.
 
 ## Development Setup
 
@@ -20,7 +20,7 @@ For Docker-based setup, see [INSTALL.md](INSTALL.md) and [WINDOWS-SETUP.md](WIND
 
 - TypeScript throughout the app and API routes.
 - React functional components with hooks; no class components.
-- Vanilla CSS with CSS variables and glassmorphism conventions; no Tailwind or CSS-in-JS.
+- Follow the existing CSS variables and theme tokens; no Tailwind or CSS-in-JS.
 - Match the existing comment density and naming in any file you touch.
 - Prefer explicit types over `any`.
 
@@ -31,6 +31,7 @@ npm test
 ```
 
 Add or update tests for any changed logic, especially utility libraries in `src/lib/`.
+Contributors can start with issues labeled `good first issue` once available.
 
 ## Commit Messages
 

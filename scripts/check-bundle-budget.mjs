@@ -1,86 +1,62 @@
 #!/usr/bin/env node
-/**
- * Bundle budget gate.
- *
- * Measures the JavaScript the browser must download and parse before the app
- * boots, and fails the build when it exceeds a hard budget. This is the same
- * guard Unsloth uses to stop a single accidental static import (e.g. a dialog
- * that is closed on load) from silently carrying megabytes into the entry
- * bundle.
- *
- * PeakUI ships several heavy client libraries (react-syntax-highlighter,
- * react-markdown, mermaid, exceljs, docx, pptxgenjs, xlsx-populate, mammoth,
- * officeparser) that are only needed for specific panels/artifacts. If any of
- * them is statically imported into the main chat bundle, first-load time
- * balloons. This gate catches that regression automatically.
- *
- * Run after `next build`:  npm run bundle:check
- *
- * The budget is the sum of every `.js` chunk in `.next/static/chunks`. It is
- * deliberately sized with headroom over the measured baseline so a normal
- * build never trips it, but a multi-megabyte accidental import does.
- *
- * Raising the budget is a normal thing to do — but do it in the same change as
- * the import that needed it, with the measured numbers, so the regression is
- * visible in the diff.
- */
+/** Check the JavaScript loaded by each public entry page, not every lazy chunk. */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { readFileSync, statSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
 
-const CHUNKS_DIR = join(process.cwd(), '.next', 'static', 'chunks')
+const BUILD_DIR = join(process.cwd(), '.next')
+const ROUTES = [
+  ['/', 'index.html'],
+  ['/coder', 'coder.html'],
+  ['/login', 'login.html'],
+]
 
-// Measured baseline (2026-08-24): 2,342,433 bytes raw / 686,680 bytes gzip
-// across 17 chunks. Budget is ~1.5x raw and ~1.75x gzip for headroom.
-const BUDGET = {
-  rawBytes: 3_500_000,
-  gzipBytes: 1_200_000,
+// The original budget was set for first-load JS. Keep it while changing the
+// measurement from all generated chunks to those referenced by each page.
+const BUDGET = { rawBytes: 3_500_000, gzipBytes: 1_200_000 }
+
+export function scriptPathsFromHtml(html) {
+  const paths = new Set()
+  for (const match of html.matchAll(/<script\b[^>]*\bsrc="([^"]+)"/g)) {
+    const pathname = new URL(match[1], 'http://localhost').pathname
+    if (pathname.startsWith('/_next/static/chunks/') && pathname.endsWith('.js')) {
+      paths.add(pathname.slice('/_next/'.length))
+    }
+  }
+  return [...paths]
 }
 
-function listJsChunks(dir) {
-  let entries
-  try {
-    entries = readdirSync(dir)
-  } catch {
-    console.error(`bundle:check: no build output at ${dir}. Run \`npm run build\` first.`)
-    process.exit(1)
+export function measureRoute(buildDir, htmlFile) {
+  const html = readFileSync(join(buildDir, 'server', 'app', htmlFile), 'utf8')
+  const files = scriptPathsFromHtml(html)
+  if (!files.length) throw new Error(`No entry scripts found in ${htmlFile}`)
+  return {
+    files,
+    rawBytes: files.reduce((total, file) => total + statSync(join(buildDir, file)).size, 0),
+    // Each chunk is served as its own compressed response.
+    gzipBytes: files.reduce((total, file) => total + gzipSync(readFileSync(join(buildDir, file))).length, 0),
   }
-  return entries.filter(name => name.endsWith('.js')).map(name => join(dir, name))
 }
 
 function main() {
-  const files = listJsChunks(CHUNKS_DIR)
-  let rawBytes = 0
-  const sizes = []
-  for (const file of files) {
-    const size = statSync(file).size
-    rawBytes += size
-    sizes.push({ file: file.split('/').pop(), size })
+  let failed = false
+  for (const [route, htmlFile] of ROUTES) {
+    const { files, rawBytes, gzipBytes } = measureRoute(BUILD_DIR, htmlFile)
+    const over = rawBytes > BUDGET.rawBytes || gzipBytes > BUDGET.gzipBytes
+    failed ||= over
+    console.log(`${route}: ${files.length} entry chunks, ${rawBytes.toLocaleString()} bytes raw, ${gzipBytes.toLocaleString()} bytes gzip${over ? ' OVER BUDGET' : ''}`)
   }
-  const gzipBytes = gzipSync(Buffer.concat(files.map(f => readFileSync(f)))).length
-
-  const rawOver = rawBytes > BUDGET.rawBytes
-  const gzipOver = gzipBytes > BUDGET.gzipBytes
-
-  console.log(`bundle:check: ${files.length} JS chunks`)
-  console.log(`  raw:   ${rawBytes.toLocaleString()} bytes (budget ${BUDGET.rawBytes.toLocaleString()})${rawOver ? '  OVER' : ''}`)
-  console.log(`  gzip:  ${gzipBytes.toLocaleString()} bytes (budget ${BUDGET.gzipBytes.toLocaleString()})${gzipOver ? '  OVER' : ''}`)
-
-  const top = sizes.sort((a, b) => b.size - a.size).slice(0, 5)
-  console.log('  largest chunks:')
-  for (const { file, size } of top) {
-    console.log(`    ${size.toLocaleString().padStart(9)}  ${file}`)
-  }
-
-  if (rawOver || gzipOver) {
-    console.error('\nbundle:check: FAILED — the JavaScript bundle exceeds its budget.')
-    console.error('A static import is likely pulling a heavy library into the entry bundle.')
-    console.error('Convert it to a dynamic import() (or lazy-load the component) and re-measure.')
-    process.exit(1)
-  }
-
-  console.log('bundle:check: OK')
+  console.log(`Per-route budget: ${BUDGET.rawBytes.toLocaleString()} raw / ${BUDGET.gzipBytes.toLocaleString()} gzip bytes`)
+  if (failed) process.exitCode = 1
 }
 
-main()
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  try {
+    main()
+  } catch (error) {
+    console.error(`bundle:check: ${error.message}. Run npm run build first.`)
+    process.exitCode = 1
+  }
+}

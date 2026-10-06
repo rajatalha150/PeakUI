@@ -237,9 +237,17 @@ npm test
 npm run build
 ```
 
-`npm run bundle:check` is an optional size audit, not a release gate at the
-moment: its older budget counts every generated route chunk, including
-on-demand views, rather than the JavaScript needed for first load.
+`npm run bundle:check` enforces a per-route first-load JavaScript budget after
+`npm run build`.
+
+## Contributing
+
+Bug reports, documentation, tests, and focused code changes are welcome. Start
+with [CONTRIBUTING.md](CONTRIBUTING.md) and the local setup in
+[DEVELOPMENT.md](DEVELOPMENT.md). For a feature or large refactor, open an issue
+before implementation; small corrections can go straight to a pull request.
+Please report security vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md).
 
 Use the installer for updates, especially when persistent Coder is enabled. It preserves the selected backend and supplies the necessary LXD Compose overlay. Do not run a base-only Compose recreation of `app` on an LXD deployment; it omits the guest daemon bridge configuration.
 Fresh installs use `main`. Existing Linux/macOS checkouts keep their current branch; set `PEAKUI_REF=main` once to move an older `trimmer` or `coder-lxd` checkout to the public release branch.

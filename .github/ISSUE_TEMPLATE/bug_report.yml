@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a reproducible PeakUI problem
+title: "bug: "
+body:
+  - type: markdown
+    attributes:
+      value: "For security vulnerabilities, use the private process in SECURITY.md instead of a public issue. Remove tokens, passwords, private URLs, and personal data from logs."
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Include the expected behavior and what happened instead.
+      placeholder: Describe the visible result and any error message.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Open ...\n2. Select ...\n3. Observe ..."
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Use `git rev-parse --short HEAD` if running from a checkout.
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Coding backend
+      options:
+        - Docker Coder
+        - Persistent Incus/LXD Coder
+        - WorkSpaces only / not applicable
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Host OS and browser
+      placeholder: "Ubuntu 24.04, Chrome 130"
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Relevant logs or screenshots
+      description: Redact secrets and private data before posting.
+    validations:
+      required: false

@@ -1,6 +1,6 @@
 import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   hostPathForWorkspaceFile,
@@ -20,19 +20,19 @@ vi.mock('@/lib/coder-gateway', () => ({
 
 describe('hostPathForWorkspaceFile', () => {
   it('maps a /workspace file onto the app mount', () => {
-    expect(hostPathForWorkspaceFile('/workspace/inventory-agent/app-release.apk')).toBe('/coder-workspace/inventory-agent/app-release.apk')
+    expect(hostPathForWorkspaceFile('/workspace/inventory-agent/app-release.apk')).toBe(resolve('/coder-workspace/inventory-agent/app-release.apk'))
   })
 
   it('maps the workspace root itself', () => {
-    expect(hostPathForWorkspaceFile('/workspace')).toBe('/coder-workspace')
+    expect(hostPathForWorkspaceFile('/workspace')).toBe(resolve('/coder-workspace'))
   })
 
   it('maps an /apps file onto the apps mount', () => {
-    expect(hostPathForWorkspaceFile('/apps/foo/bar')).toBe('/coder-apps/foo/bar')
+    expect(hostPathForWorkspaceFile('/apps/foo/bar')).toBe(resolve('/coder-apps/foo/bar'))
   })
 
   it('maps the /apps root itself', () => {
-    expect(hostPathForWorkspaceFile('/apps')).toBe('/coder-apps')
+    expect(hostPathForWorkspaceFile('/apps')).toBe(resolve('/coder-apps'))
   })
 
   it('returns null for a path outside any mapped root', () => {

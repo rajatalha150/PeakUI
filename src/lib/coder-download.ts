@@ -13,7 +13,7 @@
 import { constants } from 'node:fs'
 import { open, realpath } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { getCoderDaemonBaseUrl, getCoderDaemonToken, proxyToCoderDaemon } from '@/lib/coder-gateway'
 
@@ -44,7 +44,7 @@ export function hostPathForWorkspaceFile(daemonPath: string): string | null {
     if (!daemonPath.startsWith(`${daemonRoot}/`)) continue
     const target = resolve(hostRoot, `.${daemonPath.slice(daemonRoot.length)}`)
     const root = resolve(hostRoot)
-    return target === root || target.startsWith(`${root}/`) ? target : null
+    return target === root || target.startsWith(`${root}${sep}`) ? target : null
   }
   return null
 }
@@ -75,7 +75,7 @@ export function sanitizeDownloadFilename(name: string): string {
  */
 async function verifiedLocalFile(hostPath: string, hostRoot: string): Promise<{ handle: FileHandle; size: number }> {
   const [resolvedPath, resolvedRoot] = await Promise.all([realpath(hostPath), realpath(hostRoot)])
-  if (resolvedPath !== resolvedRoot && !resolvedPath.startsWith(`${resolvedRoot}/`)) {
+  if (resolvedPath !== resolvedRoot && !resolvedPath.startsWith(`${resolvedRoot}${sep}`)) {
     throw new Error('Download target resolves outside the workspace.')
   }
   // The path was resolved above, but open the final component without following

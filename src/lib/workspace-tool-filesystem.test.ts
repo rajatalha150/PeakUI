@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { resolve } from 'node:path'
 import {
   buildWorkspaceToolFilesystemAccessStatus,
   diagnoseWorkspaceToolFilesystemRequest,
@@ -15,7 +16,7 @@ const baseSettings: WorkspaceToolFilesystemAccessSettings = {
 
 describe('WorkspaceTool filesystem guardrails', () => {
   it('normalizes approved paths and removes duplicates', () => {
-    expect(parseAllowedWorkspaceToolPaths('/tmp\n/tmp/\n/home')).toEqual(['/tmp', '/home'])
+    expect(parseAllowedWorkspaceToolPaths('/tmp\n/tmp/\n/home')).toEqual([resolve('/tmp'), resolve('/home')])
   })
 
   it('diagnoses disabled read access', () => {

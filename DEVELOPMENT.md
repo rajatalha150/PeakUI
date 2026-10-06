@@ -1,29 +1,32 @@
 # Development Guide
 
-This guide covers local development outside Docker.
+This guide covers the Next.js app running locally. The full Docker and
+persistent-Coder paths are in [INSTALL.md](INSTALL.md).
 
 ## Requirements
 
-- Node.js 22+
-- PostgreSQL 15+ running locally
-- Ollama running locally
-- npm or equivalent package manager
+- Node.js 22 and npm (CI uses the latest Node 22 release)
+- PostgreSQL 15+ with the `pgvector` extension for app/database work
+- Ollama or a compatible remote model provider to exercise AI features; neither is needed for unit tests
 
 ## Setup
 
 ```bash
-# 1. Install dependencies
-npm install
+# 1. Install locked dependencies
+npm ci
 
 # 2. Configure environment
 cp .env.example .env
-# Edit .env and point DATABASE_URL at your local Postgres.
+# Edit .env: set DATABASE_URL and a strong JWT_SECRET. If using Compose for
+# PostgreSQL, set POSTGRES_PASSWORD to the password in DATABASE_URL too.
+# Replace the YOUR_USER placeholders in optional host paths before using them.
+# Never commit .env or real credentials.
 
 # 3. Generate the Prisma client
 npx prisma generate
 
-# 4. Apply the schema
-npx prisma db push
+# 4. Apply committed migrations to a fresh development database
+npx prisma migrate deploy
 
 # 5. Start the dev server
 npm run dev
@@ -39,14 +42,18 @@ Open [http://localhost:3000](http://localhost:3000).
 | `npm run build` | Production build |
 | `npm run start` | Start production server |
 | `npm test` | Run Vitest suite |
-| `npm run lint` | Run ESLint |
-| `npm run bundle:check` | Check the JavaScript bundle budget (fails if the entry bundle bloats) |
+| `npm run lint -- path/to/file.ts` | Lint changed files; the full-repo command can need more than Node's default heap |
+| `npm run bundle:check` | Check first-load JavaScript per route after `npm run build` |
 | `npm run workspace-tool:host-executor` | Start optional host shell executor |
 
 ## Testing
 
 ```bash
 npm test
+npm run lint -- src/lib/your-changed-file.ts
+npm run build
+npm run bundle:check
+node --test scripts/check-bundle-budget.node-test.mjs
 ```
 
 Add tests for new logic in `src/lib/` and co-locate API route tests where appropriate.
@@ -57,17 +64,19 @@ Add tests for new logic in `src/lib/` and co-locate API route tests where approp
 # Generate client after schema changes
 npx prisma generate
 
-# Apply schema changes in development
-npx prisma db push
-
-# Create a migration
+# Create and apply a migration in development
 npx prisma migrate dev --name add_new_feature
+
+# Apply committed migrations without changing the schema
+npx prisma migrate deploy
 
 # Open the database GUI
 npx prisma studio
 ```
 
-Do not use `npx prisma db push --force-reset` on a real database.
+Use an isolated development database for schema changes. Commit the generated
+migration with its schema change. Do not use `prisma db push` or
+`db push --force-reset` on a database with data you need to keep.
 
 The production container entrypoint runs fail-closed `npx prisma migrate deploy`.
 It applies the committed migration history and stops on an unbaselined or

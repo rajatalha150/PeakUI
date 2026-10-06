@@ -40,12 +40,12 @@ describe('memory isolation — long-term memory paths', () => {
   it('does not fall back to global memory for an authenticated user', () => {
     const candidates = getLongTermMemoryCandidates('user-A')
     expect(candidates).toHaveLength(1)
-    expect(candidates[0]).toMatch(/memory\/users\/user-A\/MEMORY\.md$/)
+    expect(candidates[0].replace(/\\/g, '/')).toMatch(/memory\/users\/user-A\/MEMORY\.md$/)
   })
 
   it('retains the legacy global fallback only for explicit shared access', () => {
     const candidates = getLongTermMemoryCandidates('__shared__')
     expect(candidates).toHaveLength(2)
-    expect(candidates[1]).toMatch(/memory\/MEMORY\.md$/)
+    expect(candidates[1].replace(/\\/g, '/')).toMatch(/memory\/MEMORY\.md$/)
   })
 })

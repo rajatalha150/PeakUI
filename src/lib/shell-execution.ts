@@ -276,7 +276,7 @@ function expandShellCwd(input: string): string {
 
 function hostRelativeToContainer(hostPath: string, hostRoot: string, containerRoot: string): string {
   const relative = normalizeShellPath(hostPath).slice(normalizeShellPath(hostRoot).length).replace(/^\//, '')
-  return path.join(containerRoot, relative)
+  return path.posix.join(containerRoot, relative)
 }
 
 export function resolveContainerShellCwd(cwd?: string): string {

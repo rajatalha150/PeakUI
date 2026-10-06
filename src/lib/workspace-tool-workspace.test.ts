@@ -209,7 +209,7 @@ describe('recordDarkWebSearchNote — filesystem behavior', () => {
     const previous = process.env.WORKSPACE_TOOL_HOST_WORKSPACE_DIR
     process.env.WORKSPACE_TOOL_HOST_WORKSPACE_DIR = '/tmp/test-workspace-xyz'
     try {
-      expect(getWorkspaceToolWorkspaceHostRoot()).toBe('/tmp/test-workspace-xyz')
+      expect(getWorkspaceToolWorkspaceHostRoot()).toBe(path.resolve('/tmp/test-workspace-xyz'))
     } finally {
       if (previous === undefined) {
         delete process.env.WORKSPACE_TOOL_HOST_WORKSPACE_DIR
