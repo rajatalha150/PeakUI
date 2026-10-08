@@ -44,7 +44,6 @@ export interface CoderProxyResult {
 }
 
 const PASS_THROUGH_RESPONSE_HEADERS = [
-  'content-type',
   'x-qwen-event-epoch',
   'x-qwen-sse-stream-id',
   'retry-after',

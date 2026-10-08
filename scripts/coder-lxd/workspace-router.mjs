@@ -8,6 +8,7 @@ import net from 'node:net';
 import tls from 'node:tls';
 import { join, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
+import { closeTerminal, closeTerminals, openTerminal, streamTerminal, terminalInput } from './terminal.mjs';
 
 const stateDir = process.env.CODER_ROUTER_STATE_DIR || '/var/lib/peakui/coder-router';
 const stateFile = join(stateDir, 'sessions.json');
@@ -16,6 +17,7 @@ const seedHome = process.env.CODER_SEED_HOME || '/root/.qwen';
 const coderEntry = process.env.CODER_ENTRY || '/opt/qwen-code/scripts/cli-entry.js';
 const token = process.env.QWEN_SERVER_TOKEN || '';
 const listenPort = Number(process.env.CODER_ROUTER_PORT || 4170);
+const listenBind = process.env.CODER_ROUTER_BIND || '127.0.0.1';
 const previewPort = Number(process.env.CODER_PREVIEW_PORT || 4172);
 const previewBind = process.env.CODER_PREVIEW_BIND || '127.0.0.1';
 const previewBlockedPorts = new Set([2375, 2376, 4170, 4171, 4172, 4173, 11434]);
@@ -61,6 +63,14 @@ function workspaceFromRequest(pathname, url, body) {
 
 function saveSessionWorkspace(id, cwd) {
   sessionWorkspaces[id] = cwd;
+  const next = `${stateFile}.tmp`;
+  writeFileSync(next, JSON.stringify(sessionWorkspaces), { mode: 0o600 });
+  renameSync(next, stateFile);
+}
+
+function forgetSessionWorkspace(id) {
+  closeTerminal(id);
+  delete sessionWorkspaces[id];
   const next = `${stateFile}.tmp`;
   writeFileSync(next, JSON.stringify(sessionWorkspaces), { mode: 0o600 });
   renameSync(next, stateFile);
@@ -391,6 +401,18 @@ async function handle(req, res) {
     const { browserAction } = await import('/opt/qwen-code/browser/session.mjs');
     return sendJson(res, 200, await browserAction(body.key, body));
   }
+  const terminalMatch = /^\/session\/([^/]+)\/terminal$/.exec(url.pathname);
+  if (terminalMatch) {
+    const id = decodeURIComponent(terminalMatch[1]);
+    const workspace = sessionWorkspaces[id];
+    if (!workspace) return sendJson(res, 404, { error: 'Session workspace is unknown. Load the session first.' });
+    if (req.method === 'GET') return streamTerminal(id, req, res);
+    if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed.' });
+    const body = JSON.parse((await readSmallBody(req)).toString('utf8'));
+    if (body.action === 'open') return sendJson(res, 200, openTerminal(id, await canonicalDirectory(workspace), body));
+    terminalInput(id, body);
+    return sendJson(res, 200, { ok: true });
+  }
   if (url.pathname === '/peakui/files/stream' && req.method === 'GET') {
     return streamDownloadFile(req, res, url);
   }
@@ -416,7 +438,9 @@ async function handle(req, res) {
   const sessionCreate = url.pathname === '/session' && req.method === 'POST';
   const sessionLoad = /^\/session\/[^/]+\/load$/.test(url.pathname) && req.method === 'POST';
   const sessionId = sessionCreate ? body?.sessionId : sessionLoad ? decodeURIComponent(url.pathname.split('/')[2]) : null;
-  proxy(req, res, runtime, buffered, sessionId ? () => saveSessionWorkspace(sessionId, cwd) : undefined);
+  const deletedId = req.method === 'DELETE' ? /^\/session\/([^/]+)$/.exec(url.pathname)?.[1] : undefined;
+  proxy(req, res, runtime, buffered, sessionId ? () => saveSessionWorkspace(sessionId, cwd)
+    : deletedId ? () => forgetSessionWorkspace(decodeURIComponent(deletedId)) : undefined);
 }
 
 export function startServer() {
@@ -430,12 +454,13 @@ export function startServer() {
   });
   const previewServer = http.createServer(proxyPreview);
   previewServer.on('upgrade', proxyPreviewUpgrade);
-  server.listen(listenPort, '127.0.0.1');
+  server.listen(listenPort, listenBind);
   previewServer.listen(previewPort, previewBind);
   const shutdown = () => {
     server.close();
     previewServer.close();
     void import('/opt/qwen-code/browser/session.mjs').then(module => module.closeBrowsers()).catch(() => {});
+    closeTerminals();
     for (const { child } of runtimes.values()) child.kill('SIGTERM');
   };
   process.once('SIGTERM', shutdown);

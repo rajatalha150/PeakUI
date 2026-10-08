@@ -133,6 +133,11 @@ test('routes parent and nested directories to independent persistent runtimes', 
     await stop();
     await start();
     assert.equal((await request('/session/child/status')).data.cwd, child);
+    const deleted = await fetch(`http://127.0.0.1:${port}/session/child`, {
+      method: 'DELETE', headers: { Authorization: 'Bearer test-token' },
+    });
+    assert.equal(deleted.status, 200);
+    assert.equal((await request('/session/child/status')).status, 404);
   } finally {
     if (router && router.exitCode === null) await stop();
     await new Promise(done => app.close(done));

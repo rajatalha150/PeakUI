@@ -104,6 +104,7 @@ services:
       - coder_workspace:/workspace
       - coder_apps:/apps
       - coder_state:/root/.qwen
+      - coder_browser_state:/var/lib/peakui/browser
       # Explicit protected cache/toolchain volumes. These survive image
       # recreation and are intentionally outside any supported cleanup target.
       - coder_gradle_cache:/root/.gradle
@@ -182,6 +183,7 @@ volumes:
   coder_workspace:
   coder_apps:
   coder_state:
+  coder_browser_state:
   coder_root_home:
   coder_gradle_cache:
   coder_android_home:

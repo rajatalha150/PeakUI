@@ -83,6 +83,7 @@ services:
       QWEN_DEBUG_LOG_FILE: "1"
       CODER_MIN_FREE_GB: ${CODER_MIN_FREE_GB:-12}
       CODER_PREVIEW_BIND: 0.0.0.0
+      CODER_ROUTER_BIND: 0.0.0.0
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4170/health',{signal:AbortSignal.timeout(4000),headers:process.env.QWEN_SERVER_TOKEN?{Authorization:'Bearer '+process.env.QWEN_SERVER_TOKEN}:{}}).then(async r=>{if(!r.ok||(await r.json()).status!=='ok')process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
@@ -93,6 +94,7 @@ services:
       - coder_workspace:/workspace
       - coder_apps:/apps
       - coder_state:/root/.qwen
+      - coder_browser_state:/var/lib/peakui/browser
       - coder_gradle_cache:/root/.gradle
       - coder_android_home:/root/.android
       - coder_npm_cache:/root/.npm
@@ -179,6 +181,7 @@ volumes:
   coder_workspace:
   coder_apps:
   coder_state:
+  coder_browser_state:
   coder_root_home:
   coder_gradle_cache:
   coder_android_home:

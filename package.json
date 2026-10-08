@@ -20,6 +20,8 @@
     "@prisma/adapter-pg": "^7.7.0",
     "@prisma/client": "^7.7.0",
     "@react-pdf/renderer": "^4.5.1",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "adm-zip": "^0.6.0",
     "archiver": "^7.0.1",
     "bcryptjs": "^3.0.3",

@@ -67,6 +67,21 @@ afterEach(() => {
 })
 
 describe('coder gateway route — response relay', () => {
+  it('streams terminal output only for an owned session', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('event: output\ndata: "ready"\n\n', {
+      headers: { 'Content-Type': 'text/event-stream' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { GET } = await loadRoute()
+    vi.mocked(authorizeCoderSession).mockResolvedValue(false)
+    expect((await GET(makeRequest('/session/foreign/terminal'))).status).toBe(404)
+    expect(fetchMock).not.toHaveBeenCalled()
+    vi.mocked(authorizeCoderSession).mockResolvedValue(true)
+    const result = await GET(makeRequest('/session/owned/terminal'))
+    expect(result.headers.get('content-type')).toBe('text/event-stream')
+    expect(await result.text()).toContain('ready')
+  })
+
   it('denies non-admin access to all shared runtime surfaces before forwarding', async () => {
     mocks.requireCurrentAuthWithPermissions.mockResolvedValue({ userId: 'user-1', auth: { user: { role: 'USER' } } })
     const fetchMock = vi.fn()

@@ -32,6 +32,14 @@ test('guest browser shares interaction, screenshots, logs and persistent storage
     const before = desktop.entries.filter(entry => entry.message.includes('guest-test')).length;
     const reopened = await browserAction(id, { action: 'navigate', url, navigationId: 1 });
     assert.equal(reopened.entries.filter(entry => entry.message.includes('guest-test')).length, before, 'reopening popup must not reload');
+    await browserAction(id, { action: 'pointer', event: 'down', x: 20, y: 20 });
+    assert.equal((await browserAction(id, { action: 'pointer', event: 'up', x: 20, y: 20 })).editable, true);
+    await browserAction(id, { action: 'key', key: 'End' });
+    await browserAction(id, { action: 'key', key: 'ArrowLeft' });
+    await browserAction(id, { action: 'key', key: 'Backspace' });
+    await browserAction(id, { action: 'text', text: 'X' });
+    const edited = await browserAction(id, { action: 'navigate', url, navigationId: 2 });
+    assert.ok(edited.entries.some(entry => entry.message.includes('shared-staXe')), 'arrow, backspace and typed text must edit the same input');
     const mobile = await browserAction(id, { action: 'frame', device: 'mobile' });
     assert.equal(mobile.width, 390);
     assert.equal(mobile.url, navigation.url);
@@ -39,9 +47,9 @@ test('guest browser shares interaction, screenshots, logs and persistent storage
     const frame = await browserAction(id, { action: 'frame' });
     assert.equal(frame.url, navigation.url, 'reconnecting restores the last page');
     assert.ok(frame.data);
-    assert.ok(frame.entries.some(entry => entry.message.includes('shared-state')), 'typed state must survive browser restart');
+    assert.ok(frame.entries.some(entry => entry.message.includes('shared-staXe')), 'typed state must survive browser restart');
     const other = await browserAction(`${id}-other`, { action: 'navigate', url });
-    assert.ok(!other.entries.some(entry => entry.message.includes('shared-state')), 'profiles must be isolated');
+    assert.ok(!other.entries.some(entry => entry.message.includes('shared-staXe')), 'profiles must be isolated');
   } finally {
     await closeBrowsers();
     await new Promise(resolve => server.close(resolve));

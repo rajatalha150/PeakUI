@@ -32,11 +32,5 @@ if [ -z "$(git config --global init.defaultBranch 2>/dev/null)" ]; then git conf
 git config --global core.sshCommand 'ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes'
 
 /usr/local/bin/peakui-coder-readiness --startup
-node /opt/qwen-code/sync-coder-models.mjs
-node /opt/qwen-code/scripts/cli-entry.js serve --hostname 127.0.0.1 --port 4170 --workspace /workspace --no-web --enable-session-shell &
-coder_pid=$!
-stop() {
-  kill "$coder_pid" 2>/dev/null || true
-}
-trap stop EXIT INT TERM
-wait "$coder_pid"
+export CODER_ROUTER_STATE_DIR="${CODER_ROUTER_STATE_DIR:-/root/.qwen/peakui-router}"
+exec node /opt/peakui/coder/workspace-router.mjs

@@ -76,7 +76,7 @@ const ALLOWED_PREFIXES = [
 ]
 
 /** Daemon-served paths that carry binary/stream bodies rather than JSON. */
-const STREAMING_SUFFIX = /^\/session\/[^/]+\/events$/
+const STREAMING_SUFFIX = /^\/session\/[^/]+\/(events|terminal)$/
 
 /** Map `/api/coder/<rest>` (plus query) onto the daemon's own URL shape. */
 function toDaemonPath(req: NextRequest): { path: string; query: string } | null {

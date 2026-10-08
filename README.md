@@ -38,6 +38,13 @@ flowchart LR
 | **Canvas** | Inspect, edit, version, bundle, and download artifacts | Revisions, lineage, source files, exports |
 | **Settings** | Models, providers, permissions, themes, GitHub, context policy | Per-user configuration |
 
+Coder's Terminal is an interactive Bash session inside its isolated Linux
+environment, with PTY input, resize, Ctrl+C, and persistent shell state while
+the window is closed. Install tools or run long builds there without turning
+each command into a chat message. The Preview popup runs a guest-local Chromium
+browser, so it can click, type, scroll, and inspect apps without occupying a
+port on the host machine.
+
 ## Choose A Path
 
 ```mermaid

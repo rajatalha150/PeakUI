@@ -545,15 +545,19 @@ shell endpoint produced a commit.
 
 ### 11.3 On-demand terminal pop-up
 
-The daemon has `POST /session/:id/shell`, but it was (a) gated behind
-`--enable-session-shell` (now passed in the Dockerfile CMD, permitted on trusted
-loopback) and (b) blocked by a client-id handshake — the daemon **mints** its own
-`clientId` on session create and rejects any caller-invented id.
-
-**Fix:** the Dockerfile adds `--enable-session-shell`; `ensureDaemonSession`
-captures the daemon-minted `clientId` and echoes it; a **Terminal** button opens
-a pop-up with a command input + scrollable output running as root in the
-container. **Verified:** `id -u` → `0` / `whoami` → `root` through the endpoint.
+The Terminal button now opens an actual Bash PTY rendered with xterm.js. The
+workspace router owns the process in the Coder guest/container and exposes
+`GET /session/:id/terminal` as an output event stream and
+`POST /session/:id/terminal` for open, input, resize, and close. The existing
+PeakUI gateway authenticates the caller and checks session ownership before
+either operation; the router also requires its bearer token. Closing the
+window disconnects the viewer but leaves the shell running, so `cd`, installers,
+interactive programs, and long-running commands survive reopening. Ctrl+C,
+arrow keys, Tab, text selection, copy/paste, light/dark colors, and terminal
+resize use normal PTY behavior. Shell processes are not durable across a guest
+or router restart; project files, installed packages in the persistent guest,
+and the agent transcript remain durable. If a shell exits, the popup offers a
+New shell control without changing the coding session.
 
 ### 11.4 Client-id handshake (the shell unblocker)
 
@@ -740,19 +744,16 @@ status. Failed runs stay visible and are never restyled as success. Records are
 in-session only (reset on session switch) — a DB-backed ledger is a documented
 gap, as is a true content-level fingerprint.
 
-### 12.11 Verified absence of PTY / debug transports
+### 12.11 PTY and debug transports
 
-The spec gates the persistent terminal and the debugger on *verifying* whether
-the pinned runtime exposes a suitable transport first. It does **not**, on the
-HTTP surface:
+The pinned Coder engine has no native PTY HTTP route, so PeakUI's Coder
+workspace router now owns one. It runs in the isolated Coder runtime (both
+Incus and Docker), not in the main app container. Its PTY dependency is the
+`@lydell/node-pty` version already pinned by the Coder engine. The browser
+receives output through authenticated SSE and sends input and dimensions
+through authenticated POSTs. No direct terminal port is published.
 
-- **No PTY transport.** The only shell route is `POST /session/:id/shell`
-  (on-demand, request → completed output). There is no `pty`, `terminal`,
-  `stream`, `resize`, or `tty` route. A persistent PTY therefore needs a
-  server-side PTY broker (spawn `node-pty` in the app container and multiplex
-  stdin/stdout/resize over a WebSocket/SSE) — which the gateway architecture
-  deliberately avoids ("the only backend code", §3.2). On-demand shell remains
-  the only terminal.
+The remaining debugger gap is separate:
 - **No debug-adapter surface.** No `debug` / `dap` / `breakpoint` / `inspector`
   route; the `debug`/`debugger` strings in the pinned source are logging flags,
   not a debug server. A Node/TS debugger needs a separate DAP server with the
@@ -760,8 +761,8 @@ HTTP surface:
 - **LSP exists** (`/session/:id/lsp`) but its contract for interactive editing
   (diagnostics, definition, rename over HTTP) is not yet verified.
 
-These are *hard* gaps, not merely unbuilt features: closing them is an
-architecture decision (a PTY/DAP broker in the app server), not a thin UI slice.
+The debugger still requires a deliberate, session-scoped DAP design; it is not
+part of the terminal transport.
 
 ### 12.12 App-level routes (preview re-validation + readiness)
 

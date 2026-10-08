@@ -67,6 +67,16 @@ Access to the Incus/LXD administration socket is host-administrator equivalent.
 The Coding agent does not receive that socket, so it can control its nested
 Linux environment without controlling host instances.
 
+The Coding Terminal is a session-owned interactive Bash PTY inside this guest.
+It can install guest packages and run interactive builds; the shell keeps its
+cwd and process while the popup is closed. Its live process ends when the guest
+router restarts, but installed packages, workspace files, and agent history
+stay in the persistent guest. The Docker fallback uses the same router and PTY
+API; neither mode exposes a raw terminal port to the browser.
+Verify the guest PTY after installation with
+`incus exec peakui-coder -- node --test /opt/peakui/coder/terminal.node-test.mjs`
+(replace `incus` and the instance name when using LXD).
+
 ## Install And Update
 
 From this branch's checkout, this is the complete installation command:

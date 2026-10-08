@@ -48,6 +48,7 @@ volume_migrations=(
   'coder_workspace:/workspace'
   'coder_apps:/apps'
   'coder_state:/root/.qwen'
+  'coder_browser_state:/var/lib/peakui/browser'
   'coder_gradle_cache:/root/.gradle'
   'coder_android_home:/root/.android'
   'coder_npm_cache:/root/.npm'
@@ -164,6 +165,8 @@ push_guest_tree scripts/coder-workspace/memories /tmp/peakui-memories
 push_guest_tree scripts/coder-browser /tmp/peakui-browser
 push_guest_file scripts/coder-lxd/bootstrap.sh /tmp/peakui-bootstrap.sh 755
 push_guest_file scripts/coder-lxd/workspace-router.mjs /opt/peakui/coder/workspace-router.mjs 644
+push_guest_file scripts/coder-lxd/terminal.mjs /opt/peakui/coder/terminal.mjs 644
+push_guest_file scripts/coder-lxd/terminal.node-test.mjs /opt/peakui/coder/terminal.node-test.mjs 644
 push_guest_file scripts/coder-lxd/peakui-coder.service /etc/systemd/system/peakui-coder.service 644
 # The unit was just copied into a running systemd guest. Reload before starting
 # it so a redeploy cannot launch a stale cached definition and then silently

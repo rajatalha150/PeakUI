@@ -31,6 +31,7 @@ const CodeEditor = dynamic(() => import('./CodeEditor'), {
     </div>
   ),
 });
+const CoderTerminal = dynamic(() => import('./CoderTerminal'), { ssr: false });
 
 /** A message in the coding chat, projected from the daemon transcript. */
 interface CoderChatMessage {
@@ -454,11 +455,8 @@ export default function CodingView() {
   // the iframe still renders at its true pixel dimensions (media queries fire).
   const previewStageRef = React.useRef<HTMLDivElement | null>(null);
   const [previewStageWidth, setPreviewStageWidth] = React.useState(0);
-  // On-demand shell pop-up (manual terminal the user drives directly).
+  // The interactive shell stays alive in the guest when this window closes.
   const [shellOpen, setShellOpen] = React.useState(false);
-  const [shellCommand, setShellCommand] = React.useState('');
-  const [shellOutput, setShellOutput] = React.useState('');
-  const [shellRunning, setShellRunning] = React.useState(false);
   // Inline rename state for the session sidebar.
   const [renamingId, setRenamingId] = React.useState<string | null>(null);
   const [renameValue, setRenameValue] = React.useState('');
@@ -526,7 +524,7 @@ export default function CodingView() {
     setSearchResults(null); setSearchLoading(false); setSearchError('');
     setRewindSnapshots(null); setRewindResult(null); setRewindLoading(false); setRewindError('');
     previewUrlManualRef.current = false; previewDeviceManualRef.current = false; agentPreviewRef.current = null; previewFileRawRef.current = '';
-    setShellOutput(''); setShellRunning(false); setPreviewUrl(''); setPreviewCaptureUrl(''); setPreviewInput('');
+    setShellOpen(false); setPreviewUrl(''); setPreviewCaptureUrl(''); setPreviewInput('');
     setQuestionDrafts({}); setQuestionNotes({}); nudgedNotificationRef.current = null;
     setWorkspaceNotice('');
   };
@@ -2404,55 +2402,6 @@ export default function CodingView() {
     }
   };
 
-  /**
-   * Run a single shell command in the agent's own session and append the result
-   * to the pop-up terminal. This is the user's direct, on-demand access to the
-   * isolated container — independent of the agent's own tool calls — via the
-   * daemon's `POST /session/:id/shell`.
-   */
-  const runShellCommand = async () => {
-    const current = captureSession();
-    const command = shellCommand.trim();
-    if (!command || shellRunning) return;
-    const sessionId = daemonSessionId || (await ensureDaemonSession());
-    if (!current()) return;
-    if (!sessionId) {
-      setShellOutput(prev => prev + '\n[error] no daemon session\n');
-      return;
-    }
-    setShellRunning(true);
-    setHumanSaveCount(c => c + 1);
-    setShellOutput(prev => prev + `\n$ ${command}\n`);
-    try {
-      const res = await fetch(`/api/coder/session/${sessionId}/shell`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-qwen-client-id': clientIdRef.current,
-        },
-        body: JSON.stringify({ command }),
-      });
-      const data = await res.json().catch(() => ({})) as { output?: string; exitCode?: number | null; error?: string };
-      if (!current()) return;
-      if (!res.ok) {
-        setShellOutput(prev => prev + `[error ${res.status}] ${data.error || 'command failed'}\n`);
-      } else {
-        const out = typeof data.output === 'string' ? data.output : '';
-        const code = data.exitCode === null || data.exitCode === undefined ? '' : `\n[exit ${data.exitCode}]`;
-        setShellOutput(prev => prev + (out || '(no output)') + code + '\n');
-      }
-    } catch (e) {
-      if (!current()) return;
-      setShellOutput(prev => prev + `[error] ${e instanceof Error ? e.message : String(e)}\n`);
-    } finally {
-      if (current()) {
-        setShellRunning(false);
-        setShellCommand('');
-        setHumanSaveCount(c => c + 1);
-      }
-    }
-  };
-
   // ---- Live status + tool activity (SSE, with poll fallback) --------------
 
   const recoverMissingDaemonSession = React.useCallback((missingId: string) => {
@@ -2989,7 +2938,7 @@ export default function CodingView() {
               <button role="menuitem" onClick={() => { if (daemonSessionId) void captureContextHandoff(daemonSessionId); setHeaderActionsOpen(false); }} disabled={!daemonSessionId || contextHandoffSaving} style={menuButtonStyle()} title="Capture a durable context handoff before automatic compaction">
                 {contextHandoffSaving ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Save size={14} />} Save context
               </button>
-              <button role="menuitem" onClick={() => { setShellOpen(open => !open); setHeaderActionsOpen(false); }} style={menuButtonStyle()} title="Open a terminal into the isolated container">
+              <button role="menuitem" onClick={() => { if (!shellOpen && !daemonSessionId) void ensureDaemonSession(); setShellOpen(open => !open); setHeaderActionsOpen(false); }} style={menuButtonStyle()} title="Open a terminal into the isolated container">
                 <Terminal size={14} /> Terminal
               </button>
             </div>
@@ -4020,37 +3969,11 @@ export default function CodingView() {
         </div>
       )}
 
-      {/* On-demand terminal pop-up — direct shell into the isolated container */}
-      {shellOpen && (
-        <div style={{
-          position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%, -50%)',
-          width: 'min(680px, 90vw)', maxHeight: '80vh', zIndex: 60,
-          display: 'flex', flexDirection: 'column', borderRadius: '12px', overflow: 'hidden',
-          background: '#0a0e17', border: '1px solid rgba(34,211,238,0.35)', boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.08)', background: 'rgba(34,211,238,0.06)' }}>
-            <Terminal size={15} style={{ color: accent }} />
-            <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#a5f3fc', letterSpacing: '0.05em' }}>Terminal — {workspace}</span>
-            <span style={{ fontSize: '0.7rem', color: 'rgba(209,213,219,0.45)', fontFamily: 'ui-monospace, monospace' }}>root@coder (isolated container)</span>
-            <button onClick={() => setShellOpen(false)} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'rgba(209,213,219,0.6)', cursor: 'pointer', padding: 0 }}><X size={16} /></button>
-          </div>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', fontFamily: 'ui-monospace, monospace', fontSize: '0.78rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: '#d1d5db', minHeight: 180, maxHeight: '46vh', background: 'rgba(0,0,0,0.4)' }}>
-            {shellOutput || <span style={{ color: 'rgba(209,213,219,0.35)' }}>Run a command below — it executes as root inside the isolated coder container.</span>}
-          </div>
-          <div style={{ display: 'flex', gap: '8px', padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-            <input
-              value={shellCommand}
-              onChange={e => setShellCommand(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') void runShellCommand(); }}
-              placeholder="ls -la /workspace"
-              style={{ flex: 1, background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', padding: '8px 10px', fontSize: '0.8rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
-            />
-            <button onClick={() => void runShellCommand()} disabled={shellRunning || !shellCommand.trim()} style={btnStyle(accent)}>
-              {shellRunning ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={14} />} Run
-            </button>
-          </div>
-        </div>
-      )}
+      {shellOpen && daemonSessionId && <CoderTerminal sessionId={daemonSessionId} workspace={workspace} onClose={() => setShellOpen(false)} />}
+      {shellOpen && !daemonSessionId && <div role="status" style={{ position: 'fixed', inset: '5dvh 3vw', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#101418', color: '#e9eff0', border: '1px solid #57736d' }}>
+        {error || 'Opening terminal...'}
+        <button aria-label="Close terminal" onClick={() => setShellOpen(false)} style={{ position: 'absolute', top: 12, right: 12, background: 'none', color: 'inherit', border: 0, cursor: 'pointer' }}><X size={18} /></button>
+      </div>}
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
