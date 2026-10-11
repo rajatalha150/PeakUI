@@ -23,17 +23,20 @@ interface CodeEditorProps {
   path: string
   value: string
   onChange: (value: string) => void
-  height?: number
+  height?: number | string
+  theme?: 'vs' | 'vs-dark'
+  readOnly?: boolean
 }
 
-export default function CodeEditor({ path, value, onChange, height = 260 }: CodeEditorProps) {
+export default function CodeEditor({ path, value, onChange, height = 260, theme = 'vs-dark', readOnly = false }: CodeEditorProps) {
   return (
     <Editor
       height={height}
       path={path}
       value={value}
       onChange={(v) => onChange(v ?? '')}
-      theme="vs-dark"
+      onMount={editor => editor.focus()}
+      theme={theme}
       options={{
         minimap: { enabled: false },
         fontSize: 13,
@@ -42,6 +45,7 @@ export default function CodeEditor({ path, value, onChange, height = 260 }: Code
         automaticLayout: true,
         tabSize: 2,
         wordWrap: 'off',
+        readOnly,
       }}
     />
   )

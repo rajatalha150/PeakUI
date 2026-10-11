@@ -22,7 +22,10 @@ export default function CoderBrowser({ sessionId, url, device, reloadKey }: {
   const [currentUrl, setCurrentUrl] = useState(url);
   const screen = useRef<HTMLImageElement>(null);
   const keyboard = useRef<HTMLTextAreaElement>(null);
-  const lastMove = useRef(0);
+  const pendingMove = useRef<Record<string, unknown> | null>(null);
+  const moving = useRef(false);
+  const lastClick = useRef<{ x: number; y: number; at: number; count: number; button: number } | null>(null);
+  const clickCount = useRef(1);
   const touchDrag = useRef<{ x: number; y: number; moved: boolean } | null>(null);
   const composing = useRef(false);
   const queue = useRef<Promise<unknown>>(Promise.resolve());
@@ -40,12 +43,10 @@ export default function CoderBrowser({ sessionId, url, device, reloadKey }: {
     let timer: ReturnType<typeof setTimeout>;
     const poll = async () => {
       try {
-        await queue.current.catch(() => {});
-        if (!active) return;
         const result = await coderBrowserRequest(sessionId, { action: 'frame' }, controller.signal);
         if (active) { setFrame(`data:image/jpeg;base64,${result.data}`); setCurrentUrl(result.url); }
       } catch (err) { if (active) setError(err instanceof Error ? err.message : 'Browser disconnected'); }
-      if (active) timer = setTimeout(poll, 240);
+      if (active) timer = setTimeout(poll, 120);
     };
     void action({ action: 'navigate', url, device, navigationId: reloadKey }).catch(() => {}).then(() => { if (active) { setFrame(''); void poll(); } });
     return () => { active = false; clearTimeout(timer); controller.abort(); };
@@ -64,9 +65,26 @@ export default function CoderBrowser({ sessionId, url, device, reloadKey }: {
     return () => el.removeEventListener('wheel', wheel);
   }, [!!frame, action]);
 
+  const sendMove = (input: Record<string, unknown>) => {
+    pendingMove.current = input;
+    if (moving.current) return;
+    moving.current = true;
+    void (async () => {
+      while (pendingMove.current) {
+        const latest = pendingMove.current;
+        pendingMove.current = null;
+        await action(latest).catch(() => {});
+      }
+      moving.current = false;
+    })();
+  };
   const pointer = (event: React.PointerEvent<HTMLImageElement>, kind: string) => {
     const rect = event.currentTarget.getBoundingClientRect();
-    if (kind === 'down') { event.currentTarget.focus(); event.currentTarget.setPointerCapture(event.pointerId); }
+    if (kind === 'down') {
+      pendingMove.current = null;
+      event.currentTarget.focus();
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
     const touch = event.pointerType === 'touch';
     if (touch) {
       if (kind === 'down') { touchDrag.current = { x: event.clientX, y: event.clientY, moved: false }; return; }
@@ -89,8 +107,17 @@ export default function CoderBrowser({ sessionId, url, device, reloadKey }: {
           y: (event.clientY - rect.top) * viewport.height / rect.height }).catch(() => {});
       }
     }
-    void action({ action: 'pointer', event: kind, x: (event.clientX - rect.left) * viewport.width / rect.width,
-      y: (event.clientY - rect.top) * viewport.height / rect.height }).then(result => {
+    const x = (event.clientX - rect.left) * viewport.width / rect.width;
+    const y = (event.clientY - rect.top) * viewport.height / rect.height;
+    if (kind === 'move') { sendMove({ action: 'pointer', event: kind, x, y }); return; }
+    pendingMove.current = null;
+    if (kind === 'down' && !touch) {
+      const previous = lastClick.current;
+      clickCount.current = previous && previous.button === event.button && Date.now() - previous.at < 450
+        && Math.abs(previous.x - x) < 5 && Math.abs(previous.y - y) < 5 ? Math.min(previous.count + 1, 3) : 1;
+    }
+    if (kind === 'up' && !touch) lastClick.current = { x, y, at: Date.now(), count: clickCount.current, button: event.button };
+    void action({ action: 'pointer', event: kind, x, y, button: event.button, clickCount: clickCount.current }).then(result => {
         if (kind === 'up' && touch && !result.editable) keyboard.current?.blur();
       }).catch(() => {});
   };
@@ -112,14 +139,15 @@ export default function CoderBrowser({ sessionId, url, device, reloadKey }: {
     {frame && <img ref={screen} src={frame} alt="Coder browser" tabIndex={0} draggable={false}
       style={{ display: 'block', width: '100%', aspectRatio: `${viewport.width} / ${viewport.height}`, touchAction: 'none', outlineOffset: -2 }}
       onPointerDown={event => pointer(event, 'down')} onPointerUp={event => pointer(event, 'up')}
-      onPointerMove={event => { if (Date.now() - lastMove.current > 80) { lastMove.current = Date.now(); pointer(event, 'move'); } }}
-      onPointerCancel={() => { touchDrag.current = null; }}
+      onPointerMove={event => pointer(event, 'move')}
+      onPointerCancel={event => { if (event.pointerType === 'touch') touchDrag.current = null; else pointer(event, 'up'); }}
+      onContextMenu={event => event.preventDefault()}
       onPaste={event => { event.preventDefault(); void action({ action: 'text', text: event.clipboardData.getData('text') }).catch(() => {}); }}
       onKeyDown={event => {
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') return;
         event.preventDefault();
         if (['Control', 'Shift', 'Alt', 'Meta'].includes(event.key)) return;
-        void action(event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey
+        void action(event.key.length === 1 && event.key.charCodeAt(0) > 127 && !event.ctrlKey && !event.metaKey && !event.altKey
           ? { action: 'text', text: event.key }
           : { action: 'key', key: event.key, modifiers: [event.ctrlKey && 'Control', event.shiftKey && 'Shift', event.altKey && 'Alt', event.metaKey && 'Meta'].filter(Boolean) }).catch(() => {});
       }} />}

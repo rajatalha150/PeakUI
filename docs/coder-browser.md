@@ -4,6 +4,10 @@ Coder Preview runs Chromium inside the isolated Coder Linux runtime (persistent
 Incus/LXD guest or Docker Coder container). The popup
 receives JPEG frames over PeakUI's authenticated API and sends pointer, keyboard,
 paste, scroll, navigation and viewport commands back to the same page.
+Desktop mouse movement is coalesced so hover traffic cannot bury clicks or
+typing; frame refresh runs independently of the input queue. Desktop keys,
+right-clicks and double-clicks reach Chromium as browser events. The live frame
+response omits accumulated console logs; Log and Vision still collect them.
 On phones, a tap focuses the local keyboard during the gesture, then releases
 it if Chromium reports the target is not editable. Backspace, Delete, arrow
 keys and IME text are forwarded as distinct browser actions rather than
@@ -59,7 +63,7 @@ PUPPETEER_CACHE_DIR=/opt/puppeteer-cache CODER_BROWSER_INTEGRATION=1 node --test
 
 The test checks guest-local navigation, redirects, a page that forbids iframe
 embedding, input, console collection, screenshot generation and viewport changes.
-Frames are currently requested approximately four times per second, subject to
+Frames are currently requested up to roughly eight times per second, subject to
 network and rendering speed; this is an interactive development preview, not a
 video-streaming desktop. Browser-native file dialogs and downloads are not yet
 integrated into the popup; use Coder Files for guest files.

@@ -696,10 +696,15 @@ containment). The gateway rejects a relative/traversal `path` before forwarding
   clobber a concurrent agent edit.
 
 `src/lib/coder-files.ts` owns the pure parsing/validation; `CodingView`'s Files
-panel drives list → open → edit → save through these routes. Opened files stay
-resident as tabs, each with its own buffer, dirty flag, hash, and save state —
+panel lists folders and files, while opening a readable file brings up a
+viewport-filling editor with tabs, Save, and Close controls. Closing the editor
+window keeps the tabs and unsaved buffers for later; closing a dirty tab asks
+before discarding it. Opened files stay resident as tabs, each with its own
+buffer, dirty flag, hash, and save state —
 re-opening a path re-activates its buffer (preserving unsaved edits) rather than
 re-reading, and each tab's save is compare-and-swap on that tab's own hash. The
+editor marks truncated reads as read-only because they have no safe replacement
+hash. The overlay and Monaco editor follow the selected Coder theme. The
 shapes were read from the pinned daemon source and confirmed live (list + read
 returned the documented shape).
 

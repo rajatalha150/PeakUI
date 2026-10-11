@@ -85,9 +85,11 @@ async function execute(id, input) {
     const { width, height } = viewports[session.device];
     const x = Math.max(0, Math.min(width - 1, Number(input.x) || 0));
     const y = Math.max(0, Math.min(height - 1, Number(input.y) || 0));
+    const button = ({ 1: 'middle', 2: 'right' })[input.button] || 'left';
+    const clickCount = Math.max(1, Math.min(3, Number(input.clickCount) || 1));
     await page.mouse.move(x, y);
-    if (input.event === 'down') await page.mouse.down({ button: 'left' });
-    else if (input.event === 'up') await page.mouse.up({ button: 'left' });
+    if (input.event === 'down') await page.mouse.down({ button, clickCount });
+    else if (input.event === 'up') await page.mouse.up({ button, clickCount });
   } else if (action === 'scroll') await page.mouse.wheel({ deltaX: Math.max(-2000, Math.min(2000, Number(input.deltaX) || 0)), deltaY: Math.max(-2000, Math.min(2000, Number(input.deltaY) || 0)) });
   else if (action === 'text') await page.keyboard.sendCharacter(String(input.text || '').slice(0, 20000));
   else if (action === 'key') {
@@ -103,11 +105,14 @@ async function execute(id, input) {
     await writeFile(join(session.profile, 'peakui-page.json'), JSON.stringify({ url: currentUrl, navigationId: session.navigationId, requestedUrl: session.requestedUrl }), { mode: 0o600 });
     session.savedUrl = currentUrl;
   }
-  const editable = await activePage.evaluate(() => {
-    const el = document.activeElement;
-    return !!el && (el.matches('input:not([type=button]):not([type=checkbox]):not([type=radio]),textarea') || el.isContentEditable);
-  }).catch(() => false);
-  const result = { url: currentUrl, editable, ...viewports[session.device], entries: session.entries };
+  const editable = action === 'pointer' && input.event === 'up'
+    ? await activePage.evaluate(() => {
+      const el = document.activeElement;
+      return !!el && (el.matches('input:not([type=button]):not([type=checkbox]):not([type=radio]),textarea') || el.isContentEditable);
+    }).catch(() => false)
+    : false;
+  const result = { url: currentUrl, editable, ...viewports[session.device] };
+  if (action === 'diagnostics' || action === 'screenshot') result.entries = session.entries;
   if (action === 'frame' || action === 'screenshot') {
     result.data = await activePage.screenshot({ type: 'jpeg', quality: action === 'frame' ? 70 : 90, encoding: 'base64' });
     result.mimeType = 'image/jpeg';

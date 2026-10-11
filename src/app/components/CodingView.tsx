@@ -1,6 +1,7 @@
 "use client";
 
 import React from 'react';
+import { createPortal } from 'react-dom';
 import CoderBrowser, { coderBrowserRequest } from './CoderBrowser';
 import CoderModelPicker, { type CoderModelOption } from './CoderModelPicker';
 import { AlertCircle, Bot, Camera, CheckCircle2, ChevronDown, ChevronRight, Circle, ClipboardCopy, Download, FileText, Folder, GitBranch, Globe, Grip, History, Loader2, Maximize2, MessageSquare, Minimize2, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Pencil, Plus, RefreshCw, RotateCcw, Save, Search, Send, ShieldAlert, Square, Terminal, Trash2, Wrench, X } from 'lucide-react';
@@ -26,7 +27,7 @@ import dynamic from 'next/dynamic';
 const CodeEditor = dynamic(() => import('./CodeEditor'), {
   ssr: false,
   loading: () => (
-    <div style={{ height: 260, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', color: 'rgba(209,213,219,0.5)', fontFamily: 'ui-monospace, monospace' }}>
+    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', color: 'rgba(209,213,219,0.5)', fontFamily: 'ui-monospace, monospace' }}>
       loading editor…
     </div>
   ),
@@ -489,6 +490,7 @@ export default function CodingView() {
   const [fileActionRunning, setFileActionRunning] = React.useState(false);
   const [openTabs, setOpenTabs] = React.useState<EditorTab[]>([]);
   const [activePath, setActivePath] = React.useState<string | null>(null);
+  const [fileEditorOpen, setFileEditorOpen] = React.useState(false);
   // Named project tasks (install/build/test/run) state.
   const [tasksOpen, setTasksOpen] = React.useState(false);
   const [tasks, setTasks] = React.useState<Task[]>([]);
@@ -519,7 +521,7 @@ export default function CodingView() {
   const resetWorkbench = () => {
     sessionGenerationRef.current += 1;
     ensurePromiseRef.current = null;
-    setOpenTabs([]); setActivePath(null); setFileEntries(null); setFileError(''); setFileLoading(false);
+    setOpenTabs([]); setActivePath(null); setFileEditorOpen(false); setFileEntries(null); setFileError(''); setFileLoading(false);
     setTasks([]); setTaskCommands({}); setTaskOutputs({}); setTaskRunning(null); setTaskError('');
     setSearchResults(null); setSearchLoading(false); setSearchError('');
     setRewindSnapshots(null); setRewindResult(null); setRewindLoading(false); setRewindError('');
@@ -1585,7 +1587,7 @@ export default function CodingView() {
       }
       setRewindResult(parsed.result);
       setHumanSaveCount(c => c + 1);
-      setOpenTabs([]); setActivePath(null);
+      setOpenTabs([]); setActivePath(null); setFileEditorOpen(false);
       // The transcript poll reconciles the now-truncated conversation; refresh
       // the snapshot list so the restored point reflects the new state.
       await loadRewindSnapshots();
@@ -1648,6 +1650,7 @@ export default function CodingView() {
     // Re-activate an already-open buffer without re-reading (keeps unsaved edits).
     if (openTabs.some(t => t.path === path)) {
       setActivePath(path);
+      setFileEditorOpen(true);
       return;
     }
     setFileLoading(true);
@@ -1667,6 +1670,7 @@ export default function CodingView() {
       }
       setOpenTabs(prev => prev.some(t => t.path === path) ? prev : [...prev, { path, content: parsed.file.content, hash: parsed.file.truncated ? null : parsed.file.hash, dirty: false, saving: false, error: '' }]);
       setActivePath(path);
+      setFileEditorOpen(true);
     } catch (e) {
       if (!current()) return;
       setFileError(e instanceof Error ? e.message : 'Failed to read file');
@@ -1679,11 +1683,10 @@ export default function CodingView() {
     const tab = openTabs.find(t => t.path === path);
     if (tab?.saving) return;
     if (tab?.dirty && !window.confirm('Discard unsaved changes to this file?')) return;
-    setOpenTabs(prev => {
-      const next = prev.filter(t => t.path !== path);
-      if (activePath === path) setActivePath(next.length ? next[next.length - 1].path : null);
-      return next;
-    });
+    const next = openTabs.filter(t => t.path !== path);
+    setOpenTabs(next);
+    if (activePath === path) setActivePath(next.length ? next[next.length - 1].path : null);
+    if (next.length === 0) setFileEditorOpen(false);
   };
 
   const saveFile = async () => {
@@ -3258,9 +3261,9 @@ export default function CodingView() {
             <button onClick={() => setFilesOpen(false)} style={ghostBtnStyle()}><X size={13} /></button>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'stretch', flexWrap: 'wrap' }}>
+          <div>
             {/* Directory listing */}
-            <div style={{ flex: '0 0 260px', maxHeight: 280, overflowY: 'auto', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', background: 'rgba(255,255,255,0.02)' }}>
+            <div style={{ width: '100%', maxHeight: 320, overflowY: 'auto', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', background: 'rgba(255,255,255,0.02)' }}>
               {fileLoading && (
                 <div style={{ padding: '10px', fontSize: '0.7rem', color: '#9ca3af', fontFamily: 'ui-monospace, monospace' }}>loading…</div>
               )}
@@ -3308,74 +3311,33 @@ export default function CodingView() {
               </div>
             )}
 
-            {/* Editor */}
-            <div style={{ flex: 1, minWidth: 260, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {openTabs.length > 0 && (
-                <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', paddingBottom: '2px' }}>
-                  {openTabs.map(t => (
-                    <button
-                      key={t.path}
-                      onClick={() => setActivePath(t.path)}
-                      title={t.path}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, maxWidth: 180,
-                        background: t.path === activePath ? 'rgba(34,211,238,0.12)' : 'rgba(255,255,255,0.03)',
-                        color: t.path === activePath ? '#e5e7eb' : 'rgba(209,213,219,0.6)',
-                        border: `1px solid ${t.path === activePath ? 'rgba(34,211,238,0.4)' : 'rgba(255,255,255,0.07)'}`,
-                        borderRadius: '6px', padding: '3px 8px', cursor: 'pointer',
-                        fontSize: '0.68rem', fontFamily: 'ui-monospace, monospace', whiteSpace: 'nowrap',
-                      }}
-                    >
-                      <FileText size={11} color={t.path === activePath ? '#22d3ee' : 'rgba(209,213,219,0.5)'} />
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {t.path.split('/').pop()}{t.dirty ? ' •' : ''}
-                      </span>
-                      <span
-                        onClick={e => { e.stopPropagation(); closeTab(t.path); }}
-                        title="Close tab"
-                        style={{ color: 'rgba(209,213,219,0.4)', cursor: 'pointer', display: 'inline-flex' }}
-                      >
-                        <X size={11} />
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {activeTab && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '0.7rem', fontFamily: 'ui-monospace, monospace', color: 'rgba(209,213,219,0.7)', overflowWrap: 'anywhere', flex: 1 }}>
-                    {activeTab.path}{activeTab.dirty ? ' •' : ''}
-                  </span>
-                  <button
-                    onClick={() => void saveFile()}
-                    disabled={activeTab.saving || !activeTab.dirty}
-                    style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(34,211,238,0.1)', color: '#22d3ee', border: '1px solid rgba(34,211,238,0.3)', borderRadius: '8px', padding: '3px 9px', fontSize: '0.7rem', cursor: activeTab.dirty && !activeTab.saving ? 'pointer' : 'default', fontFamily: 'ui-monospace, monospace', opacity: activeTab.dirty && !activeTab.saving ? 1 : 0.5 }}
-                    title="Save (compare-and-swap on the file hash)"
-                  >
-                    <Save size={12} /> {activeTab.saving ? 'saving…' : 'Save'}
-                  </button>
-                </div>
-              )}
-              {activeTab?.error && (
-                <div style={{ fontSize: '0.7rem', color: '#ef4444', fontFamily: 'ui-monospace, monospace' }}>{activeTab.error}</div>
-              )}
-              {activeTab ? (
-                <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: '8px', overflow: 'hidden' }}>
-                  <CodeEditor
-                    path={activeTab.path}
-                    value={activeTab.content}
-                    onChange={v => updateTab(activeTab.path, { content: v, dirty: true })}
-                    height={260}
-                  />
-                </div>
-              ) : (
-                <div style={{ padding: '10px', fontSize: '0.7rem', color: 'rgba(209,213,219,0.45)', fontFamily: 'ui-monospace, monospace' }}>
-                  No file selected.
-                </div>
-              )}
-            </div>
           </div>
         </div>
+      )}
+
+      {fileEditorOpen && activeTab && typeof document !== 'undefined' && createPortal(
+        <div role="dialog" aria-modal="true" aria-label="File editor" style={{ position: 'fixed', inset: isPhone ? 0 : 8, zIndex: 200, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, overflow: 'hidden', background: themeDefaults.background, color: themeDefaults.foreground, border: isPhone ? 'none' : `1px solid ${themeDefaults.border}`, boxShadow: '0 20px 70px #0009' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 48, padding: '7px 12px', borderBottom: `1px solid ${themeDefaults.border}` }}>
+            <FileText size={16} color={accent} style={{ flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+              <strong style={{ display: 'block', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeTab.path.split('/').pop()}</strong>
+              <span title={activeTab.path} style={{ display: 'block', fontSize: 11, opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{activeTab.path}</span>
+            </div>
+            <button onClick={() => void saveFile()} disabled={activeTab.saving || !activeTab.dirty || !activeTab.hash} title="Save file" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 10px', flexShrink: 0, color: themeDefaults.foreground, background: themeDefaults.surface, border: `1px solid ${accent}`, borderRadius: 4, cursor: activeTab.dirty && !activeTab.saving && activeTab.hash ? 'pointer' : 'default', opacity: activeTab.dirty && !activeTab.saving && activeTab.hash ? 1 : 0.5 }}><Save size={14} /> {activeTab.saving ? 'Saving' : 'Save'}</button>
+            <button onClick={() => setFileEditorOpen(false)} title="Close editor" aria-label="Close editor" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, flexShrink: 0, background: 'transparent', color: themeDefaults.foreground, border: 0, cursor: 'pointer' }}><X size={18} /></button>
+          </div>
+          <div role="tablist" aria-label="Open files" style={{ display: 'flex', gap: 2, overflowX: 'auto', minHeight: 38, padding: '4px 8px', borderBottom: `1px solid ${themeDefaults.border}` }}>
+            {openTabs.map(tab => <div key={tab.path} style={{ display: 'flex', alignItems: 'center', flex: '0 0 auto', maxWidth: 220, background: tab.path === activePath ? themeDefaults.surface : 'transparent', border: `1px solid ${themeDefaults.border}`, borderRadius: 4 }}>
+              <button role="tab" aria-selected={tab.path === activePath} onClick={() => setActivePath(tab.path)} title={tab.path} style={{ minWidth: 0, padding: '5px 8px', background: 'transparent', color: themeDefaults.foreground, border: 0, cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>{tab.path.split('/').pop()}{tab.dirty ? ' *' : ''}</button>
+              <button onClick={() => closeTab(tab.path)} title={`Close ${tab.path.split('/').pop()}`} aria-label={`Close ${tab.path.split('/').pop()}`} style={{ display: 'inline-flex', alignItems: 'center', padding: 5, background: 'transparent', color: themeDefaults.foreground, border: 0, cursor: 'pointer', opacity: 0.7 }}><X size={13} /></button>
+            </div>)}
+          </div>
+          {!activeTab.hash && <div role="status" style={{ padding: '7px 12px', color: coderTheme === 'sage' ? '#684317' : '#fcd34d', background: coderTheme === 'sage' ? '#fff3db' : '#3e321c', fontSize: 12 }}>Only the first 256 KB was loaded. This preview is read-only.</div>}
+          {activeTab.error && <div role="alert" style={{ padding: '7px 12px', color: '#fca5a5', background: '#442525', fontSize: 12 }}>{activeTab.error}</div>}
+          <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            <CodeEditor path={activeTab.path} value={activeTab.content} onChange={value => updateTab(activeTab.path, { content: value, dirty: true })} height="100%" theme={coderTheme === 'sage' ? 'vs' : 'vs-dark'} readOnly={!activeTab.hash} />
+          </div>
+        </div>, document.body
       )}
 
       {/* Named project tasks panel */}
