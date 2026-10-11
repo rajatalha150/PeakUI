@@ -35,14 +35,28 @@ it('focuses the phone keyboard on tap and sends editing keys to Chromium', async
     pointer('pointerup');
     const keyboard = host.querySelector('textarea') as HTMLTextAreaElement;
     expect(document.activeElement).toBe(keyboard);
+    expect(keyboard.value).toBe('\u200B\u200B');
+    expect(keyboard.selectionStart).toBe(1);
     await vi.waitFor(() => expect(actions.filter(action => action.action === 'pointer')).toHaveLength(2));
-    React.act(() => keyboard.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true })));
+    keyboard.value = '\u200B';
+    React.act(() => keyboard.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' })));
     await vi.waitFor(() => expect(actions.some(action => action.action === 'key' && action.key === 'Backspace')).toBe(true));
+    expect(keyboard.value).toBe('\u200B\u200B');
+    keyboard.value = '\u200B';
+    React.act(() => keyboard.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentForward' })));
+    await vi.waitFor(() => expect(actions.some(action => action.action === 'key' && action.key === 'Delete')).toBe(true));
     React.act(() => (host.querySelector('[aria-label="Move cursor left"]') as HTMLButtonElement).click());
     await vi.waitFor(() => expect(actions.some(action => action.action === 'key' && action.key === 'ArrowLeft')).toBe(true));
-    keyboard.value = 'hello';
+    keyboard.value = '\u200Bhello\u200B';
     React.act(() => keyboard.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' })));
     await vi.waitFor(() => expect(actions.some(action => action.action === 'text' && action.text === 'hello')).toBe(true));
+    keyboard.value = '\u200B\n\u200B';
+    React.act(() => keyboard.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertLineBreak' })));
+    await vi.waitFor(() => expect(actions.some(action => action.action === 'key' && action.key === 'Enter')).toBe(true));
+    React.act(() => keyboard.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true })));
+    await vi.waitFor(() => expect(actions.some(action => action.action === 'key' && action.key === 'a' && Array.isArray(action.modifiers) && action.modifiers.includes('Control'))).toBe(true));
+    React.act(() => keyboard.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })));
+    await vi.waitFor(() => expect(actions.some(action => action.action === 'key' && action.key === 'Home')).toBe(true));
   } finally {
     React.act(() => root.unmount());
     host.remove();
@@ -84,6 +98,17 @@ it('keeps desktop frames and clicks responsive while mouse movement is delayed',
     expect(actions.find(action => action.event === 'down')?.button).toBe(2);
     React.act(() => image.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'a' })));
     await vi.waitFor(() => expect(actions.some(action => action.action === 'key' && action.key === 'a')).toBe(true));
+    React.act(() => (host.querySelector('[aria-label="Browser keyboard"]') as HTMLButtonElement).click());
+    const keyboard = host.querySelector('textarea') as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(keyboard);
+    expect(keyboard.value).toBe('\u200B\u200B');
+    React.act(() => keyboard.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Backspace' })));
+    expect(actions.filter(action => action.action === 'key' && action.key === 'Backspace')).toHaveLength(0);
+    keyboard.value = '\u200B';
+    React.act(() => keyboard.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward' })));
+    await vi.waitFor(() => expect(actions.filter(action => action.action === 'key' && action.key === 'Backspace')).toHaveLength(1));
+    React.act(() => keyboard.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowRight', shiftKey: true })));
+    await vi.waitFor(() => expect(actions.some(action => action.action === 'key' && action.key === 'ArrowRight' && Array.isArray(action.modifiers) && action.modifiers.includes('Shift'))).toBe(true));
   } finally {
     releaseMove();
     React.act(() => root.unmount());

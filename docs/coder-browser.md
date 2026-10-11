@@ -9,9 +9,11 @@ typing; frame refresh runs independently of the input queue. Desktop keys,
 right-clicks and double-clicks reach Chromium as browser events. The live frame
 response omits accumulated console logs; Log and Vision still collect them.
 On phones, a tap focuses the local keyboard during the gesture, then releases
-it if Chromium reports the target is not editable. Backspace, Delete, arrow
-keys and IME text are forwarded as distinct browser actions rather than
-collapsing everything into inserted characters.
+it if Chromium reports the target is not editable. The keyboard button uses an
+invisible editing buffer so Backspace and Delete still produce input events
+when the visible guest field is empty locally. Arrow/navigation keys, modified
+desktop shortcuts, paste and IME text are forwarded as distinct browser actions
+rather than collapsing everything into inserted characters.
 
 ```mermaid
 flowchart LR
