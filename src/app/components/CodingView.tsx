@@ -408,6 +408,7 @@ export default function CodingView() {
   // Model + coder settings (server-persisted).
   const [models, setModels] = React.useState<CoderModelOption[]>([]);
   const [modelLoading, setModelLoading] = React.useState(false);
+  const refreshModelsRef = React.useRef<() => void>(() => {});
   const [pendingModelSwitch, setPendingModelSwitch] = React.useState<PendingModelSwitch | null>(null);
   const [modelSwitching, setModelSwitching] = React.useState(false);
   const [modelSwitchBlocked, setModelSwitchBlocked] = React.useState(false);
@@ -623,11 +624,12 @@ export default function CodingView() {
    */
   React.useEffect(() => {
     let cancelled = false;
-    (async () => {
-      setModelLoading(true);
+    const refresh = async (initial = false, force = false) => {
+      if (initial) setModelLoading(true);
       try {
-        const res = await fetch(`/api/coder/workspace/models?workspace=${encodeURIComponent(workspace)}`);
+        const res = await fetch(`/api/coder/peakui/models?workspace=${encodeURIComponent(workspace)}${force ? '&force=1' : ''}`);
         const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Could not refresh Coder models.');
         const list = Array.isArray(data.models) ? data.models : [];
         if (cancelled) return;
         // Tool + vision capability aren't reported per-model by the daemon, so
@@ -655,10 +657,13 @@ export default function CodingView() {
       } catch {
         // Non-fatal.
       } finally {
-        if (!cancelled) setModelLoading(false);
+        if (initial && !cancelled) setModelLoading(false);
       }
-    })();
-    return () => { cancelled = true; };
+    };
+    refreshModelsRef.current = () => { void refresh(false, true); };
+    void refresh(true);
+    const timer = setInterval(() => { void refresh(); }, 45_000);
+    return () => { cancelled = true; clearInterval(timer); refreshModelsRef.current = () => {}; };
   }, [workspace]);
 
   // Probe the daemon on mount.
@@ -2965,6 +2970,7 @@ export default function CodingView() {
             onChange={id => void switchModel(id)}
             models={models}
             loading={modelLoading}
+            onOpen={() => refreshModelsRef.current()}
             label="Main coding model"
             placeholder="Select model"
             allowClear={false}
@@ -3115,6 +3121,7 @@ export default function CodingView() {
                 value={pendingModelSwitch?.sessionId === activeSessionId ? pendingModelSwitch.modelId : settings.coderModel}
                 models={models}
                 loading={modelLoading}
+                onOpen={() => refreshModelsRef.current()}
                 onChange={id => void switchModel(id)}
                 allowClear={false}
                 theme={coderTheme}
@@ -3126,6 +3133,7 @@ export default function CodingView() {
                 value={settings.coderVisionModel}
                 models={models}
                 loading={modelLoading}
+                onOpen={() => refreshModelsRef.current()}
                 onChange={id => void switchVisionModel(id)}
                 requireVision
                 theme={coderTheme}
@@ -3137,6 +3145,7 @@ export default function CodingView() {
                 value={settings.coderWriterModel}
                 models={models}
                 loading={modelLoading}
+                onOpen={() => refreshModelsRef.current()}
                 onChange={id => void switchWriterModel(id)}
                 theme={coderTheme}
                 accent={accent}
@@ -4040,6 +4049,7 @@ function ModelSlot({
   models,
   loading,
   onChange,
+  onOpen,
   requireVision = false,
   allowClear = true,
   theme,
@@ -4051,6 +4061,7 @@ function ModelSlot({
   models: CoderModelOption[];
   loading: boolean;
   onChange: (id: string) => void;
+  onOpen?: () => void;
   requireVision?: boolean;
   allowClear?: boolean;
   theme: 'midnight' | 'chatgpt' | 'sage';
@@ -4063,6 +4074,7 @@ function ModelSlot({
       <CoderModelPicker
         value={value}
         onChange={onChange}
+        onOpen={onOpen}
         models={models}
         loading={loading}
         label={`${label} model`}

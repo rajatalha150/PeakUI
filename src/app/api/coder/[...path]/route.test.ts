@@ -122,6 +122,18 @@ describe('coder gateway route — response relay', () => {
     expect((await GET(makeRequest('/glob?pattern=**%2F*'))).status).toBe(200)
   })
 
+  it('forwards live Coder model refresh requests through the authenticated gateway', async () => {
+    const fetchMock = vi.fn(async () => new Response('{"models":[{"modelId":"glm-5.3:cloud"}]}', {
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { GET } = await loadRoute()
+    const result = await GET(makeRequest('/peakui/models?workspace=%2Fworkspace&force=1'))
+    expect(result.status).toBe(200)
+    expect(await result.json()).toEqual({ models: [{ modelId: 'glm-5.3:cloud' }] })
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
   it('rejects an encoded session-path escape', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)

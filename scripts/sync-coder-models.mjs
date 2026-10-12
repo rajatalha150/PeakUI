@@ -13,7 +13,9 @@
  * completion-only model will not drive the agent — silently offering them is
  * what produced an agent that claimed it had no tools.
  *
- * Runs at coder-container startup, before the daemon. Idempotent.
+ * Runs at coder-container startup and when the live model picker refreshes.
+ * A refresh preserves the selected model and writes only when Ollama's model
+ * catalogue changed, so reading the picker cannot churn settings.json.
  */
 
 import { promises as fs } from 'node:fs';
@@ -22,6 +24,8 @@ import { homedir } from 'node:os';
 
 const OLLAMA_BASE_URL = process.env.OPENAI_BASE_URL || 'http://127.0.0.1:11434/v1';
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || '';
+const PRESERVE_SELECTED_MODEL = process.env.CODER_MODEL_SYNC_PRESERVE_DEFAULT === '1';
+const STRICT = process.argv.includes('--strict');
 const SETTINGS_PATH = path.join(process.env.QWEN_HOME || path.join(homedir(), '.qwen'), 'settings.json');
 
 // Coder falls back to a generic 200k window for an OpenAI-compatible model it
@@ -111,12 +115,9 @@ async function main() {
     const models = await fetchOllamaModels();
     if (models.length === 0) {
       console.error('[coder-sync] Ollama returned no models; keeping existing settings.json');
+      if (STRICT) process.exitCode = 1;
       return;
     }
-
-    const defaultModel = pickDefault(models);
-    const toolsCapable = models.filter(m => m.tools).length;
-    const visionModel = pickVisionModel(models, defaultModel);
 
     // Preserve anything the app/daemon owns in this file (security, tools
     // knobs the user set through the Coding settings drawer) instead of
@@ -127,6 +128,14 @@ async function main() {
     } catch {
       existing = {};
     }
+
+    const previousModel = existing.model?.name;
+    const defaultModel = PRESERVE_SELECTED_MODEL && models.some(m => m.name === previousModel)
+      ? previousModel : pickDefault(models);
+    const toolsCapable = models.filter(m => m.tools).length;
+    const previousVision = existing.visionModel;
+    const visionModel = PRESERVE_SELECTED_MODEL && models.some(m => m.name === previousVision && m.vision)
+      ? previousVision : pickVisionModel(models, defaultModel);
 
     const settings = {
       ...existing,
@@ -164,15 +173,27 @@ async function main() {
       ...(visionModel ? { visionModel } : {}),
     };
 
-    await fs.mkdir(path.dirname(SETTINGS_PATH), { recursive: true });
-    await fs.writeFile(SETTINGS_PATH, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
+    const changed = JSON.stringify(settings) !== JSON.stringify(existing);
+    if (changed) {
+      await fs.mkdir(path.dirname(SETTINGS_PATH), { recursive: true });
+      const temporary = `${SETTINGS_PATH}.${process.pid}.tmp`;
+      try {
+        await fs.writeFile(temporary, JSON.stringify(settings, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
+        await fs.rename(temporary, SETTINGS_PATH);
+      } catch (error) {
+        await fs.rm(temporary, { force: true });
+        throw error;
+      }
+    }
     console.log(
-      `[coder-sync] wrote ${models.length} models to ${SETTINGS_PATH} ` +
+      `[coder-sync] ${changed ? 'updated' : 'unchanged'} ${models.length} models in ${SETTINGS_PATH} ` +
           `(${toolsCapable} tools-capable; ${models.filter(m => m.contextWindowSize).length} with native context); default=${defaultModel}`,
     );
+    console.log(JSON.stringify({ changed, count: models.length }));
   } catch (error) {
     console.error('[coder-sync] failed:', error instanceof Error ? error.message : String(error));
-    // Non-fatal: the daemon will start with whatever settings.json exists.
+    // Startup remains non-fatal, but a live refresh must surface the failure.
+    if (STRICT) process.exitCode = 1;
   }
 }
 

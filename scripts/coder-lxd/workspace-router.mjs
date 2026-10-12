@@ -15,6 +15,7 @@ const stateFile = join(stateDir, 'sessions.json');
 const defaultWorkspace = process.env.CODER_DEFAULT_WORKSPACE || '/workspace';
 const seedHome = process.env.CODER_SEED_HOME || '/root/.qwen';
 const coderEntry = process.env.CODER_ENTRY || '/opt/qwen-code/scripts/cli-entry.js';
+const modelSyncScript = process.env.CODER_MODEL_SYNC_SCRIPT || '/opt/qwen-code/sync-coder-models.mjs';
 const token = process.env.QWEN_SERVER_TOKEN || '';
 const listenPort = Number(process.env.CODER_ROUTER_PORT || 4170);
 const listenBind = process.env.CODER_ROUTER_BIND || '127.0.0.1';
@@ -23,6 +24,9 @@ const previewBind = process.env.CODER_PREVIEW_BIND || '127.0.0.1';
 const previewBlockedPorts = new Set([2375, 2376, 4170, 4171, 4172, 4173, 11434]);
 const runtimes = new Map();
 const starts = new Map();
+const modelRefreshes = new Map();
+const lastModelChecks = new Map();
+const pendingModelReloads = new Set();
 const execFileAsync = promisify(execFile);
 let sessionWorkspaces = {};
 
@@ -153,6 +157,48 @@ async function startRuntime(cwd) {
   })();
   starts.set(cwd, start);
   try { return await start; } finally { starts.delete(cwd); }
+}
+
+async function runtimeModels(runtime, pathname = '/workspace/models', init = {}) {
+  const response = await fetch(`http://127.0.0.1:${runtime.port}${pathname}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
+    signal: AbortSignal.timeout(15_000),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Coder models returned ${response.status}`);
+  return data;
+}
+
+async function refreshRuntimeModels(cwd, runtime, force = false) {
+  if (coderEntry !== '/opt/qwen-code/scripts/cli-entry.js' && !process.env.CODER_MODEL_SYNC_SCRIPT) return runtimeModels(runtime);
+  if (!force && Date.now() - (lastModelChecks.get(cwd) || 0) < 30_000) return runtimeModels(runtime);
+  if (modelRefreshes.has(cwd)) return modelRefreshes.get(cwd);
+  const refresh = (async () => {
+    const home = await prepareCoderHome(cwd);
+    const { stdout } = await execFileAsync(process.execPath, [modelSyncScript, '--strict'], {
+      env: { ...process.env, QWEN_HOME: home, CODER_MODEL_SYNC_PRESERVE_DEFAULT: '1' }, timeout: 25_000,
+    });
+    const result = JSON.parse(stdout.trim().split('\n').at(-1));
+    const catalogue = await runtimeModels(runtime);
+    if (result.changed) pendingModelReloads.add(cwd);
+    if (pendingModelReloads.has(cwd)) {
+      const editable = catalogue.models?.find(model => model.canEditContextWindow && Number.isSafeInteger(model.contextWindowSize));
+      if (!editable) throw new Error('Coder cannot reload its model catalogue while running.');
+      const reloaded = await runtimeModels(runtime, '/workspace/models', {
+        method: 'PATCH',
+        body: JSON.stringify({ key: editable.key, contextWindowSize: editable.contextWindowSize }),
+      });
+      if (reloaded.runtimeSync?.status !== 'applied') {
+        throw new Error('Coder is still applying the new models. Refresh again after the active turn.');
+      }
+      pendingModelReloads.delete(cwd);
+    }
+    lastModelChecks.set(cwd, Date.now());
+    return catalogue;
+  })();
+  modelRefreshes.set(cwd, refresh);
+  try { return await refresh; } finally { modelRefreshes.delete(cwd); }
 }
 
 function sendJson(res, status, data) {
@@ -391,6 +437,11 @@ async function handle(req, res) {
   if (url.pathname === '/health') {
     await startRuntime(defaultWorkspace);
     return sendJson(res, 200, { status: 'ok' });
+  }
+  if (url.pathname === '/peakui/models' && req.method === 'GET') {
+    const cwd = await canonicalDirectory(url.searchParams.get('workspace') || defaultWorkspace);
+    const runtime = await startRuntime(cwd);
+    return sendJson(res, 200, await refreshRuntimeModels(cwd, runtime, url.searchParams.get('force') === '1'));
   }
   if (url.pathname === '/peakui/preview/targets' && req.method === 'GET') {
     return sendJson(res, 200, { targets: previewCandidates() });

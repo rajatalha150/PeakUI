@@ -73,6 +73,7 @@ const ALLOWED_PREFIXES = [
   '/models',
   '/mcp',
   '/peakui/preview',
+  '/peakui/models',
 ]
 
 /** Daemon-served paths that carry binary/stream bodies rather than JSON. */

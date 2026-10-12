@@ -15,6 +15,7 @@ interface Props {
   models: CoderModelOption[];
   loading: boolean;
   onChange: (id: string) => void;
+  onOpen?: () => void;
   placeholder: string;
   label: string;
   theme: 'midnight' | 'chatgpt' | 'sage';
@@ -24,7 +25,7 @@ interface Props {
   align?: 'left' | 'right';
 }
 
-export default function CoderModelPicker({ value, models, loading, onChange, placeholder, label, theme, accent, requireVision = false, allowClear = true, align = 'left' }: Props) {
+export default function CoderModelPicker({ value, models, loading, onChange, onOpen, placeholder, label, theme, accent, requireVision = false, allowClear = true, align = 'left' }: Props) {
   const [open, setOpen] = React.useState(false);
   const [active, setActive] = React.useState(0);
   const rootRef = React.useRef<HTMLDivElement>(null);
@@ -79,7 +80,7 @@ export default function CoderModelPicker({ value, models, loading, onChange, pla
       triggerRef.current?.focus();
     } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
-      if (!open) { setActive(Math.max(0, choices.findIndex(choice => choice.id === value))); setOpen(true); }
+      if (!open) { onOpen?.(); setActive(Math.max(0, choices.findIndex(choice => choice.id === value))); setOpen(true); }
       else move(event.key === 'ArrowDown' ? 1 : -1);
     } else if (open && (event.key === 'Enter' || event.key === ' ')) {
       event.preventDefault();
@@ -101,7 +102,7 @@ export default function CoderModelPicker({ value, models, loading, onChange, pla
         aria-controls={open ? listId : undefined}
         aria-activedescendant={open ? `${listId}-${active}` : undefined}
         title={selected?.name || placeholder}
-        onClick={() => { setActive(Math.max(0, choices.findIndex(choice => choice.id === value))); setOpen(current => !current); }}
+        onClick={() => { if (!open) onOpen?.(); setActive(Math.max(0, choices.findIndex(choice => choice.id === value))); setOpen(current => !current); }}
         style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', minHeight: 36, padding: '7px 10px', background: surface, color: foreground, border: `1px solid ${open ? accent : border}`, borderRadius: 6, fontSize: '0.76rem', fontWeight: 550, textAlign: 'left', cursor: loading ? 'wait' : 'pointer', boxShadow: open ? `0 0 0 2px ${accent}33` : 'none' }}
       >
         <span style={{ flex: 1, minWidth: 0, whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.35 }}>{loading ? 'Loading models…' : selected?.name || placeholder}</span>

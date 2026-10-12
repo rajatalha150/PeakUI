@@ -21,7 +21,7 @@ afterEach(() => {
   host = undefined;
 });
 
-function render(theme: 'midnight' | 'chatgpt' | 'sage', value = 'long', requireVision = false, onChange = vi.fn(), allowClear = true) {
+function render(theme: 'midnight' | 'chatgpt' | 'sage', value = 'long', requireVision = false, onChange = vi.fn(), allowClear = true, onOpen = vi.fn()) {
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
@@ -31,6 +31,7 @@ function render(theme: 'midnight' | 'chatgpt' | 'sage', value = 'long', requireV
       models={models}
       loading={false}
       onChange={onChange}
+      onOpen={onOpen}
       placeholder="Same as main"
       label="Test model"
       theme={theme}
@@ -69,15 +70,18 @@ describe('CoderModelPicker', () => {
   });
 
   it('supports keyboard selection and escape', () => {
-    const onChange = render('midnight', '');
+    const onOpen = vi.fn();
+    const onChange = render('midnight', '', false, vi.fn(), true, onOpen);
     const trigger = host?.querySelector('[role="combobox"]') as HTMLButtonElement;
     React.act(() => trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(onOpen).toHaveBeenCalledOnce();
     React.act(() => trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
     React.act(() => trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
     expect(onChange).toHaveBeenCalledWith('long');
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
     React.act(() => trigger.click());
+    expect(onOpen).toHaveBeenCalledTimes(2);
     React.act(() => trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
   });

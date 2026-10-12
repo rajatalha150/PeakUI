@@ -306,9 +306,12 @@ Fixes:
   document how to verify tools capability (`capabilities` containing `tools`).
   The previous comment recommended `gemma4, ornith, nemotron-3.5-lightning,
   muse-glimmer`, which are not real public model names.
-- The UI dropdown is driven by the daemon's `/workspace/models` (authoritative,
-  routable models with real context windows) rather than raw `/api/tags`, and
-  annotates entries that lack tool support with `⚠ no tools`.
+- The UI dropdown uses `/api/coder/peakui/models`, which syncs Ollama's live
+  catalogue into the active Coder workspace and reloads the daemon's model
+  registry without restarting a session. It checks on mount, every 45 seconds,
+  and immediately when a model picker opens. The list still comes from the
+  daemon's `/workspace/models` (routable models with real context windows),
+  not raw `/api/tags`; entries without tool support are annotated.
 
 ### 9.2 `.env` never reached the container
 
@@ -832,7 +835,10 @@ docker compose up -d --build --force-recreate app coder
 
 The coder container syncs Ollama's model list into `~/.qwen/settings.json` at
 startup (`sync-coder-models.mjs`), picks a tools-capable default, then starts
-`qwen serve --enable-session-shell` on loopback `127.0.0.1:4170`.
+`qwen serve --enable-session-shell` on loopback `127.0.0.1:4170`. Active
+workspaces sync new pulls on model-picker refresh without replacing the user's
+selected model or restarting an agent turn. An unchanged catalogue does not
+rewrite settings.json.
 
 **Verify health:**
 
