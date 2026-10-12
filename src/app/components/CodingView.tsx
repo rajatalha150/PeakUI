@@ -13,6 +13,7 @@ import { parseRewindResult, parseRewindSnapshots, type RewindResult, type Rewind
 import { parseFileContent, parseFileList, parseFileWriteResult, reconcileFileSave, type FileEntry } from '@/lib/coder-files';
 import { buildDefaultTasks, detectPackageManager, parseShellResult, type PackageManager, type Task } from '@/lib/coder-tasks';
 import { absoluteWorkspacePath, parseGlobResult, searchLines, type SearchHit } from '@/lib/coder-search';
+import { siblingWorkspacePath } from '@/lib/coder-new-session';
 import { buildVerificationRecord, isMutatingTool, isVerificationStale, type VerificationRecord } from '@/lib/coder-verification';
 import { buildWriterSubagentCreateBody, buildWriterSubagentUpdateBody, CODER_WRITER_AGENT_NAME, CODER_WRITER_AGENT_SCOPE, toDaemonModelSelector } from '@/lib/coder-orchestration';
 import { formatCoderContextUsage, shouldCaptureCoderHandoff, type CoderContextUsage } from '@/lib/coder-context';
@@ -463,6 +464,11 @@ export default function CodingView() {
   const [renameValue, setRenameValue] = React.useState('');
   const [sessionToDelete, setSessionToDelete] = React.useState<{ id: string; title: string } | null>(null);
   const [deletingSessionId, setDeletingSessionId] = React.useState<string | null>(null);
+  const [newSessionOpen, setNewSessionOpen] = React.useState(false);
+  const [newSessionLocation, setNewSessionLocation] = React.useState<'same' | 'sibling'>('same');
+  const [newDirectoryName, setNewDirectoryName] = React.useState('');
+  const [newSessionPending, setNewSessionPending] = React.useState(false);
+  const [newSessionError, setNewSessionError] = React.useState('');
   // Session ids the user explicitly renamed -> new title, so the auto-persist
   // effect (which otherwise re-derives the title from the first message)
   // doesn't clobber the rename.
@@ -1162,8 +1168,8 @@ export default function CodingView() {
     }
   };
 
-  const newSession = async (workspaceOverride?: string) => {
-    if (!canLeaveBuffers()) return;
+  const newSession = async (workspaceOverride?: string, leaveConfirmed = false): Promise<boolean> => {
+    if (!leaveConfirmed && !canLeaveBuffers()) return false;
     const current = captureSession();
     setError('');
     try {
@@ -1177,7 +1183,7 @@ export default function CodingView() {
       if (!res.ok || !id) {
         throw new Error(typeof data.error === 'string' ? data.error : 'Failed to create session');
       }
-      if (!current()) { await refreshSessions(); return; }
+      if (!current()) { await refreshSessions(); return false; }
       resetWorkbench();
       activeSessionIdRef.current = id;
       setActiveSessionId(id);
@@ -1198,8 +1204,52 @@ export default function CodingView() {
       // session gets its own daemon session keyed by its own id on first send.
       disconnectDaemonSession();
       await refreshSessions();
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to create session');
+      return false;
+    }
+  };
+
+  const openNewSession = () => {
+    setNewSessionLocation('same');
+    setNewDirectoryName('');
+    setNewSessionError('');
+    setNewSessionOpen(true);
+  };
+
+  const createNewSession = async () => {
+    if (newSessionPending || !canLeaveBuffers()) return;
+    const currentWorkspace = sessionWorkspaceRef.current || workspace;
+    const sibling = newSessionLocation === 'sibling' ? siblingWorkspacePath(currentWorkspace, newDirectoryName) : null;
+    if (newSessionLocation === 'sibling' && !sibling) {
+      setNewSessionError('Enter one directory name without slashes or traversal.');
+      return;
+    }
+    setNewSessionPending(true);
+    setNewSessionError('');
+    try {
+      let target = currentWorkspace;
+      if (sibling) {
+        const response = await fetch('/api/coder/workspaces', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cwd: sibling, persist: true }),
+        });
+        const data = await response.json().catch(() => ({})) as { cwd?: string; error?: string };
+        if (!response.ok || !data.cwd) throw new Error(data.error || 'Could not create the directory.');
+        target = data.cwd;
+      }
+      if (await newSession(target, true)) {
+        setNewSessionOpen(false);
+        if (isPhone) setSidebarOpen(false);
+      } else {
+        setNewSessionError('Could not start the new session. The current session is unchanged.');
+      }
+    } catch (error) {
+      setNewSessionError(error instanceof Error ? error.message : 'Could not create the directory.');
+    } finally {
+      setNewSessionPending(false);
     }
   };
 
@@ -3857,7 +3907,7 @@ export default function CodingView() {
               <button onClick={() => { void openFiles(); if (isPhone) setSidebarOpen(false); }} style={sidebarToolButtonStyle()}><Folder size={14} /> Files</button>
               <button onClick={() => { void openTasks(); if (isPhone) setSidebarOpen(false); }} style={sidebarToolButtonStyle()}><Terminal size={14} /> Tasks</button>
               <button onClick={() => { setSearchOpen(open => !open); if (isPhone) setSidebarOpen(false); }} style={sidebarToolButtonStyle()}><Search size={14} /> Search</button>
-              <button onClick={() => { void newSession(); if (isPhone) setSidebarOpen(false); }} style={{ ...sidebarToolButtonStyle(), color: accent, borderColor: `${accent}75`, background: `${accent}14` }}><Plus size={14} /> New</button>
+              <button onClick={openNewSession} style={{ ...sidebarToolButtonStyle(), color: accent, borderColor: `${accent}75`, background: `${accent}14` }}><Plus size={14} /> New</button>
             </nav>
             <div style={{ display: 'flex', alignItems: 'center', padding: '10px 14px 8px' }}>
               <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'rgba(209,213,219,0.5)', flex: 1 }}>Sessions</span>
@@ -3908,6 +3958,36 @@ export default function CodingView() {
         </div>
         )}
       </div>
+
+      {newSessionOpen && (
+        <div onClick={() => { if (!newSessionPending) setNewSessionOpen(false); }} style={{ position: 'fixed', inset: 0, zIndex: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.65)' }}>
+          <form role="dialog" aria-modal="true" aria-labelledby="new-session-title" onClick={event => event.stopPropagation()} onSubmit={event => { event.preventDefault(); void createNewSession(); }} onKeyDown={event => { if (event.key === 'Escape' && !newSessionPending) setNewSessionOpen(false); }} style={{ width: 'min(460px, 100%)', padding: 20, border: `1px solid ${themeDefaults.border}`, borderRadius: 8, background: themeDefaults.surface, color: themeDefaults.foreground, boxShadow: '0 20px 60px rgba(0,0,0,0.45)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <h2 id="new-session-title" style={{ margin: 0, fontSize: '1rem' }}>New coding session</h2>
+              <button type="button" aria-label="Close new session" disabled={newSessionPending} onClick={() => setNewSessionOpen(false)} style={{ background: 'transparent', color: 'inherit', border: 0, cursor: 'pointer' }}><X size={17} /></button>
+            </div>
+            <p style={{ margin: '12px 0', fontSize: '0.78rem', lineHeight: 1.5, opacity: 0.75, overflowWrap: 'anywhere' }}>Current directory: {workspace}</p>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 0', fontSize: '0.85rem', cursor: 'pointer' }}>
+              <input type="radio" name="new-session-location" checked={newSessionLocation === 'same'} onChange={() => { setNewSessionLocation('same'); setNewSessionError(''); }} disabled={newSessionPending} /> Continue in this directory
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 0', fontSize: '0.85rem', cursor: 'pointer' }}>
+              <input type="radio" name="new-session-location" checked={newSessionLocation === 'sibling'} onChange={() => { setNewSessionLocation('sibling'); setNewSessionError(''); }} disabled={newSessionPending} /> Create a new directory beside it
+            </label>
+            {newSessionLocation === 'sibling' && (
+              <div style={{ margin: '6px 0 12px' }}>
+                <label htmlFor="new-session-directory" style={{ display: 'block', fontSize: '0.75rem', marginBottom: 6 }}>Directory name</label>
+                <input id="new-session-directory" autoFocus required value={newDirectoryName} onChange={event => { setNewDirectoryName(event.target.value); setNewSessionError(''); }} disabled={newSessionPending} placeholder="new-directory" style={{ ...inputStyle(), width: '100%', boxSizing: 'border-box' }} />
+                {newDirectoryName.trim() && <div style={{ marginTop: 6, fontSize: '0.7rem', opacity: 0.7, overflowWrap: 'anywhere' }}>{siblingWorkspacePath(workspace, newDirectoryName) || 'Invalid directory name'}</div>}
+              </div>
+            )}
+            {newSessionError && <p role="alert" style={{ color: '#f87171', fontSize: '0.76rem', margin: '8px 0' }}>{newSessionError}</p>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+              <button type="button" disabled={newSessionPending} onClick={() => setNewSessionOpen(false)} style={{ padding: '8px 12px', border: `1px solid ${themeDefaults.border}`, borderRadius: 5, background: 'transparent', color: 'inherit', cursor: 'pointer' }}>Cancel</button>
+              <button type="submit" disabled={newSessionPending || (newSessionLocation === 'sibling' && !siblingWorkspacePath(workspace, newDirectoryName))} style={{ padding: '8px 12px', border: `1px solid ${accent}`, borderRadius: 5, background: accent, color: '#071016', cursor: 'pointer', opacity: newSessionPending ? 0.6 : 1 }}>{newSessionPending ? 'Creating...' : 'Start session'}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {sessionToDelete && (
         <div onClick={() => { if (!deletingSessionId) setSessionToDelete(null); }} style={{ position: 'fixed', inset: 0, zIndex: 120, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.65)' }}>

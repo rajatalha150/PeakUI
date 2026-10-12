@@ -1125,6 +1125,13 @@ cannot be selected.
   Search, and New session are touch-sized icon-and-label controls above the
   session list. The dedicated Coding route has no Exit button because it opens
   in its own browser tab.
+- **New session directory choice**: New asks whether to reuse the current
+  session's directory or create a sibling under its parent. For example, from
+  `/workspaces/ai-shell`, entering `new-directory` creates
+  `/workspaces/new-directory` and opens the new session there. The name must be
+  a single path segment; the directory is created in the persistent Coder
+  filesystem before the session switches. Cancelling leaves the active session
+  untouched. The saved default workspace setting is not changed.
 - **Phone header**: runtime badges collapse away, while approval and model
   selectors use a deliberate second row. This keeps the actions and sessions
   controls reachable without squeezing the active conversation.

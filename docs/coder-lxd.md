@@ -73,6 +73,11 @@ cwd and process while the popup is closed. Its live process ends when the guest
 router restarts, but installed packages, workspace files, and agent history
 stay in the persistent guest. The Docker fallback uses the same router and PTY
 API; neither mode exposes a raw terminal port to the browser.
+The Coding sidebar's New button can reuse the current session's working
+directory or create a new sibling directory under its parent. This is created
+inside the persistent guest filesystem, so switching sessions or redeploying
+PeakUI does not remove the project directory. For example, a session in
+`/workspace/ai-shell` can start a new session in `/workspace/new-project`.
 Verify the guest PTY after installation with
 `incus exec peakui-coder -- node --test /opt/peakui/coder/terminal.node-test.mjs`
 (replace `incus` and the instance name when using LXD).
