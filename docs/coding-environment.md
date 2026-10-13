@@ -66,6 +66,20 @@ From the repo (README + `docs/developers/qwen-serve-protocol.md`):
 
 ## 3. Architecture
 
+### Chat attachments
+
+The composer **+** accepts multiple files, including images, documents, archives,
+audio, and video. The browser streams each file through the authenticated
+`POST /api/coder/attachments` route to the session-bound guest router endpoint
+`POST /session/:id/attachment`. The app verifies session ownership and its
+bound workspace; the guest stores each file with a unique name under
+`<workspace>/.peakui-attachments/<session-id>/`. Files survive app and guest
+restarts with the workspace. The model receives the exact paths in its prompt;
+supported raster images additionally receive a downscaled JPEG vision part.
+Non-image media is available to the agent's file/tools, not silently presented
+as an image to a model that cannot consume that format. The composer preserves
+attachments and text if transfer or prompt submission fails.
+
 ```
  ┌───────────────────────────────────────────────┐
  │                 peakui-app (Next.js)           │

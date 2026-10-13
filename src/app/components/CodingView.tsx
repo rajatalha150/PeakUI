@@ -14,6 +14,7 @@ import { parseFileContent, parseFileList, parseFileWriteResult, reconcileFileSav
 import { buildDefaultTasks, detectPackageManager, parseShellResult, type PackageManager, type Task } from '@/lib/coder-tasks';
 import { absoluteWorkspacePath, parseGlobResult, searchLines, type SearchHit } from '@/lib/coder-search';
 import { siblingWorkspacePath } from '@/lib/coder-new-session';
+import { attachmentPrompt, imagePromptPart } from '@/lib/coder-attachments';
 import { buildVerificationRecord, isMutatingTool, isVerificationStale, type VerificationRecord } from '@/lib/coder-verification';
 import { buildWriterSubagentCreateBody, buildWriterSubagentUpdateBody, CODER_WRITER_AGENT_NAME, CODER_WRITER_AGENT_SCOPE, toDaemonModelSelector } from '@/lib/coder-orchestration';
 import { formatCoderContextUsage, shouldCaptureCoderHandoff, type CoderContextUsage } from '@/lib/coder-context';
@@ -339,6 +340,9 @@ export default function CodingView() {
   const [sessionResolved, setSessionResolved] = React.useState(false);
   const [messages, setMessages] = React.useState<CoderChatMessage[]>([]);
   const [composer, setComposer] = React.useState('');
+  const [attachments, setAttachments] = React.useState<File[]>([]);
+  const [sendingAttachment, setSendingAttachment] = React.useState(false);
+  const attachmentInputRef = React.useRef<HTMLInputElement | null>(null);
   const [connecting, setConnecting] = React.useState(true);
   const [error, setError] = React.useState('');
   const [workspace, setWorkspace] = React.useState('/workspace');
@@ -535,6 +539,7 @@ export default function CodingView() {
     previewUrlManualRef.current = false; previewDeviceManualRef.current = false; agentPreviewRef.current = null; previewFileRawRef.current = '';
     setShellOpen(false); setPreviewUrl(''); setPreviewCaptureUrl(''); setPreviewInput('');
     setQuestionDrafts({}); setQuestionNotes({}); nudgedNotificationRef.current = null;
+    setAttachments([]);
     setWorkspaceNotice('');
   };
 
@@ -2312,14 +2317,15 @@ export default function CodingView() {
 
   const send = async () => {
     const prompt = composer.trim();
-    if (!prompt || !activeSessionId) return;
+    if ((!prompt && attachments.length === 0) || !activeSessionId || sendingAttachment) return;
     if (pendingModelSwitch?.sessionId === activeSessionId || modelSwitching) {
       setLiveStatus('model switch pending — your message is still in the composer');
       return;
     }
     const current = captureSession();
     setError('');
-    setComposer('');
+    const files = [...attachments];
+    if (files.length) setSendingAttachment(true);
     // A sent prompt is an explicit request to follow the conversation again.
     // The daemon transcript may take a beat to echo it, so pin immediately and
     // let the sticky controller keep following the live status and response.
@@ -2335,25 +2341,48 @@ export default function CodingView() {
       const dsid = await ensureDaemonSession();
       if (!dsid) {
         if (!current()) return;
-        setComposer(value => value || prompt);
         setError('Failed to start daemon session');
         return;
+      }
+      const uploaded: Array<{ name: string; path: string }> = [];
+      const images: Array<{ type: 'image'; data: string; mimeType: 'image/jpeg' }> = [];
+      for (const file of files) {
+        if (current()) setLiveStatus(`uploading ${file.name}…`);
+        const transfer = await fetch('/api/coder/attachments', {
+          method: 'POST',
+          headers: {
+            'Content-Type': file.type || 'application/octet-stream',
+            'x-peakui-session-id': activeSessionId,
+            'x-peakui-workspace': workspace,
+            'x-peakui-filename': encodeURIComponent(file.name),
+          },
+          body: file,
+        });
+        const result = await transfer.json().catch(() => ({})) as { path?: string; error?: string };
+        if (!transfer.ok || !result.path) throw new Error(result.error || `Could not upload ${file.name}.`);
+        uploaded.push({ name: file.name, path: result.path });
+        if (/^image\/(png|jpeg|webp|gif|bmp)$/.test(file.type)) images.push(await imagePromptPart(file));
       }
       const res = await fetch(`/api/coder/session/${dsid}/prompt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: [{ type: 'text', text: prompt }] }),
+        body: JSON.stringify({ prompt: [{ type: 'text', text: files.length ? attachmentPrompt(prompt, uploaded) : prompt }, ...images] }),
       });
       const data = await res.json().catch(() => ({})) as { promptId?: string; error?: string };
       if (!res.ok || !data.promptId) {
         throw new Error(typeof data.error === 'string' ? data.error : 'Prompt rejected');
       }
+      if (current()) {
+        setComposer(value => value === composer ? '' : value);
+        setAttachments([]);
+      }
       setLiveStatus('thinking…');
     } catch (e) {
       if (!current()) return;
-      setComposer(value => value || prompt);
       setError(e instanceof Error ? e.message : 'Prompt failed');
       setLiveStatus('');
+    } finally {
+      if (current()) setSendingAttachment(false);
     }
   };
 
@@ -3705,6 +3734,21 @@ export default function CodingView() {
 
           {/* Composer */}
           <div style={{ padding: '12px 20px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            <input ref={attachmentInputRef} type="file" multiple hidden onChange={event => {
+              const selected = Array.from(event.target.files || []);
+              setAttachments(current => [...current, ...selected]);
+              event.target.value = '';
+            }} />
+            {attachments.length > 0 && (
+              <div aria-label="Attachments" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 9 }}>
+                {attachments.map((file, index) => (
+                  <span key={`${file.name}-${file.lastModified}-${index}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, maxWidth: '100%', padding: '5px 7px', border: `1px solid ${themeDefaults.border}`, borderRadius: 5, color: themeDefaults.foreground, fontSize: '0.73rem' }}>
+                    <FileText size={13} style={{ flexShrink: 0 }} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
+                    <button type="button" onClick={() => setAttachments(current => current.filter((_, i) => i !== index))} disabled={sendingAttachment} aria-label={`Remove ${file.name}`} title={`Remove ${file.name}`} style={{ background: 'none', border: 0, color: 'inherit', cursor: 'pointer', padding: 0, display: 'flex' }}><X size={13} /></button>
+                  </span>
+                ))}
+              </div>
+            )}
             {pendingModelSwitch?.sessionId === activeSessionId && (
               <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 9, color: modelSwitchBlocked ? '#fca5a5' : accent, fontSize: '0.74rem' }}>
                 {modelSwitching ? <Loader2 size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Bot size={13} />}
@@ -3732,8 +3776,9 @@ export default function CodingView() {
                 rows={2}
                 style={{ flex: 1, resize: 'none', background: 'rgba(255,255,255,0.03)', color: '#e5e7eb', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', padding: '10px 12px', fontSize: '0.88rem', fontFamily: 'ui-monospace, monospace', outline: 'none' }}
               />
-              <button onClick={() => void send()} disabled={!activeSessionId || !composer.trim() || pendingModelSwitch?.sessionId === activeSessionId || modelSwitching} style={{ ...btnStyle(accent), alignSelf: 'flex-end' }} title={pendingModelSwitch?.sessionId === activeSessionId ? 'Available after the model switch completes' : undefined}>
-                <Send size={14} /> {pendingModelSwitch?.sessionId === activeSessionId ? 'Waiting' : busy ? 'Queue' : 'Run'}
+              <button type="button" onClick={() => attachmentInputRef.current?.click()} disabled={!activeSessionId || sendingAttachment} aria-label="Attach files or images" title="Attach files or images" style={{ ...ghostBtnStyle(), alignSelf: 'flex-end', width: 38, height: 38, justifyContent: 'center' }}><Plus size={18} /></button>
+              <button onClick={() => void send()} disabled={!activeSessionId || (!composer.trim() && !attachments.length) || pendingModelSwitch?.sessionId === activeSessionId || modelSwitching || sendingAttachment} style={{ ...btnStyle(accent), alignSelf: 'flex-end' }} title={pendingModelSwitch?.sessionId === activeSessionId ? 'Available after the model switch completes' : undefined}>
+                {sendingAttachment ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={14} />} {sendingAttachment ? 'Uploading' : pendingModelSwitch?.sessionId === activeSessionId ? 'Waiting' : busy ? 'Queue' : 'Run'}
               </button>
             </div>
           </div>

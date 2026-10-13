@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
 import { constants, createWriteStream, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { cp, mkdir, open, realpath, rename, rm, stat } from 'node:fs/promises';
@@ -8,6 +8,7 @@ import net from 'node:net';
 import tls from 'node:tls';
 import { join, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
+import { pipeline } from 'node:stream/promises';
 import { closeTerminal, closeTerminals, openTerminal, streamTerminal, terminalInput } from './terminal.mjs';
 
 const stateDir = process.env.CODER_ROUTER_STATE_DIR || '/var/lib/peakui/coder-router';
@@ -374,6 +375,37 @@ async function streamDownloadArchive(req, res) {
   res.on('close', () => { if (zip.exitCode === null) zip.kill('SIGTERM'); });
 }
 
+async function uploadSessionAttachment(req, res, sessionId) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sessionId)) {
+    return sendJson(res, 400, { error: 'Invalid session ID.' });
+  }
+  const workspace = sessionWorkspaces[sessionId];
+  if (!workspace) return sendJson(res, 404, { error: 'Session workspace is unknown.' });
+  const root = await realpath(workspace);
+  let filename;
+  try { filename = decodeURIComponent(req.headers['x-peakui-filename'] || ''); } catch { filename = ''; }
+  if (typeof filename !== 'string' || !filename || Buffer.byteLength(filename) > 255 || /[\\/\x00-\x1f\x7f]/.test(filename) || filename === '.' || filename === '..') {
+    return sendJson(res, 400, { error: 'Invalid attachment filename.' });
+  }
+  const attachmentRoot = join(root, '.peakui-attachments');
+  await mkdir(attachmentRoot, { mode: 0o700 });
+  if (!containsPath(root, await realpath(attachmentRoot))) {
+    return sendJson(res, 400, { error: 'Attachment folder leaves the workspace.' });
+  }
+  const dir = join(attachmentRoot, sessionId);
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const canonicalDir = await realpath(dir);
+  if (!containsPath(root, canonicalDir)) return sendJson(res, 400, { error: 'Attachment folder leaves the workspace.' });
+  const destination = join(canonicalDir, `${randomUUID()}-${filename}`);
+  try {
+    await pipeline(req, createWriteStream(destination, { flags: 'wx', mode: 0o600 }));
+    return sendJson(res, 201, { path: destination, name: filename });
+  } catch (error) {
+    await rm(destination, { force: true });
+    throw error;
+  }
+}
+
 async function importProject(body) {
   const repositoryUrl = typeof body?.repositoryUrl === 'string' ? body.repositoryUrl : '';
   const branch = typeof body?.branch === 'string' ? body.branch : '';
@@ -453,6 +485,10 @@ async function handle(req, res) {
     return sendJson(res, 200, await browserAction(body.key, body));
   }
   const terminalMatch = /^\/session\/([^/]+)\/terminal$/.exec(url.pathname);
+  const attachmentMatch = /^\/session\/([^/]+)\/attachment$/.exec(url.pathname);
+  if (attachmentMatch && req.method === 'POST') {
+    return uploadSessionAttachment(req, res, decodeURIComponent(attachmentMatch[1]));
+  }
   if (terminalMatch) {
     const id = decodeURIComponent(terminalMatch[1]);
     const workspace = sessionWorkspaces[id];

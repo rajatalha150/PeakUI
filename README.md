@@ -118,6 +118,8 @@ flowchart LR
 The guest behaves like a durable development server, not an unrestricted host shell. Its `/` is the guest filesystem, never the host filesystem.
 The Files panel downloads large APKs directly through the browser's download manager and streams folders or multiple selections as ZIPs from the guest, without a browser Blob or application-memory size cap.
 
+In Coder chat, the **+** next to Run attaches multiple images or project files. Uploads stream into the active session's persistent guest workspace; images are also sent to the selected model as vision input. Other formats are passed to the agent by their guest paths so its tools can inspect them. Attachments can be removed before sending, and a failed send keeps the draft for retry.
+
 ## Preview That Works From Any Device
 
 ```mermaid
