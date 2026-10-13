@@ -114,6 +114,19 @@ This is the PeakUI analogue of Unsloth's keep-warm middleware: a cheap, invisibl
 
 ## Knowledge Base (RAG)
 
+Uploads return after the original is staged in the persistent `app_runtime` volume
+and the document is queued in PostgreSQL. The `rag-worker` Compose service
+processes one document at a time with a 1 CPU / 2 GiB limit. It reads the
+original from the spool or the retained database copy, extracts text, indexes
+it, and updates the document status. The web process never performs PDF OCR or
+embedding for Knowledge Base uploads. On worker restart, interrupted jobs with
+available originals are requeued, up to three attempts. The worker also picks
+up queued model-change and backup-restore reindex requests. For formats whose
+originals are not retained in PostgreSQL, the worker keeps the spool copy for
+future reindexing; deleting a document removes its spool copy. Check worker logs
+with `docker compose logs -f rag-worker` and its status with
+`docker compose ps rag-worker`.
+
 ### Core Architecture
 
 - Document storage, chunking, and retrieval are handled in Postgres with Prisma.

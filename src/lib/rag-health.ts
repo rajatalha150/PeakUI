@@ -1,8 +1,5 @@
 import { prisma } from '@/lib/prisma'
 
-const STALE_PROCESSING_MS = 10 * 60 * 1000
-const STALE_QUEUED_MS = 30 * 60 * 1000
-
 export interface RagHealthEntry {
   id: string
   filename: string
@@ -54,11 +51,11 @@ function buildReason(entry: {
     return `Indexed into ${entry.chunkCount} chunk${entry.chunkCount === 1 ? '' : 's'}`
   }
 
-  if (entry.status === 'queued') {
+  if (entry.status === 'queued' || entry.status === 'staging') {
     return 'Queued for background indexing'
   }
 
-  if (entry.status === 'processing') {
+  if (entry.status === 'processing' || entry.status === 'indexing') {
     return 'Indexing in progress'
   }
 
@@ -110,44 +107,6 @@ function toIso(value: Date | string | null): string | null {
   return value instanceof Date ? value.toISOString() : value
 }
 
-export async function markStaleProcessingDocuments(userId: string) {
-  const processingCutoff = new Date(Date.now() - STALE_PROCESSING_MS)
-  const queuedCutoff = new Date(Date.now() - STALE_QUEUED_MS)
-  const staleDocuments = await prisma.document.findMany({
-    where: {
-      userId,
-      OR: [
-        {
-          status: 'processing',
-          OR: [
-            { indexedAt: { lt: processingCutoff } },
-            { indexedAt: null, createdAt: { lt: processingCutoff } },
-          ],
-        },
-        {
-          status: 'queued',
-          createdAt: { lt: queuedCutoff },
-        },
-      ],
-    },
-    select: { id: true, status: true },
-  })
-
-  if (staleDocuments.length === 0) return
-
-  const ids = staleDocuments.map(doc => doc.id)
-  await prisma.documentChunk.deleteMany({ where: { documentId: { in: ids } } })
-
-  await prisma.document.updateMany({
-    where: { id: { in: ids } },
-    data: {
-      status: 'error',
-      errorMessage: 'Indexing timed out before it could finish. Check the embedding model in Settings, then delete this entry and upload the file again.',
-      indexedAt: null,
-    },
-  })
-}
-
 export async function getRagHealthSnapshot(userId: string): Promise<RagHealthSnapshot> {
   const documents = await prisma.document.findMany({
     where: { userId },
@@ -157,7 +116,7 @@ export async function getRagHealthSnapshot(userId: string): Promise<RagHealthSna
 
   const entries = documents.map(toHealthEntry)
   const indexedDocuments = entries.filter(entry => entry.status === 'ready')
-  const pendingDocuments = entries.filter(entry => entry.status === 'queued' || entry.status === 'processing')
+  const pendingDocuments = entries.filter(entry => ['queued', 'staging', 'processing', 'indexing'].includes(entry.status))
   const failedDocuments = entries.filter(entry => entry.status === 'error')
   const warnings = indexedDocuments.filter(entry => Boolean(entry.errorMessage))
   const lastIndexedAt = indexedDocuments

@@ -3,7 +3,6 @@ import type { AppSettings } from "./settings";
 import { getUserSettings } from "./settings";
 import { upsertChatSession } from "./chat-sessions";
 import * as archiver from "archiver";
-import { enqueueDocumentIndexing } from "./rag-queue";
 import { randomUUID } from "node:crypto";
 
 export type BackupScope = "chats" | "settings" | "knowledgeBase";
@@ -603,23 +602,8 @@ export async function importBackupData(
 
       if (options.reindexDocuments) {
         updateProgress(progressId, { phase: "knowledgeBase", message: "Queueing documents for re-indexing...", percent: 96 }, "import", scopes);
-        for (const d of docs) {
-          if (d.originalContent) {
-            try {
-              const targetId = kbIdMap.get(d.id) ?? d.id;
-              const fileType = d.originalMimeType ?? "text/plain";
-              const reindexRagMode = (d.ragMode === 'semantic' || d.ragMode === 'keyword') ? d.ragMode : (settings.ragMode as 'semantic' | 'keyword');
-              await enqueueDocumentIndexing(targetId, d.originalContent, d.filename, fileType, {
-                ragModel: d.embeddingModel ?? settings.ragModel,
-                ragMode: reindexRagMode,
-                ollamaHost: d.ollamaHost ?? settings.ollamaHost,
-                ollamaApiKey: settings.ollamaApiKey,
-              });
-            } catch (err) {
-              result.errors.push(`Reindex ${d.filename}: ${err instanceof Error ? err.message : String(err)}`);
-            }
-          }
-        }
+        // The isolated RAG worker reads queued originals from the database.
+        // Backup restore must not run extraction inside the web process.
       }
     }
 

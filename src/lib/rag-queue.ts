@@ -210,8 +210,9 @@ export async function reindexDocumentsIfModelChanged(
     await prisma.document.update({
       where: { id: doc.id },
       data: {
-        status: 'pending',
-        errorMessage: `RAG model/settings changed. Re-indexing required for "${doc.filename}".`,
+        status: 'queued',
+        indexingAttempts: 0,
+        errorMessage: null,
       },
     })
     triggered++

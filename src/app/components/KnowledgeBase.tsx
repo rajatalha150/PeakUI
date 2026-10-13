@@ -595,8 +595,8 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
   const getDocumentStatusLabel = (doc: Document) => {
     if (doc.status === 'ready') return 'Ready';
     const elapsed = formatElapsed(doc.createdAt);
-    if (doc.status === 'queued') return elapsed ? `Queued · ${elapsed}` : 'Queued';
-    if (doc.status === 'processing') return elapsed ? `Indexing · ${elapsed}` : 'Indexing';
+    if (doc.status === 'queued' || doc.status === 'staging') return elapsed ? `Queued · ${elapsed}` : 'Queued';
+    if (doc.status === 'processing' || doc.status === 'indexing') return elapsed ? `Indexing · ${elapsed}` : 'Indexing';
     return 'Failed — retry upload';
   };
 
@@ -857,7 +857,7 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
   const documentPageSizeOptions = [10, 25, 50, 100];
 
   const readyDocs = documents.filter(d => d.status === 'ready');
-  const pendingDocs = documents.filter(d => d.status === 'queued' || d.status === 'processing');
+  const pendingDocs = documents.filter(d => ['queued', 'staging', 'processing', 'indexing'].includes(d.status));
   const errorDocs = documents.filter(d => d.status === 'error');
   const showDocumentPreview = Boolean(documentPreview || previewLoading || previewError);
   const ragHealthSummary = ragHealth?.summary;
@@ -1339,7 +1339,7 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
                     </span>
                     <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                       {doc.status === 'ready' && <CheckCircle size={12} color="var(--success)" />}
-                      {(doc.status === 'queued' || doc.status === 'processing') && <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
+                      {['queued', 'staging', 'processing', 'indexing'].includes(doc.status) && <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
                       {doc.status === 'error' && <AlertCircle size={12} color="var(--danger)" />}
                       <span style={{ color: doc.status === 'ready' ? 'var(--success)' : doc.status === 'error' ? 'var(--danger)' : 'inherit' }}>
                         {getDocumentStatusLabel(doc)}

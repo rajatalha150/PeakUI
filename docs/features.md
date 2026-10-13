@@ -257,9 +257,9 @@ A right-rail GUI over the active workspace's on-disk state. The panel shares the
 - Upload documents for semantic or keyword search
 - Automatic chunking and indexing with incremental reindexing when the same file is uploaded again
 - Per-user document storage with source paths, file kinds, chunk numbers, excerpt metadata, and whole-document flags for small safe files
-- Background processing with status indicators
+- Durable background processing in a separate, CPU-limited RAG worker container. Uploads are staged on the shared persistent app volume, then extracted and indexed one at a time; parser or embedding stalls cannot block the web server. Interrupted jobs are recovered after worker restart, with bounded retries and visible status indicators.
 - PDF, Office, CSV/JSON/YAML/XML, code, OCR, and archive support are indexed as searchable content when text is available, with page-aware OCR fallback for scanned or mixed PDFs when the runtime image includes `poppler-utils` and `tesseract`
-- Knowledge Base uploads can also ingest folder trees from the browser file picker or drag-and-drop. Relative paths are preserved, the uploaded tree stays intact in the index, and large drops are queued in batches so indexing stays responsive.
+- Knowledge Base uploads can also ingest folder trees from the browser file picker or drag-and-drop. Relative paths are preserved, the uploaded tree stays intact in the index, and large drops enter the durable worker queue. PDF indexing extracts text/OCR but skips page-image rendering, which is reserved for chat/vision attachments.
 - A compact top status bar shows live RAG health counts: total files, indexed, full/chunked documents, pending, warnings, failed, and last indexed time.
 - The indexed document list is server-paginated, lets users choose how many rows to show per page, and supports multi-select, select-all, and bulk delete actions. The folder/file view refreshes automatically every few seconds, so newly uploaded items and status changes appear without manual refresh.
 - A OneDrive-style folder browser lets users navigate by the original `sourcePath`: breadcrumbs, immediate subfolders, file rows, a folder/files view toggle, sortable columns (name/size/createdAt/indexedAt/kind), and a kind filter. A whole subtree can be deleted in one action.

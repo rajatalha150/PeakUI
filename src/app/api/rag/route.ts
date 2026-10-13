@@ -1,16 +1,14 @@
-import { after, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
 import type { Prisma } from '@prisma/client';
 import type { Document as PrismaDocument } from '@prisma/client';
 import { getCurrentUserIdWithPermission } from '@/lib/request-auth';
-import { type AppSettings, getUserSettings } from '@/lib/settings';
+import { getUserSettings } from '@/lib/settings';
 import { getErrorMessage } from '@/lib/rag';
-import { extractFilePayload } from '@/lib/file-extraction';
 import { detectFileKind } from '@/lib/file-shared';
-import { type ExtractedFilePayload, MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/file-shared';
-import { markStaleProcessingDocuments } from '@/lib/rag-health';
-import { enqueueDocumentIndexing } from '@/lib/rag-queue';
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/file-shared';
+import { removeRagUpload, stageRagUpload } from '@/lib/rag-spool';
 import {
   aggregateFolderTree,
   findFolderInTree,
@@ -18,8 +16,6 @@ import {
 } from '@/lib/kb-folders';
 
 type Document = PrismaDocument;
-
-const MAX_RAG_TEXT_CHARS = 2_000_000;
 
 export const maxDuration = 900;
 
@@ -45,86 +41,6 @@ interface FolderRow {
   depth: number;
 }
 
-interface ProcessDocumentUploadInput {
-  documentId: string;
-  filename: string;
-  fileType: string;
-  size: number;
-  contentHash: string;
-  sourcePath: string | null;
-  buffer: Buffer;
-  settings: AppSettings;
-}
-
-async function processDocumentUpload({
-  documentId,
-  filename,
-  fileType,
-  size,
-  contentHash,
-  sourcePath,
-  buffer,
-  settings,
-}: ProcessDocumentUploadInput) {
-  try {
-    const doc = await prisma.document.findUnique({
-      where: { id: documentId },
-      select: { id: true, status: true, contentHash: true },
-    });
-
-    if (!doc || !['queued', 'processing'].includes(doc.status)) return;
-    if (doc.contentHash !== contentHash) {
-      console.info(`Skipping stale RAG task for ${filename} (${documentId}) because a newer upload superseded it.`);
-      return;
-    }
-
-    await prisma.document.updateMany({
-      where: { id: documentId },
-      data: {
-        status: 'processing',
-        errorMessage: null,
-        indexedAt: new Date(),
-      },
-    });
-
-    console.info(`RAG indexing started for ${sourcePath ? `${sourcePath} → ${filename}` : filename} (${documentId})`);
-
-    const extraction = await extractFilePayload({
-      name: filename,
-      type: fileType,
-      size,
-      buffer,
-      maxTextChars: MAX_RAG_TEXT_CHARS,
-    });
-
-    const text = extraction.text;
-    if (!text || text.trim().length === 0) {
-      throw new Error(getNoTextError(filename, extraction));
-    }
-
-    await enqueueDocumentIndexing(documentId, text, filename, fileType, {
-      ragModel: settings.ragModel,
-      ragMode: settings.ragMode as 'semantic' | 'keyword',
-      ollamaHost: settings.ollamaHost,
-      ollamaApiKey: settings.ollamaApiKey ?? '',
-    });
-  } catch (error) {
-    const rawMessage = getErrorMessage(error);
-    const message = settings.ragMode === 'semantic' && rawMessage.toLowerCase().includes('embedding')
-      ? `Embedding model "${settings.ragModel}" failed at ${settings.ollamaHost}. Go to Settings and click Test, or run: ollama pull ${settings.ragModel}\n\nDetails: ${rawMessage}`
-      : rawMessage;
-
-    console.error(`RAG background indexing failed for ${filename} (${documentId}):`, error);
-
-    await markDocumentError(documentId, message).catch(updateError => {
-      console.error('Failed to mark document errored:', updateError);
-    });
-  }
-}
-
-function queueDocumentUpload(input: ProcessDocumentUploadInput) {
-  return processDocumentUpload(input);
-}
 function getRequestContentLength(req: Request): number | null {
   const header = req.headers.get('content-length');
   if (!header) return null;
@@ -132,42 +48,6 @@ function getRequestContentLength(req: Request): number | null {
   const value = Number(header);
   return Number.isFinite(value) ? value : null;
 }
-
-function getNoTextError(filename: string, extraction: ExtractedFilePayload): string {
-  if (extraction.extractionStatus === 'unsupported') {
-    return `No text extractor is available for "${filename}" (${extraction.type}). Knowledge Base indexing requires extractable text.`;
-  }
-
-  return extraction.statusMessage || 'File appears to be empty or unreadable.';
-}
-
-async function markDocumentError(documentId: string, message: string) {
-  await prisma.documentChunk.deleteMany({ where: { documentId } }).catch(error => {
-    console.error('Failed to clear errored document chunks:', error);
-  });
-
-  await prisma.document.updateMany({
-    where: { id: documentId },
-    data: {
-      status: 'error',
-      errorMessage: message,
-      indexedAt: null,
-    },
-  });
-}
-
-async function touchProcessingDocument(documentId: string) {
-  await prisma.document.updateMany({
-    where: {
-      id: documentId,
-      status: 'processing',
-    },
-    data: {
-      indexedAt: new Date(),
-    },
-  });
-}
-
 
 function parsePageParam(value: string | null, fallback: number) {
   const parsed = Number(value);
@@ -409,8 +289,6 @@ export async function POST(req: Request) {
     const userId = await getCurrentUserIdWithPermission('knowledge.use');
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    await markStaleProcessingDocuments(userId);
-
     const contentLength = getRequestContentLength(req);
     if (contentLength !== null && contentLength > MAX_UPLOAD_BYTES) {
       return NextResponse.json({
@@ -476,21 +354,13 @@ export async function POST(req: Request) {
       orderBy: { createdAt: 'desc' },
     });
 
-    if (existingDoc && existingDoc.contentHash === contentHash && ['ready', 'queued', 'processing'].includes(existingDoc.status)) {
+    if (existingDoc && existingDoc.contentHash === contentHash && ['ready', 'queued', 'processing', 'indexing', 'staging'].includes(existingDoc.status)) {
       return NextResponse.json({
         success: true,
         queued: existingDoc.status !== 'ready',
         reused: true,
         document: { ...existingDoc, chunkCount: 0 },
       }, { status: existingDoc.status === 'ready' ? 200 : 202 });
-    }
-
-    // Allow re-upload of errored documents with matching content to retry indexing
-    if (existingDoc && existingDoc.contentHash === contentHash && existingDoc.status === 'error') {
-      await prisma.document.update({
-        where: { id: existingDoc.id },
-        data: { status: 'queued', errorMessage: null, indexedAt: null },
-      });
     }
 
     const doc = existingDoc
@@ -504,12 +374,13 @@ export async function POST(req: Request) {
             contentHash,
             originalContent,
             originalMimeType,
-            status: 'queued',
+            status: 'staging',
             ragMode: settings.ragMode,
             embeddingModel: settings.ragMode === 'semantic' ? settings.ragModel : null,
             ollamaHost: settings.ragMode === 'semantic' ? settings.ollamaHost : null,
             errorMessage: null,
             indexedAt: null,
+            indexingAttempts: 0,
           },
         })
       : await prisma.document.create({
@@ -522,25 +393,24 @@ export async function POST(req: Request) {
             originalContent,
             originalMimeType,
             userId,
-            status: 'queued',
+            status: 'staging',
             ragMode: settings.ragMode,
             embeddingModel: settings.ragMode === 'semantic' ? settings.ragModel : null,
             ollamaHost: settings.ragMode === 'semantic' ? settings.ollamaHost : null,
+            indexingAttempts: 0,
           }
         });
 
-    after(async () => {
-      await queueDocumentUpload({
-        documentId: doc.id,
-        filename: file.name,
-        fileType: file.type || 'application/octet-stream',
-        size: file.size,
-        contentHash,
-        sourcePath,
-        buffer,
-        settings,
+    try {
+      await stageRagUpload(doc.id, buffer);
+      await prisma.document.update({ where: { id: doc.id }, data: { status: 'queued' } });
+    } catch (error) {
+      await prisma.document.update({
+        where: { id: doc.id },
+        data: { status: 'error', errorMessage: `Could not queue upload: ${getErrorMessage(error)}` },
       });
-    });
+      throw error;
+    }
 
     return NextResponse.json({
       success: true,
@@ -611,6 +481,7 @@ export async function DELETE(req: Request) {
     const matchingIds = matchingRows.map(row => row.id);
 
     const deleteResult = await prisma.document.deleteMany({ where });
+    await Promise.all(matchingIds.map(id => removeRagUpload(id).catch(() => {})));
 
     if (normalizedIds.length === 1 && !folder && deleteResult.count === 0) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });

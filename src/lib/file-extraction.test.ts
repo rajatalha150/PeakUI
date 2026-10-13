@@ -52,6 +52,17 @@ describe('file extraction', () => {
     expect(['extracted-text', 'extracted-text+vision']).toContain(payload.modelInput)
     expect(payload.text).toContain('PeakUI PDF upload extraction works')
 
+    const indexingPayload = await extractFilePayload({
+      name: 'upload-test.pdf',
+      type: 'application/pdf',
+      size: bytes.byteLength,
+      buffer: Buffer.from(bytes),
+      includePdfPageImages: false,
+    })
+    expect(indexingPayload.text).toContain('PeakUI PDF upload extraction works')
+    expect(indexingPayload.pageImages).toBeUndefined()
+    expect(indexingPayload.modelInput).toBe('extracted-text')
+
     // When poppler can rasterize pages, the PDF is also attached as vision
     // page images so capable models can read the original layout.
     if (await commandExists('pdftoppm')) {

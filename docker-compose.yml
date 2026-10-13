@@ -176,6 +176,24 @@ services:
       - coder_workspace:/coder-workspace:rw
       - coder_apps:/coder-apps:ro
 
+  rag-worker:
+    image: peakui-app
+    build: .
+    command: ["node", "scripts/rag-worker.mjs"]
+    restart: always
+    init: true
+    network_mode: host
+    cpus: "1.0"
+    mem_limit: 2g
+    pids_limit: 128
+    environment:
+      - DATABASE_URL=${DATABASE_URL:?DATABASE_URL is required}
+      - PEAKUI_DATA_DIR=/var/lib/peakui
+    depends_on:
+      - db
+    volumes:
+      - app_runtime:/var/lib/peakui
+
 volumes:
   db_data:
   app_runtime:

@@ -45,6 +45,7 @@ interface ExtractFileOptions {
   size?: number
   buffer: Buffer
   maxTextChars?: number
+  includePdfPageImages?: boolean
 }
 
 interface ExtractionContext {
@@ -734,7 +735,9 @@ async function extractFilePayloadInternal(options: ExtractFileOptions, context: 
   if (extension === 'pdf') {
     const [pdfText, vision] = await Promise.all([
       extractPdfText(options.buffer),
-      renderPdfVisionPages(options.buffer),
+      options.includePdfPageImages === false
+        ? Promise.resolve({ images: [], totalPages: null })
+        : renderPdfVisionPages(options.buffer),
     ])
     const pageImages = vision.images
     const hasPages = pageImages.length > 0
