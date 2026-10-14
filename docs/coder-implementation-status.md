@@ -75,7 +75,7 @@ remaining managed-process work; it does not describe the active popup.
 - [ ] Authenticated, browser-reachable preview proxy (no raw iframe URLs) — deferred: a correct proxy needs HTML/CSS/JS URL rewriting + WS/HMR upgrade; documented
 - [x] Isolate preview origin from PeakUI auth origin/cookies — reserved-port guard keeps the preview off the app origin; iframe sandbox hardened to drop `allow-same-origin` (preview runs in an opaque origin)
 - [x] Restrict preview to approved destinations/ports (no SSRF/traversal) — `parsePreviewUrl` loopback + reserved-port validation, now enforced at **both** boundaries: the client before framing, and the server via `POST /api/coder/preview` (defense in depth)
-- [x] Capture selected preview viewport for vision review — `POST /api/coder/preview/screenshot` renders the approved loopback origin only in isolated Chromium, blocks other network origins, caps JPEG bytes, and sends the selected Desktop/Tablet/Mobile image as a native Coder image prompt
+- [x] Capture selected preview viewport for vision review — isolated Chromium captures the selected Desktop/Tablet/Mobile viewport, stores it under the active session, and requires an attributed response from the configured Vision model before the Main turn can run; failures leave the request unsent rather than inviting a visual guess
 - [x] Single-instance cancellable preview polling — `setTimeout` chaining (already single-flight)
 
 ## Phase 5 — Reversible work & verification evidence

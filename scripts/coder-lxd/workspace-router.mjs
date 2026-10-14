@@ -406,6 +406,43 @@ async function uploadSessionAttachment(req, res, sessionId) {
   }
 }
 
+export async function visionAttachmentPath(workspace, sessionId, value) {
+  if (!/^[0-9a-f-]{36}$/i.test(sessionId) || typeof value !== 'string' || !value.startsWith('/') || /[\\%\x00-\x1f\x7f]/.test(value)) {
+    throw new Error('Invalid vision attachment path.');
+  }
+  const root = await realpath(workspace);
+  const attachmentDir = join(root, '.peakui-attachments', sessionId);
+  const requested = resolve(value);
+  if (!containsPath(attachmentDir, requested)) throw new Error('Image must belong to this session.');
+  const canonicalDir = await realpath(attachmentDir);
+  if (!containsPath(root, canonicalDir)) throw new Error('Attachment folder leaves the workspace.');
+  const canonicalFile = await realpath(requested);
+  if (!containsPath(canonicalDir, canonicalFile)) throw new Error('Image resolves outside this session.');
+  return canonicalFile;
+}
+
+async function analyzeSessionAttachment(req, res, sessionId) {
+  const workspace = sessionWorkspaces[sessionId];
+  if (!workspace) return sendJson(res, 404, { error: 'Session workspace is unknown.' });
+  const body = JSON.parse((await readSmallBody(req)).toString('utf8'));
+  const imagePath = await visionAttachmentPath(workspace, sessionId, body?.path);
+  const question = typeof body?.question === 'string' ? body.question.slice(0, 6000) : '';
+  const home = await prepareCoderHome(workspace);
+  try {
+    const { stdout } = await execFileAsync(process.execPath, ['/usr/local/bin/peakui-vision', imagePath, question], {
+      env: { ...process.env, QWEN_HOME: home, PEAKUI_VISION_JSON: '1' },
+      timeout: 100_000,
+      maxBuffer: 1024 * 1024,
+    });
+    const result = JSON.parse(stdout);
+    if (typeof result.model !== 'string' || typeof result.text !== 'string' || !result.text.trim()) throw new Error('Vision model returned no visual description.');
+    return sendJson(res, 200, result);
+  } catch (error) {
+    const detail = typeof error?.stderr === 'string' ? error.stderr.trim() : error?.message;
+    return sendJson(res, 502, { error: detail || 'Vision analysis failed.' });
+  }
+}
+
 async function importProject(body) {
   const repositoryUrl = typeof body?.repositoryUrl === 'string' ? body.repositoryUrl : '';
   const branch = typeof body?.branch === 'string' ? body.branch : '';
@@ -488,6 +525,10 @@ async function handle(req, res) {
   const attachmentMatch = /^\/session\/([^/]+)\/attachment$/.exec(url.pathname);
   if (attachmentMatch && req.method === 'POST') {
     return uploadSessionAttachment(req, res, decodeURIComponent(attachmentMatch[1]));
+  }
+  const visionMatch = /^\/session\/([^/]+)\/vision$/.exec(url.pathname);
+  if (visionMatch && req.method === 'POST') {
+    return analyzeSessionAttachment(req, res, decodeURIComponent(visionMatch[1]));
   }
   if (terminalMatch) {
     const id = decodeURIComponent(terminalMatch[1]);

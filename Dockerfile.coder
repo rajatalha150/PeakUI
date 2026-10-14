@@ -158,8 +158,9 @@ COPY scripts/sync-coder-models.mjs /opt/qwen-code/sync-coder-models.mjs
 COPY scripts/coder-storage/peakui-coder-readiness /usr/local/bin/peakui-coder-readiness
 COPY scripts/coder-storage/peakui-cleanup /usr/local/bin/peakui-cleanup
 COPY scripts/coder-storage/peakui-coder-start /usr/local/bin/peakui-coder-start
+COPY scripts/coder-workspace/peakui-vision.mjs /usr/local/bin/peakui-vision
 COPY scripts/coder-lxd/workspace-router.mjs scripts/coder-lxd/terminal.mjs scripts/coder-lxd/terminal.node-test.mjs /opt/peakui/coder/
-RUN chmod 755 /usr/local/bin/peakui-coder-readiness /usr/local/bin/peakui-cleanup /usr/local/bin/peakui-coder-start
+RUN chmod 755 /usr/local/bin/peakui-coder-readiness /usr/local/bin/peakui-cleanup /usr/local/bin/peakui-coder-start /usr/local/bin/peakui-vision
 
 # Workspace context file (CODER.md): the daemon auto-loads this into every
 # session so the agent doesn't re-derive the project layout + verify commands,

@@ -98,11 +98,14 @@ into the image, so this works on a fresh VM with no downloads.
 - Run it from `/opt/qwen-code/browser` (ESM resolves `puppeteer` relative to
   the script's own location, not the cwd). Both `chrome-headless-shell` and the
   full `chrome` build are installed under `/opt/puppeteer-cache`.
-- The main model IS vision-capable (it carries the `vision` capability), and a
-  separate `visionModel` is also configured via the daemon for image
-  transcription. Screenshots CAN be seen: write one to `/tmp/*.png` and read it
-  with `read_file`, or rely on the daemon's vision bridge. Do NOT claim "no
-  vision model" or "no browser" — both are present and working on this image.
+- The main model may be text-only. The configured `visionModel` can transcribe
+  images, but `zoom_image` rejects text-only main models even when a Vision
+  delegate exists. For a local screenshot or an attached image path, run
+  `peakui-vision /absolute/path/image.png 'What is visibly on screen?'` if you
+  have not received an actual image description. The command uses the selected
+  Vision model and returns its observation. Never infer visual content from an
+  image path, dimensions, HTTP status, or an image overview. If the command
+  fails, say the image was not inspected and report the failure.
 
 ## Model orchestration (main / vision / writer)
 
@@ -110,9 +113,9 @@ This workspace may be configured with a three-model split, chosen in the Coding
 Settings drawer:
 
 - **Main** — you (the planning/execution model).
-- **Vision** — a separate image-capable model used automatically by the
-  daemon's vision bridge whenever you receive an image. No action needed on
-  your part.
+- **Vision** — a separate image-capable model for image transcription. The
+  daemon can bridge image inputs, but verify that its description is actually
+  present. For screenshots on disk, `peakui-vision` is the explicit fallback.
 - **Writer** — a dedicated subagent named `peakui-writer` (via the Agent tool,
   `subagent_type: "peakui-writer"`), pinned to a different model and restricted
   to read/write/edit/search/shell.

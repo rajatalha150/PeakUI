@@ -7,6 +7,27 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { tmpdir } from 'node:os';
+import { visionAttachmentPath } from './workspace-router.mjs';
+
+test('vision can only read a real file from the active session attachment directory', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'peakui-coder-vision-path-'));
+  const sessionId = '11111111-1111-4111-8111-111111111111';
+  const dir = join(root, '.peakui-attachments', sessionId);
+  await mkdir(dir, { recursive: true });
+  const image = join(dir, 'screen.png');
+  const outside = join(root, 'outside.png');
+  const escaped = join(dir, 'escaped.png');
+  await writeFile(image, 'image');
+  await writeFile(outside, 'secret');
+  await symlink(outside, escaped);
+  try {
+    assert.equal(await visionAttachmentPath(root, sessionId, image), image);
+    await assert.rejects(visionAttachmentPath(root, sessionId, outside), /belong to this session/);
+    await assert.rejects(visionAttachmentPath(root, sessionId, escaped), /resolves outside this session/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 async function freePort() {
   return new Promise((resolve, reject) => {

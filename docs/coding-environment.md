@@ -74,11 +74,16 @@ audio, and video. The browser streams each file through the authenticated
 `POST /session/:id/attachment`. The app verifies session ownership and its
 bound workspace; the guest stores each file with a unique name under
 `<workspace>/.peakui-attachments/<session-id>/`. Files survive app and guest
-restarts with the workspace. The model receives the exact paths in its prompt;
-supported raster images additionally receive a downscaled JPEG vision part.
-Non-image media is available to the agent's file/tools, not silently presented
-as an image to a model that cannot consume that format. The composer preserves
-attachments and text if transfer or prompt submission fails.
+restarts with the workspace. The model receives the exact paths in its prompt.
+For each browser-decodable image, PeakUI calls the session-bound
+`POST /session/:id/vision` endpoint before submitting the Main prompt. That
+endpoint reapplies the authenticated user's saved Vision selector, confines the
+file to the active session's attachment directory (including realpath/symlink
+checks), invokes the selected image-capable model, and returns an attributed
+visual observation. The Main prompt receives that observation as evidence, not
+as instructions. Empty or failed Vision responses fail closed: the turn is not
+submitted and the composer retains the files and text. Non-image media remains
+available to the agent's file/tools.
 
 ```
  ┌───────────────────────────────────────────────┐
@@ -1068,11 +1073,13 @@ thin wiring over existing capability, not a new orchestrator:
 
 - **Main** (`coderModel`) — the planner/executor. It receives the user request
   and drives everything.
-- **Vision** (`coderVisionModel`) — the daemon's *vision bridge*. When a
-  text-only main model receives an image, the daemon transcribes it through
-  this model and feeds the text back to the main model. Applied live via the
-  daemon's `visionModel` setting (`POST /workspace/settings`, user scope,
-  `requiresRestart: false`). Empty = auto-pick a same-provider vision model.
+- **Vision** (`coderVisionModel`) — the image specialist. PeakUI performs a
+  deterministic preflight for chat images and Preview screenshots: it applies
+  this selector, sends the actual image bytes to that model, requires a nonempty
+  observation, and only then submits the Main turn. The guest also installs
+  `peakui-vision <path> [question]` so the agent can request a closer inspection
+  without pretending that metadata or a successful upload proves image access.
+  Empty = auto-pick an available registered vision model.
 - **Writer** (`coderWriterModel`) — a dedicated subagent pinned to a different
   model, materialized at `~/.qwen/agents/peakui-writer.md` (user scope) via the
   daemon's `POST /workspace/agents`. The main model delegates code/file writing
@@ -1103,12 +1110,19 @@ lands.
 ### 17.2 Turn-time reconciliation and role safety
 
 PeakUI reconciles both delegate roles immediately before every `POST
-/session/:id/prompt`, using the authenticated user's persisted settings. This
+/session/:id/prompt`, and reconciles Vision again immediately before every
+`POST /session/:id/vision`, using the authenticated user's persisted settings. This
 is deliberately server-side as well as UI-side: a reopened tab, a failed
 optimistic save, or an empty role selection cannot silently inherit a previous
 daemon value. Empty Vision writes an empty `visionModel`; empty Writer removes
 `peakui-writer`. If reconciliation fails, the turn is rejected rather than run
 with an unknown delegate.
+
+Image handling is fail-closed. The UI does not rely on the Main model deciding
+whether to delegate and does not accept image dimensions, paths, HTTP status,
+or tool success as visual evidence. A Vision timeout, unsupported route, or
+empty result leaves the original message in the composer with an explicit
+error. Preview screenshot review uses the same path instead of bypassing it.
 
 The model picker also refuses a non-tools model for Main or Writer and a
 non-vision model for Vision. Capability discovery remains best-effort while

@@ -157,6 +157,7 @@ push_guest_file scripts/coder-storage/peakui-coder-start /usr/local/bin/peakui-c
 push_guest_file scripts/coder-storage/peakui-coder-readiness /usr/local/bin/peakui-coder-readiness 755
 push_guest_file scripts/coder-storage/peakui-install-android /usr/local/bin/peakui-install-android 755
 push_guest_file scripts/coder-storage/peakui-cleanup /usr/local/bin/peakui-cleanup 755
+push_guest_file scripts/coder-workspace/peakui-vision.mjs /usr/local/bin/peakui-vision 755
 push_guest_file scripts/coder-lxd/prepare.sh /usr/local/bin/peakui-coder-prepare 755
 push_guest_file scripts/sync-coder-models.mjs /tmp/peakui-sync-coder-models.mjs 644
 push_guest_file scripts/coder-workspace/CODER.md /tmp/peakui-workspace-CODER.md 644

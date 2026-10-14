@@ -120,7 +120,7 @@ The Files panel downloads large APKs directly through the browser's download man
 
 Knowledge Base ingestion runs in a separate, resource-limited RAG worker. Large batches of PDFs queue durably and index one by one without blocking the web app; interrupted jobs resume from saved originals after a worker restart.
 
-In Coder chat, the **+** next to Run attaches multiple images or project files. Uploads stream into the active session's persistent guest workspace; images are also sent to the selected model as vision input. Other formats are passed to the agent by their guest paths so its tools can inspect them. Attachments can be removed before sending, and a failed send keeps the draft for retry.
+In Coder chat, the **+** next to Run attaches multiple images or project files. Uploads stream into the active session's persistent guest workspace. Before an image reaches a text-only Main model, PeakUI requires the configured Vision model to inspect the real pixels and adds its attributed observation to the turn. If Vision fails or returns nothing, the message is not sent and the draft remains available instead of allowing the agent to guess. Other formats are passed to the agent by their guest paths so its tools can inspect them.
 
 ## Preview That Works From Any Device
 

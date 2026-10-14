@@ -214,7 +214,7 @@ function relay(result: Awaited<ReturnType<typeof proxyToCoderDaemon>>) {
  * saved role choices immediately before every real prompt, including empty
  * values, so a reopened session never silently inherits a prior user's roles.
  */
-async function reconcilePromptOrchestration(userId: string, sessionId: string): Promise<string | null> {
+async function reconcileVisionModel(userId: string, sessionId: string): Promise<{ error: string | null; settings?: Awaited<ReturnType<typeof getUserSettings>>; workspace?: string }> {
   const [settings, session] = await Promise.all([
     getUserSettings(userId),
     prisma.chatSession.findFirst({
@@ -223,7 +223,7 @@ async function reconcilePromptOrchestration(userId: string, sessionId: string): 
     }),
   ])
   const workspace = normalizeCoderWorkspacePath(session?.coderWorkspace || settings.coderWorkspace)
-  if (!workspace) return 'The coding session has no valid workspace for model orchestration.'
+  if (!workspace) return { error: 'The coding session has no valid workspace for model orchestration.' }
 
   const vision = await proxyToCoderDaemon(`/workspace/settings?workspace=${encodeURIComponent(workspace)}`, {
     method: 'POST',
@@ -233,7 +233,14 @@ async function reconcilePromptOrchestration(userId: string, sessionId: string): 
       value: settings.coderVisionModel ? toDaemonModelSelector(settings.coderVisionModel) : '',
     },
   })
-  if (vision.status < 200 || vision.status >= 300) return 'Could not apply the configured Vision model before this turn.'
+  if (vision.status < 200 || vision.status >= 300) return { error: 'Could not apply the configured Vision model before this turn.' }
+  return { error: null, settings, workspace }
+}
+
+async function reconcilePromptOrchestration(userId: string, sessionId: string): Promise<string | null> {
+  const vision = await reconcileVisionModel(userId, sessionId)
+  if (vision.error || !vision.settings || !vision.workspace) return vision.error || 'Could not apply the configured Vision model before this turn.'
+  const { settings, workspace } = vision
 
   if (!settings.coderWriterModel) {
     const removed = await proxyToCoderDaemon(`/workspace/agents/${CODER_WRITER_AGENT_NAME}?scope=${CODER_WRITER_AGENT_SCOPE}&workspace=${encodeURIComponent(workspace)}`, { method: 'DELETE' })
@@ -293,6 +300,15 @@ export async function POST(req: NextRequest) {
 
   const denied = await authorizeCoderRequest(access.userId, access.auth.user.role, target, body)
   if (denied) return denied
+
+  if (/^\/session\/[^/]+\/vision$/.test(target.path)) {
+    const sessionId = extractCoderSessionId(target.path)
+    if (!sessionId) return notFound()
+    const vision = await reconcileVisionModel(access.userId, sessionId)
+    if (vision.error) {
+      return NextResponse.json({ error: vision.error, code: 'vision_unavailable' }, { status: 503 })
+    }
+  }
 
   if (/^\/session\/[^/]+\/model$/.test(target.path)) {
     const id = extractCoderSessionId(target.path)
