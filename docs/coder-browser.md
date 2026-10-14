@@ -50,6 +50,31 @@ on both Coder backends.
 
 ## Deployment and Verification
 
+### Saved Vision checkpoints
+
+Clicking Vision records the current JPEG and its capture time before calling the
+configured Vision model. After a successful observation, the activity history
+retains the image path, actual URL, selected viewport, model name, observation,
+and diagnostics returned with that capture. A rejected follow-up Main prompt
+does not erase the completed visual observation. These checkpoints are explicit
+Vision reviews, not automatic screenshots of every agent action, and a completed
+review is not proof that the agent fixed or tested the application.
+
+Checkpoint metadata is stored once in the session's message metadata in Postgres.
+JPEG files remain under `.peakui-attachments/<session-id>/` in the persistent
+workspace. Back up both Postgres and the guest to preserve the complete record.
+Transcript refreshes merge checkpoints chronologically with daemon activity.
+Expanding a checkpoint shows its original image and the preceding capture,
+including their timestamps; different viewports or URLs can be compared and are
+labelled individually. Phone layouts stack the captures.
+
+`GET /api/coder/session/:id/attachment?path=...` checks Coder access and session
+ownership, then streams JPEG bytes from the private runtime. The runtime confines
+the path to that session's attachment directory, rejects redirected attachment
+directories and escaping symlinks, and opens the file without following a final
+symlink. Responses use `private, no-store`. Deleting or moving a saved JPEG makes
+that historical image unavailable; the observation remains in session history.
+
 The LXD installer copies `scripts/coder-browser` into `/opt/qwen-code/browser`
 and installs Chromium and Puppeteer there; the Docker Coder image includes the
 same files and runtime. The workspace router loads the browser module on

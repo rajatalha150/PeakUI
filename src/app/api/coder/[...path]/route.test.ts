@@ -67,6 +67,21 @@ afterEach(() => {
 })
 
 describe('coder gateway route — response relay', () => {
+  it('streams checkpoint image bytes only after checking session ownership', async () => {
+    const bytes = new Uint8Array([255, 216, 255, 0, 128, 217]);
+    const upstream = vi.fn().mockImplementation(() => Promise.resolve(new Response(bytes, { headers: { 'Content-Type': 'image/jpeg' } })));
+    vi.stubGlobal('fetch', upstream);
+    const { GET } = await loadRoute();
+    vi.mocked(authorizeCoderSession).mockResolvedValue(false);
+    expect((await GET(makeRequest('/session/foreign/attachment?path=/secret.jpg'))).status).toBe(404);
+    expect(upstream).not.toHaveBeenCalled();
+    vi.mocked(authorizeCoderSession).mockResolvedValue(true);
+    const response = await GET(makeRequest('/session/owned/attachment?path=/workspace/image.jpg'));
+    expect(response.headers.get('content-type')).toBe('image/jpeg');
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+  });
+
   it('streams terminal output only for an owned session', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('event: output\ndata: "ready"\n\n', {
       headers: { 'Content-Type': 'text/event-stream' },

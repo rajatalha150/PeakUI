@@ -5,6 +5,32 @@ and phase counts below describe the earlier `trimmer` implementation, not the
 current `main` release. For current Coder architecture and operation, see
 [Coding Environment](coding-environment.md) and [Persistent Coder](coder-lxd.md).
 
+Current run-feedback additions: pinned run state and Stop, wrapping tool details,
+work-summary paths and checkpoint diff totals, persistent Project Tasks evidence,
+and saved Vision screenshots with previous-capture comparison. Reopened task
+results are conservatively stale. See [run feedback](coding-environment.md#run-feedback-and-evidence)
+and [Vision checkpoints](coder-browser.md#saved-vision-checkpoints); these supersede
+the historical in-session-only verification storage note below.
+
+### Run-feedback audit (2026-10-13)
+
+Regression coverage checks checkpoint validation and chronological merging,
+terminal activity surviving transcript refreshes, conservative verification
+restoration, authenticated JPEG streaming, and attachment-directory confinement.
+Reproduce the checks with:
+
+```sh
+npx vitest run src/lib/coder*.test.ts src/app/api/coder
+node --test scripts/coder-lxd/workspace-router.node-test.mjs
+npx tsc --noEmit
+npm run build
+```
+
+The Coder suite passed 201 tests across 25 files; the router passed both
+integration tests. These are automated checks, not a fresh end-to-end browser
+review. The work summary still uses inferred paths and a mutation counter rather
+than a complete workspace diff or content fingerprint.
+
 ## Baseline (Phase 0)
 
 - Historical branch: `trimmer`

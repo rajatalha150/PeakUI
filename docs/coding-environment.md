@@ -757,19 +757,43 @@ fingerprint it was measured against. The daemon exposes per-file content hashes
 but **no workspace tree hash**, so the fingerprint is a conservative *workspace
 mutation counter*:
 
-- Advanced by every human save (explorer) and every agent tool call that is not a
+- Advanced by every human save (explorer), and the start and terminal result of every agent tool call that is not a
   known read-only tool (`read_file` / `list_directory` / `glob` / `grep` /
   `web_search` / …). `isMutatingTool` is **default-deny** — an unknown or absent
-  tool name counts as mutating — so stale-marking can only over-approximate and
-  never leave an edit's prior evidence looking fresh.
+  tool name counts as mutating. This conservatively tracks visible tool activity;
+  external processes, another terminal, or another session can still change files
+  without producing events here. It is not a workspace content fingerprint.
 - A record is stale iff the counter has moved past the value captured at run
   start (`isVerificationStale`).
 
 `src/lib/coder-verification.ts` owns the pure logic; `CodingView`'s Tasks panel
 renders a **Verification runs** list with `passed` / `failed` / `error` / `stale`
-status. Failed runs stay visible and are never restyled as success. Records are
-in-session only (reset on session switch) — a DB-backed ledger is a documented
-gap, as is a true content-level fingerprint.
+status. Failed runs stay visible and are never restyled as success. Records persist
+in session message metadata and appear in the activity Work summary as well as
+Tasks. Reopened records retain command, exit status, timestamps and output but
+are marked stale until rerun: freshness cannot be proved across a closed view.
+These records describe commands launched through Project Tasks; arbitrary shell
+activity and the agent's narrative are not automatically classified as tests.
+
+### Run feedback and evidence
+
+The pinned run bar shows connection/turn state, active-run elapsed time, last
+content event, and Stop. Reconnect notices and status heartbeats do not count as
+new work. The timer measures the run since this view attached; it is not a
+server-side duration recovered from history. Queuing a message does not reset it.
+
+Tool activity is rebuilt from the transcript. When the authoritative turn is
+idle, unresolved tool entries display `ended` (or `cancelled` after Stop), never
+an invented successful result. Real completed/failed results retain their status.
+Input/output and start/update times are available in expandable, wrapping rows.
+
+Work summary paths are inferred from tool inputs and are not a complete Git
+diff. Shell commands may omit affected paths, and failed tools can name paths
+without changing them. Diff totals come from the latest available daemon rewind
+checkpoint; the UI refreshes these on attach and after turns end. A true per-file
+diff viewer and automatic classification of agent test runs remain separate work.
+See [Coder Browser](coder-browser.md#saved-vision-checkpoints) for persistent
+visual evidence and screenshot comparisons.
 
 ### 12.11 PTY and debug transports
 

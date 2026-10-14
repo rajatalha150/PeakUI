@@ -124,6 +124,13 @@ In Coder chat, the **+** next to Run attaches multiple images or project files. 
 
 ## Preview That Works From Any Device
 
+Coder keeps run status, elapsed time since attachment, recent activity, and Stop
+visible above the conversation. Tool rows wrap and expand to show inputs,
+outputs, and timestamps. The work summary lists paths identified in tool inputs,
+the latest available checkpoint diff totals, and recent Project Tasks results.
+Verification records survive reopening; reopened results are marked stale until
+rerun because the workspace may have changed while the view was closed.
+
 ```mermaid
 sequenceDiagram
   participant A as Coding agent
@@ -155,6 +162,9 @@ The Preview window provides:
 - Resize, move, maximize, reload, and automatic running-port discovery.
 - Guest-local and public HTTP(S) URLs, including sites that prohibit framing.
 - `Vision` screenshot review for the selected viewport.
+- Saved Vision checkpoints in activity: original screenshot, URL, viewport,
+  capture time, model-attributed observation, and diagnostics. Expand a checkpoint
+  to compare it with the previous capture; mobile stacks the images vertically.
 - `Log` diagnostics: timestamped console output, page errors, failed requests, and HTTP failures with one-click copy. Vision receives the captured log with the screenshot when available.
 
 ## Durable Agent Sessions

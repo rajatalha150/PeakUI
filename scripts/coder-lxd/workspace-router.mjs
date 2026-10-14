@@ -415,7 +415,7 @@ export async function visionAttachmentPath(workspace, sessionId, value) {
   const requested = resolve(value);
   if (!containsPath(attachmentDir, requested)) throw new Error('Image must belong to this session.');
   const canonicalDir = await realpath(attachmentDir);
-  if (!containsPath(root, canonicalDir)) throw new Error('Attachment folder leaves the workspace.');
+  if (canonicalDir !== attachmentDir) throw new Error('Attachment folder must not redirect to another directory.');
   const canonicalFile = await realpath(requested);
   if (!containsPath(canonicalDir, canonicalFile)) throw new Error('Image resolves outside this session.');
   return canonicalFile;
@@ -523,6 +523,28 @@ async function handle(req, res) {
   }
   const terminalMatch = /^\/session\/([^/]+)\/terminal$/.exec(url.pathname);
   const attachmentMatch = /^\/session\/([^/]+)\/attachment$/.exec(url.pathname);
+  if (attachmentMatch && req.method === 'GET') {
+    const id = decodeURIComponent(attachmentMatch[1]);
+    const workspace = sessionWorkspaces[id];
+    if (!workspace) return sendJson(res, 404, { error: 'Session workspace is unknown.' });
+    const imagePath = await visionAttachmentPath(workspace, id, url.searchParams.get('path'));
+    if (!/\.jpe?g$/i.test(imagePath)) return sendJson(res, 415, { error: 'Only session JPEG attachments can be previewed.' });
+    const handle = await open(imagePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const info = await handle.stat();
+    if (!info.isFile()) { await handle.close(); return sendJson(res, 404, { error: 'Image attachment is unavailable.' }); }
+    res.writeHead(200, {
+      'Content-Type': 'image/jpeg',
+      'Content-Length': info.size,
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Accel-Buffering': 'no',
+    });
+    const source = handle.createReadStream();
+    source.on('error', error => res.destroy(error));
+    res.on('close', () => source.destroy());
+    source.pipe(res);
+    return;
+  }
   if (attachmentMatch && req.method === 'POST') {
     return uploadSessionAttachment(req, res, decodeURIComponent(attachmentMatch[1]));
   }

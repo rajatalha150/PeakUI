@@ -44,6 +44,8 @@ import {
 } from '@/lib/coder-authorization'
 import {
   forwardableRequestHeaders,
+  getCoderDaemonBaseUrl,
+  getCoderDaemonToken,
   proxyToCoderDaemon,
   streamCoderSse,
 } from '@/lib/coder-gateway'
@@ -279,6 +281,29 @@ export async function GET(req: NextRequest) {
       headers: forwardableRequestHeaders(req.headers),
       signal: req.signal,
     })
+  }
+
+  if (/^\/session\/[^/]+\/attachment$/.test(target.path)) {
+    try {
+      const upstream = await fetch(`${getCoderDaemonBaseUrl()}${target.path}${target.query}`, {
+        headers: {
+          ...(getCoderDaemonToken() ? { Authorization: `Bearer ${getCoderDaemonToken()}` } : {}),
+          ...forwardableRequestHeaders(req.headers),
+        },
+        signal: AbortSignal.any([req.signal, AbortSignal.timeout(60_000)]),
+      })
+      return new Response(upstream.body, {
+        status: upstream.status,
+        headers: {
+          'Content-Type': upstream.headers.get('content-type') || 'application/json',
+          ...(upstream.headers.get('content-length') ? { 'Content-Length': upstream.headers.get('content-length')! } : {}),
+          'Cache-Control': 'private, no-store',
+          'X-Content-Type-Options': 'nosniff',
+        },
+      })
+    } catch {
+      return NextResponse.json({ error: 'Preview checkpoint image is unavailable.' }, { status: 502 })
+    }
   }
 
   return relay(

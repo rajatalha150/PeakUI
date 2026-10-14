@@ -16,6 +16,7 @@ import { absoluteWorkspacePath, parseGlobResult, searchLines, type SearchHit } f
 import { siblingWorkspacePath } from '@/lib/coder-new-session';
 import { attachmentPrompt, imagePromptPart } from '@/lib/coder-attachments';
 import { buildVerificationRecord, isMutatingTool, isVerificationStale, type VerificationRecord } from '@/lib/coder-verification';
+import { activityDisplayStatus, mergeActivity, previewCheckpointOf, restoreVerifications, type PreviewCheckpoint } from '@/lib/coder-activity';
 import { buildWriterSubagentCreateBody, buildWriterSubagentUpdateBody, CODER_WRITER_AGENT_NAME, CODER_WRITER_AGENT_SCOPE, toDaemonModelSelector } from '@/lib/coder-orchestration';
 import { formatCoderContextUsage, shouldCaptureCoderHandoff, type CoderContextUsage } from '@/lib/coder-context';
 import { copyToClipboard } from '@/lib/clipboard';
@@ -59,6 +60,17 @@ interface ToolActivity {
   rawOutput?: string;
 }
 
+function activityFilePath(activity: ToolActivity, workspace: string): string | null {
+  const input = activity.rawInput;
+  const record = input && typeof input === 'object' ? input as Record<string, unknown> : {};
+  const candidate = [record.file_path, record.filePath, record.path, record.target]
+    .find(value => typeof value === 'string' && value.startsWith('/'));
+  const titlePath = activity.title.match(/(?:WriteFile|EditFile|CreateFile|write_file|edit_file):\s*(\/[^\s]+)/i)?.[1];
+  const path = typeof candidate === 'string' ? candidate : titlePath;
+  if (!path || (path !== workspace && !path.startsWith(`${workspace.replace(/\/$/, '')}/`))) return null;
+  return path;
+}
+
 /** An open file in the project explorer, with its own buffer + save state. */
 interface EditorTab {
   path: string;
@@ -91,6 +103,7 @@ interface PendingInteraction {
 }
 
 interface CoderSessionStatus {
+  observedAt?: number;
   hasActivePrompt?: boolean;
   activeWorkState?: string;
   isWaitingForPermission?: boolean;
@@ -127,7 +140,7 @@ interface StoredMsg {
   role: string;
   content: string;
   usage?: { inputTokens?: number; outputTokens?: number };
-  meta?: { thinking?: string; toolActivity?: ToolActivity[] };
+  meta?: { thinking?: string; toolActivity?: ToolActivity[]; verificationRecords?: VerificationRecord[] };
 }
 
 /** Settings persisted server-side (`/api/settings`). */
@@ -374,6 +387,12 @@ export default function CodingView() {
   const clientIdRef = React.useRef<string>('');
   // Live "what is it doing right now" line shown on the chat surface.
   const [liveStatus, setLiveStatus] = React.useState('');
+  const [runStartedAt, setRunStartedAt] = React.useState<number | null>(null);
+  const [lastRunUpdateAt, setLastRunUpdateAt] = React.useState<number | null>(null);
+  const [runClock, setRunClock] = React.useState(0);
+  const cancelRequestedRef = React.useRef(false);
+  const [persistRevision, setPersistRevision] = React.useState(0);
+  const persistRetryTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   // Which tool-activity row the user expanded.
   const [expandedTool, setExpandedTool] = React.useState<string | null>(null);
   // Raw daemon transcript events — the authoritative source the chat is rebuilt
@@ -532,16 +551,21 @@ export default function CodingView() {
   const resetWorkbench = () => {
     sessionGenerationRef.current += 1;
     ensurePromiseRef.current = null;
+    cancelRequestedRef.current = false;
+    setRunStartedAt(null); setLastRunUpdateAt(null); setRunClock(0);
     setOpenTabs([]); setActivePath(null); setFileEditorOpen(false); setFileEntries(null); setFileError(''); setFileLoading(false);
     setTasks([]); setTaskCommands({}); setTaskOutputs({}); setTaskRunning(null); setTaskError('');
     setSearchResults(null); setSearchLoading(false); setSearchError('');
     setRewindSnapshots(null); setRewindResult(null); setRewindLoading(false); setRewindError('');
     previewUrlManualRef.current = false; previewDeviceManualRef.current = false; agentPreviewRef.current = null; previewFileRawRef.current = '';
     setShellOpen(false); setPreviewUrl(''); setPreviewCaptureUrl(''); setPreviewInput('');
+    setPreviewCapturing(false); setPreviewDiagnostics([]);
     setQuestionDrafts({}); setQuestionNotes({}); nudgedNotificationRef.current = null;
     setAttachments([]);
     setWorkspaceNotice('');
   };
+
+  React.useEffect(() => () => { if (persistRetryTimer.current) clearTimeout(persistRetryTimer.current); }, []);
 
   React.useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
@@ -555,6 +579,41 @@ export default function CodingView() {
   const busy = sessionStatus?.hasActivePrompt === true
     || sessionStatus?.isWaitingForPermission === true
     || sessionStatus?.isWaitingForUserQuestion === true;
+
+  React.useEffect(() => {
+    if (busy) {
+      const now = Date.now();
+      setRunStartedAt(now);
+      setRunClock(now);
+    }
+  }, [busy]);
+
+  React.useEffect(() => {
+    if (!activeSessionId) return;
+    setRunClock(Date.now());
+    const timer = window.setInterval(() => setRunClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [activeSessionId]);
+
+  React.useEffect(() => {
+    if (sessionStatus?.hasActivePrompt !== false || busy) return;
+    const stopped = cancelRequestedRef.current || liveStatus === 'stopped';
+    if (cancelRequestedRef.current) {
+      cancelRequestedRef.current = false;
+      setLiveStatus('stopped');
+    }
+    setToolActivity(current => {
+      let changed = false;
+      const next = current.map(item => {
+        if (item.startedAt === undefined || item.startedAt > (sessionStatus.observedAt ?? 0)) return item;
+        const status = activityDisplayStatus(item.status, true, stopped);
+        if (status === item.status) return item;
+        changed = true;
+        return { ...item, status };
+      });
+      return changed ? next : current;
+    });
+  }, [sessionStatus?.hasActivePrompt, sessionStatus?.observedAt, busy, liveStatus, toolActivity]);
 
   // The transcript is rebuilt from daemon events, so its array identity changes
   // frequently while the agent works. This gives the scroll controller each
@@ -921,12 +980,15 @@ export default function CodingView() {
       const dsid = await ensureDaemonSession();
       if (!dsid) throw new Error('Failed to start daemon session');
       const image = await coderBrowserRequest(activeSessionId, { action: 'screenshot' });
+      const capturedAt = Date.now();
+      if (!current()) return;
       if (typeof image.data !== 'string' || typeof image.mimeType !== 'string') {
         throw new Error(typeof image.error === 'string' ? image.error : 'Preview capture failed');
       }
       const width = typeof image.width === 'number' ? image.width : PREVIEW_VIEWPORTS[previewDevice].width;
       const height = typeof image.height === 'number' ? image.height : PREVIEW_VIEWPORTS[previewDevice].height;
-      const imageLogs: Array<{ level: string; message: string }> = Array.isArray(image.entries) ? image.entries : previewDiagnostics;
+      const imageLogs: Array<{ level: string; message: string }> = Array.isArray(image.entries)
+        ? image.entries.filter((entry: { level?: unknown; message?: unknown }) => entry && typeof entry.level === 'string' && typeof entry.message === 'string') : [];
       const runtimeLog = imageLogs.length
         ? `\n\nBrowser diagnostics captured for this preview:\n${imageLogs.map(entry => `[${entry.level}] ${entry.message}`).join('\n').slice(0, 12_000)}`
         : '';
@@ -945,6 +1007,32 @@ export default function CodingView() {
       const uploaded = await transfer.json().catch(() => ({})) as { path?: string; error?: string };
       if (!transfer.ok || !uploaded.path) throw new Error(uploaded.error || 'Could not transfer preview screenshot.');
       const observation = await analyzeCoderImage(dsid, uploaded.path, `Describe exactly what is visible in this ${previewDevice} screenshot. Identify any blank area, clipping, errors, or loading state. Do not infer from URL or logs.`);
+      if (!current()) return;
+      const checkpointDiagnostics = imageLogs
+        .filter(entry => entry && typeof entry.level === 'string' && typeof entry.message === 'string')
+        .map(entry => ({ level: entry.level, message: entry.message }));
+      const checkpoint: PreviewCheckpoint = {
+        kind: 'preview-checkpoint',
+        screenshotPath: uploaded.path,
+        url: typeof image.url === 'string' ? image.url : previewUrl,
+        device: previewDevice,
+        width,
+        height,
+        capturedAt,
+        visionModel: observation.model,
+        observation: observation.text,
+        diagnostics: checkpointDiagnostics,
+      };
+      setToolActivity(previous => [...previous, {
+        id: `preview-${capturedAt}`,
+        title: `Preview checkpoint · ${previewDevice} · ${width}×${height}`,
+        status: 'completed',
+        detail: observation.text,
+        startedAt: capturedAt,
+        updatedAt: capturedAt,
+        toolName: 'Vision review',
+        rawInput: checkpoint,
+      }]);
       const response = await fetch(`/api/coder/session/${dsid}/prompt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -958,7 +1046,7 @@ export default function CodingView() {
       setError(error instanceof Error ? error.message : 'Preview vision review failed');
       setLiveStatus('');
     } finally {
-      setPreviewCapturing(false);
+      if (current()) setPreviewCapturing(false);
     }
   };
 
@@ -1114,6 +1202,7 @@ export default function CodingView() {
     title: string,
     msgs: CoderChatMessage[],
     activity: ToolActivity[],
+    verifications: VerificationRecord[],
   ) => {
     try {
       // Thinking is folded into `meta` per message. Tool activity is folded in
@@ -1125,10 +1214,15 @@ export default function CodingView() {
         ...(m.usage ? { usage: m.usage } : {}),
         ...(m.thinking ? { meta: { thinking: m.thinking } } : {}),
       }));
-      if (activity.length) {
+      if (activity.length || verifications.length) {
+        if (!stored.some(message => message.role === 'assistant')) stored.push({ role: 'assistant', content: '' });
         for (let i = stored.length - 1; i >= 0; i--) {
           if (stored[i].role === 'assistant') {
-            stored[i].meta = { ...(stored[i].meta || {}), toolActivity: activity };
+            stored[i].meta = {
+              ...(stored[i].meta || {}),
+              toolActivity: activity,
+              ...(verifications.length ? { verificationRecords: verifications } : {}),
+            };
             break;
           }
         }
@@ -1196,6 +1290,8 @@ export default function CodingView() {
         setMessages(loaded);
         const restored = stored.flatMap(m => (m.role === 'assistant' && Array.isArray(m.meta?.toolActivity) ? m.meta.toolActivity : []));
         setToolActivity(restored);
+        const restoredVerifications = [...stored].reverse().find(m => m.role === 'assistant' && Array.isArray(m.meta?.verificationRecords))?.meta?.verificationRecords;
+        setVerificationRecords(restoreVerifications(restoredVerifications));
         setSessionResolved(true);
       } else if (res.status === 404) {
         if (!current()) return;
@@ -1212,6 +1308,7 @@ export default function CodingView() {
   const newSession = async (workspaceOverride?: string, leaveConfirmed = false): Promise<boolean> => {
     if (!leaveConfirmed && !canLeaveBuffers()) return false;
     const current = captureSession();
+    cancelRequestedRef.current = false;
     setError('');
     try {
       const res = await fetch('/api/chats', {
@@ -1642,6 +1739,21 @@ export default function CodingView() {
     }
   };
 
+  React.useEffect(() => {
+    if (!daemonSessionId) return;
+    if (busy || sessionStatus?.hasActivePrompt !== false) return;
+    let cancelled = false;
+    void fetch(`/api/coder/session/${daemonSessionId}/rewind/snapshots`)
+      .then(response => response.json().then(data => ({ response, data })))
+      .then(({ response, data }) => {
+        if (cancelled || !response.ok) return;
+        const parsed = parseRewindSnapshots(data);
+        if ('snapshots' in parsed) setRewindSnapshots(parsed.snapshots);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [busy, daemonSessionId, sessionStatus?.hasActivePrompt]);
+
   /**
    * Rewind the daemon session to a snapshot. With `rewindFiles: true` (the
    * daemon default, made explicit here) the workspace files are restored to
@@ -1907,7 +2019,10 @@ export default function CodingView() {
    * saves (explorer) and agent tool calls that may have mutated the workspace
    * (default-deny — anything not a known read-only tool counts).
    */
-  const workspaceMutation = humanSaveCount + toolActivity.filter(a => isMutatingTool(a.toolName)).length;
+  const workspaceMutation = humanSaveCount + toolActivity.reduce((count, item) => {
+    if (previewCheckpointOf(item) || !isMutatingTool(item.toolName)) return count;
+    return count + (['completed', 'success', 'failed', 'error', 'cancelled', 'ended'].includes(item.status) ? 2 : 1);
+  }, 0);
 
   // ---- Named project tasks ------------------------------------------------
 
@@ -2354,6 +2469,7 @@ export default function CodingView() {
       return;
     }
     const current = captureSession();
+    if (!busy) cancelRequestedRef.current = false;
     setError('');
     const files = [...attachments];
     if (files.length) setSendingAttachment(true);
@@ -2440,6 +2556,7 @@ export default function CodingView() {
 
   const cancelTurn = async () => {
     if (!daemonSessionId) return;
+    cancelRequestedRef.current = true;
     try {
       const res = await fetch(`/api/coder/session/${daemonSessionId}/cancel`, {
         method: 'POST',
@@ -2447,6 +2564,7 @@ export default function CodingView() {
         body: JSON.stringify({}),
       });
       if (!res.ok) {
+        cancelRequestedRef.current = false;
         // A failed cancel must not read as "cancelling…" / successful: the turn
         // is still running and the user needs to know the stop did not land.
         const data = await res.json().catch(() => ({})) as { error?: string };
@@ -2455,6 +2573,7 @@ export default function CodingView() {
       }
       setLiveStatus('cancelling…');
     } catch {
+      cancelRequestedRef.current = false;
       setError('Failed to cancel the turn.');
     }
   };
@@ -2562,7 +2681,9 @@ export default function CodingView() {
     if (!daemonSessionId) return;
     let cancelled = false;
     const streamedSessionId = daemonSessionId;
-    const note = (line: string) => setLiveStatus(line);
+    const note = (line: string) => {
+      setLiveStatus(line);
+    };
 
     const onFrame = (raw: string) => {
       if (cancelled || !raw) return;
@@ -2584,6 +2705,7 @@ export default function CodingView() {
         || update === 'tool_call' || update === 'tool_call_update'
         || update === 'user_message_chunk'
       ) {
+        setLastRunUpdateAt(Date.now());
         if (update === 'agent_thought_chunk') note('thinking…');
         else if (update === 'agent_message_chunk') note('responding…');
         else if (update === 'tool_call' || update === 'tool_call_update') {
@@ -2732,6 +2854,7 @@ export default function CodingView() {
       if (running) return;
       running = true;
       try {
+        const observedAt = Date.now();
         const res = await fetch(`/api/coder/session/${daemonSessionId}/status`);
         if (res.status === 404 && !cancelled) {
           recoverMissingDaemonSession(daemonSessionId);
@@ -2739,7 +2862,7 @@ export default function CodingView() {
         }
         if (res.ok && !cancelled) {
           const status = await res.json().catch(() => ({})) as CoderSessionStatus;
-          setSessionStatus(status);
+          setSessionStatus({ ...status, observedAt });
           if (pendingModelSwitch?.sessionId === daemonSessionId && !modelSwitchBlocked && !isTurnActive(status)) {
             void flushPendingModelSwitchRef.current(daemonSessionId, pendingModelSwitch);
           }
@@ -2824,6 +2947,8 @@ export default function CodingView() {
         });
         if (cancelled) return;
         lastUpdated = version;
+        const changedAt = version ? Date.parse(version) : NaN;
+        if (Number.isFinite(changedAt)) setLastRunUpdateAt(changedAt);
         transcriptRef.current = events;
         setTranscriptEvents(events);
         const built = buildConversation(events);
@@ -2832,7 +2957,7 @@ export default function CodingView() {
         // verbatim; only fall back to the DB baseline when the daemon has no
         // events yet (a fresh session that has never sent a prompt).
         setMessages(built.messages.length ? built.messages : baselineRef.current);
-        setToolActivity(built.activity);
+        setToolActivity(current => mergeActivity(built.activity, current));
       } catch {
         // Transient.
       } finally {
@@ -2905,7 +3030,7 @@ export default function CodingView() {
   // only in daemon memory. The signature below keeps this inexpensive on polls
   // that do not add any new information.
   React.useEffect(() => {
-    if (!activeSessionId || messages.length === 0 || !sessionResolved || !daemonSessionId || persistInFlightRef.current) return;
+    if (!activeSessionId || (!messages.length && !toolActivity.length && !verificationRecords.length) || !sessionResolved || !daemonSessionId || persistInFlightRef.current) return;
     // Respect an explicit user rename: once renamed, the title is fixed and
     // must not be re-derived from the first message.
     const renamed = renamedRef.current.get(activeSessionId);
@@ -2914,14 +3039,17 @@ export default function CodingView() {
     // The transcript poll rebuilds identical arrays every tick, so this effect
     // re-runs on idle. Persist only when the actual content changed — an idle
     // session must not rewrite its full history continuously.
-    const signature = JSON.stringify({ title, content, toolActivity });
+    const signature = JSON.stringify({ title, content, toolActivity, verificationRecords });
     if (signature === lastPersistSignatureRef.current) return;
     persistInFlightRef.current = true;
     const id = activeSessionId;
-    void persistMessages(id, title, content, toolActivity).then(saved => {
+    void persistMessages(id, title, content, toolActivity, verificationRecords).then(saved => {
       if (saved && activeSessionIdRef.current === id) lastPersistSignatureRef.current = signature;
-    }).finally(() => { persistInFlightRef.current = false; });
-  }, [busy, activeSessionId, messages, toolActivity, persistMessages, sessionResolved, daemonSessionId]);
+    }).finally(() => {
+      persistInFlightRef.current = false;
+      persistRetryTimer.current = setTimeout(() => setPersistRevision(value => value + 1), 1500);
+    });
+  }, [busy, activeSessionId, messages, toolActivity, verificationRecords, persistMessages, sessionResolved, daemonSessionId, persistRevision]);
 
   // Eagerly reattach to the daemon session for the active persistent session,
   // so a reopened tab resumes streaming/status immediately (the transcript
@@ -2955,7 +3083,8 @@ export default function CodingView() {
 
   // ---- Derived UI state ----------------------------------------------------
 
-  const statusLabel = sessionStatus?.isWaitingForUserQuestion ? 'Awaiting your answer'
+  const statusLabel = !daemonOnline ? 'Offline' : !sessionStatus ? 'Connecting'
+    : sessionStatus?.isWaitingForUserQuestion ? 'Needs your answer'
     : sessionStatus?.isWaitingForPermission ? 'Needs approval'
     : sessionStatus?.hasActivePrompt ? 'Working…'
     : sessionStatus?.hasTurnError ? 'Turn error'
@@ -2966,18 +3095,41 @@ export default function CodingView() {
     : '#34d399';
 
   const runningTool = toolActivity.find(t => t.status === 'in_progress' || t.status === 'running');
-  const statusBanner = busy
-    ? (liveStatus || runningTool?.title || 'Working…')
-    : '';
+  const runStage = busy
+    ? (pending.length ? statusLabel : liveStatus || runningTool?.title || 'Working…')
+    : liveStatus === 'stopped' ? 'Stopped'
+      : sessionStatus?.hasTurnError ? 'Turn ended with an error'
+        : liveStatus.startsWith('reconnecting') || liveStatus.startsWith('waiting for') ? liveStatus
+          : statusLabel === 'Idle' ? 'Ready for your next task' : statusLabel;
+  const lastActivityTime = toolActivity.reduce<number | null>((latest, item) => {
+    const timestamp = item.updatedAt ?? item.startedAt;
+    return timestamp !== undefined && (latest === null || timestamp > latest) ? timestamp : latest;
+  }, null);
+  const lastUpdate = lastRunUpdateAt ?? lastActivityTime;
+  const quietRun = busy && lastUpdate !== null && runClock - lastUpdate > 90_000;
+  const elapsedSeconds = !busy || runStartedAt === null ? null : Math.max(0, Math.floor(((runClock || runStartedAt) - runStartedAt) / 1000));
+  const elapsedLabel = elapsedSeconds === null ? '' : `${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, '0')}`;
+  const relativeUpdate = lastUpdate === null ? 'waiting for first event'
+    : runClock - lastUpdate < 5000 ? 'just now'
+      : `${Math.floor((runClock - lastUpdate) / 1000)}s ago`;
 
   const activityGlyph = (status: string) => status === 'in_progress' || status === 'running' ? '▸'
     : status === 'failed' || status === 'error' ? '✗'
+    : status === 'cancelled' ? '■'
+    : status === 'ended' ? '·'
     : status === 'completed' || status === 'success' ? '✓'
     : '·';
   const activityColor = (status: string) => status === 'failed' || status === 'error' ? '#ef4444'
+    : status === 'cancelled' ? '#fbbf24'
+    : status === 'ended' ? 'rgba(209,213,219,0.45)'
     : status === 'completed' || status === 'success' ? '#34d399'
     : '#22d3ee';
   const formatActivityTime = (timestamp?: number) => timestamp === undefined ? '' : new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const changedFilePaths = [...new Set(toolActivity
+    .filter(item => previewCheckpointOf(item) === null && isMutatingTool(item.toolName))
+    .map(item => activityFilePath(item, workspace))
+    .filter((path): path is string => path !== null))];
+  const latestWorkDiff = rewindSnapshots?.slice().sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0] ?? null;
   const previewViewport = PREVIEW_VIEWPORTS[previewDevice];
   const previewScale = previewStageWidth ? Math.min(1, previewStageWidth / previewViewport.width) : 1;
 
@@ -3609,6 +3761,18 @@ export default function CodingView() {
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         {/* Chat / main */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, position: 'relative' }}>
+          {activeSessionId && (
+            <div role="status" aria-live="polite" style={{ minHeight: 44, flexShrink: 0, display: 'flex', alignItems: 'center', gap: isPhone ? 6 : 9, padding: isPhone ? '6px 9px' : '6px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', background: busy ? 'rgba(34,211,238,0.055)' : 'rgba(255,255,255,0.018)', flexWrap: isPhone ? 'wrap' : 'nowrap' }}>
+              <span style={{ width: 8, height: 8, borderRadius: 8, flexShrink: 0, background: statusColor, boxShadow: busy ? `0 0 10px ${statusColor}` : 'none' }} />
+              <strong style={{ color: statusColor, fontSize: '0.73rem', whiteSpace: 'nowrap' }}>{statusLabel}</strong>
+              <span title={runStage} style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: themeDefaults.foreground, fontSize: '0.76rem', ...(isPhone ? { flexBasis: 'calc(100% - 16px)', order: 5 } : {}) }}>{runStage}</span>
+              {elapsedLabel && <span title="Elapsed time for this run" style={{ color: 'rgba(209,213,219,0.62)', fontSize: '0.69rem', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{elapsedLabel}</span>}
+              <span title={quietRun ? 'No new transcript or tool activity arrived recently. The session status is still active; long reasoning or a quiet command may not emit events.' : lastUpdate ? new Date(lastUpdate).toLocaleString() : undefined} style={{ color: quietRun ? '#fbbf24' : 'rgba(209,213,219,0.42)', fontSize: '0.66rem', whiteSpace: 'nowrap' }}>
+                {quietRun ? `No event ${relativeUpdate}` : `Updated ${relativeUpdate}`}
+              </span>
+              {busy && <button onClick={() => void cancelTurn()} title="Stop the agent" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(239,68,68,0.12)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.35)', borderRadius: 5, padding: '3px 8px', fontSize: '0.69rem', cursor: 'pointer', flexShrink: 0 }}><Square size={10} /> Stop</button>}
+            </div>
+          )}
           <div ref={chatScrollRef} onScroll={handleChatScroll} style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '14px', overscrollBehavior: 'contain', scrollBehavior: 'smooth', WebkitOverflowScrolling: 'touch' }}>
             {messages.length === 0 && !connecting && (
               <div style={{ margin: 'auto', textAlign: 'center', color: 'rgba(209,213,219,0.4)', maxWidth: '460px' }}>
@@ -3655,17 +3819,6 @@ export default function CodingView() {
                 </div>
               </div>
             ))}
-
-            {/* Live status banner — what the agent is doing right now */}
-            {statusBanner && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', alignSelf: 'flex-start', maxWidth: '80%', padding: '7px 12px', borderRadius: '10px', background: 'rgba(34,211,238,0.07)', border: '1px solid rgba(34,211,238,0.25)', color: '#a5f3fc', fontSize: '0.78rem', fontFamily: 'ui-monospace, monospace' }}>
-                <Loader2 size={13} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{statusBanner}</span>
-                <button onClick={() => void cancelTurn()} title="Stop the agent" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(239,68,68,0.12)', color: '#fca5a5', border: '1px solid rgba(239,68,68,0.35)', borderRadius: '6px', padding: '2px 8px', fontSize: '0.7rem', cursor: 'pointer', flexShrink: 0 }}>
-                  <Square size={10} /> Stop
-                </button>
-              </div>
-            )}
 
             {/* Permission / question prompts — the agent is blocked on you */}
             {pending.map(item => (
@@ -3852,27 +4005,77 @@ export default function CodingView() {
               </span>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px 10px', background: 'rgba(0,0,0,0.3)', fontFamily: 'ui-monospace, monospace', fontSize: '0.76rem' }}>
+              {(changedFilePaths.length > 0 || latestWorkDiff || verificationRecords.length > 0) && (
+                <section aria-label="Work summary" style={{ margin: '5px 0 9px', padding: '8px 10px', border: '1px solid rgba(255,255,255,0.09)', borderRadius: 5, background: 'rgba(255,255,255,0.025)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#e5e7eb', fontSize: '0.7rem', fontWeight: 600, marginBottom: 5 }}><FileText size={12} color={accent} /> Work summary</div>
+                  {latestWorkDiff && <div style={{ color: 'rgba(209,213,219,0.72)', fontSize: '0.67rem', marginBottom: 4 }}>
+                    Latest checkpoint: {latestWorkDiff.diffStats.filesChanged} files · +{latestWorkDiff.diffStats.insertions} / −{latestWorkDiff.diffStats.deletions}
+                  </div>}
+                  {changedFilePaths.length > 0 && <div style={{ color: 'rgba(209,213,219,0.68)', fontSize: '0.66rem', lineHeight: 1.5, overflowWrap: 'anywhere' }}>
+                    Tool-identified paths: {changedFilePaths.slice(0, 5).map(path => path === workspace ? '.' : path.slice(workspace.replace(/\/$/, '').length + 1)).join(', ')}{changedFilePaths.length > 5 ? `, +${changedFilePaths.length - 5} more` : ''}
+                  </div>}
+                  {changedFilePaths.length === 0 && toolActivity.some(item => previewCheckpointOf(item) === null && isMutatingTool(item.toolName)) && <div style={{ color: 'rgba(209,213,219,0.45)', fontSize: '0.65rem' }}>Workspace-changing tools ran; individual file paths were not present in their recorded inputs.</div>}
+                  {verificationRecords.slice(-2).reverse().map(record => {
+                    const stale = isVerificationStale(record, workspaceMutation);
+                    const passed = record.exitCode === 0;
+                    return <details key={record.id} style={{ marginTop: 5, color: stale ? '#fbbf24' : passed ? '#86efac' : '#fca5a5', fontSize: '0.66rem' }}>
+                      <summary style={{ cursor: 'pointer', overflowWrap: 'anywhere' }}>{passed ? 'Passed' : record.exitCode === null ? 'No exit result' : 'Failed'}{stale ? ' · stale' : ''} · {record.command}{record.exitCode !== null ? ` · exit ${record.exitCode}` : ''}</summary>
+                      <pre style={{ margin: '4px 0 0', maxHeight: 90, overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', color: 'rgba(209,213,219,0.62)' }}>{record.output || '(no output)'}</pre>
+                    </details>;
+                  })}
+                </section>
+              )}
               {toolActivity.length === 0 && <div style={{ color: 'rgba(209,213,219,0.3)', padding: '6px 0' }}>— no tool activity yet —</div>}
-              {[...toolActivity].reverse().map(t => (
-                <div key={t.id} style={{ padding: '3px 0', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                  <div
-                    onClick={() => setExpandedTool(expandedTool === t.id ? null : t.id)}
-                    style={{ display: 'flex', gap: '8px', cursor: t.detail || t.rawInput ? 'pointer' : 'default', alignItems: 'baseline' }}
-                  >
-                    <span style={{ color: activityColor(t.status), flexShrink: 0 }}>{activityGlyph(t.status)}</span>
-                    <span style={{ color: '#e5e7eb', flexShrink: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
-                    {t.toolName && <span style={{ color: 'rgba(209,213,219,0.35)', fontSize: '0.68rem' }}>{t.toolName}</span>}
-                    {t.startedAt !== undefined && <span title={`Started ${new Date(t.startedAt).toLocaleString()}${t.updatedAt && t.updatedAt !== t.startedAt ? `; updated ${new Date(t.updatedAt).toLocaleString()}` : ''}`} style={{ color: 'rgba(209,213,219,0.42)', fontSize: '0.68rem', flexShrink: 0 }}>{formatActivityTime(t.updatedAt ?? t.startedAt)}</span>}
-                    <span style={{ marginLeft: 'auto', color: activityColor(t.status), fontSize: '0.68rem', flexShrink: 0 }}>{t.status}</span>
+              {[...toolActivity].reverse().map((t, reversedIndex) => {
+                t = { ...t, status: activityDisplayStatus(t.status, sessionStatus?.hasActivePrompt === false && !busy && t.startedAt !== undefined && t.startedAt <= (sessionStatus.observedAt ?? 0), liveStatus === 'stopped') };
+                const originalIndex = toolActivity.length - reversedIndex - 1;
+                const checkpoint = previewCheckpointOf(t);
+                const previousCheckpoint = checkpoint ? toolActivity.slice(0, originalIndex).reverse().map(previewCheckpointOf).find((item): item is PreviewCheckpoint => item !== null) : null;
+                const active = t.status === 'in_progress' || t.status === 'running';
+                const durationSeconds = t.startedAt === undefined ? null : Math.max(0, Math.floor(((active ? runClock : t.updatedAt ?? t.startedAt) - t.startedAt) / 1000));
+                const duration = durationSeconds === null ? '' : `${Math.floor(durationSeconds / 60)}:${String(durationSeconds % 60).padStart(2, '0')}`;
+                const expandable = Boolean(t.detail || t.rawInput !== undefined || t.rawOutput);
+                return (
+                  <div key={t.id} style={{ padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.055)' }}>
+                    <button
+                      type="button"
+                      onClick={() => expandable && setExpandedTool(expandedTool === t.id ? null : t.id)}
+                      aria-expanded={expandedTool === t.id}
+                      style={{ width: '100%', display: 'grid', gridTemplateColumns: '14px minmax(0, 1fr) auto', gap: '7px', alignItems: 'start', textAlign: 'left', cursor: expandable ? 'pointer' : 'default', background: 'transparent', border: 0, padding: 0, color: 'inherit' }}
+                    >
+                      <span style={{ color: activityColor(t.status), paddingTop: 1, flexShrink: 0 }}>{activityGlyph(t.status)}</span>
+                      <span style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <span style={{ color: '#e5e7eb', lineHeight: 1.45, overflowWrap: 'anywhere', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: expandedTool === t.id ? 'unset' : 2, overflow: 'hidden' }}>{t.title}</span>
+                        <span style={{ display: 'flex', flexWrap: 'wrap', gap: 7, color: 'rgba(209,213,219,0.48)', fontSize: '0.66rem', lineHeight: 1.4 }}>
+                          {t.toolName && <span>{t.toolName}</span>}
+                          {t.startedAt !== undefined && <span title={`Started ${new Date(t.startedAt).toLocaleString()}${t.updatedAt && t.updatedAt !== t.startedAt ? `; updated ${new Date(t.updatedAt).toLocaleString()}` : ''}`}>{formatActivityTime(t.startedAt)} · {duration}</span>}
+                        </span>
+                      </span>
+                      <span style={{ color: activityColor(t.status), fontSize: '0.66rem', whiteSpace: 'nowrap', paddingTop: 1 }}>{t.status === 'in_progress' ? 'running' : t.status}</span>
+                    </button>
+                    {expandedTool === t.id && (
+                      checkpoint ? (
+                        <div style={{ margin: '7px 0 3px 21px', padding: 9, background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 5, color: 'rgba(209,213,219,0.82)', fontSize: '0.7rem', lineHeight: 1.5 }}>
+                          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', overflowWrap: 'anywhere', color: 'rgba(209,213,219,0.56)', marginBottom: 6 }}>
+                            <span>{new Date(checkpoint.capturedAt).toLocaleString()}</span><span>{checkpoint.url}</span><span>{checkpoint.device} · {checkpoint.width}×{checkpoint.height}</span><span>Vision: {checkpoint.visionModel}</span>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: previousCheckpoint && !isPhone ? 'repeat(2, minmax(0, 1fr))' : 'minmax(0, 1fr)', gap: 8 }}>
+                            {previousCheckpoint && <figure style={{ margin: 0, minWidth: 0 }}><figcaption style={{ color: 'rgba(209,213,219,0.52)', marginBottom: 3, overflowWrap: 'anywhere' }}>Previous · {new Date(previousCheckpoint.capturedAt).toLocaleString()} · {previousCheckpoint.device} · {previousCheckpoint.width}×{previousCheckpoint.height}<br />{previousCheckpoint.url}</figcaption><img src={`/api/coder/session/${activeSessionId}/attachment?path=${encodeURIComponent(previousCheckpoint.screenshotPath)}`} alt={`Previous ${previousCheckpoint.device} preview checkpoint`} style={{ display: 'block', width: '100%', maxHeight: 180, objectFit: 'contain', objectPosition: 'top', background: '#111' }} /></figure>}
+                            <figure style={{ margin: 0, minWidth: 0 }}><figcaption style={{ color: 'rgba(209,213,219,0.52)', marginBottom: 3 }}>{previousCheckpoint ? 'Latest' : 'Captured page'}</figcaption><img src={`/api/coder/session/${activeSessionId}/attachment?path=${encodeURIComponent(checkpoint.screenshotPath)}`} alt={`${checkpoint.device} preview checkpoint at ${checkpoint.url}`} style={{ display: 'block', width: '100%', maxHeight: 220, objectFit: 'contain', objectPosition: 'top', background: '#111' }} /></figure>
+                          </div>
+                          <div style={{ marginTop: 7 }}><strong>Vision observation ({checkpoint.visionModel})</strong><div style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{checkpoint.observation}</div></div>
+                          <details style={{ marginTop: 6 }}><summary style={{ cursor: 'pointer' }}>Browser diagnostics · {checkpoint.diagnostics.length}</summary><pre style={{ margin: '4px 0 0', maxHeight: 120, overflow: 'auto', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', color: checkpoint.diagnostics.length ? '#fcd34d' : 'rgba(209,213,219,0.5)' }}>{checkpoint.diagnostics.length ? checkpoint.diagnostics.map(entry => `[${entry.level}] ${entry.message}`).join('\n') : 'No browser errors were recorded at capture time.'}</pre></details>
+                          <div style={{ marginTop: 5, color: 'rgba(209,213,219,0.42)', overflowWrap: 'anywhere' }}>Saved screenshot: {checkpoint.screenshotPath}</div>
+                        </div>
+                      ) : <pre style={{ margin: '6px 0 2px 21px', padding: '8px 10px', background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 5, color: 'rgba(209,213,219,0.8)', fontFamily: 'ui-monospace, monospace', fontSize: '0.7rem', lineHeight: 1.5, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 240, overflowY: 'auto' }}>
+                        {t.rawInput !== undefined ? `Input\n${JSON.stringify(t.rawInput, null, 2)}\n\n` : ''}
+                        {t.detail || t.rawOutput || '(Waiting for tool output…)'}
+                        {t.rawOutput && t.detail && t.rawOutput !== t.detail ? `\n\nOutput\n${t.rawOutput}` : ''}
+                      </pre>
+                    )}
                   </div>
-                  {expandedTool === t.id && (
-                    <pre style={{ margin: '5px 0 8px 20px', padding: '7px 9px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, color: 'rgba(209,213,219,0.75)', fontFamily: 'ui-monospace, monospace', fontSize: '0.72rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 200, overflowY: 'auto' }}>
-                      {t.rawInput !== undefined ? `input: ${JSON.stringify(t.rawInput, null, 2)}\n\n` : ''}
-                      {t.detail || '(no output yet)'}
-                    </pre>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
