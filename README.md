@@ -186,6 +186,16 @@ Coding sessions use a durable PeakUI session ID, persistent transcript records, 
 Long sessions probe the transcript tail before fetching history, so idle sessions do not repeatedly download every page. Active updates merge with the cached history when they overlap.
 Coder's own transcript and compaction govern live turns; PeakUI no longer pastes saved episode summaries into every user prompt. Its Postgres ledger remains available for explicit history lookup and handoff checkpoints.
 
+WorkSpaces has the same durable separation for active work. A dedicated
+`workspace-daemon` service owns heartbeats, schedules, monitors, unattended
+runs, and interactive agent turns with a PostgreSQL lease and replayable event
+log. Closing the browser or restarting the web app only disconnects the view;
+the daemon continues the model/tool run and writes the completed transcript to
+PostgreSQL. The web app remains the secure gateway for authentication,
+permissions, approvals, and reconnectable output. Browser-only provider keys
+are encrypted with `JWT_SECRET` while queued, and a refreshed WorkSpaces view
+reattaches to the same run instead of starting a duplicate turn.
+
 ## Core Capabilities
 
 ```mermaid
@@ -256,6 +266,10 @@ PEAKUI_CODER_BACKEND=lxd ./scripts/install.sh
 # Verification
 npm test
 npm run build
+
+# WorkSpaces runtime
+docker compose ps workspace-daemon
+docker compose logs -f workspace-daemon
 ```
 
 `npm run bundle:check` enforces a per-route first-load JavaScript budget after
@@ -286,6 +300,7 @@ Back up a persistent Coder guest and Postgres together:
 | Architecture overview | [docs/architecture.md](docs/architecture.md) |
 | Coding UI, sessions, context, preview, model roles | [docs/coding-environment.md](docs/coding-environment.md) |
 | Persistent Incus/LXD Coder, backups, recovery, host prerequisites | [docs/coder-lxd.md](docs/coder-lxd.md) |
+| WorkSpaces runtime daemon, recovery, and deployment | [docs/workspace-daemon.md](docs/workspace-daemon.md) |
 | Keep hosts, dependencies, and the repo current | [docs/operations-and-updates.md](docs/operations-and-updates.md) |
 | GitHub import and integration | [docs/github-coder-integration.md](docs/github-coder-integration.md) |
 | Installation details | [INSTALL.md](INSTALL.md), [WINDOWS-SETUP.md](WINDOWS-SETUP.md), [DEPLOYMENT.md](DEPLOYMENT.md) |

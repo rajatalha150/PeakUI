@@ -259,6 +259,8 @@ export interface WorkspaceToolTag {
 export interface WorkspaceToolModel {
   name: string;
   model: string;
+  /** Provider-reported context capacity, when the model catalog exposes it. */
+  contextWindow?: number;
 }
 
 export interface WorkspaceToolMessage {
@@ -1207,6 +1209,8 @@ export type WorkspaceToolStreamFrame = {
   status?: unknown;
   sources?: unknown;
   knowledge_sources?: unknown;
+  /** Authoritative model-aware context snapshot emitted before each model turn. */
+  context_usage?: unknown;
   /** Native tool calls (workspaceToolNativeToolCalls='on'), one JSON line per frame. */
   native_tool_calls?: Array<{ name: string; args: Record<string, unknown> }>;
   message?: {

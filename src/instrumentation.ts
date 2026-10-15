@@ -3,8 +3,6 @@ export async function register() {
     console.log('[live-browser] register() called, setting up...')
     const liveBrowser = await import('./lib/live-browser-server')
     liveBrowser.startLiveBrowserServer()
-    const automationWorker = await import('./lib/workspace-tool-automation-worker')
-    automationWorker.startWorkspaceToolAutomationWorker()
 
     // Resume any image-model downloads interrupted by a previous shutdown.
     const downloadManager = await import('./lib/image-download-manager')
@@ -61,7 +59,6 @@ export async function register() {
 
     // Graceful shutdown
     const cleanup = async () => {
-      automationWorker.stopWorkspaceToolAutomationWorker()
       await liveBrowser.stopLiveBrowserServer()
       process.exit(0)
     }

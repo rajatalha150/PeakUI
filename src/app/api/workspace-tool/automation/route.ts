@@ -13,7 +13,7 @@ import {
   deleteAutomationMonitor,
   deleteAutomationSchedule,
 } from '@/lib/workspace-tool-automation'
-import { startWorkspaceToolAutomationWorker } from '@/lib/workspace-tool-automation-worker'
+import { getWorkspaceDaemonStatus } from '@/lib/workspace-daemon-client'
 
 export const runtime = 'nodejs'
 
@@ -29,8 +29,8 @@ export async function GET() {
   if ('response' in access) return access.response
 
   try {
-    startWorkspaceToolAutomationWorker()
     const state = await getAutomationState(access.userId)
+    state.worker = await getWorkspaceDaemonStatus()
     return NextResponse.json(state)
   } catch (error) {
     console.error('[workspace-tool/automation] GET error:', error)
@@ -46,7 +46,6 @@ export async function POST(request: NextRequest) {
   if ('response' in access) return access.response
 
   try {
-    startWorkspaceToolAutomationWorker()
     const body = await request.json()
     const action = typeof body?.action === 'string' ? body.action : ''
 

@@ -12,7 +12,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCurrentUserId } from '@/lib/request-auth'
 import { getChatSessionById } from '@/lib/chat-sessions'
-import { getUserSettings } from '@/lib/settings'
+import { getUserSettings, normalizeWorkspaceToolProvider } from '@/lib/settings'
 import { estimateMessageTokens } from '@/lib/message-trim'
 import { buildContextBudget } from '@/lib/context-engine'
 import { getModelCapacityProfile } from '@/lib/model-context'
@@ -26,6 +26,7 @@ export const runtime = 'nodejs'
 // switches models because `contextLength` is a static config value.
 const MIN_CONTEXT_LENGTH = 512
 const DEFAULT_OLLAMA_CONTEXT_LENGTH = 8192
+const DEFAULT_OLLAMA_CLOUD_BASE_URL = 'https://ollama.com'
 function normalizeContextCap(value: string | undefined): number {
   const parsed = Number(value)
   if (!Number.isFinite(parsed) || parsed < MIN_CONTEXT_LENGTH) return DEFAULT_OLLAMA_CONTEXT_LENGTH
@@ -54,23 +55,33 @@ export async function GET(
     // value when absent so the meter still works on first load.
     const requestedModel = request.nextUrl.searchParams.get('model')?.trim() || ''
     const model = requestedModel || settings.workspaceToolModel || settings.workspaceToolProvider || 'local'
-    const provider = settings.workspaceToolProvider
+    const provider = normalizeWorkspaceToolProvider(request.nextUrl.searchParams.get('provider') || settings.workspaceToolProvider)
+    const reportedContextWindow = Number(request.nextUrl.searchParams.get('model_context_window') || '')
+    const modelContextWindow = Number.isFinite(reportedContextWindow) && reportedContextWindow >= MIN_CONTEXT_LENGTH
+      ? Math.floor(reportedContextWindow)
+      : null
 
     // Resolve the per-model effective context window, matching chat-completion.ts:
     // when Ollama is set to use the model's native default, use the native window
     // from /api/show; otherwise clamp the configured length to the local cap.
     const capacityProfile = provider === 'ollama'
-      ? await getModelCapacityProfile(model, provider, settings.ollamaHost).catch(() => null)
+      ? await getModelCapacityProfile(
+          model,
+          provider,
+          settings.ollamaUseCloudApi ? DEFAULT_OLLAMA_CLOUD_BASE_URL : settings.ollamaHost,
+        ).catch(() => null)
       : null
-    let contextWindow = settings.contextLength
+    let contextWindow = modelContextWindow || settings.contextLength
     if (provider === 'ollama') {
       if (settings.ollamaUseModelDefaultContext && capacityProfile?.nativeContextLength) {
         contextWindow = capacityProfile.nativeContextLength
       } else {
         const hardCap = capacityProfile && !capacityProfile.isCloud
           ? Math.min(LOCAL_OLLAMA_CONTEXT_CAP, capacityProfile.maxContext)
-          : LOCAL_OLLAMA_CONTEXT_CAP
-        contextWindow = Math.min(settings.contextLength, hardCap)
+          : capacityProfile?.isCloud
+            ? Math.max(settings.contextLength, modelContextWindow || settings.contextLength)
+            : LOCAL_OLLAMA_CONTEXT_CAP
+        contextWindow = Math.min(contextWindow, hardCap)
       }
     }
 
@@ -85,8 +96,12 @@ export async function GET(
       model,
       totalTokens,
       contextWindow: budget.contextWindow,
+      usableInputTokens: budget.usableInputTokens,
+      freeTokens: Math.max(0, budget.usableInputTokens - totalTokens),
       occupancy: budget.occupancy,
       tier: budget.pressure,
+      isEstimated: true,
+      source: 'session',
     }
 
     return NextResponse.json({ usage, label: formatWorkspaceContextUsage(usage) })

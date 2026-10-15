@@ -7,8 +7,16 @@ tree, supports read / write / upload / delete / rename / move, multi-select
 bulk ops, ETag-aware in-place editing, and live updates whenever the model
 or another browser tab mutates the workspace.
 
-This document covers the panel's UI surface, its API, the event stream that
-keeps it live, and the sandbox that keeps writes inside the workspace.
+This document covers the panel's UI surface, its API, the reconnecting event
+stream that keeps it live, and the sandbox that keeps writes inside the workspace.
+
+The WorkSpaces runtime is supervised separately from the web request process by
+the `workspace-daemon` Compose service. The daemon owns durable background and
+interactive WorkSpaces runs; the Next.js app remains the authenticated API and UI gateway. File
+events are still emitted by successful mutation routes and the client always
+refetches after reconnect, so a browser refresh cannot leave the tree permanently
+stale. Check the runtime with `docker compose ps workspace-daemon` and inspect
+failures with `docker compose logs -f workspace-daemon`.
 
 ## Phase History
 
@@ -21,7 +29,7 @@ keeps it live, and the sandbox that keeps writes inside the workspace.
 | 4 | Drag-and-drop or click-to-pick upload (`WorkspaceFileUpload.tsx`) — 50 MB per file, 100 files per request; single-file download with RFC 5987 UTF-8 filenames; `WorkspaceConfirmDialog.tsx` (Esc/Enter keybindings, click-outside-to-cancel, destructive variant) shared by every confirm flow |
 | 5 | Multi-select + bulk ops; shift-range selection, `Cmd/Ctrl+click` toggle, plain-click toggle-to-deselect, document-level `Cmd/Ctrl+A`; bulk copy paths, bulk zip download (500 MB / 500 files), bulk delete (recursive when any entry is a directory) |
 | 6 | Right-click context menu (Open / Rename / Copy path / Download / Move to / Delete); F2 in-place rename; `WorkspaceMoveDialog.tsx` reuses the tree in a directories-only mode to pick the destination |
-| 7 | Live updates via `GET /events` SSE stream; debounced (150 ms) refetch of cwd + every expanded subdirectory on `tree.invalidated`, the parent on `file.created` / `file.modified` / `file.deleted`, and the active file so the editor's ETag stays fresh; client reconnects with jittered exponential backoff (500 ms → 5 s) |
+| 7 | Live updates via `GET /events` SSE stream; debounced (150 ms) refetch of cwd + every expanded subdirectory on `tree.invalidated`, the parent on `file.created` / `file.modified` / `file.deleted`, and the active file so the editor's ETag stays fresh; client reconnects with jittered exponential backoff (500 ms → 5 s) and receives a refresh invalidation when a stream is newly attached |
 
 ## UI Surface
 

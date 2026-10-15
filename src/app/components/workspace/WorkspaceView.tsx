@@ -1203,22 +1203,24 @@ return (
             </span>
             <span className="workspace-tool-pill">Continue: {effectiveSessionAutoContinueMode}</span>
             <span className="workspace-tool-pill">Context: {currentContextSummaryStatus}</span>
-            {workspaceContextUsage && (
-              <span
-                className="workspace-tool-pill"
-                title={`Model context usage (${Math.round(workspaceContextUsage.occupancy * 100)}% of usable input). Auto-compaction begins at ~72% and emergency trim at ~90%.`}
-                style={{
-                  color: workspaceContextTierTone(workspaceContextUsage.tier) === 'danger'
+            <span
+              className="workspace-tool-pill"
+              title={workspaceContextUsage
+                ? `Model-aware context usage: ${Math.round(workspaceContextUsage.occupancy * 100)}% of ${workspaceContextUsage.usableInputTokens.toLocaleString()} usable input tokens; ${workspaceContextUsage.freeTokens.toLocaleString()} remain. WorkSpaces compacts around 72% and applies emergency trimming around 90%.${workspaceContextUsage.contextHealth ? ` Current health: ${workspaceContextUsage.contextHealth}.` : ''}`
+                : 'Reading the selected model context window…'}
+              style={{
+                color: workspaceContextUsage
+                  ? workspaceContextTierTone(workspaceContextUsage.tier) === 'danger'
                     ? '#ef4444'
                     : workspaceContextTierTone(workspaceContextUsage.tier) === 'warning'
                       ? '#f59e0b'
-                      : '#34d399',
-                  fontFamily: 'ui-monospace, monospace',
-                }}
-              >
-                {formatWorkspaceContextUsage(workspaceContextUsage)}
-              </span>
-            )}
+                      : '#34d399'
+                  : 'var(--text-muted)',
+                fontFamily: 'ui-monospace, monospace',
+              }}
+            >
+              {workspaceContextUsage ? formatWorkspaceContextUsage(workspaceContextUsage) : 'Context: checking…'}
+            </span>
             {settings?.workspaceToolSessionBranchingEnabled && <span className="workspace-tool-pill">Branches: {branchStatusSummary}</span>}
             {persona.name && <span className="workspace-tool-pill">{persona.name}</span>}
             {userProfile.name && <span className="workspace-tool-pill">User: {userProfile.name}</span>}

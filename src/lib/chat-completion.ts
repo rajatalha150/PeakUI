@@ -256,6 +256,8 @@ interface IncomingChatBody {
   rag_enabled?: unknown;
   rag_query?: unknown;
   rag_topk?: unknown;
+  /** Optional context-window metadata reported by the selected provider model. */
+  model_context_window?: unknown;
   messages?: unknown;
 }
 
@@ -861,6 +863,9 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const settingsLoadedAt = performance.now();
     const body = await req.json() as IncomingChatBody;
     const requestedModel = typeof body.model === 'string' ? body.model.trim() : '';
+    const reportedModelContextWindow = typeof body.model_context_window === 'number' && Number.isFinite(body.model_context_window)
+      ? Math.max(512, Math.floor(body.model_context_window))
+      : null;
     const messages = normalizeMessages(body.messages);
     const internetEnabled = normalizeInternetEnabled(body.internet_enabled);
     const internetToolEnabled = body.internet_tool_enabled === undefined
@@ -1188,7 +1193,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
       ? (settings.ollamaUseModelDefaultContext && capacityProfile?.nativeContextLength
           ? capacityProfile.nativeContextLength
           : buildContextCandidates(settings.contextLength, settings.ollamaUseModelDefaultContext, requestedModel, provider, capacityProfile)[0] || settings.contextLength)
-      : settings.contextLength;
+      : reportedModelContextWindow || settings.contextLength;
     const systemOverhead = estimateMessageTokens(untrimmedMessages.filter(message => message.role === 'system'));
     const rawContextTokens = estimateMessageTokens(untrimmedMessages);
     const contextPressure = buildContextBudget({
@@ -1233,6 +1238,25 @@ export async function createChatCompletionResponse(req: NextRequest) {
     let firstContentAt: number | null = null;
     let upstreamKind: 'ollama-chat' | 'ollama-generate-fallback' | 'openai-compatible' | null = null;
     const outboundTokenEstimate = estimateMessageTokens(outboundMessages);
+    const outboundContextBudget = buildContextBudget({
+      provider,
+      model: requestedModel,
+      contextWindow: effectiveContextLength,
+    }, outboundTokenEstimate);
+    const contextUsage = {
+      model: requestedModel,
+      totalTokens: outboundTokenEstimate,
+      contextWindow: outboundContextBudget.contextWindow,
+      usableInputTokens: outboundContextBudget.usableInputTokens,
+      freeTokens: Math.max(0, outboundContextBudget.usableInputTokens - outboundTokenEstimate),
+      occupancy: outboundContextBudget.occupancy,
+      tier: outboundContextBudget.pressure,
+      contextHealth: contextManaged.contextHealth,
+      summaryUsed: contextManaged.summaryUsed,
+      trimmed: contextManaged.trimmed,
+      isEstimated: true,
+      source: 'model-response',
+    };
     const activeKeepAlive = provider === 'ollama' ? buildOllamaKeepAlive(settings, requestedModel) : undefined;
     const buildLatencyTimings = (stage: string, extra: Record<string, unknown> = {}) => ({
       stage,
@@ -1311,6 +1335,12 @@ export async function createChatCompletionResponse(req: NextRequest) {
 
         emitStatus(heartbeatStatus);
         sendJsonLine({ timings: buildLatencyTimings('server-prepared') });
+        // This is the authoritative WorkSpaces snapshot for the turn. The
+        // daemon persists it as a replayable run event so a refreshed tab sees
+        // the same model-aware budget that the request actually used.
+        if (surface === 'workspace-tool') {
+          sendJsonLine({ context_usage: contextUsage });
+        }
 
         const streamOllamaGenerateFallback = async (numCtx: number | null, messagesForStream: InternalChatMessage[]) => {
           upstreamKind = 'ollama-generate-fallback';

@@ -15,6 +15,7 @@ type WorkspaceToolAgentPreferences,
 type WorkspaceToolTaskState
 } from '@/lib/workspace-tool-agent';
 import { compactStaleToolResults } from '@/lib/workspace-tool-context-compaction';
+import { normalizeWorkspaceContextUsage, type WorkspaceContextUsage } from '@/lib/workspace-context-usage';
 import { buildMalformedWrapperNudgeText,buildNarrationNudgeText } from '@/lib/workspace-tool-narration-nudge';
 import {
 buildWorkspaceToolRequestFromNarration,
@@ -54,12 +55,15 @@ type WorkspaceToolWorkbookDocumentToolRequest,
 import React,{ useEffect,useRef } from 'react';
 import { ArchiveDocumentToolResultEntry,BrowserToolResultEntry,CalendarDocumentToolResultEntry,CodeToolResultEntry,CsvDocumentToolResultEntry,EmailDocumentToolResultEntry,FetchSummarizeToolResultEntry,FilesystemToolResultEntry,ImageGenerationToolResultEntry,MarkdownDocumentToolResultEntry,MermaidDocumentToolResultEntry,PdfDocumentToolResultEntry,ShellOutputEntry,SlidesDocumentToolResultEntry,TaxReturnToolResultEntry,WORKSPACE_TOOL_DRAFT_TASK_ID,WebToolResultEntry,WordDocumentToolResultEntry,WorkbookDocumentToolResultEntry,WorkspaceToolFileAttachment,WorkspaceToolImageAttachment,WorkspaceToolLatencyTimings,WorkspaceToolMessage,WorkspaceToolProvider,WorkspaceToolSession,WorkspaceToolSettings,WorkspaceToolStreamFrame,WorkspaceToolWorkspaceRecord,describeArchiveDocumentRequest,describeBrowserRequest,describeCalendarDocumentRequest,describeCodeExecutionRequest,describeCsvDocumentRequest,describeDocumentToolRequest,describeEmailDocumentRequest,describeFetchSummarizeRequest,describeFilesystemRequest,describeMarkdownDocumentRequest,describeMermaidDocumentRequest,describePdfDocumentRequest,describeShellRequest,describeSlidesDocumentRequest,describeTaxReturnRequest,describeToolDisplayName,describeUwafBrowserRequest,describeWebResearchRequest,describeWordDocumentRequest,describeWorkbookDocumentRequest,detectMissingToolIntent,formatArchiveDocumentToolResult,formatBrowserToolResult,formatCalendarDocumentToolResult,formatCalendarQueryToolResult,formatCodeToolResult,formatCsvDocumentToolResult,formatEmailDocumentToolResult,formatFetchSummarizeToolResult,formatFilesystemToolResult,formatHttpRequestToolResult,formatImageGenerationToolResult,formatMarkdownDocumentToolResult,formatMermaidDocumentToolResult,formatNotesSearchToolResult,formatPdfDocumentToolResult,formatShellToolResult,formatSlidesDocumentToolResult,formatSpreadsheetQueryToolResult,formatTaxReturnToolResult,formatTimestamp,formatWebToolResult,formatWordDocumentToolResult,formatWorkbookDocumentToolResult,getChatTitle,getWorkspaceToolRequestSignature,inferFilesystemRequestFromShellCommand,isSubstantiveProseAnswer,normalizeLatencyTimings,normalizeToolSources,normalizeWorkspaceToolSession,pruneInterruptedMessages,recordToolReliability,sanitizeWorkspaceToolMessages,sanitizeWorkspaceToolSessions,stripAttachmentVisionData } from './workspace-support';
 
-export function useAgentLoop({startTimeRef, tokenCountRef, setLiveStats, setStreamPhase, abortControllerRef, selectedModel, currentWorkspace, provider, baseUrl, settings, apiKey, unrestrictedEnabled, uncensoredEnabled, accountantEnabled, imageGenerationEnabled, modelSupportsVision, message, internetEnabled, pendingImages, pendingAttachments, isStreaming, autoContinueCountRef, autoContinueTimerRef, currentSessionId, taskState, buildAttachmentContext, ragFolderPath, chatHistory, pinToBottom, setMessage, setPendingImages, setPendingAttachments, setModelControlNote, setLastSubmission, setTaskStates, setChatHistory, setCurrentSessionId, setIsStreaming, ragEnabled, createSession, agentPreferences, memoryContext, filesystemEnabled, allowedFilesystemPaths, requestFilesystemAction, requestWebContext, requestCodeExecution, requestBrowserAction, requestUwafBrowserAction, setUwafCurrentUrl, setUwafCurrentTitle, executeTaxReturnAction, requestTaxReturnAction, loadCanvasArtifacts, requestPdfDocumentAction, requestWorkbookDocumentAction, requestWordDocumentAction, requestCsvDocumentAction, requestEmailDocumentAction, executeFetchSummarizeAction, requestMarkdownDocumentAction, requestSlidesDocumentAction, requestArchiveDocumentAction, requestCalendarDocumentAction, requestMermaidDocumentAction, shellEnabled, requestShellCommand, executeImageGenerationAction, effectiveSessionAutoContinueMode, effectiveSessionAutoContinueMaxSteps, currentSession, generateSessionSummary, setSessions, setSelectedSessionInfo, setAutoContinuePending, persistSessionIntelligenceSafe}: {startTimeRef: React.RefObject<number>;
+export function useAgentLoop({startTimeRef, tokenCountRef, setLiveStats, setWorkspaceContextUsage, setStreamPhase, abortControllerRef, activeWorkspaceRunIdRef, selectedModel, selectedModelContextWindow, currentWorkspace, provider, baseUrl, settings, apiKey, unrestrictedEnabled, uncensoredEnabled, accountantEnabled, imageGenerationEnabled, modelSupportsVision, message, internetEnabled, pendingImages, pendingAttachments, isStreaming, autoContinueCountRef, autoContinueTimerRef, currentSessionId, taskState, buildAttachmentContext, ragFolderPath, chatHistory, pinToBottom, setMessage, setPendingImages, setPendingAttachments, setModelControlNote, setLastSubmission, setTaskStates, setChatHistory, setCurrentSessionId, setIsStreaming, ragEnabled, agentPreferences, memoryContext, filesystemEnabled, allowedFilesystemPaths, requestFilesystemAction, requestWebContext, requestCodeExecution, requestBrowserAction, requestUwafBrowserAction, setUwafCurrentUrl, setUwafCurrentTitle, executeTaxReturnAction, requestTaxReturnAction, loadCanvasArtifacts, requestPdfDocumentAction, requestWorkbookDocumentAction, requestWordDocumentAction, requestCsvDocumentAction, requestEmailDocumentAction, executeFetchSummarizeAction, requestMarkdownDocumentAction, requestSlidesDocumentAction, requestArchiveDocumentAction, requestCalendarDocumentAction, requestMermaidDocumentAction, shellEnabled, requestShellCommand, executeImageGenerationAction, effectiveSessionAutoContinueMode, effectiveSessionAutoContinueMaxSteps, currentSession, generateSessionSummary, setSessions, setSelectedSessionInfo, setAutoContinuePending, persistSessionIntelligenceSafe}: {startTimeRef: React.RefObject<number>;
 tokenCountRef: React.RefObject<number>;
 setLiveStats: React.Dispatch<React.SetStateAction<{ tps: number; tokens: number; } | null>>;
+setWorkspaceContextUsage: React.Dispatch<React.SetStateAction<WorkspaceContextUsage | null>>;
 setStreamPhase: React.Dispatch<React.SetStateAction<UiStreamPhase | null>>;
 abortControllerRef: React.RefObject<AbortController | null>;
+activeWorkspaceRunIdRef: React.RefObject<string | null>;
 selectedModel: string;
+selectedModelContextWindow: number | null;
 currentWorkspace: WorkspaceToolWorkspaceRecord;
 provider: WorkspaceToolProvider;
 baseUrl: string;
@@ -93,7 +97,6 @@ setChatHistory: React.Dispatch<React.SetStateAction<WorkspaceToolMessage[]>>;
 setCurrentSessionId: React.Dispatch<React.SetStateAction<string | null>>;
 setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>;
 ragEnabled: boolean;
-createSession: (baseMessages: WorkspaceToolMessage[], sessionId: string, rag?: { ragEnabled?: boolean; ragQuery?: string | null; ragSources?: MessageSource[]; }) => Promise<WorkspaceToolSession>;
 agentPreferences: WorkspaceToolAgentPreferences;
 memoryContext: string;
 filesystemEnabled: boolean;
@@ -264,7 +267,8 @@ const streamAssistantResponse = async (options: {
     internetEnabledForTurn: boolean;
     internetToolEnabledForTurn: boolean;
     initialSources: MessageSource[];
-  }): Promise<{ assistantMessage: WorkspaceToolMessage; activeSources: MessageSource[]; nativeToolCalls: Array<{ name: string; args: Record<string, unknown> }> }> => {
+    persistedMessages: WorkspaceToolMessage[];
+  }): Promise<{ assistantMessage: WorkspaceToolMessage; activeSources: MessageSource[]; nativeToolCalls: Array<{ name: string; args: Record<string, unknown> }>; runId: string }> => {
     startTimeRef.current = Date.now();
     tokenCountRef.current = 0;
     setLiveStats({ tps: 0, tokens: 0 });
@@ -288,57 +292,69 @@ const streamAssistantResponse = async (options: {
       }));
     }
 
-    const response = await fetch('/api/chat/completions', {
+    const chatRequest = {
+      model: selectedModel,
+      model_context_window: selectedModelContextWindow || undefined,
+      chat_id: options.chatId,
+      session_id: 'workspace-tool',
+      id: options.assistantMessageId,
+      workspace_id: currentWorkspace?.id,
+      surface: 'workspace-tool',
+      provider,
+      base_url: provider === 'openai-compatible' ? baseUrl : settings?.ollamaHost,
+      api_key: apiKey,
+      response_presentation: options.responsePresentation,
+      internet_enabled: options.internetEnabledForTurn,
+      internet_tool_enabled: options.internetToolEnabledForTurn,
+      rag_enabled: options.ragEnabledForTurn,
+      rag_query: options.ragEnabledForTurn ? options.ragQuery : undefined,
+      rag_topk: options.ragTopK,
+      unrestricted: unrestrictedEnabled,
+      uncensored: uncensoredEnabled,
+      accountant: accountantEnabled,
+      image_generation: imageGenerationEnabled,
+      messages: options.conversationMessages.map(message => {
+        const displayImages = (message.images ?? []).map(img => ({
+          data: img.data,
+          mimeType: img.type,
+          name: img.name,
+        }));
+        const documentPageImages = modelSupportsVision
+          ? (message.attachments ?? []).flatMap(attachment =>
+              (attachment.pageImages ?? []).map(page => ({
+                data: page.data,
+                mimeType: page.type,
+                name: `${attachment.name} · ${page.name}`,
+              })),
+            )
+          : [];
+        const images = [...displayImages, ...documentPageImages];
+        return {
+          role: message.role,
+          content: message.content,
+          hidden: message.hidden,
+          ...(images.length > 0 ? { images } : {}),
+        };
+      }),
+    };
+
+    const queued = await fetch('/api/workspace-tool/runs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: abortControllerRef.current?.signal,
       body: JSON.stringify({
-        model: selectedModel,
-        chat_id: options.chatId,
-        session_id: 'workspace-tool',
-        id: options.assistantMessageId,
-        workspace_id: currentWorkspace?.id,
-        surface: 'workspace-tool',
-        provider,
-        base_url: provider === 'openai-compatible' ? baseUrl : settings?.ollamaHost,
-        api_key: apiKey,
-        response_presentation: options.responsePresentation,
-        internet_enabled: options.internetEnabledForTurn,
-        internet_tool_enabled: options.internetToolEnabledForTurn,
-        rag_enabled: options.ragEnabledForTurn,
-        rag_query: options.ragEnabledForTurn ? options.ragQuery : undefined,
-        rag_topk: options.ragTopK,
-        unrestricted: unrestrictedEnabled,
-        uncensored: uncensoredEnabled,
-        accountant: accountantEnabled,
-        image_generation: imageGenerationEnabled,
-        messages: options.conversationMessages.map(message => {
-          const displayImages = (message.images ?? []).map(img => ({
-            data: img.data,
-            mimeType: img.type,
-            name: img.name,
-          }));
-          // Send rendered document pages as native image input, but only to
-          // vision-capable models. Text-only models already receive the
-          // extracted text via the attachment context.
-          const documentPageImages = modelSupportsVision
-            ? (message.attachments ?? []).flatMap(attachment =>
-                (attachment.pageImages ?? []).map(page => ({
-                  data: page.data,
-                  mimeType: page.type,
-                  name: `${attachment.name} · ${page.name}`,
-                })),
-              )
-            : [];
-          const images = [...displayImages, ...documentPageImages];
-          return {
-            role: message.role,
-            content: message.content,
-            hidden: message.hidden,
-            ...(images.length > 0 ? { images } : {}),
-          };
-        }),
+        chat_request: chatRequest,
+        persisted_messages: options.persistedMessages,
+        idempotency_key: options.assistantMessageId,
       }),
+    });
+
+    const queuedData = await queued.json().catch(() => ({})) as { runId?: string; error?: string };
+    if (!queued.ok || !queuedData.runId) throw new Error(queuedData.error || 'Could not queue the WorkSpaces run.');
+    activeWorkspaceRunIdRef.current = queuedData.runId;
+
+    const response = await fetch(`/api/workspace-tool/runs/${encodeURIComponent(queuedData.runId)}/events`, {
+      signal: abortControllerRef.current?.signal,
     });
 
     if (!response.ok) {
@@ -380,6 +396,14 @@ const streamAssistantResponse = async (options: {
 
       if (isServerStreamStatus(data.status)) {
         setStreamPhase(data.status);
+      }
+
+      const contextUsage = normalizeWorkspaceContextUsage(data.context_usage);
+      if (contextUsage) {
+        setWorkspaceContextUsage({
+          ...contextUsage,
+          source: contextUsage.source === 'model-response' ? 'run-event' : contextUsage.source,
+        });
       }
 
       const frameTimings = normalizeLatencyTimings(data.timings);
@@ -478,6 +502,7 @@ const streamAssistantResponse = async (options: {
       },
       activeSources,
       nativeToolCalls,
+      runId: queuedData.runId,
     };
   };
 
@@ -573,23 +598,10 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
     }, 500);
 
     let finalAssistantMessage: WorkspaceToolMessage | null = null;
+    let durableRunId: string | null = null;
     let runCompleted = false;
 
-    // Persist the RAG draft on the pre-stream save so reopened WorkSpaces
-    // threads re-hydrate the composer with the last search text. The actual
-    // citation set is captured below by the /api/chat/completed finalize call
-    // after streaming finishes.
-    const ragSnapshot = {
-      ragEnabled: ragEnabled && Boolean(ragQueryText.trim()),
-      ragQuery: ragEnabled && Boolean(ragQueryText.trim()) ? ragQueryText : null,
-      ragSources: [] as MessageSource[],
-    };
-
     try {
-      const sessionSavePromise = createSession(baseHistory, chatId, ragSnapshot).catch(error => {
-        console.error('Failed to persist WorkSpaces session before streaming:', error);
-        return null;
-      });
       if (controller.signal.aborted) return;
 
       const contextMessages: WorkspaceToolMessage[] = [];
@@ -853,7 +865,7 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
           ]);
         }
 
-        const { assistantMessage, activeSources: roundSources, nativeToolCalls: roundNativeToolCalls } = await streamAssistantResponse({
+        const { assistantMessage, activeSources: roundSources, nativeToolCalls: roundNativeToolCalls, runId } = await streamAssistantResponse({
           assistantMessageId: nextAssistantId,
           // Compact the bulky bodies of stale tool results before resending so
           // the context window stays lean on long browsing/shell sessions.
@@ -876,9 +888,11 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
           internetEnabledForTurn: false,
           internetToolEnabledForTurn: draftInternetEnabled,
           initialSources: currentSources,
+          persistedMessages: baseHistory,
         });
 
         currentSources = roundSources;
+        durableRunId = runId;
       // Native tool calls (phase 1d): when the model used structured
       // tool_calls, build the request directly and skip the wrapper parser +
       // all narration-recovery machinery. This is the path that cannot
@@ -2483,8 +2497,7 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
         }
       }
 
-      const savedSession = await sessionSavePromise;
-      const sessionRecord = savedSession ?? {
+      const sessionRecord = {
         id: chatId,
         title: getChatTitle(baseHistory),
         updatedAt: Date.now(),
@@ -2500,36 +2513,46 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
       const persistedSessionHistory = sessionHistory.filter(message => !message.transient);
       const messagesBeforeFinalAssistant = persistedSessionHistory.slice(0, -1);
 
-      // Final RAG snapshot: only round 0 carries RAG on the server
-      // (toolRound === 0 in streamAssistantResponse), and ragQueryText is invariant
-      // across rounds, so the snapshot above plus currentSources covers the
-      // complete set of citations used this turn.
-      const finalizeRagEnabled = ragEnabled && Boolean(ragQueryText.trim());
-      const completedResponse = await fetch('/api/chat/completed', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: chatId,
-          id: finalAssistantMessage.id,
-          session_id: 'workspace-tool',
-          title: getChatTitle(baseHistory),
-          message: finalAssistantMessage,
-          messages: stripAttachmentVisionData(messagesBeforeFinalAssistant),
-          surface: 'workspace-tool',
-          autoContinueMode: effectiveSessionAutoContinueMode,
-          autoContinueMaxSteps: effectiveSessionAutoContinueMaxSteps,
-          branchLabel: currentSession?.branchLabel ?? null,
-          lastAutoContinueAt: currentSession?.lastAutoContinueAt
-            ? new Date(currentSession.lastAutoContinueAt).toISOString()
-            : null,
-          rag_enabled: finalizeRagEnabled,
-          rag_query: finalizeRagEnabled ? ragQueryText : null,
-          rag_sources: currentSources,
-        }),
-      });
-      const completedData = await completedResponse.json().catch(() => ({}));
-      if (!completedResponse.ok) throw new Error('Failed to save the completed session');
-      const completedSession = normalizeWorkspaceToolSession((completedData as { session?: unknown }).session);
+      let completedSession: WorkspaceToolSession | null = null;
+      if (durableRunId) {
+        // The daemon already finalized the authoritative transcript, including
+        // hidden tool messages. Never send a browser-side draft back over it.
+        const completedResponse = await fetch(`/api/workspace-tool/runs/${encodeURIComponent(durableRunId)}`);
+        const completedData = await completedResponse.json().catch(() => ({}));
+        if (!completedResponse.ok) {
+          throw new Error((completedData as { error?: string }).error || 'Failed to load the completed WorkSpaces session');
+        }
+        completedSession = normalizeWorkspaceToolSession((completedData as { session?: unknown }).session);
+      } else {
+        // Defensive fallback for an older server that does not expose durable
+        // runs yet. Current deployments always take the daemon branch.
+        const finalizeRagEnabled = ragEnabled && Boolean(ragQueryText.trim());
+        const completedResponse = await fetch('/api/chat/completed', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            id: finalAssistantMessage.id,
+            session_id: 'workspace-tool',
+            title: getChatTitle(baseHistory),
+            message: finalAssistantMessage,
+            messages: stripAttachmentVisionData(messagesBeforeFinalAssistant),
+            surface: 'workspace-tool',
+            autoContinueMode: effectiveSessionAutoContinueMode,
+            autoContinueMaxSteps: effectiveSessionAutoContinueMaxSteps,
+            branchLabel: currentSession?.branchLabel ?? null,
+            lastAutoContinueAt: currentSession?.lastAutoContinueAt
+              ? new Date(currentSession.lastAutoContinueAt).toISOString()
+              : null,
+            rag_enabled: finalizeRagEnabled,
+            rag_query: finalizeRagEnabled ? ragQueryText : null,
+            rag_sources: currentSources,
+          }),
+        });
+        const completedData = await completedResponse.json().catch(() => ({}));
+        if (!completedResponse.ok) throw new Error('Failed to save the completed session');
+        completedSession = normalizeWorkspaceToolSession((completedData as { session?: unknown }).session);
+      }
 
       // Generate session summary in the background
       void generateSessionSummary(
@@ -2591,6 +2614,7 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
       setStreamPhase(null);
       setIsStreaming(false);
       abortControllerRef.current = null;
+      activeWorkspaceRunIdRef.current = null;
 
       if (runCompleted && !controller.signal.aborted && effectiveSessionAutoContinueMode === 'safe' && effectiveTaskState.objective.trim()) {
         if (finalAssistantMessage?.toolRequest && autoContinueCountRef.current < effectiveSessionAutoContinueMaxSteps) {

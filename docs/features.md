@@ -159,17 +159,30 @@ A right-rail GUI over the active workspace's on-disk state. The panel shares the
 
 ### Autonomous Scheduling
 
-- **Persistent automation worker**: A Node-side worker starts from `src/instrumentation.ts` and polls automation state every 30 seconds instead of relying on browser-local timers.
+- **Persistent WorkSpaces daemon**: The `workspace-daemon` Compose service owns
+  heartbeat, schedule, monitor, unattended-run, and interactive-turn polling
+  every 30 seconds.
+  It takes a PostgreSQL advisory lease so only one daemon processes a trigger,
+  survives browser-tab and Next.js restarts, and exposes authenticated status to
+  the WorkSpaces UI. The app no longer starts this worker from
+  `src/instrumentation.ts`.
 - **Heartbeat check-ins**: Configurable stale-thread review creates proactive server-side nudges when WorkSpaces threads have gone quiet for too long.
 - **Cron schedules**: Users can store recurring prompts with cron expressions + timezone and receive scheduled nudges when they fire.
 - **Background monitors**: URL and file monitors run outside active chat sessions and trigger nudges on change, content match, or disappearance.
 - **Wake events**: Authenticated `POST /api/workspace-tool/automation/wake-event` lets external triggers raise a WorkSpaces automation nudge immediately.
-- **Unattended model execution**: Heartbeats, schedules, monitors, and wake events can now switch from `nudge` delivery to durable background model execution. Queued runs are processed by the same Node-side automation worker and post their result back into a WorkSpaces thread.
+- **Unattended model execution**: Heartbeats, schedules, monitors, and wake events can now switch from `nudge` delivery to durable background model execution. Queued runs are processed by the dedicated WorkSpaces daemon and post their result back into a WorkSpaces thread.
 - **Execution guardrails**: Personal settings now control whether unattended execution is enabled, which Ollama model it uses, the hourly execution budget, and whether workspace/memory context is attached automatically.
 - **Execution history**: The automation modal now shows recent unattended runs, including queued/running/succeeded/failed state plus result preview or error output.
 - **Nudge inbox**: Automation nudges show inside WorkSpaces, can jump to the linked thread, and are also injected into WorkSpaces request context on the backend.
 - **Guardrails**: File monitors require the same approved WorkSpaces filesystem roots as manual file inspection, and URL monitors reuse the public-HTTP SSRF checks from the browser stack.
-- **Current boundary**: Unattended execution currently supports local Ollama only and deliberately does not invoke interactive tools such as shell, filesystem, browser, or code while running in the background.
+- **Durable interactive turns**: WorkSpaces submits active turns to a
+  PostgreSQL-backed run queue. The daemon executes model rounds and existing
+  authenticated tool routes, persists replayable events, and finalizes the
+  transcript even if the browser tab is refreshed or closed. Explicit Stop
+  cancels the server run; a tool that requires human approval ends with a
+  durable waiting message instead of being silently approved. Browser-only
+  provider keys are encrypted while queued, and a refreshed WorkSpaces view
+  reconnects to an active run instead of starting a duplicate turn.
 
 ### Tool Execution
 

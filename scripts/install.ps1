@@ -82,6 +82,13 @@ Write-OK "Using PeakUI branch: $Branch"
 $EnvFile = Join-Path $TargetDir ".env"
 if (Test-Path $EnvFile) {
     Write-OK ".env already exists — keeping your values."
+    $existingEnv = Get-Content -Path $EnvFile -Raw
+    if ($existingEnv -notmatch '(?m)^WORKSPACE_DAEMON_TOKEN=\S+') {
+        $daemonBytes = New-Object byte[] 48
+        [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($daemonBytes)
+        Add-Content -Path $EnvFile -Value "`nWORKSPACE_DAEMON_TOKEN=$([Convert]::ToBase64String($daemonBytes))"
+        Write-OK "Added the persistent WorkSpaces daemon token to .env."
+    }
 } else {
     Write-Step "Generating .env with random secrets..."
     $pgPass = -join ((48..57) + (97..122) | Get-Random -Count 24 | ForEach-Object { [char]$_ })
@@ -91,6 +98,9 @@ if (Test-Path $EnvFile) {
     $searxBytes = New-Object byte[] 32
     [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($searxBytes)
     $searxSecret = [Convert]::ToBase64String($searxBytes)
+    $daemonBytes = New-Object byte[] 48
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($daemonBytes)
+    $daemonToken = [Convert]::ToBase64String($daemonBytes)
     $workspace = "C:\Users\$env:USERNAME\peakui-workspace"
     $projects  = "C:\Users\$env:USERNAME\Desktop"
     New-Item -ItemType Directory -Path $workspace -Force | Out-Null
@@ -102,6 +112,7 @@ POSTGRES_DB=peakui
 DATABASE_URL=postgresql://peakui:$pgPass@db:5432/peakui
 JWT_SECRET=$jwt
 SEARXNG_SECRET=$searxSecret
+WORKSPACE_DAEMON_TOKEN=$daemonToken
 OLLAMA_HOST=http://host.docker.internal:11434
 WORKSPACE_TOOL_HOST_HOME_DIR=C:\Users\$env:USERNAME
 WORKSPACE_TOOL_HOST_TMP_DIR=C:\Users\$env:USERNAME\AppData\Local\Temp

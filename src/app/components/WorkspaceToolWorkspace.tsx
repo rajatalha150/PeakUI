@@ -10,7 +10,6 @@ isImageFile,
 normalizeImageMimeType,
 type ExtractedFilePayload,
 } from '@/lib/file-shared';
-import { type MessageSource } from '@/lib/message-sources';
 import type { OllamaHealthSummary } from '@/lib/ollama-health';
 import { parseKeepAliveMs } from '@/lib/ollama-keepalive';
 import {
@@ -47,8 +46,8 @@ import React,{ useCallback,useDeferredValue,useEffect,useMemo,useRef,useState } 
 import { MAX_EXPANDED_PANELS,readExpandedPanels,writeExpandedPanels,type PanelId } from './panelIconButton';
 import { useAgentLoop } from './workspace/useAgentLoop';
 import { useWorkspaceTools } from './workspace/useWorkspaceTools';
-import { type WorkspaceContextUsage } from '@/lib/workspace-context-usage';
-import { AutomationExecutionRunState,AutomationHeartbeatState,AutomationMonitorState,AutomationNotificationState,AutomationScheduleState,AutomationWorkerState,DEFAULT_AUTOMATION_HEARTBEAT_STATE,DEFAULT_AUTOMATION_WORKER_STATE,ImageAttachmentMode,MOBILE_BREAKPOINT,PendingToolApproval,ShellOutputEntry,ToolApprovalResolution,WORKSPACE_TOOL_ACCOUNTANT_STORAGE,WORKSPACE_TOOL_AGENT_STORAGE,WORKSPACE_TOOL_API_KEY_STORAGE,WORKSPACE_TOOL_CURRENT_SESSION_STORAGE,WORKSPACE_TOOL_CURRENT_WORKSPACE_STORAGE,WORKSPACE_TOOL_DRAFT_TASK_ID,WORKSPACE_TOOL_IMAGE_GEN_STORAGE,WORKSPACE_TOOL_INTERNET_STORAGE,WORKSPACE_TOOL_PERSONA_STORAGE,WORKSPACE_TOOL_RAG_STORAGE,WORKSPACE_TOOL_RAIL_STORAGE,WORKSPACE_TOOL_TASK_STATE_STORAGE,WORKSPACE_TOOL_UNCENSORED_STORAGE,WORKSPACE_TOOL_UNRESTRICTED_STORAGE,WORKSPACE_TOOL_USER_PROFILE_STORAGE,WorkspaceToolFileAttachment,WorkspaceToolFolder,WorkspaceToolImageAttachment,WorkspaceToolMessage,WorkspaceToolModel,WorkspaceToolProvider,WorkspaceToolSession,WorkspaceToolSettings,WorkspaceToolTag,WorkspaceToolWorkspaceProps,WorkspaceToolWorkspaceRecord,formatTimestamp,getChatTitle,getImageAttachmentSummary,normalizeWorkspaceToolSession,parseAutomationStateResponse,parseWorkspaceToolSettingsResponse,pruneInterruptedMessages,sanitizeWorkspaceToolMessages,sanitizeWorkspaceToolSessions,splitFolderPrefix,stripAttachmentVisionData } from './workspace/workspace-support';
+import { type WorkspaceContextUsage, normalizeWorkspaceContextUsage } from '@/lib/workspace-context-usage';
+import { AutomationExecutionRunState,AutomationHeartbeatState,AutomationMonitorState,AutomationNotificationState,AutomationScheduleState,AutomationWorkerState,DEFAULT_AUTOMATION_HEARTBEAT_STATE,DEFAULT_AUTOMATION_WORKER_STATE,ImageAttachmentMode,MOBILE_BREAKPOINT,PendingToolApproval,ShellOutputEntry,ToolApprovalResolution,WORKSPACE_TOOL_ACCOUNTANT_STORAGE,WORKSPACE_TOOL_AGENT_STORAGE,WORKSPACE_TOOL_API_KEY_STORAGE,WORKSPACE_TOOL_CURRENT_SESSION_STORAGE,WORKSPACE_TOOL_CURRENT_WORKSPACE_STORAGE,WORKSPACE_TOOL_DRAFT_TASK_ID,WORKSPACE_TOOL_IMAGE_GEN_STORAGE,WORKSPACE_TOOL_INTERNET_STORAGE,WORKSPACE_TOOL_PERSONA_STORAGE,WORKSPACE_TOOL_RAG_STORAGE,WORKSPACE_TOOL_RAIL_STORAGE,WORKSPACE_TOOL_TASK_STATE_STORAGE,WORKSPACE_TOOL_UNCENSORED_STORAGE,WORKSPACE_TOOL_UNRESTRICTED_STORAGE,WORKSPACE_TOOL_USER_PROFILE_STORAGE,WorkspaceToolFileAttachment,WorkspaceToolFolder,WorkspaceToolImageAttachment,WorkspaceToolMessage,WorkspaceToolModel,WorkspaceToolProvider,WorkspaceToolSession,WorkspaceToolSettings,WorkspaceToolTag,WorkspaceToolWorkspaceProps,WorkspaceToolWorkspaceRecord,formatTimestamp,getImageAttachmentSummary,normalizeWorkspaceToolSession,parseAutomationStateResponse,parseWorkspaceToolSettingsResponse,pruneInterruptedMessages,sanitizeWorkspaceToolMessages,sanitizeWorkspaceToolSessions,splitFolderPrefix,stripAttachmentVisionData } from './workspace/workspace-support';
 import { WorkspaceView } from './workspace/WorkspaceView';
 export function useWorkspaceController({
   onNavigateToKnowledgeBase,
@@ -229,6 +228,12 @@ export function useWorkspaceController({
   const [liveStats, setLiveStats] = useState<{ tps: number; tokens: number } | null>(null);
   const [workspaceContextUsage, setWorkspaceContextUsage] = useState<WorkspaceContextUsage | null>(null);
   const [selectedModel, setSelectedModel] = useState('');
+  const selectedModelContextWindow = useMemo(() => {
+    const selected = models.find(model => model.name === selectedModel || model.model === selectedModel);
+    return typeof selected?.contextWindow === 'number' && Number.isFinite(selected.contextWindow)
+      ? selected.contextWindow
+      : null;
+  }, [models, selectedModel]);
   const [favoriteModels, setFavoriteModels] = useState<string[]>([]);
   // Favorites are server-authoritative and per-user (UserSettings.workspaceToolFavoriteModels),
   // so they are NOT seeded from localStorage — localStorage is shared across every
@@ -398,6 +403,7 @@ export function useWorkspaceController({
   const [workspaceFilesError, setWorkspaceFilesError] = useState<string | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const activeWorkspaceRunIdRef = useRef<string | null>(null);
   const memoryLoadRef = useRef(0);
   useEffect(() => () => {
     abortControllerRef.current?.abort();
@@ -756,11 +762,15 @@ export function useWorkspaceController({
       try {
         // Pass the live selected model so the meter reflects the picker's
         // current value immediately (the persisted setting can lag a switch).
-        const modelParam = selectedModel ? `&model=${encodeURIComponent(selectedModel)}` : '';
-        const res = await fetch(`/api/workspace-tool/session/${encodeURIComponent(currentSessionId)}/context${modelParam}`);
-        const data = await res.json().catch(() => ({})) as { usage?: WorkspaceContextUsage };
-        if (!res.ok || cancelled || !data.usage) return;
-        setWorkspaceContextUsage(data.usage);
+        const params = new URLSearchParams();
+        if (selectedModel) params.set('model', selectedModel);
+        if (provider) params.set('provider', provider);
+        if (selectedModelContextWindow) params.set('model_context_window', String(selectedModelContextWindow));
+        const res = await fetch(`/api/workspace-tool/session/${encodeURIComponent(currentSessionId)}/context?${params.toString()}`);
+        const data = await res.json().catch(() => ({})) as { usage?: unknown };
+        const usage = normalizeWorkspaceContextUsage(data.usage);
+        if (!res.ok || cancelled || !usage) return;
+        setWorkspaceContextUsage(usage);
       } catch {
         // The meter is operational telemetry; the session stays usable without it.
       } finally {
@@ -770,7 +780,7 @@ export function useWorkspaceController({
     void tick();
     const timer = setInterval(tick, 15_000);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [currentSessionId, selectedModel]);
+  }, [currentSessionId, selectedModel, selectedModelContextWindow, provider]);
   // Map of canvas artifact filename → relative download URL. Used to rewrite
   // markdown links the model emits with the wrong absolute URL (e.g. it
   // substitutes the user's deployment hostname instead of using
@@ -902,8 +912,8 @@ export function useWorkspaceController({
   // session via GET /api/chats/[id], caches it, and hydrates the in-memory
   // sidebar row so any consumer that needs the transcript sees it without a
   // refetch. Returns null on failure (never throws).
-  const fetchSessionDetail = async (sessionId: string): Promise<WorkspaceToolSession | null> => {
-    if (sessionDetailCache[sessionId]?.messages?.length) {
+  const fetchSessionDetail = async (sessionId: string, force = false): Promise<WorkspaceToolSession | null> => {
+    if (!force && sessionDetailCache[sessionId]?.messages?.length) {
       return sessionDetailCache[sessionId];
     }
     try {
@@ -929,11 +939,11 @@ export function useWorkspaceController({
   // (no `messages`) for the sidebar, so the active session's messages are
   // loaded lazily on open/switch. Never throws: a failure blanks the chat area
   // but does not break init.
-  const loadActiveSessionMessages = async (sessionId: string): Promise<void> => {
+  const loadActiveSessionMessages = async (sessionId: string, force = false): Promise<void> => {
     activeSessionLoadRef.current = sessionId;
     setSessionMessagesLoading(true);
     try {
-      const detail = await fetchSessionDetail(sessionId);
+      const detail = await fetchSessionDetail(sessionId, force);
       // Stale response: the user switched to another session while this was in flight.
       if (activeSessionLoadRef.current !== sessionId) return;
       setChatHistory(detail ? sanitizeWorkspaceToolMessages(detail.messages || []) : []);
@@ -1028,6 +1038,96 @@ export function useWorkspaceController({
     const data = await res.json();
     setTags(Array.isArray(data) ? data : []);
   };
+
+  // A browser refresh must reconnect to a durable server run instead of
+  // allowing a second turn to start against the same transcript. The daemon
+  // remains the owner of execution; this consumer only reattaches the view
+  // and reloads the final authoritative session when the run ends.
+  useEffect(() => {
+    if (!currentSessionId || isStreaming) return;
+    let disposed = false;
+    let reconnectController: AbortController | null = null;
+    let reconnectedRunId: string | null = null;
+
+    const reconnect = async () => {
+      try {
+        const response = await fetch(`/api/workspace-tool/runs?chat_id=${encodeURIComponent(currentSessionId)}`, {
+          signal: AbortSignal.timeout(10000),
+          cache: 'no-store',
+        });
+        if (!response.ok || disposed) return;
+        const data = await response.json().catch(() => ({})) as { runs?: Array<{ id?: string; status?: string }> };
+        const activeRun = Array.isArray(data.runs)
+          ? data.runs.find(run => run && (run.status === 'queued' || run.status === 'running'))
+          : null;
+        if (!activeRun?.id || disposed) return;
+
+        reconnectController = new AbortController();
+        reconnectedRunId = activeRun.id;
+        activeWorkspaceRunIdRef.current = reconnectedRunId;
+        abortControllerRef.current = reconnectController;
+        setIsStreaming(true);
+        setStreamPhase('connecting');
+        setSelectedSessionInfo('Reconnected to the server-side WorkSpaces run…');
+
+        const eventsResponse = await fetch(`/api/workspace-tool/runs/${encodeURIComponent(activeRun.id)}/events`, {
+          signal: reconnectController.signal,
+          cache: 'no-store',
+        });
+        if (!eventsResponse.ok || !eventsResponse.body) throw new Error('Could not reconnect to the WorkSpaces run.');
+
+        const reader = eventsResponse.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        while (!disposed) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let newline = buffer.indexOf('\n');
+          while (newline !== -1) {
+            const line = buffer.slice(0, newline).trim();
+            buffer = buffer.slice(newline + 1);
+            if (line) {
+              const frame = JSON.parse(line) as { status?: string; error?: string; context_usage?: unknown };
+              if (frame.error) throw new Error(frame.error);
+              const contextUsage = normalizeWorkspaceContextUsage(frame.context_usage);
+              if (contextUsage) {
+                setWorkspaceContextUsage({
+                  ...contextUsage,
+                  source: contextUsage.source === 'model-response' ? 'run-event' : contextUsage.source,
+                });
+              }
+            }
+            newline = buffer.indexOf('\n');
+          }
+        }
+        if (!disposed) {
+          await loadActiveSessionMessages(currentSessionId, true);
+          await loadSessions();
+        }
+      } catch (error) {
+        if (!disposed && !(error instanceof DOMException && error.name === 'AbortError')) {
+          setSelectedSessionInfo(error instanceof Error ? error.message : 'WorkSpaces run reconnect failed.');
+        }
+      } finally {
+        if (!disposed) {
+          setIsStreaming(false);
+          setStreamPhase(null);
+          if (activeWorkspaceRunIdRef.current === reconnectedRunId) activeWorkspaceRunIdRef.current = null;
+          if (abortControllerRef.current === reconnectController) abortControllerRef.current = null;
+        }
+      }
+    };
+
+    void reconnect();
+    return () => {
+      disposed = true;
+      reconnectController?.abort();
+    };
+  // This intentionally runs when the selected session changes. A normal send
+  // already sets isStreaming before React commits the new session state.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSessionId]);
 
   const loadMemory = async (excludeSessionId?: string) => {
     const generation = ++memoryLoadRef.current;
@@ -1724,6 +1824,10 @@ export function useWorkspaceController({
     autoContinueCountRef.current = 0;
     setAutoContinuePending(false);
     if (!abortControllerRef.current) return;
+    const runId = activeWorkspaceRunIdRef.current;
+    if (runId) {
+      void fetch(`/api/workspace-tool/runs/${encodeURIComponent(runId)}/cancel`, { method: 'POST' }).catch(() => undefined);
+    }
     abortControllerRef.current.abort();
     abortControllerRef.current = null;
     setChatHistory(prev => pruneInterruptedMessages(prev));
@@ -1937,47 +2041,6 @@ export function useWorkspaceController({
       return;
     }
     switchSession(session);
-  };
-
-  const createSession = async (
-    baseMessages: WorkspaceToolMessage[],
-    sessionId: string,
-    rag?: { ragEnabled?: boolean; ragQuery?: string | null; ragSources?: MessageSource[] },
-  ) => {
-    const title = getChatTitle(baseMessages);
-
-    const res = await fetch('/api/chats/new', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id: sessionId,
-        title,
-        messages: stripAttachmentVisionData(baseMessages),
-        surface: 'workspace-tool',
-        autoContinueMode: effectiveSessionAutoContinueMode,
-        autoContinueMaxSteps: effectiveSessionAutoContinueMaxSteps,
-        ...(rag ?? {}),
-      }),
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to create WorkSpaces session');
-    }
-
-    const session = normalizeWorkspaceToolSession(data.session);
-    if (!session) {
-      throw new Error('Failed to normalize created WorkSpaces session');
-    }
-    setSessions(prev => {
-      const safePrev = sanitizeWorkspaceToolSessions(prev);
-      const existingIndex = safePrev.findIndex(item => item?.id === session.id);
-      if (existingIndex === -1) return [session, ...safePrev];
-      const next = [...safePrev];
-      next[existingIndex] = session;
-      return next;
-    });
-    return session;
   };
 
   const updateSessionRecord = (nextSession: WorkspaceToolSession) => {
@@ -2739,7 +2802,7 @@ export function useWorkspaceController({
     setPendingAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
-  const { streamAssistantResponse, handleSendMessage } = useAgentLoop({ startTimeRef, tokenCountRef, setLiveStats, setStreamPhase, abortControllerRef, selectedModel, currentWorkspace, provider, baseUrl, settings, apiKey, unrestrictedEnabled, uncensoredEnabled, accountantEnabled, imageGenerationEnabled, modelSupportsVision, message, internetEnabled, pendingImages, pendingAttachments, isStreaming, autoContinueCountRef, autoContinueTimerRef, currentSessionId, taskState, buildAttachmentContext, ragFolderPath, chatHistory, pinToBottom, setMessage, setPendingImages, setPendingAttachments, setModelControlNote, setLastSubmission, setTaskStates, setChatHistory, setCurrentSessionId, setIsStreaming, ragEnabled, createSession, agentPreferences, memoryContext, filesystemEnabled, allowedFilesystemPaths, requestFilesystemAction, requestWebContext, requestCodeExecution, requestBrowserAction, requestUwafBrowserAction, setUwafCurrentUrl, setUwafCurrentTitle, executeTaxReturnAction, requestTaxReturnAction, loadCanvasArtifacts, requestPdfDocumentAction, requestWorkbookDocumentAction, requestWordDocumentAction, requestCsvDocumentAction, requestEmailDocumentAction, executeFetchSummarizeAction, requestMarkdownDocumentAction, requestSlidesDocumentAction, requestArchiveDocumentAction, requestCalendarDocumentAction, requestMermaidDocumentAction, shellEnabled, requestShellCommand, executeImageGenerationAction, effectiveSessionAutoContinueMode, effectiveSessionAutoContinueMaxSteps, currentSession, generateSessionSummary, setSessions, setSelectedSessionInfo, setAutoContinuePending, persistSessionIntelligenceSafe });
+  const { streamAssistantResponse, handleSendMessage } = useAgentLoop({ startTimeRef, tokenCountRef, setLiveStats, setWorkspaceContextUsage, setStreamPhase, abortControllerRef, activeWorkspaceRunIdRef, selectedModel, selectedModelContextWindow, currentWorkspace, provider, baseUrl, settings, apiKey, unrestrictedEnabled, uncensoredEnabled, accountantEnabled, imageGenerationEnabled, modelSupportsVision, message, internetEnabled, pendingImages, pendingAttachments, isStreaming, autoContinueCountRef, autoContinueTimerRef, currentSessionId, taskState, buildAttachmentContext, ragFolderPath, chatHistory, pinToBottom, setMessage, setPendingImages, setPendingAttachments, setModelControlNote, setLastSubmission, setTaskStates, setChatHistory, setCurrentSessionId, setIsStreaming, ragEnabled, agentPreferences, memoryContext, filesystemEnabled, allowedFilesystemPaths, requestFilesystemAction, requestWebContext, requestCodeExecution, requestBrowserAction, requestUwafBrowserAction, setUwafCurrentUrl, setUwafCurrentTitle, executeTaxReturnAction, requestTaxReturnAction, loadCanvasArtifacts, requestPdfDocumentAction, requestWorkbookDocumentAction, requestWordDocumentAction, requestCsvDocumentAction, requestEmailDocumentAction, executeFetchSummarizeAction, requestMarkdownDocumentAction, requestSlidesDocumentAction, requestArchiveDocumentAction, requestCalendarDocumentAction, requestMermaidDocumentAction, shellEnabled, requestShellCommand, executeImageGenerationAction, effectiveSessionAutoContinueMode, effectiveSessionAutoContinueMaxSteps, currentSession, generateSessionSummary, setSessions, setSelectedSessionInfo, setAutoContinuePending, persistSessionIntelligenceSafe });
 
 
   return {

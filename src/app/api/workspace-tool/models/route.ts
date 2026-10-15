@@ -18,6 +18,23 @@ function normalizeModelName(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function normalizeContextWindow(value: unknown): number | null {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(parsed) || parsed < 512) return null
+  return Math.floor(parsed)
+}
+
+function withModelContext(model: ModelResult, source: Record<string, unknown>): ModelResult {
+  const contextWindow = normalizeContextWindow(
+    source.context_window
+      ?? source.contextWindow
+      ?? source.context_length
+      ?? source.contextLength
+      ?? source.max_context_length,
+  )
+  return contextWindow ? { ...model, contextWindow } : model
+}
+
 function normalizeProviderBaseUrl(value: unknown, provider: 'ollama' | 'openai-compatible', fallback: string): string {
   const raw = typeof value === 'string' ? value.trim() : '';
   const defaultValue = provider === 'openai-compatible'
@@ -92,12 +109,12 @@ export async function POST(req: Request) {
         ? openAIModels.map((item): ModelResult | null => {
             const name = normalizeModelName(item.id ?? item.name);
             if (!name) return null;
-            return { ...item, name, model: name };
+            return withModelContext({ ...item, name, model: name }, item);
           }).filter((model: ModelResult | null): model is ModelResult => Boolean(model))
         : fallbackModels.map((item): ModelResult | null => {
             const name = normalizeModelName(item.id ?? item.name);
             if (!name) return null;
-            return { ...item, name, model: name };
+            return withModelContext({ ...item, name, model: name }, item);
           }).filter((model: ModelResult | null): model is ModelResult => Boolean(model));
 
       return NextResponse.json({ provider, models });
@@ -119,7 +136,7 @@ export async function POST(req: Request) {
     const models = rawModels.map((item): ModelResult | null => {
       const name = normalizeModelName(item.name ?? item.model);
       if (!name) return null;
-      return { ...item, name, model: name };
+      return withModelContext({ ...item, name, model: name }, item);
     }).filter((model: ModelResult | null): model is ModelResult => Boolean(model));
 
     return NextResponse.json({ provider, models });

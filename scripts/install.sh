@@ -84,6 +84,11 @@ ok "Using PeakUI branch: $BRANCH"
 # --- 4. Generate .env (idempotent) ------------------------------------------
 if [ -f .env ]; then
   ok ".env already exists — keeping your values."
+  if ! grep -q '^WORKSPACE_DAEMON_TOKEN=[^[:space:]]' .env; then
+    WORKSPACE_DAEMON_TOKEN="$(head -c 48 /dev/urandom 2>/dev/null | base64 | tr -d '/+=\n' | cut -c1-64)"
+    printf '\nWORKSPACE_DAEMON_TOKEN=%s\n' "$WORKSPACE_DAEMON_TOKEN" >> .env
+    ok "Added the persistent WorkSpaces daemon token to .env."
+  fi
 else
   log "Generating .env with random secrets..."
   # base64 of /dev/urandom; strip shell/URL-unsafe chars.
@@ -91,6 +96,7 @@ else
   PG_PASS="$(rand 24 24)"; [ -n "$PG_PASS" ] || PG_PASS="peakui_$(date 2>/dev/null || echo changeme)"
   JWT_SECRET="$(rand 48 64)"; [ -n "$JWT_SECRET" ] || JWT_SECRET="peakui_jwt_$(date 2>/dev/null || echo changeme)"
   SEARXNG_SECRET="$(rand 32 48)"; [ -n "$SEARXNG_SECRET" ] || SEARXNG_SECRET="peakui_searxng_$(date 2>/dev/null || echo changeme)"
+  WORKSPACE_DAEMON_TOKEN="$(rand 48 64)"; [ -n "$WORKSPACE_DAEMON_TOKEN" ] || WORKSPACE_DAEMON_TOKEN="peakui_workspace_daemon_$(date 2>/dev/null || echo changeme)"
   HOME_DIR="${WORKSPACE_TOOL_HOST_HOME_DIR:-$HOME}"
   TMP_DIR="${WORKSPACE_TOOL_HOST_TMP_DIR:-/tmp}"
   WORKSPACE_DIR="${WORKSPACE_TOOL_HOST_WORKSPACE_DIR:-$HOME/.peakui/workspace}"
@@ -106,6 +112,7 @@ POSTGRES_DB=peakui
 DATABASE_URL=postgresql://peakui:$PG_PASS@$DB_HOST:5432/peakui
 JWT_SECRET=$JWT_SECRET
 SEARXNG_SECRET=$SEARXNG_SECRET
+WORKSPACE_DAEMON_TOKEN=$WORKSPACE_DAEMON_TOKEN
 OLLAMA_HOST=$OLLAMA_HOST
 WORKSPACE_TOOL_HOST_HOME_DIR=$HOME_DIR
 WORKSPACE_TOOL_HOST_TMP_DIR=$TMP_DIR

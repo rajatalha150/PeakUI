@@ -89,6 +89,11 @@ export async function GET(
         safeEnqueue(encodeWorkspaceEvent(event))
       })
 
+      // A newly attached stream may have missed mutations while the browser
+      // was offline or the Next.js process was restarted. Force one authoritative
+      // tree refresh before waiting for the next live event.
+      safeEnqueue(encodeWorkspaceEvent({ kind: 'tree.invalidated', at: Date.now() }))
+
       // Initial keepalive so the client sees the stream open immediately
       // (some EventSource implementations wait for the first byte before
       // firing `open`).

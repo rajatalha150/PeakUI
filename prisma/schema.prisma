@@ -19,6 +19,7 @@ model User {
   updatedAt               DateTime                   @default(now()) @updatedAt
   automationEvents        AutomationEvent[]
   automationExecutionRuns AutomationExecutionRun[]
+  workspaceAgentRuns     WorkspaceAgentRun[]
   automationHeartbeat     AutomationHeartbeatConfig?
   automationMonitors      AutomationMonitor[]
   automationNotifications AutomationNotification[]
@@ -581,6 +582,44 @@ model AutomationExecutionRun {
   @@index([userId, status, createdAt])
   @@index([sourceKind, sourceId, createdAt])
   @@index([sessionId])
+}
+
+/// Durable interactive WorkSpaces turns. The browser is only a view of this
+/// queue; the daemon owns execution and can finish a turn after a tab closes.
+model WorkspaceAgentRun {
+  id              String                    @id @default(uuid())
+  userId          String
+  chatId          String
+  idempotencyKey  String?                   @unique
+  workspaceId     String?
+  requestJson     String                    @db.Text
+  secretsCiphertext String?                 @db.Text
+  persistedJson   String                    @db.Text
+  status          String                    @default("queued")
+  model           String                    @default("")
+  assistantJson   String?                   @db.Text
+  error           String?
+  createdAt       DateTime                  @default(now())
+  startedAt       DateTime?
+  heartbeatAt     DateTime?
+  completedAt     DateTime?
+  user            User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events          WorkspaceAgentRunEvent[]
+
+  @@index([userId, chatId, createdAt])
+  @@index([status, createdAt])
+}
+
+model WorkspaceAgentRunEvent {
+  id        String            @id @default(uuid())
+  runId     String
+  sequence  Int
+  payload   String            @db.Text
+  createdAt DateTime          @default(now())
+  run       WorkspaceAgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, sequence])
+  @@index([runId, createdAt])
 }
 
 model ImageModelDownload {

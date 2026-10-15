@@ -137,6 +137,9 @@ services:
       CODER_SERVER_TOKEN: ${CODER_SERVER_TOKEN:-}
       CODER_PREVIEW_GATEWAY_PORT: ${CODER_PREVIEW_GATEWAY_PORT:-4173}
       CODER_PREVIEW_PUBLIC_ORIGIN: ${CODER_PREVIEW_PUBLIC_ORIGIN:-}
+      WORKSPACE_DAEMON_URL: ${WORKSPACE_DAEMON_URL:-http://workspace-daemon:4320}
+      WORKSPACE_DAEMON_TOKEN: ${WORKSPACE_DAEMON_TOKEN:-}
+      WORKSPACE_APP_URL: ${WORKSPACE_APP_URL:-http://app:3000}
       GITHUB_APP_ID: ${GITHUB_APP_ID:-}
       GITHUB_APP_SLUG: ${GITHUB_APP_SLUG:-}
       GITHUB_APP_PRIVATE_KEY: ${GITHUB_APP_PRIVATE_KEY:-}
@@ -151,6 +154,8 @@ services:
       tor-proxy:
         condition: service_started
       coder:
+        condition: service_healthy
+      workspace-daemon:
         condition: service_healthy
     restart: always
     volumes:
@@ -171,6 +176,53 @@ services:
       - app_runtime:/var/lib/peakui
       - coder_workspace:/coder-workspace:rw
       - coder_apps:/coder-apps:ro
+    networks:
+      - peakui
+
+  workspace-daemon:
+    image: peakui-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["node", "scripts/workspace-daemon.mjs"]
+    restart: always
+    init: true
+    cpus: "1.0"
+    mem_limit: 1g
+    pids_limit: 256
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      WORKSPACE_DAEMON_BIND: 0.0.0.0
+      WORKSPACE_DAEMON_PORT: 4320
+      WORKSPACE_DAEMON_TOKEN: ${WORKSPACE_DAEMON_TOKEN:-}
+      WORKSPACE_APP_URL: ${WORKSPACE_APP_URL:-http://app:3000}
+      WORKSPACE_TOOL_HOST_HOME_DIR: /mnt/workspace-tool/home
+      WORKSPACE_TOOL_HOST_TMP_DIR: /mnt/workspace-tool/tmp
+      WORKSPACE_TOOL_HOST_WORKSPACE_DIR: /mnt/workspace-tool/workspace
+      PEAKUI_DATA_DIR: /var/lib/peakui
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4320/health',{signal:AbortSignal.timeout(2000)}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - type: bind
+        source: ${WORKSPACE_TOOL_HOST_HOME_DIR}
+        target: /mnt/workspace-tool/home
+        read_only: true
+      - type: bind
+        source: ${WORKSPACE_TOOL_HOST_TMP_DIR}
+        target: /mnt/workspace-tool/tmp
+        read_only: true
+      - type: bind
+        source: ${WORKSPACE_TOOL_HOST_WORKSPACE_DIR}
+        target: /mnt/workspace-tool/workspace
+      - app_runtime:/var/lib/peakui
+    depends_on:
+      db:
+        condition: service_healthy
     networks:
       - peakui
 

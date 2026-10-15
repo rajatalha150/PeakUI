@@ -15,6 +15,7 @@ RUN npx prisma generate
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 RUN npm run rag:build
+RUN npm run workspace-daemon:build
 
 FROM base AS runner
 WORKDIR /app
@@ -31,6 +32,7 @@ COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/dist/rag-worker.mjs ./scripts/rag-worker.mjs
+COPY --from=builder /app/dist/workspace-daemon.mjs ./scripts/workspace-daemon.mjs
 COPY --from=builder /app/src/novnc.d.ts ./src/novnc.d.ts
 COPY --from=builder /app/irs_forms ./irs_forms
 COPY --from=builder /app/scripts/coder-preview-gateway.mjs ./scripts/coder-preview-gateway.mjs

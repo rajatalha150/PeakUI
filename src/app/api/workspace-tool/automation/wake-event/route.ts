@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import { createAutomationWakeEvent } from '@/lib/workspace-tool-automation'
-import { startWorkspaceToolAutomationWorker } from '@/lib/workspace-tool-automation-worker'
 
 export const runtime = 'nodejs'
 
@@ -13,7 +12,6 @@ export async function POST(request: NextRequest) {
   if ('response' in access) return access.response
 
   try {
-    startWorkspaceToolAutomationWorker()
     const body = await request.json().catch(() => ({}))
     const title = typeof body?.title === 'string' ? body.title : ''
     const message = typeof body?.message === 'string' ? body.message : ''
