@@ -183,7 +183,10 @@ services:
   workspace-daemon:
     image: peakui-app
     build: .
-    command: ["node", "scripts/workspace-daemon.mjs"]
+    # Apply schema migrations in this process too. The app and daemon start
+    # together, so relying on the app's entrypoint alone creates a startup
+    # race where the first daemon tick can run before new tables exist.
+    command: ["sh", "-lc", "npx prisma migrate deploy && exec node scripts/workspace-daemon.mjs"]
     restart: always
     init: true
     network_mode: host

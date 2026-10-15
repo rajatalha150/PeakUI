@@ -55,6 +55,25 @@ docker compose ps workspace-daemon
 docker compose logs -f workspace-daemon
 ```
 
+The daemon runs `prisma migrate deploy` before opening its health port. This
+is deliberate: the app and daemon are recreated together during an update, so
+the daemon must be able to start safely even when the app has not yet reached
+its own migration step. Prisma's migration lock makes this safe when both
+processes start at the same time.
+
+After an update, verify both the service and schema before opening a long
+WorkSpaces run:
+
+```sh
+docker compose ps workspace-daemon
+docker compose exec workspace-daemon npx prisma migrate status
+curl -fsS http://127.0.0.1:4320/health
+```
+
+The health endpoint only confirms that the daemon process is listening. A
+successful `prisma migrate status` confirms that its database is ready for
+durable runs and event replay.
+
 The service listens only on an internal host/Compose address. Its status route
 requires `WORKSPACE_DAEMON_TOKEN` when a token is configured. The installer adds
 that token to an existing `.env` if it is missing; fresh installs generate it.

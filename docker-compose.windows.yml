@@ -184,7 +184,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["node", "scripts/workspace-daemon.mjs"]
+    # Keep daemon startup safe when app and daemon are recreated together.
+    command: ["sh", "-lc", "npx prisma migrate deploy && exec node scripts/workspace-daemon.mjs"]
     restart: always
     init: true
     cpus: "1.0"
