@@ -55,11 +55,12 @@ type WorkspaceToolWorkbookDocumentToolRequest,
 import React,{ useEffect,useRef } from 'react';
 import { ArchiveDocumentToolResultEntry,BrowserToolResultEntry,CalendarDocumentToolResultEntry,CodeToolResultEntry,CsvDocumentToolResultEntry,EmailDocumentToolResultEntry,FetchSummarizeToolResultEntry,FilesystemToolResultEntry,ImageGenerationToolResultEntry,MarkdownDocumentToolResultEntry,MermaidDocumentToolResultEntry,PdfDocumentToolResultEntry,ShellOutputEntry,SlidesDocumentToolResultEntry,TaxReturnToolResultEntry,WORKSPACE_TOOL_DRAFT_TASK_ID,WebToolResultEntry,WordDocumentToolResultEntry,WorkbookDocumentToolResultEntry,WorkspaceToolFileAttachment,WorkspaceToolImageAttachment,WorkspaceToolLatencyTimings,WorkspaceToolMessage,WorkspaceToolProvider,WorkspaceToolSession,WorkspaceToolSettings,WorkspaceToolStreamFrame,WorkspaceToolWorkspaceRecord,describeArchiveDocumentRequest,describeBrowserRequest,describeCalendarDocumentRequest,describeCodeExecutionRequest,describeCsvDocumentRequest,describeDocumentToolRequest,describeEmailDocumentRequest,describeFetchSummarizeRequest,describeFilesystemRequest,describeMarkdownDocumentRequest,describeMermaidDocumentRequest,describePdfDocumentRequest,describeShellRequest,describeSlidesDocumentRequest,describeTaxReturnRequest,describeToolDisplayName,describeUwafBrowserRequest,describeWebResearchRequest,describeWordDocumentRequest,describeWorkbookDocumentRequest,detectMissingToolIntent,formatArchiveDocumentToolResult,formatBrowserToolResult,formatCalendarDocumentToolResult,formatCalendarQueryToolResult,formatCodeToolResult,formatCsvDocumentToolResult,formatEmailDocumentToolResult,formatFetchSummarizeToolResult,formatFilesystemToolResult,formatHttpRequestToolResult,formatImageGenerationToolResult,formatMarkdownDocumentToolResult,formatMermaidDocumentToolResult,formatNotesSearchToolResult,formatPdfDocumentToolResult,formatShellToolResult,formatSlidesDocumentToolResult,formatSpreadsheetQueryToolResult,formatTaxReturnToolResult,formatTimestamp,formatWebToolResult,formatWordDocumentToolResult,formatWorkbookDocumentToolResult,getChatTitle,getWorkspaceToolRequestSignature,inferFilesystemRequestFromShellCommand,isSubstantiveProseAnswer,normalizeLatencyTimings,normalizeToolSources,normalizeWorkspaceToolSession,pruneInterruptedMessages,recordToolReliability,sanitizeWorkspaceToolMessages,sanitizeWorkspaceToolSessions,stripAttachmentVisionData } from './workspace-support';
 
-export function useAgentLoop({startTimeRef, tokenCountRef, setLiveStats, setWorkspaceContextUsage, setStreamPhase, abortControllerRef, activeWorkspaceRunIdRef, selectedModel, selectedModelContextWindow, currentWorkspace, provider, baseUrl, settings, apiKey, unrestrictedEnabled, uncensoredEnabled, accountantEnabled, imageGenerationEnabled, modelSupportsVision, message, internetEnabled, pendingImages, pendingAttachments, isStreaming, autoContinueCountRef, autoContinueTimerRef, currentSessionId, taskState, buildAttachmentContext, ragFolderPath, chatHistory, pinToBottom, setMessage, setPendingImages, setPendingAttachments, setModelControlNote, setLastSubmission, setTaskStates, setChatHistory, setCurrentSessionId, setIsStreaming, ragEnabled, agentPreferences, memoryContext, filesystemEnabled, allowedFilesystemPaths, requestFilesystemAction, requestWebContext, requestCodeExecution, requestBrowserAction, requestUwafBrowserAction, setUwafCurrentUrl, setUwafCurrentTitle, executeTaxReturnAction, requestTaxReturnAction, loadCanvasArtifacts, requestPdfDocumentAction, requestWorkbookDocumentAction, requestWordDocumentAction, requestCsvDocumentAction, requestEmailDocumentAction, executeFetchSummarizeAction, requestMarkdownDocumentAction, requestSlidesDocumentAction, requestArchiveDocumentAction, requestCalendarDocumentAction, requestMermaidDocumentAction, shellEnabled, requestShellCommand, executeImageGenerationAction, effectiveSessionAutoContinueMode, effectiveSessionAutoContinueMaxSteps, currentSession, generateSessionSummary, setSessions, setSelectedSessionInfo, setAutoContinuePending, persistSessionIntelligenceSafe}: {startTimeRef: React.RefObject<number>;
+export function useAgentLoop({startTimeRef, tokenCountRef, setLiveStats, setWorkspaceContextUsage, setStreamPhase, setStreamStatusDetail, abortControllerRef, activeWorkspaceRunIdRef, selectedModel, selectedModelContextWindow, currentWorkspace, provider, baseUrl, settings, apiKey, unrestrictedEnabled, uncensoredEnabled, accountantEnabled, imageGenerationEnabled, modelSupportsVision, message, internetEnabled, pendingImages, pendingAttachments, isStreaming, autoContinueCountRef, autoContinueTimerRef, currentSessionId, taskState, buildAttachmentContext, ragFolderPath, chatHistory, pinToBottom, setMessage, setPendingImages, setPendingAttachments, setModelControlNote, setLastSubmission, setTaskStates, setChatHistory, setCurrentSessionId, setIsStreaming, ragEnabled, agentPreferences, memoryContext, filesystemEnabled, allowedFilesystemPaths, requestFilesystemAction, requestWebContext, requestCodeExecution, requestBrowserAction, requestUwafBrowserAction, setUwafCurrentUrl, setUwafCurrentTitle, executeTaxReturnAction, requestTaxReturnAction, loadCanvasArtifacts, requestPdfDocumentAction, requestWorkbookDocumentAction, requestWordDocumentAction, requestCsvDocumentAction, requestEmailDocumentAction, executeFetchSummarizeAction, requestMarkdownDocumentAction, requestSlidesDocumentAction, requestArchiveDocumentAction, requestCalendarDocumentAction, requestMermaidDocumentAction, shellEnabled, requestShellCommand, executeImageGenerationAction, effectiveSessionAutoContinueMode, effectiveSessionAutoContinueMaxSteps, currentSession, generateSessionSummary, setSessions, setSelectedSessionInfo, setAutoContinuePending, persistSessionIntelligenceSafe}: {startTimeRef: React.RefObject<number>;
 tokenCountRef: React.RefObject<number>;
 setLiveStats: React.Dispatch<React.SetStateAction<{ tps: number; tokens: number; } | null>>;
 setWorkspaceContextUsage: React.Dispatch<React.SetStateAction<WorkspaceContextUsage | null>>;
 setStreamPhase: React.Dispatch<React.SetStateAction<UiStreamPhase | null>>;
+setStreamStatusDetail: React.Dispatch<React.SetStateAction<string | null>>;
 abortControllerRef: React.RefObject<AbortController | null>;
 activeWorkspaceRunIdRef: React.RefObject<string | null>;
 selectedModel: string;
@@ -272,7 +273,8 @@ const streamAssistantResponse = async (options: {
     startTimeRef.current = Date.now();
     tokenCountRef.current = 0;
     setLiveStats({ tps: 0, tokens: 0 });
-    setStreamPhase('connecting');
+    setStreamPhase('queued');
+    setStreamStatusDetail('The server-side worker accepted the turn and is preparing it.');
 
     let activeSources = [...options.initialSources];
     let assistantContent = '';
@@ -396,6 +398,7 @@ const streamAssistantResponse = async (options: {
 
       if (isServerStreamStatus(data.status)) {
         setStreamPhase(data.status);
+        setStreamStatusDetail(typeof data.summary === 'string' && data.summary.trim() ? data.summary.trim() : null);
       }
 
       const contextUsage = normalizeWorkspaceContextUsage(data.context_usage);
@@ -578,7 +581,10 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
     ]);
     setCurrentSessionId(chatId);
     setIsStreaming(true);
-    setStreamPhase(ragEnabled && Boolean(ragQueryText.trim()) ? 'preparing-context' : 'connecting');
+    setStreamPhase('queued');
+    setStreamStatusDetail(ragEnabled && Boolean(ragQueryText.trim())
+      ? 'The server-side worker will search your knowledge base before asking the model.'
+      : 'The server-side worker accepted the turn and is preparing it.');
 
     const controller = new AbortController();
     abortControllerRef.current = controller;

@@ -4,6 +4,7 @@ import { signToken } from './auth'
 import { extractWorkspaceToolRequest, buildWorkspaceToolRequestFromNativeCall, type WorkspaceToolRequest } from './workspace-tool-tools'
 import { finalizeChatSession, type StoredChatMessage } from './chat-sessions'
 import { getWorkspaceToolWorkspaceContext } from './workspace-tool-project-workspaces'
+import type { ServerStreamStatus } from './stream-status'
 
 type JsonRecord = Record<string, unknown>
 
@@ -303,6 +304,26 @@ async function executeWorkspaceTool(token: string, request: WorkspaceToolRequest
   }
 }
 
+function toolProgressStatus(name: string): ServerStreamStatus {
+  if (name === 'shell') return 'tool-shell'
+  if (name === 'code') return 'tool-code'
+  if (name === 'filesystem' || name.startsWith('notes_') || name.endsWith('_query')) return 'tool-filesystem'
+  if (name === 'browser') return 'tool-browser'
+  if (name === 'unified_browser') return 'tool-uwaf-browser'
+  if (name === 'web' || name === 'fetch_summarize' || name === 'http_request') return 'web-search'
+  if (name === 'image_generation') return 'tool-code'
+  return 'tool-running'
+}
+
+function toolProgressSummary(request: WorkspaceToolRequest) {
+  const body = request.request as unknown as JsonRecord
+  const detail = [body.query, body.url, body.command, body.path, body.workspacePath, body.description]
+    .find(value => typeof value === 'string' && value.trim())
+  const normalized = typeof detail === 'string' ? preview(detail, 180) : ''
+  const label = request.name.replaceAll('_', ' ')
+  return normalized ? `${label}: ${normalized}` : `Running ${label}.`
+}
+
 async function readModelRound(token: string, request: JsonRecord, runId: string, sequence: { value: number }) {
   const response = await fetch(`${appUrl()}/api/chat/completions`, {
     method: 'POST',
@@ -322,14 +343,48 @@ async function readModelRound(token: string, request: JsonRecord, runId: string,
   let thinking = ''
   let finalFrame: JsonRecord = {}
   let nativeCalls: Array<{ name: string; args: JsonRecord }> = []
-  const statusFrames: JsonRecord[] = []
+  let pendingContent = ''
+  let pendingThinking = ''
+  let lastOutputFlushAt = Date.now()
+  let streamedOutput = false
+  let eventWrites = Promise.resolve()
+
+  const queueEvent = (payload: JsonRecord) => {
+    const eventSequence = ++sequence.value
+    eventWrites = eventWrites.then(() => appendRunEvent(runId, eventSequence, payload))
+  }
+
+  const flushOutput = (force = false) => {
+    const now = Date.now()
+    if (!force && now - lastOutputFlushAt < 250 && pendingContent.length + pendingThinking.length < 240) return
+    if (!pendingContent && !pendingThinking) return
+    queueEvent({
+      id: typeof request.id === 'string' ? request.id : undefined,
+      message: {
+        ...(pendingContent ? { content: pendingContent } : {}),
+        ...(pendingThinking ? { thinking: pendingThinking } : {}),
+      },
+    })
+    pendingContent = ''
+    pendingThinking = ''
+    lastOutputFlushAt = now
+    streamedOutput = true
+  }
 
   const consume = (line: string) => {
     let frame: JsonRecord
     try { frame = JSON.parse(line) as JsonRecord } catch { return }
     if (typeof frame.error === 'string' && frame.error.trim()) throw new Error(frame.error)
     if (typeof frame.status === 'string' || frame.context_usage !== undefined) {
-      statusFrames.push(frame)
+      // Persist progress as it arrives. Previously these frames were held
+      // until the entire model call completed, leaving the UI stuck on a
+      // generic connecting/searching label during long turns.
+      queueEvent({
+        ...(typeof frame.status === 'string' ? { status: frame.status } : {}),
+        ...(frame.context_usage !== undefined ? { context_usage: frame.context_usage } : {}),
+        ...(typeof frame.context_health === 'string' ? { context_health: frame.context_health } : {}),
+        ...(typeof frame.summary === 'string' ? { summary: frame.summary } : {}),
+      })
     }
     if (Array.isArray(frame.native_tool_calls)) {
       nativeCalls = frame.native_tool_calls.filter((item): item is { name: string; args: JsonRecord } => {
@@ -339,8 +394,15 @@ async function readModelRound(token: string, request: JsonRecord, runId: string,
       })
     }
     const message = frame.message && typeof frame.message === 'object' ? frame.message as JsonRecord : null
-    if (typeof message?.content === 'string') content += message.content
-    if (typeof message?.thinking === 'string') thinking += message.thinking
+    if (typeof message?.content === 'string') {
+      content += message.content
+      pendingContent += message.content
+    }
+    if (typeof message?.thinking === 'string') {
+      thinking += message.thinking
+      pendingThinking += message.thinking
+    }
+    flushOutput()
     if (frame.done === true) finalFrame = frame
   }
 
@@ -358,8 +420,9 @@ async function readModelRound(token: string, request: JsonRecord, runId: string,
   }
   buffer += decoder.decode()
   if (buffer.trim()) consume(buffer.trim())
-  for (const frame of statusFrames) await appendRunEvent(runId, ++sequence.value, frame)
-  return { content, thinking, nativeCalls, finalFrame }
+  flushOutput(true)
+  await eventWrites
+  return { content, thinking, nativeCalls, finalFrame, streamedOutput }
 }
 
 async function executeRun(runId: string) {
@@ -388,7 +451,14 @@ async function executeRun(runId: string) {
     const savedMessages = Array.isArray(persisted) ? [...persisted] : []
     let finalContent = ''
     let finalThinking = ''
+    let lastStreamedContent = ''
+    let lastRoundStreamedOutput = false
     const finalId = typeof request.id === 'string' && request.id ? request.id : crypto.randomUUID()
+
+    await appendRunEvent(runId, ++seq.value, {
+      status: 'preparing-context',
+      summary: 'Loading the workspace, conversation memory, and tool permissions.',
+    })
 
     for (let round = 0; round < maxRounds; round += 1) {
       const currentRun = await prisma.workspaceAgentRun.findUnique({ where: { id: runId }, select: { status: true } })
@@ -396,9 +466,12 @@ async function executeRun(runId: string) {
       await prisma.workspaceAgentRun.update({ where: { id: runId }, data: { heartbeatAt: new Date() } })
       const roundRequest = { ...request, messages: conversation, id: finalId }
       await appendRunEvent(runId, ++seq.value, {
-        status: 'model',
+        status: 'model-thinking',
         model: typeof request.model === 'string' ? request.model : '',
         round: round + 1,
+        summary: round === 0
+          ? 'Reviewing your request and deciding whether tools are needed.'
+          : `Reviewing the latest tool result and planning round ${round + 1}.`,
       })
       const response = await readModelRound(token, roundRequest, runId, seq)
       const afterModelRun = await prisma.workspaceAgentRun.findUnique({ where: { id: runId }, select: { status: true } })
@@ -411,13 +484,21 @@ async function executeRun(runId: string) {
       const cleaned = parsed.cleanedContent || response.content
       finalContent = cleaned.trim()
       finalThinking = response.thinking
+      lastStreamedContent = response.content
+      lastRoundStreamedOutput = response.streamedOutput
 
       if (!tool) break
 
       await appendRunEvent(runId, ++seq.value, {
-        status: tool.name === 'shell' ? 'tool-shell' : tool.name === 'code' ? 'tool-code' : tool.name === 'filesystem' ? 'tool-filesystem' : tool.name.includes('browser') ? 'tool-browser' : 'web-search',
+        status: 'tool-planning',
         tool: tool.name,
-        summary: preview(JSON.stringify(tool.request)),
+        round: round + 1,
+        summary: `The model selected ${tool.name.replaceAll('_', ' ')} to make progress on the task.`,
+      })
+      await appendRunEvent(runId, ++seq.value, {
+        status: toolProgressStatus(tool.name),
+        tool: tool.name,
+        summary: toolProgressSummary(tool),
       })
 
       const toolMessageId = crypto.randomUUID()
@@ -428,6 +509,13 @@ async function executeRun(runId: string) {
       })
       const afterToolRun = await prisma.workspaceAgentRun.findUnique({ where: { id: runId }, select: { status: true } })
       if (afterToolRun?.status === 'cancelled') return
+      await appendRunEvent(runId, ++seq.value, {
+        status: result.ok ? 'tool-completed' : 'tool-failed',
+        tool: tool.name,
+        summary: result.ok
+          ? `${tool.name.replaceAll('_', ' ')} finished. Reviewing the returned result.`
+          : `${tool.name.replaceAll('_', ' ')} returned an error; deciding how to recover.`,
+      })
       const resultText = asToolResult(tool.name, result.data, result.ok)
       const toolAssistant: JsonRecord = { role: 'assistant', content: response.content, hidden: true, id: toolMessageId }
       const toolResult: JsonRecord = { role: 'user', content: resultText, hidden: true }
@@ -435,6 +523,11 @@ async function executeRun(runId: string) {
       savedMessages.push({ ...assistantMessage(response.content, toolMessageId, response.thinking), hidden: true }, userMessage(resultText))
       finalContent = ''
       if (!result.ok && (result.data as JsonRecord).code === 'approval_required') {
+        await appendRunEvent(runId, ++seq.value, {
+          status: 'waiting-approval',
+          tool: tool.name,
+          summary: `Approval is required before the ${tool.name.replaceAll('_', ' ')} step can continue.`,
+        })
         finalContent = `The ${tool.name} step is waiting for approval. Reopen this session and approve it to continue.`
         break
       }
@@ -442,7 +535,18 @@ async function executeRun(runId: string) {
 
     if (!finalContent.trim()) finalContent = 'The WorkSpaces run finished without a final assistant message.'
     const assistant = assistantMessage(finalContent, finalId, finalThinking)
-    const finalFrame = { message: { content: finalContent, ...(finalThinking ? { thinking: finalThinking } : {}) }, done: true, id: finalId }
+    await appendRunEvent(runId, ++seq.value, {
+      status: 'finalizing',
+      summary: 'Preparing the final response and saving the completed WorkSpaces turn.',
+    })
+    const finalMessageDiffersFromStream = finalContent.trim() !== lastStreamedContent.trim()
+    const finalFrame = {
+      ...(lastRoundStreamedOutput && !finalMessageDiffersFromStream
+        ? {}
+        : { message: { content: finalContent, ...(finalThinking ? { thinking: finalThinking } : {}) } }),
+      done: true,
+      id: finalId,
+    }
     await appendRunEvent(runId, ++seq.value, finalFrame)
     await finalizeChatSession(run.userId, {
       chatId: run.chatId,
@@ -452,6 +556,10 @@ async function executeRun(runId: string) {
       messages: stripTransientAttachmentData(savedMessages),
     })
     const waitingForApproval = finalContent.includes('is waiting for approval.')
+    await appendRunEvent(runId, ++seq.value, {
+      status: waitingForApproval ? 'waiting-approval' : 'completed',
+      summary: waitingForApproval ? 'The run is paused until approval is provided.' : 'The response is complete and has been saved.',
+    })
     await setRunStatus(runId, waitingForApproval ? 'waiting_approval' : 'succeeded', { model: typeof request.model === 'string' ? request.model : '', assistantJson: JSON.stringify(assistant) })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -463,7 +571,7 @@ async function executeRun(runId: string) {
       })
       return
     }
-    await appendRunEvent(runId, ++seq.value, { error: message, id: run.chatId })
+    await appendRunEvent(runId, ++seq.value, { status: 'failed', error: message, id: run.chatId, summary: 'The server could not complete this WorkSpaces run.' })
     try {
       const failedRun = await prisma.workspaceAgentRun.findUnique({ where: { id: runId } })
       if (failedRun) {

@@ -1207,6 +1207,9 @@ export type WorkspaceToolStreamFrame = {
   task_id?: unknown;
   error?: unknown;
   status?: unknown;
+  summary?: unknown;
+  tool?: unknown;
+  round?: unknown;
   sources?: unknown;
   knowledge_sources?: unknown;
   /** Authoritative model-aware context snapshot emitted before each model turn. */
@@ -1697,15 +1700,13 @@ export const VisibleChatMessageRow = memo(function VisibleChatMessageRow({
             gap: '12px',
           }}
         >
-          {liveStats.tokens > 0 ? (
+          {liveStats.tokens > 0 && (
             <>
               <span><Activity size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />{liveStats.tps.toFixed(1)} tok/s</span>
               <span>{liveStats.tokens} tokens</span>
-              <span className="animate-pulse">Generating...</span>
             </>
-          ) : (
-            <span className="animate-pulse">{getStreamPhaseLabel(streamPhase)}</span>
           )}
+          <span className="animate-pulse">{getStreamPhaseLabel(streamPhase)}</span>
         </div>
       )}
     </div>

@@ -225,6 +225,7 @@ export function useWorkspaceController({
   const deferredChatHistory = useDeferredValue(chatHistory);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamPhase, setStreamPhase] = useState<UiStreamPhase | null>(null);
+  const [streamStatusDetail, setStreamStatusDetail] = useState<string | null>(null);
   const [liveStats, setLiveStats] = useState<{ tps: number; tokens: number } | null>(null);
   const [workspaceContextUsage, setWorkspaceContextUsage] = useState<WorkspaceContextUsage | null>(null);
   const [selectedModel, setSelectedModel] = useState('');
@@ -1068,6 +1069,7 @@ export function useWorkspaceController({
         abortControllerRef.current = reconnectController;
         setIsStreaming(true);
         setStreamPhase('connecting');
+        setStreamStatusDetail('Reattaching to the server-side worker and replaying its progress.');
         setSelectedSessionInfo('Reconnected to the server-side WorkSpaces run…');
 
         const eventsResponse = await fetch(`/api/workspace-tool/runs/${encodeURIComponent(activeRun.id)}/events`, {
@@ -1088,8 +1090,11 @@ export function useWorkspaceController({
             const line = buffer.slice(0, newline).trim();
             buffer = buffer.slice(newline + 1);
             if (line) {
-              const frame = JSON.parse(line) as { status?: string; error?: string; context_usage?: unknown };
+              const frame = JSON.parse(line) as { status?: string; summary?: string; error?: string; context_usage?: unknown };
               if (frame.error) throw new Error(frame.error);
+              if (typeof frame.status === 'string') {
+                setStreamStatusDetail(typeof frame.summary === 'string' && frame.summary.trim() ? frame.summary.trim() : null);
+              }
               const contextUsage = normalizeWorkspaceContextUsage(frame.context_usage);
               if (contextUsage) {
                 setWorkspaceContextUsage({
@@ -1113,6 +1118,7 @@ export function useWorkspaceController({
         if (!disposed) {
           setIsStreaming(false);
           setStreamPhase(null);
+          setStreamStatusDetail(null);
           if (activeWorkspaceRunIdRef.current === reconnectedRunId) activeWorkspaceRunIdRef.current = null;
           if (abortControllerRef.current === reconnectController) abortControllerRef.current = null;
         }
@@ -1833,6 +1839,7 @@ export function useWorkspaceController({
     setChatHistory(prev => pruneInterruptedMessages(prev));
     setLiveStats(null);
     setStreamPhase(null);
+    setStreamStatusDetail(null);
     setIsStreaming(false);
   };
 
@@ -2149,6 +2156,7 @@ export function useWorkspaceController({
     setCanvasSearchQuery('');
     setCanvasError(null);
     setStreamPhase(null);
+    setStreamStatusDetail(null);
     setLiveStats(null);
     setSessionMenuOpen(null);
     setCreateMenuOpen(false);
@@ -2802,7 +2810,7 @@ export function useWorkspaceController({
     setPendingAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
-  const { streamAssistantResponse, handleSendMessage } = useAgentLoop({ startTimeRef, tokenCountRef, setLiveStats, setWorkspaceContextUsage, setStreamPhase, abortControllerRef, activeWorkspaceRunIdRef, selectedModel, selectedModelContextWindow, currentWorkspace, provider, baseUrl, settings, apiKey, unrestrictedEnabled, uncensoredEnabled, accountantEnabled, imageGenerationEnabled, modelSupportsVision, message, internetEnabled, pendingImages, pendingAttachments, isStreaming, autoContinueCountRef, autoContinueTimerRef, currentSessionId, taskState, buildAttachmentContext, ragFolderPath, chatHistory, pinToBottom, setMessage, setPendingImages, setPendingAttachments, setModelControlNote, setLastSubmission, setTaskStates, setChatHistory, setCurrentSessionId, setIsStreaming, ragEnabled, agentPreferences, memoryContext, filesystemEnabled, allowedFilesystemPaths, requestFilesystemAction, requestWebContext, requestCodeExecution, requestBrowserAction, requestUwafBrowserAction, setUwafCurrentUrl, setUwafCurrentTitle, executeTaxReturnAction, requestTaxReturnAction, loadCanvasArtifacts, requestPdfDocumentAction, requestWorkbookDocumentAction, requestWordDocumentAction, requestCsvDocumentAction, requestEmailDocumentAction, executeFetchSummarizeAction, requestMarkdownDocumentAction, requestSlidesDocumentAction, requestArchiveDocumentAction, requestCalendarDocumentAction, requestMermaidDocumentAction, shellEnabled, requestShellCommand, executeImageGenerationAction, effectiveSessionAutoContinueMode, effectiveSessionAutoContinueMaxSteps, currentSession, generateSessionSummary, setSessions, setSelectedSessionInfo, setAutoContinuePending, persistSessionIntelligenceSafe });
+  const { streamAssistantResponse, handleSendMessage } = useAgentLoop({ startTimeRef, tokenCountRef, setLiveStats, setWorkspaceContextUsage, setStreamPhase, setStreamStatusDetail, abortControllerRef, activeWorkspaceRunIdRef, selectedModel, selectedModelContextWindow, currentWorkspace, provider, baseUrl, settings, apiKey, unrestrictedEnabled, uncensoredEnabled, accountantEnabled, imageGenerationEnabled, modelSupportsVision, message, internetEnabled, pendingImages, pendingAttachments, isStreaming, autoContinueCountRef, autoContinueTimerRef, currentSessionId, taskState, buildAttachmentContext, ragFolderPath, chatHistory, pinToBottom, setMessage, setPendingImages, setPendingAttachments, setModelControlNote, setLastSubmission, setTaskStates, setChatHistory, setCurrentSessionId, setIsStreaming, ragEnabled, agentPreferences, memoryContext, filesystemEnabled, allowedFilesystemPaths, requestFilesystemAction, requestWebContext, requestCodeExecution, requestBrowserAction, requestUwafBrowserAction, setUwafCurrentUrl, setUwafCurrentTitle, executeTaxReturnAction, requestTaxReturnAction, loadCanvasArtifacts, requestPdfDocumentAction, requestWorkbookDocumentAction, requestWordDocumentAction, requestCsvDocumentAction, requestEmailDocumentAction, executeFetchSummarizeAction, requestMarkdownDocumentAction, requestSlidesDocumentAction, requestArchiveDocumentAction, requestCalendarDocumentAction, requestMermaidDocumentAction, shellEnabled, requestShellCommand, executeImageGenerationAction, effectiveSessionAutoContinueMode, effectiveSessionAutoContinueMaxSteps, currentSession, generateSessionSummary, setSessions, setSelectedSessionInfo, setAutoContinuePending, persistSessionIntelligenceSafe });
 
 
   return {
@@ -2849,6 +2857,7 @@ export function useWorkspaceController({
     isStreaming,
     liveStats,
     streamPhase,
+    streamStatusDetail,
     workspaceContextUsage,
     handleBranchFromMessage,
     handleCopyMessage,

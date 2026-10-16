@@ -35,7 +35,9 @@ PeakUI app  ---- authenticated status ---->  workspace-daemon
   event log, so a dropped browser stream is only a dropped view. Each model
   round also records the model-aware context budget after server-side summary
   and trim decisions, allowing the UI to replay the exact context state after
-  a refresh.
+  a refresh. Model output is coalesced into small event chunks while it is
+  generated, so the browser can render a live answer instead of waiting for
+  the entire turn to finish.
 - A health/status endpoint used by the WorkSpaces automation panel.
 - A PostgreSQL advisory lease so only one daemon processes due work, even if a
   deployment is accidentally started twice.
@@ -97,6 +99,14 @@ queue after twenty minutes. The event endpoint replays from a sequence cursor
 and sends heartbeat frames during long model calls, so refreshing the page does
 not lose already-produced output or get mistaken for a dead stream by a reverse
 proxy.
+
+The progress stream uses explicit lifecycle phases instead of one generic
+loading message. A normal turn can report queued, context preparation,
+knowledge-base or web research, model loading, model planning, tool selection,
+tool execution, result review, context compaction, finalization, approval
+waiting, retrying, and completion. These phases are informational telemetry;
+the daemon remains authoritative for whether a run is actually running or
+finished.
 
 The file panel's event stream also performs an authoritative tree invalidation
 when a browser reconnects. This prevents a dropped SSE connection from leaving
