@@ -440,6 +440,7 @@ function CodeBlock({ info, code, blockIndex }: { info: string; code: string; blo
   }, [code]);
   return (
     <div
+      className="assistant-code-block"
       key={`code-${blockIndex}`}
       style={{
         borderRadius: '12px',
@@ -483,6 +484,7 @@ function CodeBlock({ info, code, blockIndex }: { info: string; code: string; blo
         </button>
       </div>
       <pre
+        className="assistant-code-pre"
         style={{
           margin: 0,
           whiteSpace: 'pre',
@@ -597,8 +599,9 @@ function renderBlock(block: StructuredBlock, blockIndex: number, sources?: Messa
       );
     case 'table':
       return (
-        <div key={`table-${blockIndex}`} style={{ overflowX: 'auto' }}>
+        <div key={`table-${blockIndex}`} className="assistant-table-wrap" style={{ overflowX: 'auto' }}>
           <table
+            className="assistant-table"
             style={{
               width: '100%',
               borderCollapse: 'collapse',
@@ -698,7 +701,7 @@ export default function AssistantContent({
   const normalizedContent = normalizeAssistantResponseContent(content, presentation);
 
   if (!shouldRenderStructured(normalizedContent, presentation)) {
-    return <span style={{ whiteSpace: 'pre-wrap', lineHeight: '1.7' }}>{renderInline(normalizedContent, 'plain', sources)}</span>;
+    return <span className="assistant-content" style={{ whiteSpace: 'pre-wrap', lineHeight: '1.7' }}>{renderInline(normalizedContent, 'plain', sources)}</span>;
   }
 
   const mode = presentation?.mode ?? 'general';
@@ -706,6 +709,7 @@ export default function AssistantContent({
   if (mode === 'data') {
     return (
       <div
+        className="assistant-data-block"
         style={{
           borderRadius: '12px',
           border: '1px solid var(--border-color)',
@@ -715,6 +719,7 @@ export default function AssistantContent({
         }}
       >
         <pre
+          className="assistant-code-pre"
           style={{
             margin: 0,
             whiteSpace: 'pre-wrap',
@@ -732,6 +737,7 @@ export default function AssistantContent({
   if (mode === 'code') {
     return (
       <div
+        className="assistant-code-block assistant-code-block-full"
         style={{
           borderRadius: '12px',
           border: '1px solid var(--border-color)',
@@ -741,6 +747,7 @@ export default function AssistantContent({
         }}
       >
         <pre
+          className="assistant-code-pre"
           style={{
             margin: 0,
             whiteSpace: 'pre-wrap',
@@ -758,11 +765,11 @@ export default function AssistantContent({
   const blocks = parseStructuredBlocks(normalizedContent);
 
   if (!blocks.length) {
-    return <span style={{ whiteSpace: 'pre-wrap', lineHeight: '1.7' }}>{normalizedContent}</span>;
+    return <span className="assistant-content" style={{ whiteSpace: 'pre-wrap', lineHeight: '1.7' }}>{normalizedContent}</span>;
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+    <div className="assistant-content" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       {blocks.map((block, blockIndex) => renderBlock(block, blockIndex, sources))}
     </div>
   );

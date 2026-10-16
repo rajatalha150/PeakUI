@@ -261,6 +261,7 @@ A right-rail GUI over the active workspace's on-disk state. The panel shares the
 - Model selection lives in the shared top bar instead of the rail.
 - On desktop, WorkSpaces-specific runtime controls now live in one featured **Workspace modes** dropdown in the top bar. That single menu contains Internet, UWAF Direct/Stealth, RAG, Unrestricted, and Uncensored, which keeps the header compact without dropping any functionality.
 - On mobile, the same chat-style top bar carries the model picker and overflow menu, while the rail collapses into a drawer so the active session stays in context while still fitting a narrow screen.
+- **Narrow-screen model context**: WorkSpaces reports the live client viewport (`mobile`, `tablet`, or `desktop`) with every durable agent run. On phones and tablets, the model is instructed to lead with the result, use compact headings and bullets, avoid wide tables, wrap long identifiers, and keep essential information out of horizontal-only layouts. The signal is attached to the server-side run, so reconnects and daemon retries retain the same presentation context.
 - The rail now uses one primary scroll container instead of a nested session-list scroller, which makes wheel/trackpad behavior smoother and more predictable.
 
 ## Knowledge Base (RAG)

@@ -139,6 +139,16 @@ and reconnect without cancelling the run. The daemon executes the existing
 chat, shell, filesystem, code, browser, document, web, and data-tool routes
 server-side, then finalizes the session directly in PostgreSQL.
 
+Each WorkSpaces run also includes a validated `client_viewport` value
+(`mobile`, `tablet`, or `desktop`). The daemon forwards it with the durable
+chat request, so a reconnect or event-stream retry does not lose the device
+context. The chat completion layer uses the value only for WorkSpaces and asks
+the model to keep narrow-screen responses compact: lead with the result, prefer
+bullets and short sections, avoid wide tables, and wrap long commands, URLs,
+and filenames. Desktop requests receive no additional presentation instruction.
+The renderer backs this up with responsive wrapping and touch scrolling for
+code, data, tables, and images.
+
 An explicit **Stop** still cancels the durable run. A tool that genuinely needs
 human approval is recorded as `approval_required` rather than being silently
 approved by a background process; the run posts a clear waiting message and can

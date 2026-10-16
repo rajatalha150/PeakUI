@@ -639,6 +639,43 @@ textarea.input-field {
   word-break: break-word;
 }
 
+.assistant-content,
+.assistant-content * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.assistant-content {
+  overflow-wrap: anywhere;
+}
+
+.assistant-content img {
+  max-width: 100%;
+  height: auto;
+}
+
+.assistant-code-block,
+.assistant-data-block,
+.assistant-table-wrap {
+  max-width: 100%;
+}
+
+.assistant-code-pre {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-wrap: normal;
+  -webkit-overflow-scrolling: touch;
+}
+
+.assistant-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.assistant-table {
+  max-width: none;
+}
+
 .message.user .message-content {
   background: var(--accent-faint);
   border-color: var(--accent-border);
@@ -1785,6 +1822,30 @@ textarea.input-field {
 
   .message-content {
     padding: 14px;
+  }
+
+  .assistant-content {
+    font-size: 0.95rem;
+  }
+
+  .assistant-code-block,
+  .assistant-data-block {
+    padding: 10px !important;
+    border-radius: 10px !important;
+  }
+
+  .assistant-code-pre {
+    font-size: 0.76rem !important;
+    line-height: 1.55 !important;
+  }
+
+  .assistant-table {
+    font-size: 0.78rem !important;
+  }
+
+  .assistant-table th,
+  .assistant-table td {
+    padding: 7px 8px !important;
   }
 
   .avatar {

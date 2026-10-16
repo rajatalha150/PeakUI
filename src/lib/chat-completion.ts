@@ -18,6 +18,7 @@ import {
   type ResponsePresentation,
 } from '@/lib/response-format';
 import { buildWorkspaceToolSystemPrompt, buildChatInternetToolPrompt } from '@/lib/workspace-tool-prompt';
+import { buildClientViewportPrompt, normalizeClientViewport, type ClientViewport } from '@/lib/client-viewport';
 import { buildNativeToolsArray, parseNativeToolCalls } from '@/lib/workspace-tool-native-schema';
 import type { WorkspaceToolName } from '@/lib/workspace-tool-tools';
 import type { WorkspaceToolPersona, WorkspaceToolUserProfile } from '@/lib/workspace-tool-persona';
@@ -258,6 +259,8 @@ interface IncomingChatBody {
   rag_topk?: unknown;
   /** Optional context-window metadata reported by the selected provider model. */
   model_context_window?: unknown;
+  /** Responsive presentation context reported by the WorkSpaces client. */
+  client_viewport?: unknown;
   messages?: unknown;
 }
 
@@ -897,6 +900,9 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const workspaceId = typeof body.workspace_id === 'string' && body.workspace_id.trim() ? body.workspace_id.trim() : '';
     const taskId = crypto.randomUUID();
     const surface = body.surface === 'workspace-tool' ? 'workspace-tool' : 'chat';
+    const clientViewport: ClientViewport | null = surface === 'workspace-tool'
+      ? normalizeClientViewport(body.client_viewport)
+      : null;
     const provider = surface === 'workspace-tool'
       ? normalizeProvider(body.provider ?? settings.workspaceToolProvider)
       : normalizeProvider(body.provider ?? settings.chatModelProvider);
@@ -930,6 +936,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
 
     const nonSystemMessages = messages.filter(message => message.role !== 'system');
     const presentationPrompt = buildResponsePresentationPrompt(responsePresentation);
+    const clientViewportPrompt = clientViewport ? buildClientViewportPrompt(clientViewport) : '';
     const workspaceToolPersona: WorkspaceToolPersona | undefined = surface === 'workspace-tool' ? {
       name: settings.workspaceToolPersonaName,
       tone: settings.workspaceToolPersonaTone,
@@ -1116,9 +1123,9 @@ export async function createChatCompletionResponse(req: NextRequest) {
     const toolWrapperPrimer = hasTools && !workspaceToolPrompt ? WORKSPACE_TOOL_WRAPPER_PRIMER : '';
 
     const systemPromptParts = uncensored
-      ? [toolWrapperPrimer, UNCENSORED_INSTRUCTIONS, PERSISTENT_INSTRUCTIONS, IMAGE_MARKDOWN_SAFETY_INSTRUCTIONS, workspaceToolPrompt, chatInternetPrompt, dateTimeInstruction]
+      ? [toolWrapperPrimer, UNCENSORED_INSTRUCTIONS, PERSISTENT_INSTRUCTIONS, IMAGE_MARKDOWN_SAFETY_INSTRUCTIONS, workspaceToolPrompt, chatInternetPrompt, clientViewportPrompt, dateTimeInstruction]
       : unrestricted
-      ? [toolWrapperPrimer, PERSISTENT_INSTRUCTIONS, IMAGE_MARKDOWN_SAFETY_INSTRUCTIONS, workspaceToolPrompt, chatInternetPrompt, dateTimeInstruction]
+      ? [toolWrapperPrimer, PERSISTENT_INSTRUCTIONS, IMAGE_MARKDOWN_SAFETY_INSTRUCTIONS, workspaceToolPrompt, chatInternetPrompt, clientViewportPrompt, dateTimeInstruction]
       : [
           toolWrapperPrimer,
           PERSISTENT_INSTRUCTIONS,
@@ -1128,6 +1135,7 @@ export async function createChatCompletionResponse(req: NextRequest) {
           workspaceToolPrompt,
           chatInternetPrompt,
           presentationPrompt,
+          clientViewportPrompt,
           dateTimeInstruction,
           continuationInstruction,
           ...userSystemMessages,

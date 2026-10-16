@@ -47,6 +47,7 @@ import { MAX_EXPANDED_PANELS,readExpandedPanels,writeExpandedPanels,type PanelId
 import { useAgentLoop } from './workspace/useAgentLoop';
 import { useWorkspaceTools } from './workspace/useWorkspaceTools';
 import { type WorkspaceContextUsage, normalizeWorkspaceContextUsage } from '@/lib/workspace-context-usage';
+import type { ClientViewport } from '@/lib/client-viewport';
 import { AutomationExecutionRunState,AutomationHeartbeatState,AutomationMonitorState,AutomationNotificationState,AutomationScheduleState,AutomationWorkerState,DEFAULT_AUTOMATION_HEARTBEAT_STATE,DEFAULT_AUTOMATION_WORKER_STATE,ImageAttachmentMode,MOBILE_BREAKPOINT,PendingToolApproval,ShellOutputEntry,ToolApprovalResolution,WORKSPACE_TOOL_ACCOUNTANT_STORAGE,WORKSPACE_TOOL_AGENT_STORAGE,WORKSPACE_TOOL_API_KEY_STORAGE,WORKSPACE_TOOL_CURRENT_SESSION_STORAGE,WORKSPACE_TOOL_CURRENT_WORKSPACE_STORAGE,WORKSPACE_TOOL_DRAFT_TASK_ID,WORKSPACE_TOOL_IMAGE_GEN_STORAGE,WORKSPACE_TOOL_INTERNET_STORAGE,WORKSPACE_TOOL_PERSONA_STORAGE,WORKSPACE_TOOL_RAG_STORAGE,WORKSPACE_TOOL_RAIL_STORAGE,WORKSPACE_TOOL_TASK_STATE_STORAGE,WORKSPACE_TOOL_UNCENSORED_STORAGE,WORKSPACE_TOOL_UNRESTRICTED_STORAGE,WORKSPACE_TOOL_USER_PROFILE_STORAGE,WorkspaceToolFileAttachment,WorkspaceToolFolder,WorkspaceToolImageAttachment,WorkspaceToolMessage,WorkspaceToolModel,WorkspaceToolProvider,WorkspaceToolSession,WorkspaceToolSettings,WorkspaceToolTag,WorkspaceToolWorkspaceProps,WorkspaceToolWorkspaceRecord,formatTimestamp,getImageAttachmentSummary,normalizeWorkspaceToolSession,parseAutomationStateResponse,parseWorkspaceToolSettingsResponse,pruneInterruptedMessages,sanitizeWorkspaceToolMessages,sanitizeWorkspaceToolSessions,splitFolderPrefix,stripAttachmentVisionData } from './workspace/workspace-support';
 import { WorkspaceView } from './workspace/WorkspaceView';
 export function useWorkspaceController({
@@ -201,6 +202,13 @@ export function useWorkspaceController({
     return window.innerWidth <= MOBILE_BREAKPOINT;
   };
 
+  const getClientViewport = (): ClientViewport => {
+    if (typeof window === 'undefined') return 'desktop';
+    if (window.innerWidth <= 600) return 'mobile';
+    if (window.innerWidth <= MOBILE_BREAKPOINT) return 'tablet';
+    return 'desktop';
+  };
+
   const [settings, setSettings] = useState<WorkspaceToolSettings | null>(null);
   const [draftSessionAutoContinueMode, setDraftSessionAutoContinueMode] = useState<SessionAutoContinueMode>('manual');
   const [draftSessionAutoContinueMaxSteps, setDraftSessionAutoContinueMaxSteps] = useState(3);
@@ -333,6 +341,7 @@ export function useWorkspaceController({
   const [branchCompareRightId, setBranchCompareRightId] = useState('');
   const [rightRailCollapsed, setRightRailCollapsed] = useState(getStoredRightRailCollapsed);
   const [isMobileViewport, setIsMobileViewport] = useState(getIsMobileViewport);
+  const [clientViewport, setClientViewport] = useState<ClientViewport>(getClientViewport);
   const [mobileRailOpen, setMobileRailOpen] = useState(false);
   const [mobileHeaderMenuOpen, setMobileHeaderMenuOpen] = useState(false);
   const [mobileModelMenuOpen, setMobileModelMenuOpen] = useState(false);
@@ -556,7 +565,9 @@ export function useWorkspaceController({
 
   useEffect(() => {
     const syncViewport = () => {
-      const nextIsMobile = window.innerWidth <= MOBILE_BREAKPOINT;
+      const nextViewport = getClientViewport();
+      const nextIsMobile = nextViewport !== 'desktop';
+      setClientViewport(nextViewport);
       setIsMobileViewport(nextIsMobile);
       if (!nextIsMobile) {
         setMobileRailOpen(false);
@@ -2810,7 +2821,7 @@ export function useWorkspaceController({
     setPendingAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
-  const { streamAssistantResponse, handleSendMessage } = useAgentLoop({ startTimeRef, tokenCountRef, setLiveStats, setWorkspaceContextUsage, setStreamPhase, setStreamStatusDetail, abortControllerRef, activeWorkspaceRunIdRef, selectedModel, selectedModelContextWindow, currentWorkspace, provider, baseUrl, settings, apiKey, unrestrictedEnabled, uncensoredEnabled, accountantEnabled, imageGenerationEnabled, modelSupportsVision, message, internetEnabled, pendingImages, pendingAttachments, isStreaming, autoContinueCountRef, autoContinueTimerRef, currentSessionId, taskState, buildAttachmentContext, ragFolderPath, chatHistory, pinToBottom, setMessage, setPendingImages, setPendingAttachments, setModelControlNote, setLastSubmission, setTaskStates, setChatHistory, setCurrentSessionId, setIsStreaming, ragEnabled, agentPreferences, memoryContext, filesystemEnabled, allowedFilesystemPaths, requestFilesystemAction, requestWebContext, requestCodeExecution, requestBrowserAction, requestUwafBrowserAction, setUwafCurrentUrl, setUwafCurrentTitle, executeTaxReturnAction, requestTaxReturnAction, loadCanvasArtifacts, requestPdfDocumentAction, requestWorkbookDocumentAction, requestWordDocumentAction, requestCsvDocumentAction, requestEmailDocumentAction, executeFetchSummarizeAction, requestMarkdownDocumentAction, requestSlidesDocumentAction, requestArchiveDocumentAction, requestCalendarDocumentAction, requestMermaidDocumentAction, shellEnabled, requestShellCommand, executeImageGenerationAction, effectiveSessionAutoContinueMode, effectiveSessionAutoContinueMaxSteps, currentSession, generateSessionSummary, setSessions, setSelectedSessionInfo, setAutoContinuePending, persistSessionIntelligenceSafe });
+  const { streamAssistantResponse, handleSendMessage } = useAgentLoop({ startTimeRef, tokenCountRef, setLiveStats, setWorkspaceContextUsage, setStreamPhase, setStreamStatusDetail, abortControllerRef, activeWorkspaceRunIdRef, selectedModel, selectedModelContextWindow, currentWorkspace, clientViewport, provider, baseUrl, settings, apiKey, unrestrictedEnabled, uncensoredEnabled, accountantEnabled, imageGenerationEnabled, modelSupportsVision, message, internetEnabled, pendingImages, pendingAttachments, isStreaming, autoContinueCountRef, autoContinueTimerRef, currentSessionId, taskState, buildAttachmentContext, ragFolderPath, chatHistory, pinToBottom, setMessage, setPendingImages, setPendingAttachments, setModelControlNote, setLastSubmission, setTaskStates, setChatHistory, setCurrentSessionId, setIsStreaming, ragEnabled, agentPreferences, memoryContext, filesystemEnabled, allowedFilesystemPaths, requestFilesystemAction, requestWebContext, requestCodeExecution, requestBrowserAction, requestUwafBrowserAction, setUwafCurrentUrl, setUwafCurrentTitle, executeTaxReturnAction, requestTaxReturnAction, loadCanvasArtifacts, requestPdfDocumentAction, requestWorkbookDocumentAction, requestWordDocumentAction, requestCsvDocumentAction, requestEmailDocumentAction, executeFetchSummarizeAction, requestMarkdownDocumentAction, requestSlidesDocumentAction, requestArchiveDocumentAction, requestCalendarDocumentAction, requestMermaidDocumentAction, shellEnabled, requestShellCommand, executeImageGenerationAction, effectiveSessionAutoContinueMode, effectiveSessionAutoContinueMaxSteps, currentSession, generateSessionSummary, setSessions, setSelectedSessionInfo, setAutoContinuePending, persistSessionIntelligenceSafe });
 
 
   return {
