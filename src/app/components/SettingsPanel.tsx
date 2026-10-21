@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Settings, Server, Bot, Database, MessageSquare, Image as ImageIcon, Search, Pause, Play,
-  CheckCircle, AlertCircle, Loader2, Save, Palette, Users, Shield, Trash2, LogOut, X, Download, Upload, Archive, Terminal
+  CheckCircle, AlertCircle, Loader2, Save, Palette, Users, Shield, Trash2, LogOut, X, Download, Upload, Archive, Terminal, ChevronDown, ChevronUp
 } from 'lucide-react';
 import { ollamaModelKey, RECOMMENDED_EMBEDDING_MODELS } from '@/lib/embedding-models';
 import { classifyModelFit } from '@/lib/model-context';
@@ -356,6 +356,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
   const [userNotice, setUserNotice] = useState('');
   const [creatingUser, setCreatingUser] = useState(false);
   const [createUserModalOpen, setCreateUserModalOpen] = useState(false);
+  const [userManagementOpen, setUserManagementOpen] = useState(false);
   const [backupModalOpen, setBackupModalOpen] = useState(false);
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
   const [backupScopes, setBackupScopes] = useState({ chats: true, settings: true, knowledgeBase: true });
@@ -651,9 +652,6 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
         fetchImageGenModels(),
         fetchImageDownloads(),
       ]);
-      if (authUser?.permissions.includes('users.manage')) {
-        await fetchManagedUsers();
-      }
     };
 
     void loadInitialSettings();
@@ -1072,6 +1070,38 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
       </div>
 
       {canManageUsers && (
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => {
+            setUserManagementOpen(open => {
+              const next = !open;
+              if (next) void fetchManagedUsers();
+              return next;
+            });
+          }}
+          aria-expanded={userManagementOpen}
+          style={{
+            width: '100%',
+            minHeight: '52px',
+            padding: '12px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            textAlign: 'left',
+            marginBottom: userManagementOpen ? '8px' : '16px',
+          }}
+        >
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', fontWeight: 700 }}>
+            <Users size={18} />
+            User management
+          </span>
+          {userManagementOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+        </button>
+      )}
+
+      {canManageUsers && userManagementOpen && (
         <Section icon={<Users size={18} />} title="User Management">
           <div style={{ padding: '14px 16px', borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
