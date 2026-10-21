@@ -357,6 +357,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
   const [creatingUser, setCreatingUser] = useState(false);
   const [createUserModalOpen, setCreateUserModalOpen] = useState(false);
   const [userManagementOpen, setUserManagementOpen] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [backupModalOpen, setBackupModalOpen] = useState(false);
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
   const [backupScopes, setBackupScopes] = useState({ chats: true, settings: true, knowledgeBase: true });
@@ -1460,55 +1461,81 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
       )}
 
       {/* Appearance */}
-      <Section icon={<Palette size={18} />} title="Appearance">
-        <Field label="Theme" help="Choose a professional palette for the studio. Save to keep it across sessions.">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px' }}>
-            {THEME_OPTIONS.map(theme => {
-              const active = settings.theme === theme.id;
-              return (
-                <button
-                  key={theme.id}
-                  type="button"
-                  onClick={() => update('theme', theme.id)}
-                  style={{
-                    padding: '12px',
-                    borderRadius: '10px',
-                    border: `1px solid ${active ? 'var(--accent-primary)' : 'var(--border-color)'}`,
-                    background: active ? 'var(--accent-soft)' : 'var(--bg-glass)',
-                    color: 'var(--text-primary)',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                    fontFamily: 'inherit',
-                    transition: 'all 0.15s'
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '10px' }}>
-                    <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{theme.name}</span>
-                    {active && <CheckCircle size={14} color="var(--accent-primary)" />}
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
-                    {theme.colors.map(color => (
-                      <span
-                        key={color}
-                        style={{
-                          width: '22px',
-                          height: '22px',
-                          borderRadius: '999px',
-                          background: color,
-                          border: '1px solid var(--border-color)'
-                        }}
-                      />
-                    ))}
-                  </div>
-                  <div style={{ fontSize: '0.73rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                    {theme.description}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </Field>
-      </Section>
+      <button
+        type="button"
+        className="btn btn-secondary"
+        onClick={() => setAppearanceOpen(open => !open)}
+        aria-expanded={appearanceOpen}
+        style={{
+          width: '100%',
+          minHeight: '52px',
+          padding: '12px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          textAlign: 'left',
+          marginBottom: appearanceOpen ? '8px' : '16px',
+        }}
+      >
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', fontWeight: 700 }}>
+          <Palette size={18} />
+          Appearance
+        </span>
+        {appearanceOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+      </button>
+
+      {appearanceOpen && (
+        <Section icon={<Palette size={18} />} title="Appearance">
+          <Field label="Theme" help="Choose a professional palette for the studio. Save to keep it across sessions.">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '10px' }}>
+              {THEME_OPTIONS.map(theme => {
+                const active = settings.theme === theme.id;
+                return (
+                  <button
+                    key={theme.id}
+                    type="button"
+                    onClick={() => update('theme', theme.id)}
+                    style={{
+                      padding: '12px',
+                      borderRadius: '10px',
+                      border: `1px solid ${active ? 'var(--accent-primary)' : 'var(--border-color)'}`,
+                      background: active ? 'var(--accent-soft)' : 'var(--bg-glass)',
+                      color: 'var(--text-primary)',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      fontFamily: 'inherit',
+                      transition: 'all 0.15s'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '10px' }}>
+                      <span style={{ fontWeight: 700, fontSize: '0.9rem' }}>{theme.name}</span>
+                      {active && <CheckCircle size={14} color="var(--accent-primary)" />}
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', marginBottom: '10px' }}>
+                      {theme.colors.map(color => (
+                        <span
+                          key={color}
+                          style={{
+                            width: '22px',
+                            height: '22px',
+                            borderRadius: '999px',
+                            background: color,
+                            border: '1px solid var(--border-color)'
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <div style={{ fontSize: '0.73rem', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                      {theme.description}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+        </Section>
+      )}
 
       {/* Ollama Connection */}
       <Section icon={<Server size={18} />} title="Ollama Connection">
