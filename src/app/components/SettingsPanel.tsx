@@ -250,6 +250,44 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
   );
 }
 
+function SettingsGroupButton({
+  icon,
+  label,
+  expanded,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  expanded: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="btn btn-secondary"
+      onClick={onClick}
+      aria-expanded={expanded}
+      style={{
+        width: '100%',
+        minHeight: '52px',
+        padding: '12px 16px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: '12px',
+        textAlign: 'left',
+        marginBottom: expanded ? '8px' : '16px',
+      }}
+    >
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', fontWeight: 700 }}>
+        {icon}
+        {label}
+      </span>
+      {expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+    </button>
+  );
+}
+
 function Field({ label, help, children }: { label: React.ReactNode; help?: string; children: React.ReactNode }) {
   return (
     <div>
@@ -359,6 +397,10 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
   const [userManagementOpen, setUserManagementOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const [modelsConnectionsOpen, setModelsConnectionsOpen] = useState(false);
+  const [agentAccessOpen, setAgentAccessOpen] = useState(false);
+  const [knowledgeOpen, setKnowledgeOpen] = useState(false);
+  const [maintenanceOpen, setMaintenanceOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [backupModalOpen, setBackupModalOpen] = useState(false);
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
   const [backupScopes, setBackupScopes] = useState({ chats: true, settings: true, knowledgeBase: true });
@@ -2371,6 +2413,20 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
           </div>
         </Field>
 
+      </Section>
+        </div>
+      )}
+
+      <SettingsGroupButton
+        icon={<Shield size={18} />}
+        label="Agent & tool access"
+        expanded={agentAccessOpen}
+        onClick={() => setAgentAccessOpen(open => !open)}
+      />
+
+      {agentAccessOpen && (
+      <Section icon={<Shield size={18} />} title="WorkSpaces Tool & Access">
+
         <Field label="Host Access Presets" help="Presets update the shell and filesystem fields below. They are not saved until you click Save Settings. Keep ask-first enabled for host access unless the workflow is already proven.">
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '10px' }}>
             {[
@@ -2833,10 +2889,17 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
           </div>
         </Field>
       </Section>
-        </div>
       )}
 
       {/* Knowledge Base / RAG Settings */}
+      <SettingsGroupButton
+        icon={<Database size={18} />}
+        label="Knowledge & retrieval"
+        expanded={knowledgeOpen}
+        onClick={() => setKnowledgeOpen(open => !open)}
+      />
+
+      {knowledgeOpen && (
       <Section icon={<Database size={18} />} title="Knowledge Base (RAG)">
         <Field label="Enable Knowledge Base" help="When enabled, relevant content from your indexed documents will be automatically included in WorkSpaces responses and the shared chat-completion pipeline.">
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -3024,8 +3087,17 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
           </div>
         )}
       </Section>
+      )}
 
       {/* Backup & Restore */}
+      <SettingsGroupButton
+        icon={<Archive size={18} />}
+        label="Data & maintenance"
+        expanded={maintenanceOpen}
+        onClick={() => setMaintenanceOpen(open => !open)}
+      />
+
+      {maintenanceOpen && (
       <Section icon={<Archive size={18} />} title="Backup & Restore">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '10px' }}>
@@ -3052,8 +3124,17 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
           </div>
         </div>
       </Section>
+      )}
 
       {/* About */}
+      <SettingsGroupButton
+        icon={<Bot size={18} />}
+        label="About PeakUI"
+        expanded={aboutOpen}
+        onClick={() => setAboutOpen(open => !open)}
+      />
+
+      {aboutOpen && (
       <Section icon={<Bot size={18} />} title="About PeakUI">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
           {[
@@ -3069,6 +3150,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
           ))}
         </div>
       </Section>
+      )}
 
       {backupModalOpen && (
         <div
