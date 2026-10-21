@@ -358,6 +358,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
   const [createUserModalOpen, setCreateUserModalOpen] = useState(false);
   const [userManagementOpen, setUserManagementOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const [modelsConnectionsOpen, setModelsConnectionsOpen] = useState(false);
   const [backupModalOpen, setBackupModalOpen] = useState(false);
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
   const [backupScopes, setBackupScopes] = useState({ chats: true, settings: true, knowledgeBase: true });
@@ -1537,6 +1538,32 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
         </Section>
       )}
 
+      <button
+        type="button"
+        className="btn btn-secondary"
+        onClick={() => setModelsConnectionsOpen(open => !open)}
+        aria-expanded={modelsConnectionsOpen}
+        style={{
+          width: '100%',
+          minHeight: '52px',
+          padding: '12px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          textAlign: 'left',
+          marginBottom: modelsConnectionsOpen ? '8px' : '16px',
+        }}
+      >
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', fontWeight: 700 }}>
+          <Bot size={18} />
+          Models &amp; connections
+        </span>
+        {modelsConnectionsOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+      </button>
+
+      {modelsConnectionsOpen && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
       {/* Ollama Connection */}
       <Section icon={<Server size={18} />} title="Ollama Connection">
         <Field label="Ollama Host URL" help="The address of your Ollama instance. Change this if Ollama is running on a different machine or port. Ignored when Ollama Cloud API is enabled.">
@@ -1802,8 +1829,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
         )}
       </Section>
 
-      {/* Generation Settings */}
-      <Section icon={<MessageSquare size={18} />} title="Generation">
+      {/* Model Runtime */}
+      <Section icon={<MessageSquare size={18} />} title="Model Runtime">
         <Field
           label={
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
@@ -2014,7 +2041,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
         </Field>
       </Section>
 
-      <Section icon={<Bot size={18} />} title="WorkSpaces">
+      <Section icon={<Bot size={18} />} title="WorkSpaces Model & Agent">
         <Field label="Provider" help="Start with local Ollama models. OpenAI-compatible providers can be wired in without changing the workspace later.">
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
             {[
@@ -2806,6 +2833,8 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
           </div>
         </Field>
       </Section>
+        </div>
+      )}
 
       {/* Knowledge Base / RAG Settings */}
       <Section icon={<Database size={18} />} title="Knowledge Base (RAG)">
