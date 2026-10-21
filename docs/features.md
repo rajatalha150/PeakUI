@@ -108,6 +108,23 @@ WorkSpaces includes a collapsible Canvas panel that:
 - **Source-editable binary artifacts**: PDF, Word, Excel, PowerPoint, and Mermaid artifacts expose their underlying JSON or `.mmd` source as a sibling `kind: 'data'` artifact. Clicking **Edit** on one of these artifacts opens the source JSON in the editor, and saving it re-renders the binary through the existing render endpoint. The previous binary is preserved as a revision and the source artifact remains the single point of truth for future re-renders.
 - **Server-side preview endpoint** (`/api/canvas/artifacts/<id>/preview`): binary artifacts are parsed server-side and returned as a normalized JSON shape so the Canvas modal can render real Excel tables (per-sheet, per-column), Word documents (per-section, paragraphs + tables), email drafts (parsed `.eml` headers + body), and slide decks (slide titles + bullet previews) inline. This replaces the previous "Browser-native inline preview is limited" fallback for binary types.
 - **Mermaid client-side rendering**: when the preview endpoint returns `{ kind: 'mermaid', source }`, the modal lazy-loads Mermaid from the CDN and renders the `.mmd` source as a live SVG. The same flow is used as the inline fallback when the server-side renderer is unavailable.
+
+### Backup And Restore
+
+Settings -> Data & maintenance creates a portable, versioned ZIP for a single
+PeakUI user. By default it includes chat, WorkSpaces, and Coder session history;
+folders and tags; model and agent settings; knowledge-base source content; Canvas
+artifacts with their revision history; and automation configuration. Coder
+sessions remain `coder` sessions when restored rather than being converted into
+ordinary chats. Knowledge-base embeddings and automation run history are rebuilt
+or restarted locally instead of being copied as stale runtime state.
+
+Connection API keys and tokens are an explicit, unchecked **Connection secrets**
+scope. The ZIP is not encrypted, so it should only be selected for protected
+offline storage. The portable archive intentionally does not include Coder
+project files, installed packages, browser profiles, or daemon state. Use the
+host-level `./scripts/coder-lxd/backup.sh /path/to/backup-directory` snapshot
+before moving or rebuilding a persistent Coder host.
 - **Download correctness**: PDF, Excel, Word, PowerPoint, ZIP, ICS, email, and Mermaid downloads go through `/api/canvas/artifacts/<id>/download` (which decodes base64 correctly) instead of the previous inline Blob path that produced corrupt files for binary types.
 
 ### Task Modes

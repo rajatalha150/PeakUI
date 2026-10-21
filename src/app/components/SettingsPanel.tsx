@@ -10,6 +10,16 @@ import { classifyModelFit } from '@/lib/model-context';
 import { applyTheme, THEME_OPTIONS } from '@/lib/theme-options';
 import HelpHint from './HelpHint';
 import ToolReliabilityPanel from './ToolReliabilityPanel';
+import packageJson from '../../../package.json';
+
+const ABOUT_RUNTIME = [
+  { label: 'PeakUI', value: `v${packageJson.version}`, detail: 'Current package release' },
+  { label: 'Application', value: `Next.js ${packageJson.dependencies.next.replace(/^\^/, '')}`, detail: 'Server-rendered app shell' },
+  { label: 'Interface', value: `React ${packageJson.dependencies.react.replace(/^\^/, '')}`, detail: 'Interactive workspace UI' },
+  { label: 'Data', value: 'PostgreSQL', detail: 'Persistent application data' },
+  { label: 'Data layer', value: `Prisma ${packageJson.dependencies['@prisma/client'].replace(/^\^/, '')}`, detail: 'Schema and database client' },
+  { label: 'Coding runtime', value: 'Persistent Coder', detail: 'Isolated Linux environment' },
+] as const;
 interface UserSettings {
   huggingFaceBaseUrl: string;
   modelKeepAlive: boolean;
@@ -403,12 +413,29 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
   const [aboutOpen, setAboutOpen] = useState(false);
   const [backupModalOpen, setBackupModalOpen] = useState(false);
   const [restoreModalOpen, setRestoreModalOpen] = useState(false);
-  const [backupScopes, setBackupScopes] = useState({ chats: true, settings: true, knowledgeBase: true });
+  const [backupScopes, setBackupScopes] = useState({
+    chats: true,
+    settings: true,
+    knowledgeBase: true,
+    canvas: true,
+    automation: true,
+    connectionSecrets: false,
+  });
   const [backupProgress, setBackupProgress] = useState<{ id: string; phase: string; message: string; percent: number; direction: string } | null>(null);
   const [restoreProgress, setRestoreProgress] = useState<{ id: string; phase: string; message: string; percent: number; direction: string } | null>(null);
   const [backupFile, setBackupFile] = useState<File | null>(null);
   const [reindexOnRestore, setReindexOnRestore] = useState(false);
-  const [restoreResult, setRestoreResult] = useState<{ restoredSettings: boolean; restoredSessions: number; restoredFolders: number; restoredTags: number; restoredDocuments: number; errors: string[] } | null>(null);
+  const [restoreResult, setRestoreResult] = useState<{
+    restoredSettings: boolean;
+    restoredSessions: number;
+    restoredFolders: number;
+    restoredTags: number;
+    restoredDocuments: number;
+    restoredArtifacts: number;
+    restoredArtifactRevisions: number;
+    restoredAutomations: number;
+    errors: string[];
+  } | null>(null);
   const [backupError, setBackupError] = useState<string | null>(null);
   const [restoreError, setRestoreError] = useState<string | null>(null);
   const backupPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -762,6 +789,9 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
     if (backupScopes.chats) scopes.push("chats");
     if (backupScopes.settings) scopes.push("settings");
     if (backupScopes.knowledgeBase) scopes.push("knowledgeBase");
+    if (backupScopes.canvas) scopes.push("canvas");
+    if (backupScopes.automation) scopes.push("automation");
+    if (backupScopes.connectionSecrets) scopes.push("connectionSecrets");
     if (scopes.length === 0) {
       setBackupError("Select at least one category to backup.");
       return;
@@ -817,7 +847,17 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
         setRestoreError(err.error ?? "Restore failed");
         return;
       }
-      const data = await res.json() as { result: { restoredSettings: boolean; restoredSessions: number; restoredFolders: number; restoredTags: number; restoredDocuments: number; errors: string[] } };
+      const data = await res.json() as { result: {
+        restoredSettings: boolean;
+        restoredSessions: number;
+        restoredFolders: number;
+        restoredTags: number;
+        restoredDocuments: number;
+        restoredArtifacts: number;
+        restoredArtifactRevisions: number;
+        restoredAutomations: number;
+        errors: string[];
+      } };
       setRestoreResult(data.result);
     } catch (e) {
       setRestoreError(e instanceof Error ? e.message : "Restore failed");
@@ -3120,7 +3160,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
           </div>
 
           <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-            Backup your chats, settings, and knowledge base into a single ZIP file. Restore later on this or another PeakUI instance.
+            Export portable PeakUI data as one ZIP, including Coder history and configuration. Restore it on this or another PeakUI instance.
           </div>
         </div>
       </Section>
@@ -3136,16 +3176,12 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
 
       {aboutOpen && (
       <Section icon={<Bot size={18} />} title="About PeakUI">
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-          {[
-            { label: 'Version', value: '1.0.0' },
-            { label: 'Database', value: 'PostgreSQL' },
-            { label: 'ORM', value: 'Prisma' },
-            { label: 'Framework', value: 'Next.js 16' },
-          ].map(item => (
-            <div key={item.label} style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)' }}>
-              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: '2px' }}>{item.label}</div>
-              <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{item.value}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', gap: '10px' }}>
+          {ABOUT_RUNTIME.map(item => (
+            <div key={item.label} style={{ minWidth: 0, padding: '12px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)' }}>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: '5px' }}>{item.label}</div>
+              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 700, fontSize: '0.9rem', color: 'var(--text-primary)' }} title={item.value}>{item.value}</div>
+              <div style={{ marginTop: '3px', fontSize: '0.72rem', color: 'var(--text-secondary)', lineHeight: 1.35 }}>{item.detail}</div>
             </div>
           ))}
         </div>
@@ -3203,9 +3239,12 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {[
-                { key: 'chats', label: 'Chats', help: 'All sessions, pinned chats, folders, and tags.' },
-                { key: 'settings', label: 'Settings', help: 'Theme, models, WorkspaceTool options, and custom system prompt.' },
+                { key: 'chats', label: 'Conversations & Coder history', help: 'Chats, WorkSpaces sessions, Coding session history, folders, tags, and saved summaries.' },
+                { key: 'settings', label: 'Settings & model profiles', help: 'Themes, model selections, WorkSpaces behavior, Coder configuration, and prompts.' },
                 { key: 'knowledgeBase', label: 'Knowledge base', help: 'Uploaded documents and their extracted content.' },
+                { key: 'canvas', label: 'Canvas artifacts', help: 'Generated documents, reports, files, bundles, previews, and version history.' },
+                { key: 'automation', label: 'Automation rules', help: 'Heartbeats, schedules, monitors, and their configuration. Past run logs are not restored.' },
+                { key: 'connectionSecrets', label: 'Connection secrets', help: 'Optional API keys and tokens. The ZIP is not encrypted; choose this only for protected storage.' },
               ].map(opt => (
                 <div key={opt.key} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-color)' }}>
                   <input
@@ -3221,6 +3260,10 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
                   </label>
                 </div>
               ))}
+            </div>
+
+            <div style={{ padding: '11px 12px', borderRadius: '10px', border: '1px solid var(--border-color)', background: 'rgba(59,130,246,0.06)', color: 'var(--text-secondary)', fontSize: '0.76rem', lineHeight: 1.5 }}>
+              <strong style={{ color: 'var(--text-primary)' }}>Full Coder environment:</strong> this ZIP preserves the Coding history and profile, not project files, installed packages, browser profile, or daemon state. Before moving hosts, also run <code>./scripts/coder-lxd/backup.sh /path/to/backup-directory</code> from the PeakUI host.
             </div>
 
             {backupProgress && (
@@ -3322,7 +3365,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
             {restoreResult && (
               <div style={{ padding: '12px', borderRadius: '10px', background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.25)', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
                 <div style={{ fontWeight: 700, color: 'var(--success)', marginBottom: '6px' }}>Restore complete</div>
-                <div>Settings: {restoreResult.restoredSettings ? 'yes' : 'no'} · Sessions: {restoreResult.restoredSessions} · Folders: {restoreResult.restoredFolders} · Tags: {restoreResult.restoredTags} · Documents: {restoreResult.restoredDocuments}</div>
+                <div>Settings: {restoreResult.restoredSettings ? 'yes' : 'no'} · Sessions: {restoreResult.restoredSessions} · Folders: {restoreResult.restoredFolders} · Tags: {restoreResult.restoredTags} · Documents: {restoreResult.restoredDocuments} · Canvas: {restoreResult.restoredArtifacts} artifacts / {restoreResult.restoredArtifactRevisions} revisions · Automations: {restoreResult.restoredAutomations}</div>
                 {restoreResult.errors.length > 0 && (
                   <div style={{ marginTop: '8px', color: '#fca5a5' }}>Warnings: {restoreResult.errors.length}</div>
                 )}

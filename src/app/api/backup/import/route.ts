@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
 import { getCurrentAuth } from "@/lib/request-auth";
-import { BACKUP_VERSION, importBackupData, type BackupData, type BackupScope } from "@/lib/backup-engine";
+import { BACKUP_VERSION, importBackupData, type BackupData } from "@/lib/backup-engine";
 import AdmZip from "adm-zip";
 
 export const runtime = "nodejs";
@@ -77,6 +77,16 @@ export async function POST(req: Request) {
         return d;
       });
       data.knowledgeBase = { documents: docs };
+    }
+
+    const canvasEntry = zip.getEntry("canvas/artifacts.json");
+    if (canvasEntry) {
+      data.canvas = JSON.parse(zip.readAsText(canvasEntry)) as NonNullable<BackupData["canvas"]>;
+    }
+
+    const automationEntry = zip.getEntry("automation/config.json");
+    if (automationEntry) {
+      data.automation = JSON.parse(zip.readAsText(automationEntry)) as NonNullable<BackupData["automation"]>;
     }
 
     const result = await importBackupData(auth.user.id, data, progressId, { reindexDocuments: reindex });

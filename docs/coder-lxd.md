@@ -325,8 +325,12 @@ See [Coder Browser](coder-browser.md) for controls, verification and limits.
 
 The script briefly stops the app and instance, dumps Postgres, exports the
 complete persistent instance root, restarts services, and writes SHA-256
-checksums. Store the resulting directory on another disk or machine. An
-instance snapshot or export still omits Postgres session metadata.
+checksums. Store the resulting directory on another disk or machine. The
+in-app Settings -> Data & maintenance ZIP is complementary: it restores a
+single user's Coder conversation history and model/profile configuration, while
+this host snapshot preserves project files, installed packages, browser profile,
+Docker state, and the daemon environment. An instance snapshot or export still
+omits Postgres session metadata, so retain both parts together.
 
 Recovery requires restoring the exported instance and SQL dump as one set
 during a maintenance window. Verify `SHA256SUMS`

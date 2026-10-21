@@ -288,7 +288,11 @@ Please report security vulnerabilities privately as described in
 Use the installer for updates, especially when persistent Coder is enabled. It preserves the selected backend and supplies the necessary LXD Compose overlay. Do not run a base-only Compose recreation of `app` on an LXD deployment; it omits the guest daemon bridge configuration.
 Fresh installs use `main`. Existing Linux/macOS checkouts keep their current branch; set `PEAKUI_REF=main` once to move an older `trimmer` or `coder-lxd` checkout to the public release branch.
 
-Back up a persistent Coder guest and Postgres together:
+Settings -> Data & maintenance creates a portable per-user ZIP for conversations
+(including Coder), settings, knowledge content, Canvas artifacts, and automation
+rules. It intentionally excludes live Coder project files and guest state. Back
+up a persistent Coder guest and Postgres together before host moves or major
+upgrades:
 
 ```bash
 ./scripts/coder-lxd/backup.sh /path/to/backup-directory

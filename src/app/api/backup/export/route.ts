@@ -10,15 +10,16 @@ export const dynamic = "force-dynamic";
 
 function parseScopes(searchParams: URLSearchParams): BackupScope[] {
   const raw = searchParams.get("scopes");
-  if (!raw) return ["chats", "settings", "knowledgeBase"];
+  if (!raw) return ["chats", "settings", "knowledgeBase", "canvas", "automation"];
   const values = raw.split(",").map(s => s.trim().toLowerCase());
   const valid: BackupScope[] = [];
   for (const v of values) {
-    if (v === "chats" || v === "settings" || v === "knowledgebase") {
-      valid.push(v === "knowledgebase" ? "knowledgeBase" : (v as BackupScope));
+    const scope = v === "knowledgebase" ? "knowledgeBase" : v;
+    if (["chats", "settings", "knowledgeBase", "canvas", "automation", "connectionsecrets"].includes(scope)) {
+      valid.push(scope === "connectionsecrets" ? "connectionSecrets" : (scope as BackupScope));
     }
   }
-  return valid.length > 0 ? valid : ["chats", "settings", "knowledgeBase"];
+  return valid.length > 0 ? valid : ["chats", "settings", "knowledgeBase", "canvas", "automation"];
 }
 
 export async function GET(req: Request) {

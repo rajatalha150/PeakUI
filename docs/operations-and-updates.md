@@ -79,8 +79,14 @@ to use organization-specific resolver IPs.
 
 ## Back Up Before Risky Changes
 
-Use the application backup controls for normal database/content recovery. For
-the persistent Coder backend, also export the complete guest and database as
+Use Settings -> Data & maintenance for a portable per-user ZIP. It covers
+WorkSpaces and Coder session history, settings/model profiles, knowledge-base
+source content, Canvas artifacts and revisions, plus automation rules. Secrets
+are deliberately excluded unless the protected **Connection secrets** option is
+selected; the archive is not encrypted. It does not contain Coder project files
+or guest runtime state.
+
+For the persistent Coder backend, also export the complete guest and database as
 one consistent set:
 
 ```bash
