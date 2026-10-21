@@ -110,6 +110,8 @@ export interface AppSettings {
   exclusiveOllamaModels: boolean
   workspaceToolProvider: WorkspaceToolProvider
   workspaceToolModel: string
+  /** Optional WorkSpaces-only vision delegate. Its output is handed to Main as text evidence. */
+  workspaceToolVisionModel: string
   workspaceToolPromptTier: WorkspaceToolPromptTier
   workspaceToolBaseUrl: string
   ragModel: string
@@ -238,6 +240,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   exclusiveOllamaModels: false,
   workspaceToolProvider: 'ollama',
   workspaceToolModel: '',
+  workspaceToolVisionModel: '',
   workspaceToolPromptTier: 'auto',
   workspaceToolBaseUrl: '',
   ragModel: DEFAULT_EMBEDDING_MODEL,
@@ -654,6 +657,7 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     exclusiveOllamaModels: normalizeBoolean(settings?.exclusiveOllamaModels, DEFAULT_SETTINGS.exclusiveOllamaModels),
     workspaceToolProvider: normalizeWorkspaceToolProvider(settings?.workspaceToolProvider),
     workspaceToolModel: typeof settings?.workspaceToolModel === 'string' ? settings.workspaceToolModel.trim() : DEFAULT_SETTINGS.workspaceToolModel,
+    workspaceToolVisionModel: typeof settings?.workspaceToolVisionModel === 'string' ? settings.workspaceToolVisionModel.trim() : DEFAULT_SETTINGS.workspaceToolVisionModel,
     workspaceToolPromptTier: normalizeWorkspaceToolPromptTier(settings?.workspaceToolPromptTier),
     workspaceToolBaseUrl: normalizeWorkspaceToolBaseUrl(settings?.workspaceToolBaseUrl),
     ragModel: normalizeRagModel(settings?.ragModel),

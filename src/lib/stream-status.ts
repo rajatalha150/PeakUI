@@ -2,6 +2,7 @@ export type ServerStreamStatus =
   | 'queued'
   | 'connecting'
   | 'preparing-context'
+  | 'vision-analyzing'
   | 'internet-lookup'
   | 'web-search'
   | 'knowledge-base'
@@ -34,6 +35,7 @@ const SERVER_STREAM_STATUSES: readonly ServerStreamStatus[] = [
   'queued',
   'connecting',
   'preparing-context',
+  'vision-analyzing',
   'internet-lookup',
   'web-search',
   'knowledge-base',
@@ -71,6 +73,8 @@ export function getStreamPhaseLabel(phase: UiStreamPhase | null): string {
       return 'Queued on the WorkSpaces daemon...'
     case 'preparing-context':
       return 'Preparing workspace context...'
+    case 'vision-analyzing':
+      return 'Analyzing attachments with the Vision model...'
     case 'compacting-context':
       return 'Compressing older context...'
     case 'internet-lookup':

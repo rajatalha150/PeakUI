@@ -17,6 +17,7 @@ interface UserSettings {
   exclusiveOllamaModels: boolean;
   workspaceToolProvider: string;
   workspaceToolModel: string;
+  workspaceToolVisionModel: string;
   workspaceToolPromptTier: string;
   workspaceToolBaseUrl: string;
   shellExecutionTarget: 'container' | 'host';
@@ -176,6 +177,7 @@ const INITIAL_SETTINGS: UserSettings = {
   exclusiveOllamaModels: false,
   workspaceToolProvider: 'ollama',
   workspaceToolModel: '',
+  workspaceToolVisionModel: '',
   workspaceToolPromptTier: 'auto',
   workspaceToolBaseUrl: '',
   shellExecutionTarget: 'container',
@@ -2015,6 +2017,34 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
               value={settings.workspaceToolModel}
               onChange={e => update('workspaceToolModel', e.target.value)}
               placeholder="gpt-4o-mini"
+            />
+          )}
+        </Field>
+
+        <Field
+          label="WorkSpaces Vision Model"
+          help="Optional dedicated image analyst for WorkSpaces. It is used only to inspect uploaded images and rendered document pages; its factual observations are handed to the Main WorkSpaces model as text. Main can stay text-only. Leave empty to send images directly to Main only when Main supports vision."
+        >
+          {settings.workspaceToolProvider === 'ollama' ? (
+            <select
+              className="input-field"
+              value={settings.workspaceToolVisionModel}
+              onChange={e => update('workspaceToolVisionModel', e.target.value)}
+              style={{ width: '100%' }}
+            >
+              <option value="">— No dedicated Vision model —</option>
+              {models.map(m => (
+                <option key={`vision-${m.name}`} value={m.name}>
+                  {m.name}{formatModelSize(m.size) ? ` (${formatModelSize(m.size)})` : ''}{modelFitLabel(m)}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              className="input-field"
+              value={settings.workspaceToolVisionModel}
+              onChange={e => update('workspaceToolVisionModel', e.target.value)}
+              placeholder="gpt-4o-mini, qwen-vl..."
             />
           )}
         </Field>

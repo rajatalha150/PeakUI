@@ -401,6 +401,7 @@ export function getImageAttachmentSummary(mode: ImageAttachmentMode, hasOcrText:
 export interface WorkspaceToolSettings {
   workspaceToolProvider: WorkspaceToolProvider;
   workspaceToolModel: string;
+  workspaceToolVisionModel: string;
   workspaceToolBaseUrl: string;
   ollamaHost: string;
   ollamaUseCloudApi: boolean;
@@ -727,6 +728,7 @@ export function parseWorkspaceToolSettingsResponse(data: Record<string, unknown>
   const settings: WorkspaceToolSettings = {
     workspaceToolProvider: data.workspaceToolProvider === 'openai-compatible' ? 'openai-compatible' : 'ollama',
     workspaceToolModel: typeof data.workspaceToolModel === 'string' ? data.workspaceToolModel : '',
+    workspaceToolVisionModel: typeof data.workspaceToolVisionModel === 'string' ? data.workspaceToolVisionModel : '',
     workspaceToolBaseUrl: typeof data.workspaceToolBaseUrl === 'string' ? data.workspaceToolBaseUrl : '',
     ollamaHost: typeof data.ollamaHost === 'string' ? data.ollamaHost : 'http://127.0.0.1:11434',
     ollamaUseCloudApi: data.ollamaUseCloudApi === true,
@@ -2475,6 +2477,7 @@ export function formatTaxReturnToolResult(entry: TaxReturnToolResultEntry): stri
 
   if (!entry.success) {
     if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    else lines.push('Error: The generator did not return a verified Canvas artifact. Retry with complete document content.');
     lines.push('', 'Use this result to continue the task. Do not claim a PDF was generated if this result failed.');
     return lines.join('\n');
   }
@@ -2612,6 +2615,7 @@ export function formatWorkbookDocumentToolResult(entry: WorkbookDocumentToolResu
 
   if (!entry.success) {
     if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    else lines.push('Error: The generator did not return a verified Canvas artifact. Retry with complete workbook content.');
     lines.push('', 'Use this result to continue the task. Do not claim a workbook was generated if this result failed.');
     return lines.join('\n');
   }
@@ -2640,6 +2644,7 @@ export function formatWordDocumentToolResult(entry: WordDocumentToolResultEntry)
 
   if (!entry.success) {
     if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    else lines.push('Error: The generator did not return a verified Canvas artifact. Retry with complete document content.');
     lines.push('', 'Use this result to continue the task. Do not claim a Word document was generated if this result failed.');
     return lines.join('\n');
   }
@@ -2668,6 +2673,7 @@ export function formatCsvDocumentToolResult(entry: CsvDocumentToolResultEntry): 
 
   if (!entry.success) {
     if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    else lines.push('Error: The generator did not return a verified Canvas artifact. Retry with complete tabular content.');
     lines.push('', 'Use this result to continue the task. Do not claim a CSV was exported if this result failed.');
     return lines.join('\n');
   }
@@ -2696,6 +2702,7 @@ export function formatEmailDocumentToolResult(entry: EmailDocumentToolResultEntr
 
   if (!entry.success) {
     if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    else lines.push('Error: The generator did not return a verified Canvas artifact. Retry with a complete email body.');
     lines.push('', 'Use this result to continue the task. Do not claim an email was generated if this result failed.');
     return lines.join('\n');
   }
@@ -2724,6 +2731,7 @@ export function formatMarkdownDocumentToolResult(entry: MarkdownDocumentToolResu
 
   if (!entry.success) {
     if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    else lines.push('Error: The generator did not return a verified Canvas artifact. Retry with complete Markdown content.');
     lines.push('', 'Use this result to continue the task. Do not claim a Markdown file was generated if this result failed.');
     return lines.join('\n');
   }
@@ -2751,6 +2759,7 @@ export function formatSlidesDocumentToolResult(entry: SlidesDocumentToolResultEn
   ];
   if (!entry.success) {
     if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    else lines.push('Error: The generator did not return a verified Canvas artifact. Retry with complete slide content.');
     lines.push('', 'Use this result to continue the task. Do not claim a slide deck was generated if this result failed.');
     return lines.join('\n');
   }
@@ -2776,6 +2785,7 @@ export function formatArchiveDocumentToolResult(entry: ArchiveDocumentToolResult
   ];
   if (!entry.success) {
     if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    else lines.push('Error: The generator did not return a verified Canvas artifact. Retry with complete archive entries.');
     lines.push('', 'Use this result to continue the task. Do not claim a ZIP archive was generated if this result failed.');
     return lines.join('\n');
   }
@@ -2801,6 +2811,7 @@ export function formatCalendarDocumentToolResult(entry: CalendarDocumentToolResu
   ];
   if (!entry.success) {
     if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    else lines.push('Error: The generator did not return a verified Canvas artifact. Retry with complete calendar events.');
     lines.push('', 'Use this result to continue the task. Do not claim a calendar event was generated if this result failed.');
     return lines.join('\n');
   }
@@ -2826,6 +2837,7 @@ export function formatMermaidDocumentToolResult(entry: MermaidDocumentToolResult
   ];
   if (!entry.success) {
     if (entry.error?.trim()) lines.push(`Error: ${entry.error.trim()}`);
+    else lines.push('Error: The generator did not return a verified Canvas artifact. Retry with actual Mermaid source.');
     lines.push('', 'Use this result to continue the task. Do not claim a diagram was generated if this result failed.');
     return lines.join('\n');
   }

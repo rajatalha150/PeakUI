@@ -1,0 +1,1 @@
+ALTER TABLE "UserSettings" ADD COLUMN IF NOT EXISTS "workspaceToolVisionModel" TEXT NOT NULL DEFAULT '';

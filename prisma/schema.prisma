@@ -88,6 +88,7 @@ model UserSettings {
   exclusiveOllamaModels                           Boolean  @default(false)
   workspaceToolProvider                           String   @default("ollama")
   workspaceToolModel                              String   @default("")
+  workspaceToolVisionModel                       String   @default("")
   workspaceToolPromptTier                         String   @default("auto")
   workspaceToolBaseUrl                            String   @default("")
   ragModel                                        String   @default("nomic-embed-text")

@@ -229,6 +229,7 @@ mindmap
 - **Automation:** schedules, heartbeats, monitors, wake events, and guarded unattended local runs.
 - **GitHub:** connect in Coding settings, import repositories, retain the project in the persistent workspace, and use the normal agent/terminal workflow.
 - **Coding model roles:** choose Main from the header or configure Main, Vision, and Writer in Coding settings. The theme-matched menus show complete model names on desktop and phone, support keyboard selection, and identify incompatible models without hiding them.
+- **WorkSpaces model roles:** choose a dedicated Vision model in Settings when Main is text-only. Vision inspects uploaded images and PDF pages once, then hands factual observations to Main, which keeps ownership of planning, tools, workspace edits, and the final response. Raw image bytes are withheld from text-only Main and removed from durable queue/session records.
 
 ## First Run
 

@@ -16,6 +16,7 @@ type WorkspaceToolTaskState
 } from '@/lib/workspace-tool-agent';
 import { compactStaleToolResults } from '@/lib/workspace-tool-context-compaction';
 import { normalizeWorkspaceContextUsage, type WorkspaceContextUsage } from '@/lib/workspace-context-usage';
+import type { WorkspaceVisionImage } from '@/lib/workspace-vision';
 import type { ClientViewport } from '@/lib/client-viewport';
 import { buildMalformedWrapperNudgeText,buildNarrationNudgeText } from '@/lib/workspace-tool-narration-nudge';
 import {
@@ -86,7 +87,7 @@ autoContinueCountRef: React.RefObject<number>;
 autoContinueTimerRef: React.RefObject<ReturnType<typeof setTimeout> | null>;
 currentSessionId: string | null;
 taskState: WorkspaceToolTaskState;
-buildAttachmentContext: (attachments?: WorkspaceToolFileAttachment[], images?: WorkspaceToolImageAttachment[], userText?: string) => string;
+buildAttachmentContext: (attachments?: WorkspaceToolFileAttachment[], images?: WorkspaceToolImageAttachment[], userText?: string, visionObservations?: string, visionHandoffFailed?: boolean) => string;
 ragFolderPath: string | null;
 chatHistory: WorkspaceToolMessage[];
 pinToBottom: () => void;
@@ -257,7 +258,6 @@ persistSessionIntelligenceSafe: (patch: Parameters<(patch: { autoContinueMode?: 
     startDrip();
   };
 
-
 const streamAssistantResponse = async (options: {
     assistantMessageId: string;
     conversationMessages: WorkspaceToolMessage[];
@@ -271,6 +271,7 @@ const streamAssistantResponse = async (options: {
     internetToolEnabledForTurn: boolean;
     initialSources: MessageSource[];
     persistedMessages: WorkspaceToolMessage[];
+    visionImages: WorkspaceVisionImage[];
   }): Promise<{ assistantMessage: WorkspaceToolMessage; activeSources: MessageSource[]; nativeToolCalls: Array<{ name: string; args: Record<string, unknown> }>; runId: string }> => {
     startTimeRef.current = Date.now();
     tokenCountRef.current = 0;
@@ -318,13 +319,18 @@ const streamAssistantResponse = async (options: {
       uncensored: uncensoredEnabled,
       accountant: accountantEnabled,
       image_generation: imageGenerationEnabled,
+      workspace_vision_images: options.visionImages.length > 0 ? options.visionImages : undefined,
+      workspace_vision_user_text: options.prompt,
+      main_model_supports_vision: modelSupportsVision,
       messages: options.conversationMessages.map(message => {
-        const displayImages = (message.images ?? []).map(img => ({
+        const delegateModel = settings?.workspaceToolVisionModel?.trim() || '';
+        const mainReceivesImages = modelSupportsVision && !delegateModel;
+        const displayImages = mainReceivesImages ? (message.images ?? []).map(img => ({
           data: img.data,
           mimeType: img.type,
           name: img.name,
-        }));
-        const documentPageImages = modelSupportsVision
+        })) : [];
+        const documentPageImages = mainReceivesImages
           ? (message.attachments ?? []).flatMap(attachment =>
               (attachment.pageImages ?? []).map(page => ({
                 data: page.data,
@@ -516,6 +522,13 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
     const prompt = draftPrompt.trim();
     if ((!prompt && pendingImages.length === 0 && pendingAttachments.length === 0) || isStreaming || !selectedModel || !settings) return;
 
+    // Create the abort handle before the optional Vision delegate runs. Image
+    // analysis can be the slowest part of an attachment turn and must remain
+    // cancellable from the same Stop control as the durable Main run.
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    setIsStreaming(true);
+
     // Reset auto-continue counter on new user-initiated messages (not auto-continues)
     if (!automatic) {
       autoContinueCountRef.current = 0;
@@ -539,10 +552,29 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
       currentStatus: taskState.currentStatus.trim() || (effectiveObjective ? 'Task captured. Waiting for the next workspace update.' : ''),
       nextStep: taskState.nextStep.trim() || (effectiveObjective ? 'Review the assistant output and update the pinned checklist.' : ''),
     };
-    const messageImages = pendingImages.filter(image => image.attachmentMode !== 'ocr-only');
     const contextImages = [...pendingImages];
     const messageAttachments = [...pendingAttachments];
-    const attachmentContext = buildAttachmentContext(messageAttachments, contextImages, prompt);
+    const visualInputs: WorkspaceVisionImage[] = [
+      ...contextImages
+        .filter(image => image.attachmentMode !== 'ocr-only' && image.data.trim())
+        .map(image => ({ name: image.name, type: image.type, data: image.data })),
+      ...messageAttachments.flatMap(attachment => [
+        ...(attachment.nativeImageData
+          ? [{ name: attachment.nativeImageName || attachment.name, type: attachment.nativeImageType || attachment.type, data: attachment.nativeImageData }]
+          : []),
+        ...(attachment.pageImages || []).map(page => ({
+          name: `${attachment.name} · ${page.name}`,
+          type: page.type,
+          data: page.data,
+        })),
+      ]),
+    ];
+    const visionDelegateModel = settings.workspaceToolVisionModel.trim();
+    const attachedMessageImages = pendingImages.filter(image => image.attachmentMode !== 'ocr-only');
+    const noVisionContext = visualInputs.length > 0 && !modelSupportsVision && !visionDelegateModel
+      ? 'No visual analysis was performed because Main is text-only and no WorkSpaces Vision model is configured. Configure a Vision model in Settings before asking WorkSpaces to interpret images or rendered document pages.'
+      : '';
+    const attachmentContext = buildAttachmentContext(messageAttachments, contextImages, prompt, noVisionContext);
     const rawRagQueryText = (attachmentContext || prompt).slice(0, 2000);
     const ragQueryText = ragFolderPath
       ? `folder:${ragFolderPath} ${rawRagQueryText}`.trim().slice(0, 2000)
@@ -551,7 +583,9 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
       id: randomUUID(),
       role: 'user',
       content: attachmentContext || prompt,
-      images: messageImages,
+      // Keep the preview in the local transcript even when the daemon hands
+      // the bytes to the dedicated Vision model instead of Main.
+      images: attachedMessageImages,
       attachments: messageAttachments,
       createdAt: new Date().toISOString(),
     };
@@ -585,12 +619,11 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
     setCurrentSessionId(chatId);
     setIsStreaming(true);
     setStreamPhase('queued');
-    setStreamStatusDetail(ragEnabled && Boolean(ragQueryText.trim())
-      ? 'The server-side worker will search your knowledge base before asking the model.'
-      : 'The server-side worker accepted the turn and is preparing it.');
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
+    setStreamStatusDetail(visionDelegateModel && visualInputs.length > 0
+      ? `The server-side worker will hand ${visualInputs.length} attachment${visualInputs.length === 1 ? '' : 's'} to ${visionDelegateModel} before Main starts.`
+      : ragEnabled && Boolean(ragQueryText.trim())
+        ? 'The server-side worker will search your knowledge base before asking the model.'
+        : 'The server-side worker accepted the turn and is preparing it.');
 
     startTimeRef.current = Date.now();
     tokenCountRef.current = 0;
@@ -898,6 +931,7 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
           internetToolEnabledForTurn: draftInternetEnabled,
           initialSources: currentSources,
           persistedMessages: baseHistory,
+          visionImages: toolRound === 0 && visionDelegateModel ? visualInputs : [],
         });
 
         currentSources = roundSources;

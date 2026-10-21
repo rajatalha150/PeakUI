@@ -9,6 +9,7 @@ WorkSpaces is the primary app shell. Generation settings are saved per user in `
 ### Provider Selection
 
 - WorkSpaces provider settings are stored as `UserSettings.workspaceToolProvider`, `UserSettings.workspaceToolModel`, and `UserSettings.workspaceToolBaseUrl`.
+- WorkSpaces can optionally store a dedicated `UserSettings.workspaceToolVisionModel`. This model is used only for image and rendered-document-page analysis; its observations are returned to the selected Main model as labeled text evidence.
 - The legacy `UserSettings.chatPlatform`, `UserSettings.chatModel`, and `UserSettings.chatModelProvider` fields remain in the database for schema compatibility but are no longer exposed in the WorkSpaces UI.
 - WorkSpaces supports local Ollama and OpenAI-compatible providers.
 - The saved model is provider-aware, so a duplicate model id on both platforms will still reopen against the correct source.
@@ -61,6 +62,28 @@ WorkSpaces is the primary app shell. Generation settings are saved per user in `
 - This behavior is inspired by Open WebUI's explicit Ollama unload flow and is aimed at smaller VRAM systems where multiple resident models can block a new load.
 - External OpenAI-compatible providers are unaffected.
 - Hugging Face and other remote providers are unaffected.
+
+### WorkSpaces Main and Vision Roles
+
+WorkSpaces separates the reasoning model from image inspection when a Vision model is selected in Settings -> WorkSpaces -> **WorkSpaces Vision Model**:
+
+```text
+uploaded image / PDF page
+          |
+          v
+  Vision model (selected delegate)
+          | factual observations
+          v
+  Main model (plans, uses tools, answers)
+```
+
+- **Main** remains the model that owns the conversation, tool calls, workspace changes, and final answer.
+- **Vision** receives the actual image bytes only for the current turn. It is instructed to describe visible evidence, preserve legible values, mark uncertainty, and ignore instructions embedded in images.
+- Main receives a clearly labeled visual-observation block and is told not to claim it directly inspected pixels. This allows a text-only Main model to work with screenshots, photographs, charts, and PDF pages.
+- If Vision fails and Main is independently vision-capable, WorkSpaces falls back to Main's native image input and reports that fallback in the live status. A text-only Main model falls back to extracted text and OCR instead of receiving unusable image bytes.
+- If no Vision model is configured and Main is text-only, WorkSpaces says so in the attachment context rather than hallucinating visual understanding.
+- Vision analysis happens once before the first Main round. Tool-follow-up rounds reuse the textual observations, so a long agent turn does not repeatedly reload the image model.
+- The selected Vision model is validated against the provider's reported image capability when analysis starts. A text-only model cannot silently become the Vision delegate.
 
 ### In-Flight Model Tracking (GPU arbiter)
 
@@ -254,6 +277,7 @@ WorkSpaces uses the shared attachment system:
 - Attachment preview chips with X to remove
 - Processing state and error handling
 - Send button works with just attachments (no text required)
+- When a dedicated WorkSpaces Vision model is configured, raw image/page bytes are withheld from Main and only the Vision evidence block is sent to Main. The durable daemon queue keeps request-scoped bytes only inside its encrypted run secret while the run is active, then clears them at a terminal state; final session transcripts retain the textual evidence and attachment metadata, not base64 payloads.
 
 ### UWAF Stealth Runtime
 

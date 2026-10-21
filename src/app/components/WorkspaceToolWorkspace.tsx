@@ -2707,7 +2707,10 @@ export function useWorkspaceController({
     };
   };
 
-  const buildAttachmentContext = (attachments: WorkspaceToolFileAttachment[] = [], images: WorkspaceToolImageAttachment[] = [], userText = '') => {
+  const buildAttachmentContext = (attachments: WorkspaceToolFileAttachment[] = [], images: WorkspaceToolImageAttachment[] = [], userText = '', visionObservations = '', visionHandoffFailed = false) => {
+    const dedicatedVisionModel = settings?.workspaceToolVisionModel?.trim() || '';
+    const activeVisionDelegate = dedicatedVisionModel && !visionHandoffFailed ? dedicatedVisionModel : '';
+    const mainReceivesImages = modelSupportsVision && !activeVisionDelegate;
     const imageContext = images.map((image, idx) => {
       const lines = [
         `[Attached image ${idx + 1}: ${image.name}]`,
@@ -2717,7 +2720,13 @@ export function useWorkspaceController({
       ];
 
       if (image.attachmentMode !== 'ocr-only') {
-        lines.push(`Model input: image bytes (${image.type || 'image/*'})`);
+        lines.push(mainReceivesImages
+          ? `Model input: image bytes (${image.type || 'image/*'})`
+          : activeVisionDelegate
+            ? `Vision handoff: ${activeVisionDelegate} analyzes the image and sends Main textual observations.`
+            : visionHandoffFailed && dedicatedVisionModel
+              ? `Model input: text and OCR only; the configured Vision model ${dedicatedVisionModel} did not complete its handoff.`
+              : 'Model input: text and OCR only; no image-capable model is selected.');
       }
 
       if (image.attachmentMode !== 'vision-only') {
@@ -2743,16 +2752,25 @@ export function useWorkspaceController({
       ];
       const pageCount = attachment.pageImageCount ?? attachment.pageImages?.length ?? 0;
       if (pageCount > 0) {
-        lines.push(modelSupportsVision
-          ? `Vision input: ${pageCount} rendered page image${pageCount === 1 ? '' : 's'} attached so you can read this document visually${attachment.pageImagesTruncated ? ' (remaining pages are provided as text only)' : ''}.`
-          : `Vision input: ${pageCount} page image${pageCount === 1 ? '' : 's'} available, but the selected model is text-only — only the extracted text below is sent.`);
+        lines.push(mainReceivesImages
+          ? `Vision input: ${pageCount} rendered page image${pageCount === 1 ? '' : 's'} attached so Main can read this document visually${attachment.pageImagesTruncated ? ' (remaining pages are provided as text only)' : ''}.`
+          : activeVisionDelegate
+            ? `Vision handoff: ${pageCount} rendered page image${pageCount === 1 ? '' : 's'} will be analyzed by ${activeVisionDelegate}; Main receives the resulting observations as text${attachment.pageImagesTruncated ? ' (remaining pages are provided as text only)' : ''}.`
+            : visionHandoffFailed && dedicatedVisionModel
+              ? `Vision input: ${pageCount} page image${pageCount === 1 ? '' : 's'} available, but ${dedicatedVisionModel} did not complete its handoff — only extracted text is sent.`
+              : `Vision input: ${pageCount} page image${pageCount === 1 ? '' : 's'} available, but Main is text-only and no Vision model is configured — only the extracted text below is sent.`);
       }
       const attachmentText = getAttachmentContent(attachment);
       if (attachmentText.trim()) lines.push('', attachmentText);
       return lines.join('\n');
     });
 
-    return [...imageContext, ...fileContext, userText.trim()].filter(Boolean).join('\n\n');
+    return [
+      visionObservations.trim(),
+      ...imageContext,
+      ...fileContext,
+      userText.trim(),
+    ].filter(Boolean).join('\n\n');
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {

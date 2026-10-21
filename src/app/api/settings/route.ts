@@ -69,6 +69,7 @@ interface SettingsBody {
   exclusiveOllamaModels?: unknown;
   workspaceToolProvider?: unknown;
   workspaceToolModel?: unknown;
+  workspaceToolVisionModel?: unknown;
   workspaceToolPromptTier?: unknown;
   workspaceToolBaseUrl?: unknown;
   shellExecutionTarget?: unknown;
@@ -204,6 +205,7 @@ export async function POST(req: Request) {
     if (body.exclusiveOllamaModels !== undefined) data.exclusiveOllamaModels = normalizeBoolean(body.exclusiveOllamaModels);
     if (body.workspaceToolProvider !== undefined) data.workspaceToolProvider = normalizeWorkspaceToolProvider(body.workspaceToolProvider);
     if (body.workspaceToolModel !== undefined) data.workspaceToolModel = String(body.workspaceToolModel);
+    if (body.workspaceToolVisionModel !== undefined) data.workspaceToolVisionModel = String(body.workspaceToolVisionModel).trim();
     if (body.workspaceToolPromptTier !== undefined) data.workspaceToolPromptTier = normalizeWorkspaceToolPromptTier(body.workspaceToolPromptTier);
     if (body.workspaceToolBaseUrl !== undefined) data.workspaceToolBaseUrl = normalizeWorkspaceToolBaseUrl(body.workspaceToolBaseUrl);
     if (body.shellExecutionTarget !== undefined) data.shellExecutionTarget = normalizeShellExecutionTarget(body.shellExecutionTarget);
