@@ -766,6 +766,9 @@ export function useWorkspaceController({
       setWorkspaceContextUsage(null);
       return;
     }
+    // The active durable run emits the authoritative snapshot used for its
+    // model call. Do not let the persisted-session poll overwrite it midway.
+    if (isStreaming) return;
     let cancelled = false;
     let running = false;
     const tick = async () => {
@@ -781,7 +784,10 @@ export function useWorkspaceController({
         const res = await fetch(`/api/workspace-tool/session/${encodeURIComponent(currentSessionId)}/context?${params.toString()}`);
         const data = await res.json().catch(() => ({})) as { usage?: unknown };
         const usage = normalizeWorkspaceContextUsage(data.usage);
-        if (!res.ok || cancelled || !usage) return;
+        if (!res.ok || !usage) {
+          return;
+        }
+        if (cancelled) return;
         setWorkspaceContextUsage(usage);
       } catch {
         // The meter is operational telemetry; the session stays usable without it.
@@ -792,7 +798,7 @@ export function useWorkspaceController({
     void tick();
     const timer = setInterval(tick, 15_000);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [currentSessionId, selectedModel, selectedModelContextWindow, provider]);
+  }, [currentSessionId, selectedModel, selectedModelContextWindow, provider, isStreaming]);
   // Map of canvas artifact filename → relative download URL. Used to rewrite
   // markdown links the model emits with the wrong absolute URL (e.g. it
   // substitutes the user's deployment hostname instead of using
@@ -2391,16 +2397,21 @@ export function useWorkspaceController({
   };
 
   const handlePinSession = async (sessionId: string, pinned: boolean) => {
-    await fetch('/api/chats', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: sessionId, pinned: !pinned, surface: 'workspace-tool' }),
-    });
-    setSessions(prev => {
-      const updated = sanitizeWorkspaceToolSessions(prev).map(session => session?.id === sessionId ? { ...session, pinned: !pinned } : session);
-      return [...updated.filter(session => session?.pinned), ...updated.filter(session => !session?.pinned)];
-    });
-    setSessionMenuOpen(null);
+    try {
+      const response = await fetch('/api/chats', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: sessionId, pinned: !pinned, surface: 'workspace-tool' }),
+      });
+      if (!response.ok) {
+        setSelectedSessionInfo(`Could not ${pinned ? 'unpin' : 'pin'} this WorkSpaces session. It has not moved.`);
+        return;
+      }
+      setSessions(prev => sanitizeWorkspaceToolSessions(prev).map(session => session?.id === sessionId ? { ...session, pinned: !pinned } : session));
+      setSessionMenuOpen(null);
+    } catch {
+      setSelectedSessionInfo(`Could not ${pinned ? 'unpin' : 'pin'} this WorkSpaces session. Check your connection and try again.`);
+    }
   };
 
   const handleRenameSession = async (sessionId: string) => {

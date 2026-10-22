@@ -26,7 +26,7 @@ import UwafNetworkPanel from '../UwafNetworkPanel';
 import WorkspaceFilesPanel from '../WorkspaceFilesPanel';
 import type { useWorkspaceController } from '../WorkspaceToolWorkspace';
 import { formatWorkspaceContextUsage, workspaceContextTierTone } from '@/lib/workspace-context-usage';
-import { IMAGE_ATTACHMENT_MODE_OPTIONS,ImageAttachmentMode,SESSION_PAGE_SIZE,ShellOutputEntry,VisibleChatMessageRow,WorkspaceToolMessage,WorkspaceToolSession,formatAutomationTimestamp,formatLoadedUntil,formatTimestamp,getImageAttachmentSummary,getLatestVisibleAssistantMessage,isVisibleMessage,normalizeToolSources,sanitizeWorkspaceToolMessages,sanitizeWorkspaceToolSessions } from './workspace-support';
+import { IMAGE_ATTACHMENT_MODE_OPTIONS,ImageAttachmentMode,PINNED_SESSION_COLLECTION_ID,SESSION_PAGE_SIZE,ShellOutputEntry,VisibleChatMessageRow,WorkspaceToolMessage,WorkspaceToolSession,formatAutomationTimestamp,formatLoadedUntil,formatTimestamp,getImageAttachmentSummary,getLatestVisibleAssistantMessage,isVisibleMessage,matchesWorkspaceSessionCollection,normalizeToolSources,sanitizeWorkspaceToolMessages,sanitizeWorkspaceToolSessions } from './workspace-support';
 export function WorkspaceView({agentPreferences, sessions, currentSession, branchCompareLeftId, currentSessionId, branchCompareRightId, setBranchCompareLeftId, setBranchCompareRightId, selectedFolderId, selectedTagId, sessionListPage, selectedSessionIds, setSessionListPage, selectedModel, modelsLoading, models, provider, favoriteModels, getModelFavoriteKey, ollamaHealth, ollamaHealthLoading, settings, connectionStatus, uncensoredEnabled, unrestrictedEnabled, internetEnabled, ragEnabled, taskState, workspaceContextUsage, effectiveSessionAutoContinueMode, effectiveSessionAutoContinueMaxSteps, persona, userProfile, automationNudges, automationRuns, automationPermissionGranted, automationHeartbeat, automationSchedules, automationMonitors, deferredChatHistory, shellOutput, isStreaming, liveStats, streamPhase, handleBranchFromMessage, handleCopyMessage, canvasArtifactNames, view, accountantEnabled, uwafBrowserEnabled, uwafBrowserMode, isMobileViewport, toggleRightRail, setMobileHeaderMenuOpen, setMobileModelMenuOpen, mobileRailOpen, mobileModelMenuOpen, selectWorkspaceToolModel, toggleFavoriteModel, mobileHeaderMenuOpen, toggleInternetAccess, setRagAccess, toggleUnrestricted, toggleUncensored, toggleAccountant, imageGenerationEnabled, toggleImageGeneration, stopSelectedModel, stoppingModel, railCollapsed, modelMenuButtonRef, setModelMenuOpen, modelMenuOpen, modelControlNote, headerModeMenuOpen, modesMenuButtonRef, setHeaderModeMenuOpen, setRagFolderPopoverOpen, ragFolderPopoverRef, switchUwafBrowserMode, ragFolderButtonRef, ragFolderPath, setRagFolderPath, ragFolderPopoverOpen, setMobileRailOpen, refreshOllamaHealth, lastSubmission, retryLastSubmission, settingsContent, knowledgeBaseContent, chatAreaRef, handleChatScroll, setWorkspaceControlsModalOpen, openAutomationNudgeSession, dismissAutomationNudge, automationSaving, hasMemory, messagesEndRef, showScrollToBottom, scrollToBottom, continuationPending, handleSendMessage, autoContinuePending, handleNewSession, fileInputRef, handleFileSelect, processingAttachments, pendingImages, pendingAttachments, attachmentError, updatePendingImageMode, removePendingImage, removePendingAttachment, setAttachmentError, composerRef, message, setMessage, handleStopStreaming, closeMobileChrome, onNavigateToWorkspace, onNavigateToKnowledgeBase, onNavigateToSettings, onNavigateToCoding, sessionMenuOpen, setSessionMenuOpen, createMenuOpen, setCreateMenuOpen, setSessionSelectionMode, setSelectedSessionIds, setRenamingSessionId, sessionSelectionMode, createMenuButtonRef, setShowNewFolderModal, setShowNewTagModal, setSelectedFolderId, folders, tags, setSelectedTagId, handleClearSelectedSessions, handleClearAllSessions, renamingSessionId, handleRenameSession, renameValue, setRenameValue, toggleSessionSelection, switchSession, sessionMenuButtonRefs, handlePinSession, openBranchCompare, handleCopySession, handleDeleteSession, handleAddToFolder, handleRemoveTagFromSession, handleAddTagToSession, workspaceControlsModalOpen, currentWorkspace, shellGranted, shellEnabled, workspaceSummary, loadWorkspaces, workspaceLoading, setCurrentWorkspaceId, workspaces, updateCurrentWorkspace, newWorkspaceName, setNewWorkspaceName, newWorkspaceDescription, setNewWorkspaceDescription, createWorkspace, creatingWorkspace, workspaceError, chatHistory, updateCurrentThreadMemorySafe, activeAgentMode, setAgentModePanelOpen, agentModePanelOpen, updateAgentPreferences, setResponseStylePanelOpen, responseStylePanelOpen, setDraftSessionAutoContinueMode, persistSessionIntelligenceSafe, setDraftSessionAutoContinueMaxSteps, setTaskStatePanelOpen, taskStatePanelOpen, latestAssistantChecklistSuggestion, replaceChecklistFromLatestAssistant, updateTaskState, addChecklistItem, toggleChecklistItem, updateChecklistItem, removeChecklistItem, setWorkspaceBriefPanelOpen, workspaceBriefPanelOpen, setPersonaPanelOpen, personaPanelOpen, setPersona, saveSettingsPatch, setUserProfilePanelOpen, userProfilePanelOpen, setUserProfile, setShellSettingsOpen, setAutomationPanelOpen, automationPanelOpen, loadAutomationState, automationLoading, automationWorker, automationActionRequired, automationError, saveHeartbeatConfig, setAutomationHeartbeat, toggleAutomationSchedule, deleteAutomationScheduleRecord, newScheduleName, setNewScheduleName, newSchedulePrompt, setNewSchedulePrompt, newScheduleCron, setNewScheduleCron, newScheduleTimezone, setNewScheduleTimezone, newScheduleDeliveryMode, setNewScheduleDeliveryMode, createAutomationScheduleRecord, toggleAutomationMonitor, deleteAutomationMonitorRecord, newMonitorName, setNewMonitorName, newMonitorKind, setNewMonitorKind, newMonitorTriggerMode, setNewMonitorTriggerMode, newMonitorTarget, setNewMonitorTarget, newMonitorIntervalSeconds, setNewMonitorIntervalSeconds, newMonitorExpectedPattern, setNewMonitorExpectedPattern, newMonitorDeliveryMode, setNewMonitorDeliveryMode, createAutomationMonitorRecord, wakeEventTitle, setWakeEventTitle, wakeEventMessage, setWakeEventMessage, wakeEventDeliveryMode, setWakeEventDeliveryMode, createAutomationWakeEventRecord, markAutomationNudgesSeen, setWorkspaceCapabilitiesOpen, workspaceCapabilitiesOpen, filesystemAccessBadge, filesystemWriteBadge, codeSandboxBadge, browserControlBadge, filesystemAccessSummary, filesystemGranted, filesystemEnabled, allowedFilesystemPaths, filesystemWriteSummary, filesystemWriteEnabled, allowedWritablePaths, codeSandboxSummary, codeGranted, codeExecutionEnabled, browserControlSummary, browserGranted, browserEnabled, browserMode, canvasArtifacts, togglePanel, isPanelExpanded, setCanvasArtifacts, deleteArtifactById, loadCanvasArtifacts, canvasSearchQuery, canvasNextCursor, setCanvasSearchQuery, canvasHasMore, canvasLoading, canvasError, canvasTotalCount, workspaceFilesPanelKey, currentWorkspaceId, setWorkspaceFilesError, workspaceFilesError, browserLiveStatus, browserModalOpen, uwafCurrentUrl, uwafCurrentTitle, setBrowserInterrupted, setBrowserLiveStatus, setBrowserModalOpen, browserTakeoverRequestId, configSaving, sessionMessagesLoading, configError, connectionSummary, selectedSessionInfo, showNewFolderModal, newFolderName, setNewFolderName, handleCreateFolder, setNewFolderColor, newFolderColor, showNewTagModal, newTagName, setNewTagName, handleCreateTag, setNewTagColor, newTagColor, branchCompareOpen, setBranchCompareOpen, pendingApproval, handleToolApprove, handleToolReject, shellSettingsOpen, loadSettings, loadShellSettings}: ReturnType<typeof useWorkspaceController>) {
 const activeModeOption = WORKSPACE_TOOL_AGENT_MODE_OPTIONS.find(option => option.id === agentPreferences.mode)
     || WORKSPACE_TOOL_AGENT_MODE_OPTIONS[0];
@@ -69,10 +69,9 @@ useEffect(() => {
     });
   }, [currentSession, currentBranchFamily]);
 
-const filteredSessions = safeSessions.filter(session => {
-    if (selectedFolderId && session.folderId !== selectedFolderId) {
-      return false;
-    }
+const collectionSessions = safeSessions.filter(session => matchesWorkspaceSessionCollection(session, selectedFolderId));
+
+const filteredSessions = collectionSessions.filter(session => {
     if (selectedTagId && !session.tags?.some(tagItem => tagItem?.id === selectedTagId)) {
       return false;
     }
@@ -87,14 +86,18 @@ const sessionPageStart = activeSessionListPage * SESSION_PAGE_SIZE;
 
 const visibleSessions = filteredSessions.slice(sessionPageStart, sessionPageStart + SESSION_PAGE_SIZE);
 
+const unfiledSessionCount = safeSessions.filter(session => matchesWorkspaceSessionCollection(session, null)).length;
+
+const pinnedSessionCount = safeSessions.filter(session => session.pinned).length;
+
 const folderSessionCounts = safeSessions.reduce<Record<string, number>>((accumulator, session) => {
-    if (session.folderId) {
+    if (!session.pinned && session.folderId) {
       accumulator[session.folderId] = (accumulator[session.folderId] || 0) + 1;
     }
     return accumulator;
   }, {});
 
-const tagSessionCounts = safeSessions.reduce<Record<string, number>>((accumulator, session) => {
+const tagSessionCounts = collectionSessions.reduce<Record<string, number>>((accumulator, session) => {
     for (const tagItem of session.tags || []) {
       if (!tagItem?.id) continue;
       accumulator[tagItem.id] = (accumulator[tagItem.id] || 0) + 1;
@@ -1207,7 +1210,9 @@ return (
               className="workspace-tool-pill"
               title={workspaceContextUsage
                 ? `Model-aware context usage: ${Math.round(workspaceContextUsage.occupancy * 100)}% of ${workspaceContextUsage.usableInputTokens.toLocaleString()} usable input tokens; ${workspaceContextUsage.freeTokens.toLocaleString()} remain. WorkSpaces compacts around 72% and applies emergency trimming around 90%.${workspaceContextUsage.contextHealth ? ` Current health: ${workspaceContextUsage.contextHealth}.` : ''}`
-                : 'Reading the selected model context window…'}
+                : currentSessionId
+                  ? 'Context telemetry is temporarily unavailable. This does not interrupt the session.'
+                  : 'Context usage appears after your first saved WorkSpaces turn.'}
               style={{
                 color: workspaceContextUsage
                   ? workspaceContextTierTone(workspaceContextUsage.tier) === 'danger'
@@ -1219,7 +1224,11 @@ return (
                 fontFamily: 'ui-monospace, monospace',
               }}
             >
-              {workspaceContextUsage ? formatWorkspaceContextUsage(workspaceContextUsage) : 'Context: checking…'}
+              {workspaceContextUsage
+                ? formatWorkspaceContextUsage(workspaceContextUsage)
+                : currentSessionId
+                  ? 'Context unavailable'
+                  : 'Context ready'}
             </span>
             {settings?.workspaceToolSessionBranchingEnabled && <span className="workspace-tool-pill">Branches: {branchStatusSummary}</span>}
             {persona.name && <span className="workspace-tool-pill">{persona.name}</span>}
@@ -1640,7 +1649,26 @@ return (
                       cursor: 'pointer',
                     }}
                   >
-                    All {sessions.length}
+                    All {unfiledSessionCount}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedFolderId(selectedFolderId === PINNED_SESSION_COLLECTION_ID ? null : PINNED_SESSION_COLLECTION_ID)}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '3px 8px',
+                      borderRadius: '999px',
+                      border: selectedFolderId === PINNED_SESSION_COLLECTION_ID ? '1px solid var(--accent-primary)' : '1px solid var(--border-color)',
+                      background: selectedFolderId === PINNED_SESSION_COLLECTION_ID ? 'var(--accent-soft)' : 'transparent',
+                      color: selectedFolderId === PINNED_SESSION_COLLECTION_ID ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                      fontSize: '0.68rem',
+                      cursor: 'pointer',
+                    }}
+                    aria-pressed={selectedFolderId === PINNED_SESSION_COLLECTION_ID}
+                  >
+                    <Pin size={10} /><span>Pinned</span><span>{pinnedSessionCount}</span>
                   </button>
                   {folders.map(folder => (
                     <button
@@ -1730,7 +1758,13 @@ return (
                   <div className="workspace-tool-list-scroll">
                     {filteredSessions.length === 0 ? (
                       <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', padding: '8px 4px' }}>
-                        {sessions.length === 0 ? 'No saved WorkSpaces sessions yet.' : 'No sessions match the current folder/tag filters.'}
+                        {sessions.length === 0
+                          ? 'No saved WorkSpaces sessions yet.'
+                          : selectedFolderId === PINNED_SESSION_COLLECTION_ID
+                            ? 'No pinned WorkSpaces sessions match the current tag filter.'
+                            : selectedFolderId
+                              ? 'No unpinned sessions in this folder match the current tag filter.'
+                              : 'No unpinned, unfoldered sessions match the current tag filter.'}
                       </div>
                     ) : visibleSessions.map(session => {
                       const active = session.id === currentSessionId;
@@ -3680,7 +3714,7 @@ return (
                   </button>
                 </div>
                 {isPanelExpanded('canvas') && (
-                  <div style={{ maxHeight: 360, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                  <div style={{ maxHeight: isMobileViewport ? 'min(58dvh, 520px)' : 360, overflowY: 'auto', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
                     <CanvasPanel
                     key={currentSessionId ?? 'draft-canvas'}
                     artifacts={canvasArtifacts}

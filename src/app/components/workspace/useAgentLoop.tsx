@@ -272,7 +272,7 @@ const streamAssistantResponse = async (options: {
     initialSources: MessageSource[];
     persistedMessages: WorkspaceToolMessage[];
     visionImages: WorkspaceVisionImage[];
-  }): Promise<{ assistantMessage: WorkspaceToolMessage; activeSources: MessageSource[]; nativeToolCalls: Array<{ name: string; args: Record<string, unknown> }>; runId: string }> => {
+  }): Promise<{ assistantMessage: WorkspaceToolMessage; activeSources: MessageSource[]; nativeToolCalls: Array<{ name: string; args: Record<string, unknown> }>; runId: string; authoritativeSession: WorkspaceToolSession }> => {
     startTimeRef.current = Date.now();
     tokenCountRef.current = 0;
     setLiveStats({ tps: 0, tokens: 0 });
@@ -501,6 +501,20 @@ const streamAssistantResponse = async (options: {
     const finalLine = streamBuffer.trim();
     if (finalLine) processStreamLine(finalLine);
 
+    // The daemon is the sole executor. Load its saved transcript after the
+    // replay closes so the browser never interprets a replayed tool wrapper as
+    // a new local instruction to execute.
+    const finalRunResponse = await fetch(`/api/workspace-tool/runs/${encodeURIComponent(queuedData.runId)}`, {
+      signal: abortControllerRef.current?.signal,
+      cache: 'no-store',
+    });
+    const finalRunData = await finalRunResponse.json().catch(() => ({})) as { session?: unknown; error?: string };
+    if (!finalRunResponse.ok) throw new Error(finalRunData.error || 'Could not load the completed WorkSpaces run.');
+    const authoritativeSession = normalizeWorkspaceToolSession(finalRunData.session);
+    if (!authoritativeSession) {
+      throw new Error('The WorkSpaces daemon completed this run without a recoverable saved session. The run was not retried locally; reopen the session and inspect its server history.');
+    }
+
     return {
       assistantMessage: {
         id: options.assistantMessageId,
@@ -515,6 +529,7 @@ const streamAssistantResponse = async (options: {
       activeSources,
       nativeToolCalls,
       runId: queuedData.runId,
+      authoritativeSession,
     };
   };
 
@@ -907,7 +922,7 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
           ]);
         }
 
-        const { assistantMessage, activeSources: roundSources, nativeToolCalls: roundNativeToolCalls, runId } = await streamAssistantResponse({
+        const { assistantMessage, activeSources: roundSources, nativeToolCalls: roundNativeToolCalls, runId, authoritativeSession } = await streamAssistantResponse({
           assistantMessageId: nextAssistantId,
           // Compact the bulky bodies of stale tool results before resending so
           // the context window stays lean on long browsing/shell sessions.
@@ -936,6 +951,20 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
 
         currentSources = roundSources;
         durableRunId = runId;
+        if (authoritativeSession) {
+          const authoritativeMessages = sanitizeWorkspaceToolMessages(authoritativeSession.messages);
+          const finalMessage = [...authoritativeMessages]
+            .reverse()
+            .find(candidate => candidate.role === 'assistant' && !candidate.hidden) ?? null;
+          if (!finalMessage) throw new Error('The server completed the run without a final assistant message.');
+          setChatHistory(authoritativeMessages);
+          sessionHistory = authoritativeMessages;
+          finalAssistantMessage = finalMessage;
+          break;
+        }
+        // Compatibility only for an older PeakUI server that has no durable
+        // transcript endpoint. Current deployments always take the branch
+        // above; never downgrade a modern daemon run into browser execution.
       // Native tool calls (phase 1d): when the model used structured
       // tool_calls, build the request directly and skip the wrapper parser +
       // all narration-recovery machinery. This is the path that cannot
@@ -2659,7 +2688,11 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
       abortControllerRef.current = null;
       activeWorkspaceRunIdRef.current = null;
 
-      if (runCompleted && !controller.signal.aborted && effectiveSessionAutoContinueMode === 'safe' && effectiveTaskState.objective.trim()) {
+      // Durable runs already keep their tool loop on the server. Do not queue a
+      // browser timer after one finishes: a refresh would lose it and turn
+      // “safe” continuation into duplicate work. The legacy fallback below is
+      // retained only for older servers that do not return a durable run id.
+      if (!durableRunId && runCompleted && !controller.signal.aborted && effectiveSessionAutoContinueMode === 'safe' && effectiveTaskState.objective.trim()) {
         if (finalAssistantMessage?.toolRequest && autoContinueCountRef.current < effectiveSessionAutoContinueMaxSteps) {
           autoContinueCountRef.current += 1;
           setAutoContinuePending(true);

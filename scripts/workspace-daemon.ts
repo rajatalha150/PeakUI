@@ -5,12 +5,16 @@ import { processQueuedWorkspaceAgentRuns } from '../src/lib/workspace-agent-run'
 
 const bindHost = process.env.WORKSPACE_DAEMON_BIND || '127.0.0.1'
 const port = Number(process.env.WORKSPACE_DAEMON_PORT || '4320')
-const intervalMs = Math.max(5_000, Number(process.env.WORKSPACE_DAEMON_INTERVAL_MS || '30000'))
+// Queue dispatch is lightweight and must not leave an interactive turn parked
+// in “connecting” for half a minute. Long model work is detached by the run
+// scheduler, so this tick remains quick.
+const intervalMs = Math.max(5_000, Number(process.env.WORKSPACE_DAEMON_INTERVAL_MS || '5000'))
 const sharedToken = (process.env.WORKSPACE_DAEMON_TOKEN || '').trim()
 const advisoryLockKey = 2_047_321_119
 
 let stopping = false
-let tickRunning = false
+let workspaceDispatchRunning = false
+let automationTickRunning = false
 let lockClient: Client | null = null
 let tickTimer: ReturnType<typeof setInterval> | null = null
 let server: http.Server | null = null
@@ -42,19 +46,29 @@ async function acquireLease() {
   lockClient = client
 }
 
-async function tick() {
-  if (stopping || tickRunning) return
-  tickRunning = true
-  try {
-    await processQueuedWorkspaceAgentRuns()
-    await runAutomationTick()
-    updateAutomationWorkerSnapshot({ lastError: null })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    updateAutomationWorkerSnapshot({ lastError: message })
-    console.error('[workspace-daemon] tick failed:', message)
-  } finally {
-    tickRunning = false
+function recordTickError(scope: 'workspace dispatch' | 'automation', error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  updateAutomationWorkerSnapshot({ lastError: message })
+  console.error(`[workspace-daemon] ${scope} failed:`, message)
+}
+
+function tick() {
+  if (stopping) return
+  // Interactive dispatch only claims a bounded batch and detaches model work.
+  // Keep it independent from potentially slower monitor/schedule polling.
+  if (!workspaceDispatchRunning) {
+    workspaceDispatchRunning = true
+    void processQueuedWorkspaceAgentRuns()
+      .then(() => updateAutomationWorkerSnapshot({ lastError: null }))
+      .catch(error => recordTickError('workspace dispatch', error))
+      .finally(() => { workspaceDispatchRunning = false })
+  }
+  if (!automationTickRunning) {
+    automationTickRunning = true
+    void runAutomationTick()
+      .then(() => updateAutomationWorkerSnapshot({ lastError: null }))
+      .catch(error => recordTickError('automation', error))
+      .finally(() => { automationTickRunning = false })
   }
 }
 
@@ -70,7 +84,8 @@ function startServer() {
         ...getAutomationWorkerSnapshot(),
         service: 'peakui-workspace-daemon',
         intervalMs,
-        tickRunning,
+        workspaceDispatchRunning,
+        automationTickRunning,
       })
     }
     return sendJson(response, 404, { error: 'Not found' })
@@ -102,8 +117,8 @@ async function main() {
     lastError: null,
   })
   startServer()
-  await tick()
-  tickTimer = setInterval(() => void tick(), intervalMs)
+  tick()
+  tickTimer = setInterval(tick, intervalMs)
 }
 
 process.on('SIGINT', () => void shutdown('SIGINT'))

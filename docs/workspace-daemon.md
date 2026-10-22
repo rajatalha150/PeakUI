@@ -38,6 +38,11 @@ PeakUI app  ---- authenticated status ---->  workspace-daemon
   a refresh. Model output is coalesced into small event chunks while it is
   generated, so the browser can render a live answer instead of waiting for
   the entire turn to finish.
+- Fair dispatch for interactive work. The daemon starts a small bounded batch
+  without waiting for those model calls to finish, admits at most one active
+  run per user, and keeps the scheduler free for automation and new work.
+  Interactive dispatch and monitor/schedule polling use separate lanes, so a
+  slow monitor cannot delay a newly queued chat turn.
 - A health/status endpoint used by the WorkSpaces automation panel.
 - A PostgreSQL advisory lease so only one daemon processes due work, even if a
   deployment is accidentally started twice.
@@ -89,10 +94,26 @@ Linux host networking uses `http://127.0.0.1:4320`. Windows Docker Desktop uses
 `http://workspace-daemon:4320` on the private Compose network. Override
 `WORKSPACE_DAEMON_URL` only when changing the deployment topology.
 
+### Runtime controls
+
+Fresh installers write conservative defaults to `.env`; Compose also supplies
+the same defaults when upgrading an older installation that does not yet have
+these entries.
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `WORKSPACE_DAEMON_INTERVAL_MS` | `5000` | How often the daemon looks for queued work. It is a dispatch interval, not a model timeout. |
+| `WORKSPACE_DAEMON_CONCURRENCY` | `2` | Maximum simultaneous WorkSpaces runs, clamped to 1–4. One user receives at most one active slot. |
+| `WORKSPACE_RUN_EVENT_RETENTION_DAYS` | `7` | Retention period for replay-only frames from terminal runs, clamped to 1–90 days. |
+
+Increase concurrency only after confirming the host has enough RAM for the
+selected models and tool workloads. The saved chat transcript is permanent;
+event retention only removes old reconnect telemetry.
+
 ## Recovery behavior
 
 The daemon runs one tick immediately after acquiring its lease and then polls
-every 30 seconds. If it crashes, Compose restarts it. Due schedules, queued
+every five seconds by default. If it crashes, Compose restarts it. Due schedules, queued
 interactive turns, event frames, and final transcripts remain in PostgreSQL, so
 the next healthy daemon picks them up. A stale running lease is returned to the
 queue after twenty minutes. The event endpoint replays from a sequence cursor
@@ -154,3 +175,24 @@ human approval is recorded as `approval_required` rather than being silently
 approved by a background process; the run posts a clear waiting message and can
 be retried after the user approves or changes the relevant setting. This is the
 intentional boundary between persistence and permission escalation.
+
+## Failure safety and replay
+
+The daemon persists a checkpoint immediately before every real tool execution
+and saves the cleaned conversation after the tool result is recorded. If the
+daemon or host disappears while a tool may have been running, PeakUI does not
+blindly replay that action. The recovered run stops with an actionable message
+that identifies the uncertain step, so the user can inspect the workspace and
+retry only when safe. This protects writes, submissions, generated artifacts,
+and browser actions from accidental duplicates.
+
+Model/network calls that fail while PeakUI itself restarts are re-queued only
+when the run was not cancelled. Stop is durable: the worker checks it between
+model and tool rounds, terminal status cannot be overwritten by retry or normal
+completion, and the session receives a saved stop message. A browser refresh
+only replays the daemon event log and then reads the authoritative saved
+session; it never executes the same tool loop locally.
+
+For bounded storage and context, individual durable tool results are limited to
+24,000 characters with an explicit truncation note. Use the artifact or a
+narrower follow-up query when the full raw payload is needed.

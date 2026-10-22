@@ -103,6 +103,21 @@ export interface WorkspaceToolSession {
   ragSources?: MessageSource[];
 }
 
+/**
+ * A virtual collection, never persisted as a Folder row. It keeps pinned work
+ * separate from both ordinary folders and the unfiled "All" collection.
+ */
+export const PINNED_SESSION_COLLECTION_ID = '__peakui_pinned_sessions__';
+
+export function matchesWorkspaceSessionCollection(
+  session: Pick<WorkspaceToolSession, 'pinned' | 'folderId'>,
+  selectedFolderId: string | null,
+): boolean {
+  if (selectedFolderId === PINNED_SESSION_COLLECTION_ID) return session.pinned;
+  if (selectedFolderId) return !session.pinned && session.folderId === selectedFolderId;
+  return !session.pinned && !session.folderId;
+}
+
 export interface WorkspaceToolWorkspaceRecord {
   id: string;
   slug: string;

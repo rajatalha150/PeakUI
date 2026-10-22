@@ -12,6 +12,18 @@ type JsonRecord = Record<string, unknown>
 const DEFAULT_APP_URL = 'http://127.0.0.1:3000'
 const MAX_TOOL_ROUNDS = 100
 const RUN_TIMEOUT_MS = 15 * 60 * 1000
+const DEFAULT_RUN_CONCURRENCY = 2
+const MAX_DURABLE_TOOL_RESULT_CHARS = 24_000
+const inFlightRunOwners = new Map<string, string>()
+let lastEventPruneAt = 0
+
+type RunCheckpoint = {
+  pendingTool?: {
+    name: string
+    summary: string
+    recordedAt: string
+  }
+}
 
 function encryptionKey() {
   const secret = process.env.JWT_SECRET?.trim()
@@ -92,10 +104,73 @@ async function appendRunEvent(runId: string, sequence: number, payload: JsonReco
   })
 }
 
-async function setRunStatus(runId: string, status: string, extra: JsonRecord = {}) {
-  const terminal = status === 'succeeded' || status === 'failed' || status === 'cancelled' || status === 'waiting_approval'
+async function nextRunSequence(runId: string) {
+  const lastEvent = await prisma.workspaceAgentRunEvent.findFirst({
+    where: { runId },
+    orderBy: { sequence: 'desc' },
+    select: { sequence: true },
+  })
+  return (lastEvent?.sequence ?? 0) + 1
+}
+
+async function appendNextRunEvent(runId: string, payload: JsonRecord) {
+  // Cancellation can arrive while the daemon is appending a progress frame.
+  // Sequence numbers are unique per run, so retry the tiny read/create race
+  // instead of turning a successful Stop request into a 500 response.
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await appendRunEvent(runId, await nextRunSequence(runId), payload)
+      return
+    } catch (error) {
+      const code = error && typeof error === 'object' && 'code' in error ? (error as { code?: unknown }).code : undefined
+      if (code !== 'P2002' || attempt === 2) throw error
+    }
+  }
+}
+
+function requestForStorage(request: JsonRecord, checkpoint?: RunCheckpoint): JsonRecord {
+  const stored = { ...request }
+  delete stored.api_key
+  delete stored.apiKey
+  delete stored.workspace_vision_images
+  delete stored.__peakui_checkpoint
+  if (checkpoint?.pendingTool) stored.__peakui_checkpoint = checkpoint
+  return stored
+}
+
+function readCheckpoint(request: JsonRecord): RunCheckpoint {
+  const raw = request.__peakui_checkpoint
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const pending = (raw as JsonRecord).pendingTool
+  if (!pending || typeof pending !== 'object' || Array.isArray(pending)) return {}
+  const entry = pending as JsonRecord
+  if (typeof entry.name !== 'string' || typeof entry.summary !== 'string') return {}
+  return {
+    pendingTool: {
+      name: entry.name,
+      summary: entry.summary,
+      recordedAt: typeof entry.recordedAt === 'string' ? entry.recordedAt : '',
+    },
+  }
+}
+
+async function persistRunCheckpoint(runId: string, request: JsonRecord, messages: StoredChatMessage[], checkpoint?: RunCheckpoint) {
   await prisma.workspaceAgentRun.update({
     where: { id: runId },
+    data: {
+      requestJson: JSON.stringify(requestForStorage(request, checkpoint)),
+      persistedJson: JSON.stringify(stripTransientAttachmentData(messages)),
+      heartbeatAt: new Date(),
+    },
+  })
+}
+
+async function setRunStatus(runId: string, status: string, extra: JsonRecord = {}) {
+  const terminal = status === 'succeeded' || status === 'failed' || status === 'cancelled' || status === 'waiting_approval'
+  // A cancellation must win a race with a model response or finalization.
+  // Never turn a user-stopped run back into a completed run.
+  await prisma.workspaceAgentRun.updateMany({
+    where: { id: runId, ...(status === 'cancelled' ? {} : { status: { not: 'cancelled' } }) },
     data: {
       status,
       heartbeatAt: new Date(),
@@ -172,6 +247,42 @@ export async function getWorkspaceAgentRunEvents(userId: string, runId: string, 
   return { run, events }
 }
 
+export async function cancelWorkspaceAgentRun(userId: string, runId: string) {
+  const run = await getWorkspaceAgentRun(userId, runId)
+  if (!run) return null
+  if (['succeeded', 'failed', 'cancelled'].includes(run.status)) return run
+
+  const cancelledAt = new Date()
+  const claimed = await prisma.workspaceAgentRun.updateMany({
+    where: { id: run.id, status: { notIn: ['succeeded', 'failed', 'cancelled'] } },
+    data: {
+      status: 'cancelled',
+      completedAt: cancelledAt,
+      heartbeatAt: cancelledAt,
+      error: 'Cancelled by the user.',
+      secretsCiphertext: null,
+    },
+  })
+  if (claimed.count === 0) return prisma.workspaceAgentRun.findUnique({ where: { id: run.id } })
+
+  const cancellation = assistantMessage('Work stopped by the user. No further tools will run for this turn.', crypto.randomUUID())
+  const persisted = JSON.parse(run.persistedJson) as StoredChatMessage[]
+  await finalizeChatSession(userId, {
+    chatId: run.chatId,
+    surface: 'workspace-tool',
+    messageId: cancellation.id,
+    message: cancellation,
+    messages: stripTransientAttachmentData(Array.isArray(persisted) ? persisted : []),
+  })
+  await appendNextRunEvent(run.id, {
+    status: 'cancelled',
+    id: run.chatId,
+    summary: 'Work stopped by the user. The partial turn has been saved.',
+    done: true,
+  })
+  return prisma.workspaceAgentRun.findUnique({ where: { id: run.id } })
+}
+
 function userMessage(content: string): StoredChatMessage {
   return { id: crypto.randomUUID(), role: 'user', content, hidden: true, createdAt: new Date().toISOString() }
 }
@@ -223,7 +334,10 @@ function stripTransientAttachmentData(messages: StoredChatMessage[]) {
 
 function asToolResult(name: string, data: unknown, ok: boolean) {
   const encoded = JSON.stringify(data, null, 2)
-  return `Tool: ${name}\nStatus: ${ok ? 'success' : 'failed'}\n${encoded.slice(0, 240_000)}`
+  const body = encoded.length <= MAX_DURABLE_TOOL_RESULT_CHARS
+    ? encoded
+    : `${encoded.slice(0, MAX_DURABLE_TOOL_RESULT_CHARS)}\n[Tool result truncated in durable context. Inspect the underlying artifact or rerun a narrower query for the full payload.]`
+  return `Tool: ${name}\nStatus: ${ok ? 'success' : 'failed'}\n${body}`
 }
 
 async function userToken(userId: string) {
@@ -452,7 +566,8 @@ async function executeRun(runId: string) {
       select: { sequence: true },
     })
     seq.value = lastEvent?.sequence ?? 0
-    const request = { ...JSON.parse(run.requestJson) as JsonRecord, ...decryptSecrets(run.secretsCiphertext) }
+    let request = { ...JSON.parse(run.requestJson) as JsonRecord, ...decryptSecrets(run.secretsCiphertext) }
+    const checkpoint = readCheckpoint(request)
     const persisted = JSON.parse(run.persistedJson) as StoredChatMessage[]
     const token = await userToken(run.userId)
     const workspaceContext = run.workspaceId
@@ -468,6 +583,7 @@ async function executeRun(runId: string) {
     delete request.workspace_vision_images
     delete request.workspace_vision_user_text
     delete request.main_model_supports_vision
+    delete request.__peakui_checkpoint
     let finalContent = ''
     let finalThinking = ''
     let lastStreamedContent = ''
@@ -478,6 +594,28 @@ async function executeRun(runId: string) {
       status: 'preparing-context',
       summary: 'Loading the workspace, conversation memory, and tool permissions.',
     })
+
+    // A process can disappear after a stateful tool starts but before it can
+    // persist the result. Replaying it would be worse than pausing: it could
+    // submit a form twice, overwrite a file, or create a duplicate artifact.
+    if (checkpoint.pendingTool) {
+      const message = `PeakUI restarted while ${checkpoint.pendingTool.summary} was running. I did not repeat that potentially stateful step automatically. Reopen the session, inspect the result, then retry or continue when it is safe.`
+      const assistant = assistantMessage(message, crypto.randomUUID())
+      await finalizeChatSession(run.userId, {
+        chatId: run.chatId,
+        surface: 'workspace-tool',
+        messageId: assistant.id,
+        message: assistant,
+        messages: stripTransientAttachmentData(savedMessages),
+      })
+      await appendRunEvent(runId, ++seq.value, {
+        status: 'action-required',
+        summary: 'A previous tool step may have completed before the runtime restarted. Review it before retrying.',
+        done: true,
+      })
+      await setRunStatus(runId, 'failed', { error: message, assistantJson: JSON.stringify(assistant) })
+      return
+    }
 
     if (visionImages.length > 0) {
       await appendRunEvent(runId, ++seq.value, {
@@ -594,6 +732,14 @@ async function executeRun(runId: string) {
       })
 
       const toolMessageId = crypto.randomUUID()
+      const pendingCheckpoint: RunCheckpoint = {
+        pendingTool: {
+          name: tool.name,
+          summary: toolProgressSummary(tool),
+          recordedAt: new Date().toISOString(),
+        },
+      }
+      await persistRunCheckpoint(runId, { ...request, messages: conversation }, savedMessages, pendingCheckpoint)
       const result = await executeWorkspaceTool(token, tool, {
         chatId: run.chatId,
         messageId: toolMessageId,
@@ -613,6 +759,8 @@ async function executeRun(runId: string) {
       const toolResult: JsonRecord = { role: 'user', content: resultText, hidden: true }
       conversation.push(toolAssistant, toolResult)
       savedMessages.push({ ...assistantMessage(response.content, toolMessageId, response.thinking), hidden: true }, userMessage(resultText))
+      request = { ...request, messages: conversation }
+      await persistRunCheckpoint(runId, request, savedMessages)
       finalContent = ''
       if (!result.ok && (result.data as JsonRecord).code === 'approval_required') {
         await appendRunEvent(runId, ++seq.value, {
@@ -626,6 +774,8 @@ async function executeRun(runId: string) {
     }
 
     if (!finalContent.trim()) finalContent = 'The WorkSpaces run finished without a final assistant message.'
+    const beforeFinalization = await prisma.workspaceAgentRun.findUnique({ where: { id: runId }, select: { status: true } })
+    if (beforeFinalization?.status === 'cancelled') return
     const assistant = assistantMessage(finalContent, finalId, finalThinking)
     await appendRunEvent(runId, ++seq.value, {
       status: 'finalizing',
@@ -657,8 +807,8 @@ async function executeRun(runId: string) {
     const message = error instanceof Error ? error.message : String(error)
     if (isTransientAppUnavailable(error)) {
       await appendRunEvent(runId, ++seq.value, { status: 'retrying', id: run.chatId, summary: 'PeakUI app is restarting; the daemon will retry this run.' })
-      await prisma.workspaceAgentRun.update({
-        where: { id: runId },
+      await prisma.workspaceAgentRun.updateMany({
+        where: { id: runId, status: { not: 'cancelled' } },
         data: { status: 'queued', startedAt: null, heartbeatAt: null, error: message },
       })
       return
@@ -684,11 +834,67 @@ async function executeRun(runId: string) {
   }
 }
 
+function runConcurrency() {
+  const value = Number(process.env.WORKSPACE_DAEMON_CONCURRENCY || DEFAULT_RUN_CONCURRENCY)
+  return Number.isFinite(value) ? Math.max(1, Math.min(4, Math.floor(value))) : DEFAULT_RUN_CONCURRENCY
+}
+
+async function pruneCompletedRunEvents() {
+  // The final chat transcript is the durable record. Replay frames are only
+  // needed while a user can reconnect to recent work, so retain them for a
+  // bounded window instead of growing PostgreSQL forever.
+  const now = Date.now()
+  if (now - lastEventPruneAt < 60 * 60 * 1000) return
+  lastEventPruneAt = now
+  const retentionDays = Math.max(1, Math.min(90, Number(process.env.WORKSPACE_RUN_EVENT_RETENTION_DAYS || 7) || 7))
+  await prisma.workspaceAgentRunEvent.deleteMany({
+    where: {
+      createdAt: { lt: new Date(now - retentionDays * 24 * 60 * 60 * 1000) },
+      run: { status: { in: ['succeeded', 'failed', 'cancelled', 'waiting_approval'] } },
+    },
+  })
+}
+
+/**
+ * Claim a small, fair batch without waiting for model execution. The daemon can
+ * then keep accepting work and automation ticks while active runs stream.
+ * One run per user prevents a single account from monopolising every slot.
+ */
 export async function processQueuedWorkspaceAgentRuns() {
+  await pruneCompletedRunEvents()
   const staleAt = new Date(Date.now() - 20 * 60 * 1000)
   await prisma.workspaceAgentRun.updateMany({ where: { status: 'running', heartbeatAt: { lt: staleAt } }, data: { status: 'queued', startedAt: null, heartbeatAt: null, error: null } })
-  const queued = await prisma.workspaceAgentRun.findMany({ where: { status: 'queued' }, orderBy: { createdAt: 'asc' }, take: 1, select: { id: true } })
-  if (queued[0]) await executeRun(queued[0].id)
+  const capacity = runConcurrency()
+  const running = await prisma.workspaceAgentRun.findMany({ where: { status: 'running' }, select: { userId: true } })
+  const activeUsers = new Set([...running.map(run => run.userId), ...inFlightRunOwners.values()])
+  const knownDatabaseRuns = running.length
+  const pendingClaims = [...inFlightRunOwners.keys()].length
+  const availableSlots = Math.max(0, capacity - Math.max(knownDatabaseRuns, pendingClaims))
+  if (availableSlots === 0) return
+  const queued = await prisma.workspaceAgentRun.findMany({
+    where: { status: 'queued' },
+    orderBy: { createdAt: 'asc' },
+    take: Math.max(availableSlots * 8, 16),
+    select: { id: true, userId: true },
+  })
+  const selected: string[] = []
+  for (const candidate of queued) {
+    if (activeUsers.has(candidate.userId)) continue
+    activeUsers.add(candidate.userId)
+    selected.push(candidate.id)
+    if (selected.length >= availableSlots) break
+  }
+  for (const runId of selected) {
+    const owner = queued.find(candidate => candidate.id === runId)?.userId
+    if (owner) inFlightRunOwners.set(runId, owner)
+    void executeRun(runId)
+      .catch(error => {
+        console.error(`[workspace-agent-run] unhandled run failure for ${runId}:`, error)
+      })
+      .finally(() => {
+        inFlightRunOwners.delete(runId)
+      })
+  }
 }
 
 export function toWorkspaceAgentRunStatus(run: { id: string; chatId: string; workspaceId: string | null; status: string; model: string; error: string | null; createdAt: Date; startedAt: Date | null; heartbeatAt: Date | null; completedAt: Date | null }): WorkspaceAgentRunStatus {

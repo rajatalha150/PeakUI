@@ -196,6 +196,15 @@ permissions, approvals, and reconnectable output. Browser-only provider keys
 are encrypted with `JWT_SECRET` while queued, and a refreshed WorkSpaces view
 reattaches to the same run instead of starting a duplicate turn.
 
+The daemon dispatches a fair, bounded batch of WorkSpaces runs rather than
+letting one long model/tool turn block everyone else. Before every tool action
+it records a recovery checkpoint; after an interrupted action PeakUI asks for
+review instead of replaying a potentially stateful command. Stop is durable,
+and reconnecting browsers read the server's final transcript rather than
+running a second client-side tool loop. See
+[the WorkSpaces runtime guide](docs/workspace-daemon.md) for recovery rules,
+capacity controls, and retention settings.
+
 ## Core Capabilities
 
 ```mermaid
