@@ -176,6 +176,11 @@ model UserSettings {
   // model); these two add dedicated delegates.
   coderVisionModel         String   @default("")
   coderWriterModel         String   @default("")
+  // Uncensored mode: when true, PeakUI prepends an unrestricted coding
+  // directive to every prompt so the daemon stops applying content/safety
+  // refusals to coding work (security research, exploit PoCs, malware
+  // analysis, etc.). False = the normal Coder brain is untouched.
+  coderUncensored          Boolean  @default(false)
   coderTheme               String   @default("midnight")
   coderThemeAccent         String   @default("")
   user                                            User     @relation(fields: [userId], references: [id], onDelete: Cascade)

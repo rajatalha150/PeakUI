@@ -335,6 +335,29 @@ describe('coder gateway route — response relay', () => {
     expect(forwarded).toEqual({ prompt })
   })
 
+  it('does not prepend the uncensored directive to the prompt (applied via QWEN.md instead)', async () => {
+    // Uncensored mode is folded into the daemon's QWEN.md as system context on
+    // toggle — it must never be injected into the visible prompt, or it would
+    // leak into the chat transcript. Confirm the prompt is forwarded verbatim
+    // even when the setting is on.
+    mocks.getUserSettings.mockResolvedValue({
+      coderWorkspace: '/workspace',
+      coderVisionModel: '',
+      coderWriterModel: '',
+      coderUncensored: true,
+    })
+    let forwarded: unknown
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(url).endsWith('/session/abc/prompt')) forwarded = JSON.parse(String(init?.body))
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } })
+    }))
+    const { POST } = await loadRoute()
+    const prompt = [{ type: 'text', text: 'Write a port scanner' }]
+
+    expect((await POST(makeRequest('/session/abc/prompt', { method: 'POST', body: JSON.stringify({ prompt }) }) as never)).status).toBe(200)
+    expect(forwarded).toEqual({ prompt })
+  })
+
   it('actively clears global delegates for a user with blank role settings', async () => {
     const seen: string[] = []
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {

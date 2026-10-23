@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Coder uncensored mode
+
+The Coding surface now has an **Uncensored mode** toggle (Coding Settings → Uncensored mode) mirroring WorkSpaces' uncensored mode. When enabled, PeakUI folds an unrestricted coding directive into the Coder brain's always-loaded workspace context (`QWEN.md`) as a clearly-delimited section, so the daemon stops applying content/safety refusals to coding work — penetration testing, exploit development, malware analysis, reverse engineering, and other authorized security research — without moralizing or legal disclaimers. The directive reaches the model as *system* context, never as a visible chat message. Off by default, it only changes `QWEN.md` while active; disabled keeps the normal Coder brain (CODER.md + skills + memories) untouched.
+
+- `coderUncensored` setting (Prisma column + `/api/settings`), default `false`.
+- `src/lib/coder-uncensored.ts` — the directive plus pure `applyUncensoredContext` section helpers; `src/lib/coder-uncensored-sync.ts` syncs the section into `/workspace/QWEN.md` via the daemon file API when the toggle changes.
+
 ### Fixed - Coder settings drawer close control
 
 - Added a labeled header and X button to the Coding Settings drawer, matching the Files drawer so it can be closed directly.

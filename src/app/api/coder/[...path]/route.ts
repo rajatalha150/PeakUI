@@ -365,6 +365,9 @@ export async function POST(req: NextRequest) {
     if (orchestrationError) {
       return NextResponse.json({ error: orchestrationError, code: 'orchestration_unavailable' }, { status: 503 })
     }
+    // Uncensored mode is applied as *system* context (a delimited section in the
+    // daemon's QWEN.md) when the toggle is changed in Settings — it is never
+    // prepended to the visible prompt here, so it does not leak into the chat.
     // The daemon owns the live conversation and its native compaction. Adding
     // ledger recall to every prompt makes that note a visible user message,
     // which is then saved back into the ledger and recursively recalled.

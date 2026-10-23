@@ -58,6 +58,7 @@ import {
 import { buildEffectiveWorkspaceToolAccess } from '@/lib/workspace-tool-tool-access';
 import { normalizeTheme } from '@/lib/theme-options';
 import { reindexDocumentsIfModelChanged } from '@/lib/rag-queue';
+import { syncCoderUncensoredContext } from '@/lib/coder-uncensored-sync';
 
 interface SettingsBody {
   chatPlatform?: unknown;
@@ -145,6 +146,7 @@ interface SettingsBody {
   coderToolsEnabled?: unknown;
   coderVisionModel?: unknown;
   coderWriterModel?: unknown;
+  coderUncensored?: unknown;
   coderTheme?: unknown;
   coderThemeAccent?: unknown;
 }
@@ -346,6 +348,9 @@ export async function POST(req: Request) {
     }
     if (body.coderVisionModel !== undefined) data.coderVisionModel = normalizeCoderDelegateModel(body.coderVisionModel);
     if (body.coderWriterModel !== undefined) data.coderWriterModel = normalizeCoderDelegateModel(body.coderWriterModel);
+    if (Object.prototype.hasOwnProperty.call(body, 'coderUncensored')) {
+      data.coderUncensored = normalizeBoolean(body.coderUncensored, DEFAULT_SETTINGS.coderUncensored);
+    }
     if (body.coderTheme !== undefined) data.coderTheme = normalizeCoderTheme(body.coderTheme);
     if (body.coderThemeAccent !== undefined) data.coderThemeAccent = normalizeCoderThemeAccent(body.coderThemeAccent);
     if (body.workspaceToolFavoriteModels !== undefined) {
@@ -372,16 +377,29 @@ export async function POST(req: Request) {
       console.info(`Marked ${reindexResult.triggered} documents for re-indexing after RAG model change.`)
     }
 
+    // Uncensored mode is applied as system context (a delimited section in the
+    // daemon's QWEN.md), not a visible prompt. Sync the context file only when
+    // the toggle itself changed; the save still succeeds either way.
+    let uncensoredSyncError: string | null = null
+    if (Object.prototype.hasOwnProperty.call(body, 'coderUncensored')) {
+      const syncResult = await syncCoderUncensoredContext(normalized.coderUncensored)
+      if (!syncResult.ok) {
+        uncensoredSyncError = syncResult.error || 'Could not apply uncensored mode to the Coder workspace context.'
+        console.error(`[settings] coder uncensored sync failed: ${uncensoredSyncError}`)
+      }
+    }
+
     return NextResponse.json({
       ...normalized,
-      ollamaApiKey: '', // scrubbed
-      firecrawlApiKey: '', // scrubbed
-      coderApiKey: '', // scrubbed
+      ollamaApiKey: '',
+      firecrawlApiKey: '',
+      coderApiKey: '',
       hfToken: '', // scrubbed
       permissions: auth.permissions,
       effectiveToolAccess: buildEffectiveWorkspaceToolAccess(normalized, auth.permissions),
       reindexTriggered: reindexResult.triggered,
       reindexSkipped: reindexResult.skipped,
+      uncensoredSyncError,
     });
   } catch (error) {
     console.error('Settings POST error:', error);

@@ -153,6 +153,7 @@ interface CoderSettings {
   coderToolsEnabled: boolean;
   coderVisionModel: string;
   coderWriterModel: string;
+  coderUncensored: boolean;
   coderTheme: 'midnight' | 'chatgpt' | 'sage';
   coderThemeAccent: string;
 }
@@ -664,6 +665,7 @@ export default function CodingView() {
           coderToolsEnabled: data.coderToolsEnabled !== false,
           coderVisionModel: typeof data.coderVisionModel === 'string' ? data.coderVisionModel : '',
           coderWriterModel: typeof data.coderWriterModel === 'string' ? data.coderWriterModel : '',
+          coderUncensored: data.coderUncensored === true,
           coderTheme: data.coderTheme === 'chatgpt' || data.coderTheme === 'sage' ? data.coderTheme : 'midnight',
           coderThemeAccent: typeof data.coderThemeAccent === 'string' ? data.coderThemeAccent : '',
         };
@@ -3339,6 +3341,27 @@ export default function CodingView() {
                 style={{ width: 34, height: 30, padding: 2, border: `1px solid ${accent}`, borderRadius: 5, background: 'transparent', cursor: 'pointer' }}
               />
               <button onClick={() => void saveSettings({ coderThemeAccent: '' })} style={ghostBtnStyle()} title="Use the selected theme's default accent"><RotateCcw size={13} /></button>
+            </div>
+          </SettingField>
+
+          <SettingField label="Uncensored mode" hint="Removes content and safety refusals from the Coding brain so it writes any requested code — penetration testing, exploit development, malware analysis, reverse engineering, and other authorized security research — without moralizing or disclaimers. Affects the system prompt only while enabled; off keeps the normal Coder brain untouched.">
+            <div role="group" aria-label="Uncensored mode" style={{ display: 'inline-flex', width: 'fit-content', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 6, overflow: 'hidden' }}>
+              <button
+                type="button"
+                onClick={() => void saveSettings({ coderUncensored: false })}
+                aria-pressed={!settings.coderUncensored}
+                style={{ border: 0, borderRadius: 0, padding: '6px 9px', background: !settings.coderUncensored ? `${accent}26` : 'transparent', color: !settings.coderUncensored ? accent : 'rgba(209,213,219,0.65)', fontSize: '0.7rem', cursor: 'pointer' }}
+              >
+                Off
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveSettings({ coderUncensored: true })}
+                aria-pressed={settings.coderUncensored}
+                style={{ border: 0, borderLeft: '1px solid rgba(255,255,255,0.14)', borderRadius: 0, padding: '6px 9px', background: settings.coderUncensored ? `${accent}26` : 'transparent', color: settings.coderUncensored ? accent : 'rgba(209,213,219,0.65)', fontSize: '0.7rem', cursor: 'pointer' }}
+              >
+                On
+              </button>
             </div>
           </SettingField>
 

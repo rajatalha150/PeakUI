@@ -211,6 +211,13 @@ export interface AppSettings {
    * output. Empty = no writer delegation (the main model writes directly).
    */
   coderWriterModel: string
+  /**
+   * Uncensored mode: when true, the Coding surface prepends an unrestricted
+   * coding directive to every prompt so the daemon stops applying content /
+   * safety refusals (security research, exploit PoCs, malware analysis, …).
+   * False = the normal Coder brain is untouched.
+   */
+  coderUncensored: boolean
   coderTheme: CoderTheme
   coderThemeAccent: string
   /**
@@ -316,6 +323,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   coderToolsEnabled: true,
   coderVisionModel: '',
   coderWriterModel: '',
+  coderUncensored: false,
   coderTheme: 'midnight',
   coderThemeAccent: '',
   workspaceToolNativeToolCalls: 'off',
@@ -796,6 +804,7 @@ export function normalizeAppSettings(settings: Partial<Record<keyof AppSettings,
     coderToolsEnabled: normalizeBoolean(settings?.coderToolsEnabled, DEFAULT_SETTINGS.coderToolsEnabled),
     coderVisionModel: normalizeCoderDelegateModel(settings?.coderVisionModel),
     coderWriterModel: normalizeCoderDelegateModel(settings?.coderWriterModel),
+    coderUncensored: normalizeBoolean(settings?.coderUncensored, DEFAULT_SETTINGS.coderUncensored),
     coderTheme: normalizeCoderTheme(settings?.coderTheme),
     coderThemeAccent: normalizeCoderThemeAccent(settings?.coderThemeAccent),
   }
