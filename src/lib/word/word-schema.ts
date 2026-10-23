@@ -267,11 +267,19 @@ export function normalizeWordDocumentInput(input: WordDocumentInput): Normalized
 }
 
 export function wordDocumentHasRenderableContent(document: NormalizedWordDocument): boolean {
+  const sectionHasBody = document.sections.some(section => Boolean(
+    section.body?.trim()
+    || section.bullets?.some(item => item.trim())
+    || section.numbered?.some(item => item.trim())
+    || section.fields?.some(field => field.label.trim() && field.value.trim())
+    || section.tables?.some(table => table.rows.length > 0)
+    || section.callouts?.some(callout => callout.text.trim())
+  ))
   return Boolean(
-    document.content
-    || document.sections.length
-    || document.fields.length
-    || document.tables.length
-    || document.callouts.length
+    document.content.trim()
+    || sectionHasBody
+    || document.fields.some(field => field.label.trim() && field.value.trim())
+    || document.tables.some(table => table.rows.length > 0)
+    || document.callouts.some(callout => callout.text.trim())
   )
 }

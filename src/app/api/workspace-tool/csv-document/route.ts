@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import { createCsvCanvasArtifact } from '@/lib/csv/csv-artifacts'
-import { normalizeCsvDocumentInput, ensureCsvRenderableContent, type CsvDocumentInput } from '@/lib/csv/csv-schema'
+import { normalizeCsvDocumentInput, csvDocumentHasRenderableContent, type CsvDocumentInput } from '@/lib/csv/csv-schema'
 import { renderCsvDocument } from '@/lib/csv/csv-renderer'
+import { assertNonEmptyArtifactBytes, isPlaceholderDocumentText } from '@/lib/document-generation-guard'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -34,9 +35,15 @@ export async function POST(request: NextRequest) {
     if (!sessionId) {
       return NextResponse.json({ error: 'sessionId is required' }, { status: 400 })
     }
-    ensureCsvRenderableContent(normalized)
-
+    if (!csvDocumentHasRenderableContent(normalized) || isPlaceholderDocumentText(normalized.content)) {
+      return NextResponse.json({
+        code: 'ARTIFACT_CONTENT_REQUIRED',
+        error: 'CSV content was a recovery placeholder. Provide real headers and rows or raw CSV content.',
+        retryable: true,
+      }, { status: 422 })
+    }
     const csvBytes = renderCsvDocument(normalized)
+    assertNonEmptyArtifactBytes(csvBytes, 'CSV', 4)
     const sourceContent = JSON.stringify(normalized, null, 2)
 
     const artifact = await prisma.$transaction(tx => createCsvCanvasArtifact({

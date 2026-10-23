@@ -34,6 +34,17 @@ describe('buildNarrationNudgeText — narration with no lastSuccessfulToolReques
   })
 })
 
+describe('buildNarrationNudgeText — document payload integrity', () => {
+  it('requires real document content instead of a title-only recovery call', () => {
+    const text = buildNarrationNudgeText(ctx({
+      proseContent: 'Create a PDF report about the quarterly results.',
+    }))
+    expect(text).toContain('real document content')
+    expect(text).toContain('actual requested content')
+    expect(text).toContain('auto-recovered from prose')
+  })
+})
+
 describe('buildNarrationNudgeText — narration with lastSuccessfulToolRequest', () => {
   it('uses the per-tool wrapper example for non-unified_browser tools', () => {
     const text = buildNarrationNudgeText(

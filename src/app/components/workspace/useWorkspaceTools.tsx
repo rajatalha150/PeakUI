@@ -1,6 +1,7 @@
 import { randomUUID } from '@/lib/uuid';
 import { isWindowsHostPath } from '@/lib/workspace-tool-path-check';
 import { type UwafBrowserToolResultEntry } from '@/lib/workspace-tool-tool-results';
+import { isUsableArtifactRecord } from '@/lib/document-generation-guard';
 import {
 type WorkspaceToolArchiveDocumentToolRequest,
 type WorkspaceToolBrowserToolRequest,
@@ -1058,7 +1059,7 @@ const executeTaxReturnAction = async (
 
       return {
         action: request.action,
-        success: data.success !== false,
+        success: data.success !== false && isUsableArtifactRecord(artifact),
         artifact: artifact
           && typeof artifact.id === 'string'
           && typeof artifact.name === 'string'
@@ -1145,7 +1146,7 @@ const executePdfDocumentAction = async (
         : null;
       return {
         title: request.title,
-        success: data.success !== false,
+        success: data.success !== false && isUsableArtifactRecord(artifact),
         artifact: artifact
           && typeof artifact.id === 'string'
           && typeof artifact.name === 'string'
@@ -1234,7 +1235,7 @@ const executeWorkbookDocumentAction = async (
         : null;
       return {
         title: request.title,
-        success: data.success !== false,
+        success: data.success !== false && isUsableArtifactRecord(artifact),
         artifact: artifact
           && typeof artifact.id === 'string'
           && typeof artifact.name === 'string'
@@ -1317,7 +1318,7 @@ const executeWordDocumentAction = async (
         : null;
       return {
         title: request.title,
-        success: data.success !== false,
+        success: data.success !== false && isUsableArtifactRecord(artifact),
         artifact: artifact
           && typeof artifact.id === 'string'
           && typeof artifact.name === 'string'
@@ -1407,7 +1408,7 @@ const executeCsvDocumentAction = async (
         : null;
       return {
         title: request.title,
-        success: data.success !== false,
+        success: data.success !== false && isUsableArtifactRecord(artifact),
         artifact: artifact
           && typeof artifact.id === 'string'
           && typeof artifact.name === 'string'
@@ -1492,7 +1493,7 @@ const executeEmailDocumentAction = async (
       const title = request.title || request.subject || 'Generated Email';
       return {
         title,
-        success: data.success !== false,
+        success: data.success !== false && isUsableArtifactRecord(artifact),
         artifact: artifact
           && typeof artifact.id === 'string'
           && typeof artifact.name === 'string'
@@ -1575,7 +1576,7 @@ const executeMarkdownDocumentAction = async (
         : null;
       return {
         title: request.title || 'Generated Markdown Document',
-        success: data.success !== false,
+        success: data.success !== false && isUsableArtifactRecord(artifact),
         artifact: artifact
           && typeof artifact.id === 'string'
           && typeof artifact.name === 'string'
@@ -1654,7 +1655,7 @@ const executeSlidesDocumentAction = async (
         : null;
       return {
         title: request.title || 'Generated Slides',
-        success: data.success !== false,
+        success: data.success !== false && isUsableArtifactRecord(artifact),
         artifact: artifact
           && typeof artifact.id === 'string'
           && typeof artifact.name === 'string'
@@ -1735,7 +1736,7 @@ const executeArchiveDocumentAction = async (
         : null;
       return {
         title: request.title || 'Generated Archive',
-        success: data.success !== false,
+        success: data.success !== false && isUsableArtifactRecord(artifact),
         artifact: artifact
           && typeof artifact.id === 'string'
           && typeof artifact.name === 'string'
@@ -1815,7 +1816,7 @@ const executeCalendarDocumentAction = async (
         : null;
       return {
         title: request.title || 'Generated Calendar Event',
-        success: data.success !== false,
+        success: data.success !== false && isUsableArtifactRecord(artifact),
         artifact: artifact
           && typeof artifact.id === 'string'
           && typeof artifact.name === 'string'
@@ -1895,7 +1896,7 @@ const executeMermaidDocumentAction = async (
         : null;
       return {
         title: request.title || 'Generated Diagram',
-        success: data.success !== false,
+        success: data.success !== false && isUsableArtifactRecord(artifact),
         artifact: artifact
           && typeof artifact.id === 'string'
           && typeof artifact.name === 'string'

@@ -7,6 +7,7 @@ import {
   mermaidDocumentHasRenderableContent,
 } from '@/lib/mermaid/mermaid-schema'
 import { renderMermaidDocument } from '@/lib/mermaid/mermaid-renderer'
+import { assertNonEmptyArtifactBytes } from '@/lib/document-generation-guard'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -53,6 +54,7 @@ export async function POST(request: NextRequest) {
     const mimeType = normalized.format === 'png' ? 'image/png' : 'image/svg+xml'
 
     const diagramBytes = await renderMermaidDocument(normalized)
+    assertNonEmptyArtifactBytes(diagramBytes, 'Mermaid diagram', 64)
 
     const artifact = await prisma.$transaction(tx => createMermaidCanvasArtifact({
       tx,

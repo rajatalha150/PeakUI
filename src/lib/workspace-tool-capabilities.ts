@@ -20,7 +20,7 @@ export const WORKSPACE_TOOL_CAPABILITIES: WorkspaceToolCapability[] = [
     toolName: 'pdf_document',
     promptLines: [
       'PDF DOCUMENT CAPABILITY: When the user asks for a downloadable PDF, use the pdf_document tool.',
-      'The full structure is recommended but not required: a title with a simple content string (or just a title and description) is sufficient.',
+      'A title alone is not a valid generation request. Always provide meaningful content, or structured sections/fields/tables/callouts with real values.',
       'For the most beautiful result, model the document with sections, fields, tables, and callouts — each element is styled with color, spacing, and layout, so structured documents render as polished, professional PDFs.',
     ],
     signature: 'pdf_document {"title":"...","content":"...","sections":[{"heading":"...","body":"..."}],"tables":[{"title":"...","columns":["..."],"rows":[{...}]}]}',
@@ -46,7 +46,7 @@ export const WORKSPACE_TOOL_CAPABILITIES: WorkspaceToolCapability[] = [
     promptLines: [
       'EXCEL WORKBOOK CAPABILITY: When the user asks for a downloadable spreadsheet, use the workbook_document tool.',
       'Use sheets, typed columns, and totals for structured data; keep the chat response download-first after the tool succeeds.',
-      'The full structure is recommended but not required: a title with a description (or just a title) is sufficient — a Notes sheet is generated automatically.',
+      'A title alone is not enough. Provide real sheet columns and rows; the runtime rejects recovery placeholders instead of creating a misleading Notes sheet.',
     ],
     signature: 'workbook_document {"title":"...","sheets":[{"name":"...","columns":[{"header":"...","type":"text|number|currency|date"}],"rows":[{...}]}]}',
   },
@@ -58,7 +58,7 @@ export const WORKSPACE_TOOL_CAPABILITIES: WorkspaceToolCapability[] = [
     promptLines: [
       'WORD DOCUMENT CAPABILITY: When the user asks for a downloadable Word document, use the word_document tool.',
       'Use fields for metadata, sections for prose, tables for structured comparisons, and callouts for notes or next steps.',
-      'The full structure is recommended but not required: a title with a simple content string (or just a title and description) is sufficient.',
+      'A title alone is not a valid generation request. Always provide meaningful content, or structured sections/fields/tables/callouts with real values.',
     ],
     signature: 'word_document {"title":"...","content":"...","sections":[{"heading":"...","body":"..."}]}',
   },
@@ -70,7 +70,7 @@ export const WORKSPACE_TOOL_CAPABILITIES: WorkspaceToolCapability[] = [
     promptLines: [
       'CSV EXPORT CAPABILITY: When the user asks for a downloadable CSV spreadsheet, table data export, or structured data in CSV format, use the csv_document tool.',
       'Provide headers and rows, or raw CSV content. The result is a downloadable .csv artifact.',
-      'The full structure is recommended but not required: a title with a description (or just a title) is sufficient — the description becomes the body.',
+      'Provide real headers and rows or raw CSV content. A title-only or recovery-placeholder export is rejected so the downloaded file cannot be empty in practice.',
     ],
     signature: 'csv_document {"title":"...","headers":["..."],"rows":[{...}]}',
   },
@@ -82,7 +82,7 @@ export const WORKSPACE_TOOL_CAPABILITIES: WorkspaceToolCapability[] = [
     promptLines: [
       'EMAIL WRITER CAPABILITY: When the user asks to draft, write, or generate an email message, use the email_document tool.',
       'Include to, from, subject, and a professional plain-text body. The result is a downloadable .eml file that opens in any email client.',
-      'The full structure is recommended but not required: a title with a description (or just a title) is sufficient — the subject and body are derived automatically.',
+      'Include a real subject and professional body. Title-only and recovery-placeholder drafts are rejected instead of being presented as completed email work.',
     ],
     signature: 'email_document {"title":"...","to":"...","subject":"...","body":"..."}',
   },
@@ -94,7 +94,7 @@ export const WORKSPACE_TOOL_CAPABILITIES: WorkspaceToolCapability[] = [
     promptLines: [
       'MARKDOWN DOCUMENT CAPABILITY: When the user asks for a downloadable Markdown file (.md), a markdown version of a document, or a markdown export, use the markdown_document tool.',
       'Provide the full markdown body in the content field. The result is a downloadable .md Canvas artifact with a clickable /api/canvas/artifacts/<id>/download link. Do NOT write markdown files to the filesystem as a workaround.',
-      'The full structure is recommended but not required: a title with a description (or just a title) is sufficient — the description becomes the body, or a title heading is used.',
+      'Provide the full Markdown body in content. Title-only and recovery-placeholder requests are rejected instead of being saved as empty-looking files.',
     ],
     signature: 'markdown_document {"title":"...","content":"..."}',
   },

@@ -83,7 +83,16 @@ interface CanvasPanelProps {
 }
 
 type CanvasRow =
-  | { type: 'bundle'; id: string; label: string; count: number; artifacts: CanvasArtifactRecord[]; collapsed: boolean }
+  | {
+      type: 'family'
+      id: string
+      label: string
+      count: number
+      runCount: number
+      artifacts: CanvasArtifactRecord[]
+      collapsed: boolean
+    }
+  | { type: 'generation'; id: string; label: string; count: number }
   | { type: 'artifact'; artifact: CanvasArtifactRecord }
 
 const actionButtonStyle: React.CSSProperties = {
@@ -176,6 +185,36 @@ function getArtifactTypeLabel(artifact: CanvasArtifactRecord) {
   return artifact.presentationType || artifact.kind || 'File'
 }
 
+function getBundleRoleLabel(role: string): string {
+  const labels: Record<string, string> = {
+    'generated-markdown': 'Generated',
+    'markdown-source': 'Source',
+    'generated-pdf': 'Generated',
+    'pdf-source': 'Source',
+    'generated-word': 'Generated',
+    'word-source': 'Source',
+    'generated-workbook': 'Generated',
+    'workbook-source': 'Source',
+    'generated-csv': 'Generated',
+    'csv-source': 'Source',
+    'generated-email': 'Generated',
+    'email-source': 'Source',
+    'generated-slides': 'Generated',
+    'slides-source': 'Source',
+    'generated-archive': 'Generated',
+    'archive-source': 'Source',
+    'generated-calendar': 'Generated',
+    'calendar-source': 'Source',
+    'generated-mermaid': 'Generated',
+    'mermaid-source': 'Source',
+  }
+  return labels[role] ?? role.replace(/[-_]+/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase())
+}
+
+function getArtifactDisplayName(name: string): string {
+  return name.replace(/---+/g, ' — ')
+}
+
 function usePhoneViewport() {
   const [isPhone, setIsPhone] = React.useState(false)
 
@@ -190,37 +229,82 @@ function usePhoneViewport() {
   return isPhone
 }
 
-function createCanvasRows(artifacts: CanvasArtifactRecord[], collapsedBundleIds: Set<string>): CanvasRow[] {
-  const groups = new Map<string, CanvasArtifactRecord[]>()
+function normalizeBundleLabel(label: string): string {
+  return label.trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+}
+
+function sortNewestFirst(artifacts: CanvasArtifactRecord[]): CanvasArtifactRecord[] {
+  return [...artifacts].sort((left, right) => {
+    const rightTime = Date.parse(right.updatedAt ?? right.createdAt)
+    const leftTime = Date.parse(left.updatedAt ?? left.createdAt)
+    return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0)
+  })
+}
+
+function createCanvasRows(
+  artifacts: CanvasArtifactRecord[],
+  collapsedBundleIds: Set<string>,
+): CanvasRow[] {
+  const groups = new Map<string, { label: string; artifacts: CanvasArtifactRecord[] }>()
   const singles: CanvasArtifactRecord[] = []
 
   for (const artifact of artifacts) {
     if (artifact.bundleId) {
-      const key = artifact.bundleId
-      const next = groups.get(key) ?? []
-      next.push(artifact)
-      groups.set(key, next)
+      // A bundle id is tied to a single generation message. Grouping by the
+      // stable bundle name keeps repeated generations of the same document
+      // together without deleting or hiding their persisted records.
+      const label = artifact.bundleName || artifact.bundleId || 'Artifact bundle'
+      const key = `bundle:${normalizeBundleLabel(label)}`
+      const group = groups.get(key) ?? { label, artifacts: [] }
+      group.artifacts.push(artifact)
+      groups.set(key, group)
       continue
     }
     singles.push(artifact)
   }
 
   const rows: CanvasRow[] = []
-  for (const artifactsInBundle of groups.values()) {
-    const bundleLabel = artifactsInBundle[0]?.bundleName || artifactsInBundle[0]?.bundleId || 'Artifact bundle'
-    const bundleId = artifactsInBundle[0]?.bundleId || bundleLabel
+  for (const [bundleId, group] of groups.entries()) {
+    const artifactsInBundle = sortNewestFirst(group.artifacts)
+    const runGroups = new Map<string, CanvasArtifactRecord[]>()
+    for (const artifact of artifactsInBundle) {
+      const runId = artifact.bundleId ?? artifact.id
+      const run = runGroups.get(runId) ?? []
+      run.push(artifact)
+      runGroups.set(runId, run)
+    }
+    const orderedRuns = Array.from(runGroups.entries()).map(([runId, runArtifacts]) => ({
+      runId,
+      artifacts: sortNewestFirst(runArtifacts),
+    })).sort((left, right) => {
+      const leftTime = Date.parse(left.artifacts[0]?.updatedAt ?? left.artifacts[0]?.createdAt ?? '')
+      const rightTime = Date.parse(right.artifacts[0]?.updatedAt ?? right.artifacts[0]?.createdAt ?? '')
+      return (Number.isFinite(rightTime) ? rightTime : 0) - (Number.isFinite(leftTime) ? leftTime : 0)
+    })
+    const runCount = orderedRuns.length
     const collapsed = collapsedBundleIds.has(bundleId)
     rows.push({
-      type: 'bundle',
+      type: 'family',
       id: bundleId,
-      label: bundleLabel,
+      label: group.label,
       count: artifactsInBundle.length,
+      runCount: Math.max(runCount, 1),
       artifacts: artifactsInBundle,
       collapsed,
     })
     if (collapsed) continue
-    for (const artifact of artifactsInBundle) {
-      rows.push({ type: 'artifact', artifact })
+    for (const [runIndex, run] of orderedRuns.entries()) {
+      if (runCount > 1) {
+        rows.push({
+          type: 'generation',
+          id: `${bundleId}-${run.runId}`,
+          label: runIndex === 0 ? 'Latest generation' : `Generation ${runCount - runIndex}`,
+          count: run.artifacts.length,
+        })
+      }
+      for (const artifact of run.artifacts) {
+        rows.push({ type: 'artifact', artifact })
+      }
     }
   }
 
@@ -344,7 +428,7 @@ function ArtifactCard({
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
         <span className="artifact-badge">{artifact.presentationType}</span>
-        {artifact.bundleRole && <span className="artifact-badge">{artifact.bundleRole}</span>}
+        {artifact.bundleRole && <span className="artifact-badge">{getBundleRoleLabel(artifact.bundleRole)}</span>}
         {artifact.previewSummary && <span className="artifact-badge artifact-badge-subtle">{artifact.previewSummary}</span>}
         {artifact.sourceArtifactId && <span className="artifact-badge artifact-badge-subtle">derived</span>}
         {artifact.derivedArtifactIds && artifact.derivedArtifactIds.length > 0 && (
@@ -575,14 +659,14 @@ function CompactArtifactRow({
       <div style={{ minWidth: 0, flex: 1, display: 'grid', gap: '2px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
           <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {artifact.name}
+            <span title={artifact.name}>{getArtifactDisplayName(artifact.name)}</span>
           </span>
           <span className="artifact-badge" style={{ flexShrink: 0 }}>{getArtifactTypeLabel(artifact)}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0, fontSize: '0.68rem', color: error ? 'var(--danger)' : 'var(--text-secondary)' }}>
           <span>{formatBytes(artifact.size)}</span>
           <span>v{artifact.version}</span>
-          {artifact.bundleRole && <span>{artifact.bundleRole}</span>}
+          {artifact.bundleRole && <span>{getBundleRoleLabel(artifact.bundleRole)}</span>}
           {error && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{error}</span>}
         </div>
       </div>
@@ -778,9 +862,27 @@ export default function CanvasPanel({
   const [searchDraft, setSearchDraft] = React.useState(searchQuery)
   const [previewArtifactId, setPreviewArtifactId] = React.useState<string | null>(null)
   const listScrollRef = React.useRef<HTMLDivElement>(null)
+  const autoCollapsedBundleIdsRef = React.useRef<Set<string>>(new Set())
   const isPhone = usePhoneViewport()
 
   const rows = React.useMemo(() => createCanvasRows(artifacts, collapsedBundleIds), [artifacts, collapsedBundleIds])
+
+  React.useEffect(() => {
+    const bundleIds = rows.filter((row): row is Extract<CanvasRow, { type: 'family' }> => row.type === 'family').map(row => row.id)
+    if (bundleIds.length === 0) return
+    setCollapsedBundleIds(previous => {
+      const next = new Set(previous)
+      let changed = false
+      for (const bundleId of bundleIds) {
+        if (!autoCollapsedBundleIdsRef.current.has(bundleId)) {
+          autoCollapsedBundleIdsRef.current.add(bundleId)
+          next.add(bundleId)
+          changed = true
+        }
+      }
+      return changed ? next : previous
+    })
+  }, [rows])
   const previewArtifact = previewArtifactId
     ? (fullContentMap[previewArtifactId] ?? artifacts.find(artifact => artifact.id === previewArtifactId) ?? null)
     : null
@@ -1101,9 +1203,9 @@ export default function CanvasPanel({
     })
   }, [])
 
-  const downloadBundle = React.useCallback(async (label: string, bundleArtifacts: CanvasArtifactRecord[]) => {
+  const downloadArtifactGroup = React.useCallback(async (label: string, bundleArtifacts: CanvasArtifactRecord[]) => {
     const fullArtifacts = await Promise.all(bundleArtifacts.map(async artifact => await loadFullArtifact(artifact) ?? artifact))
-    const bundle = {
+    const exportPayload = {
       name: label,
       exportedAt: new Date().toISOString(),
       artifacts: fullArtifacts.map(artifact => ({
@@ -1114,10 +1216,10 @@ export default function CanvasPanel({
         content: artifact.content ?? '',
       })),
     }
-    downloadBlob(`${label.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'canvas-bundle'}.json`, new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' }))
+    downloadBlob(`${label.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'canvas-files'}.json`, new Blob([JSON.stringify(exportPayload, null, 2)], { type: 'application/json' }))
   }, [loadFullArtifact])
 
-  const deleteBundle = React.useCallback(async (label: string, bundleArtifacts: CanvasArtifactRecord[]) => {
+  const deleteArtifactGroup = React.useCallback(async (label: string, bundleArtifacts: CanvasArtifactRecord[]) => {
     if (!window.confirm(`Delete ${bundleArtifacts.length} artifact${bundleArtifacts.length === 1 ? '' : 's'} from "${label}"?`)) return
     await Promise.all(bundleArtifacts.map(artifact => handleDelete(artifact.id)))
   }, [handleDelete])
@@ -1186,27 +1288,64 @@ export default function CanvasPanel({
           <VirtualizedList
             items={rows}
             scrollContainerRef={listScrollRef}
-            getItemKey={(row) => row.type === 'bundle' ? `bundle-${row.id}` : row.artifact.id}
-            estimateItemHeight={(row) => row.type === 'bundle' ? 52 : 58}
+            getItemKey={(row) => row.type === 'artifact' ? row.artifact.id : `${row.type}-${row.id}`}
+            estimateItemHeight={(row) => row.type === 'family' ? 70 : row.type === 'generation' ? 32 : 58}
             overscanPx={600}
             renderItem={(row) => {
-        if (row.type === 'bundle') {
+        if (row.type === 'generation') {
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', padding: '8px 6px 5px', color: 'var(--text-secondary)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+              <span>{row.label}</span>
+              <span>{row.count} file{row.count === 1 ? '' : 's'}</span>
+            </div>
+          )
+        }
+
+        if (row.type === 'family') {
           return (
             <div style={{ paddingBottom: '8px', paddingTop: '8px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.76rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', flexWrap: isPhone ? 'wrap' : 'nowrap' }}>
-                <button type="button" onClick={() => toggleBundle(row.id)} style={{ ...actionButtonStyle, textTransform: 'none', letterSpacing: 0 }}>
-                  {row.collapsed ? <ChevronDown size={11} /> : <ChevronUp size={11} />}
-                  <Layers size={11} />
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: isPhone ? '10px' : '10px 12px',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, rgba(255,255,255,0.045), rgba(255,255,255,0.015))',
+                  flexWrap: isPhone ? 'wrap' : 'nowrap',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => toggleBundle(row.id)}
+                  style={{ ...actionButtonStyle, width: 30, height: 30, padding: 0, justifyContent: 'center', textTransform: 'none', letterSpacing: 0 }}
+                  title={row.collapsed ? 'Show files' : 'Hide files'}
+                  aria-label={row.collapsed ? `Show files in ${row.label}` : `Hide files in ${row.label}`}
+                >
+                  {row.collapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
                 </button>
-                <span style={{ flex: '1 1 120px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.label}</span>
-                <span style={{ opacity: 0.7 }}>{row.count} item{row.count === 1 ? '' : 's'}</span>
-                <button type="button" onClick={() => void downloadBundle(row.label, row.artifacts)} style={{ ...actionButtonStyle, textTransform: 'none', letterSpacing: 0, flex: isPhone ? '1 1 120px' : undefined, justifyContent: 'center' }}>
-                  <Download size={11} />
-                  Bundle
-                </button>
-                <button type="button" onClick={() => void deleteBundle(row.label, row.artifacts)} style={{ ...actionButtonStyle, color: 'var(--danger)', textTransform: 'none', letterSpacing: 0 }}>
-                  <Trash2 size={11} />
-                </button>
+                <div style={{ minWidth: 0, flex: '1 1 160px', display: 'grid', gap: '3px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                    <Layers size={13} color="var(--accent-primary)" />
+                    <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {row.label}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', fontSize: '0.68rem', color: 'var(--text-secondary)' }}>
+                    <span>{row.count} file{row.count === 1 ? '' : 's'}</span>
+                    {row.runCount > 1 && <span className="artifact-badge artifact-badge-subtle">{row.runCount} generations</span>}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end', marginLeft: isPhone ? 'auto' : undefined }}>
+                  <button type="button" onClick={() => void downloadArtifactGroup(row.label, row.artifacts)} style={{ ...actionButtonStyle, textTransform: 'none', letterSpacing: 0, width: isPhone ? 30 : undefined, height: 30, padding: isPhone ? 0 : '3px 7px', justifyContent: 'center' }} title="Download all files" aria-label={`Download all files from ${row.label}`}>
+                    <Download size={12} />
+                    {!isPhone && 'Download all'}
+                  </button>
+                  <button type="button" onClick={() => void deleteArtifactGroup(row.label, row.artifacts)} style={{ ...actionButtonStyle, color: 'var(--danger)', textTransform: 'none', letterSpacing: 0, width: 30, height: 30, padding: 0, justifyContent: 'center' }} title="Delete all files" aria-label={`Delete all files from ${row.label}`}>
+                    <Trash2 size={12} />
+                  </button>
+                </div>
               </div>
             </div>
           )
@@ -1236,7 +1375,7 @@ export default function CanvasPanel({
 
       {(hasMore || loading || totalCount !== null) && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', fontSize: '0.74rem', color: 'var(--text-secondary)' }}>
-          <span>{totalCount !== null ? `${artifacts.length} of ${totalCount} loaded` : `${artifacts.length} loaded`}</span>
+          <span>{totalCount !== null ? `${artifacts.length} of ${totalCount} files` : `${artifacts.length} file${artifacts.length === 1 ? '' : 's'}`}</span>
           {hasMore && (
             <button type="button" onClick={() => void onLoadMore?.()} disabled={loading} style={actionButtonStyle}>
               {loading ? <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> : <ChevronDown size={11} />}

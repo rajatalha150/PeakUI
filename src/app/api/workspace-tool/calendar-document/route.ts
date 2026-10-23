@@ -7,6 +7,7 @@ import {
   calendarDocumentHasRenderableContent,
 } from '@/lib/calendar/calendar-schema'
 import { renderCalendarDocument } from '@/lib/calendar/calendar-renderer'
+import { assertNonEmptyArtifactBytes } from '@/lib/document-generation-guard'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -47,6 +48,7 @@ export async function POST(request: NextRequest) {
     }
 
     const calendarBytes = await renderCalendarDocument(normalized)
+    assertNonEmptyArtifactBytes(calendarBytes, 'Calendar', 32)
     const sourceContent = JSON.stringify(normalized, null, 2)
 
     const artifact = await prisma.$transaction(tx => createCalendarCanvasArtifact({

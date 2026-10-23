@@ -8,12 +8,12 @@ Tool guidance used to be written directly into the WorkSpaces prompt. As PeakUI 
 
 ## Current Native Capabilities
 
-- `pdf_document`: Creates downloadable PDF Canvas artifacts. Source-editable. A title alone (optionally with a `description`) is sufficient; the full structure (sections, fields, tables, callouts) is a strong recommendation, not a requirement — and when provided, renders as a themed, per-template professional PDF.
-- `word_document`: Creates downloadable Word DOCX Canvas artifacts. Source-editable. A title alone (optionally with a `description`) is sufficient; the full structure (content, sections, fields, tables, callouts) is a strong recommendation, not a requirement.
-- `workbook_document`: Creates downloadable Excel XLSX Canvas artifacts. Source-editable. A title alone (optionally with a `description`) is sufficient; the full structure (sheets, typed columns, totals) is a strong recommendation, not a requirement — a Notes sheet is synthesized when no sheet has rows.
-- `csv_document`: Creates downloadable CSV Canvas artifacts. A title alone (optionally with a `description`) is sufficient; the full structure (headers, rows, raw content) is a strong recommendation, not a requirement — the description becomes the body when no data is supplied.
-- `email_document`: Creates downloadable `.eml` email draft Canvas artifacts. A title alone (optionally with a `description`) is sufficient; the full structure (to, from, subject, body) is a strong recommendation, not a requirement — the subject and body are derived from the title/description when missing.
-- `markdown_document`: Creates downloadable Markdown `.md` Canvas artifacts. Source-editable. A title alone (optionally with a `description`) is sufficient; the full structure is a strong recommendation, not a requirement — the description becomes the body (or a title heading is used) when no content is supplied.
+- `pdf_document`: Creates downloadable PDF Canvas artifacts. Source-editable. The request must contain meaningful prose or structured sections, fields, tables, or callouts; title-only and recovery-placeholder payloads are rejected. Structured input renders as a themed, per-template professional PDF.
+- `word_document`: Creates downloadable Word DOCX Canvas artifacts. Source-editable. The request must contain meaningful content or structured sections, fields, tables, or callouts; title-only and recovery-placeholder payloads are rejected.
+- `workbook_document`: Creates downloadable Excel XLSX Canvas artifacts. Source-editable. The request must contain real sheet rows and columns; title-only and recovery-placeholder payloads are rejected.
+- `csv_document`: Creates downloadable CSV Canvas artifacts. The request must contain real headers and rows or raw CSV content; title-only and recovery-placeholder payloads are rejected.
+- `email_document`: Creates downloadable `.eml` email draft Canvas artifacts. A real subject and body are required; title-only and recovery-placeholder drafts are rejected.
+- `markdown_document`: Creates downloadable Markdown `.md` Canvas artifacts. Source-editable. A full Markdown body is required; title-only and recovery-placeholder requests are rejected.
 - `slides_document`: Creates downloadable PowerPoint `.pptx` Canvas artifacts.
 - `archive_document`: Creates downloadable `.zip` Canvas artifacts.
 - `calendar_document`: Creates downloadable `.ics` calendar artifacts.

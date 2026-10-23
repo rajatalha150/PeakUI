@@ -569,9 +569,9 @@ describe('synthesizeToolCallFromNarration — capability statements must NOT syn
     expect(r).toBeNull()
   })
 
-  it('still synthesizes a real action "create a PDF report"', () => {
+  it('does not synthesize a title-only document from narrated intent', () => {
     const r = synthesizeToolCallFromNarration('Create a PDF report about the quarterly results.')
-    expect(r?.toolName).toBe('pdf_document')
+    expect(r).toBeNull()
   })
 
   it('does not synthesize from "I am a local-first desktop agent... my capabilities are focused on..."', () => {

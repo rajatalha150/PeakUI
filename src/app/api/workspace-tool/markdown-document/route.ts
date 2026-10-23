@@ -4,10 +4,10 @@ import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import { createMarkdownCanvasArtifact } from '@/lib/markdown/markdown-artifacts'
 import {
   normalizeMarkdownDocumentInput,
-  ensureMarkdownRenderableContent,
   type MarkdownDocumentInput,
 } from '@/lib/markdown/markdown-schema'
 import { renderMarkdownDocument } from '@/lib/markdown/markdown-renderer'
+import { assertNonEmptyArtifactBytes, isPlaceholderDocumentText } from '@/lib/document-generation-guard'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -40,9 +40,15 @@ export async function POST(request: NextRequest) {
     if (!sessionId) {
       return NextResponse.json({ error: 'sessionId is required' }, { status: 400 })
     }
-    ensureMarkdownRenderableContent(normalized)
-
+    if (!normalized.content.trim() || isPlaceholderDocumentText(normalized.content)) {
+      return NextResponse.json({
+        code: 'ARTIFACT_CONTENT_REQUIRED',
+        error: 'Markdown content was a recovery placeholder. Provide actual Markdown content.',
+        retryable: true,
+      }, { status: 422 })
+    }
     const markdownBytes = renderMarkdownDocument(normalized)
+    assertNonEmptyArtifactBytes(markdownBytes, 'Markdown', 3)
     const sourceContent = JSON.stringify(normalized, null, 2)
     const artifact = await prisma.$transaction(tx => createMarkdownCanvasArtifact({
       tx,

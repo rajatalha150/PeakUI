@@ -40,7 +40,7 @@ Required fields:
 
 - `title`: Display title rendered at the top of the PDF.
 
-The full structure is a **strong recommendation, not a requirement**: a title alone (optionally with a `description`) is enough to generate a valid PDF. If only a `description` is supplied, it is promoted to the body content. For the most beautiful result, model the document with `sections`, `fields`, `tables`, and `callouts` — each element is styled with color, spacing, and layout, so structured documents render as polished, professional PDFs.
+The request must contain meaningful content: prose in `content`, or structured `sections`, `fields`, `tables`, or `callouts`. A title alone and recovery strings such as `auto-recovered from prose` are rejected with a retryable error. For the most beautiful result, model the document with `sections`, `fields`, `tables`, and `callouts` — each element is styled with color, spacing, and layout, so structured documents render as polished, professional PDFs.
 
 Optional fields:
 
@@ -104,7 +104,7 @@ Required fields:
 
 - `title`: Document title.
 
-The full structure is a **strong recommendation, not a requirement**: a title alone (optionally with a `description`) is enough to generate a valid DOCX. If only a `description` is supplied, it is promoted to the body content.
+The request must contain meaningful prose or structured content. A title alone and recovery-placeholder text are rejected with a retryable error; use `content`, `sections`, `fields`, `tables`, or `callouts` for a useful DOCX.
 
 Common optional fields:
 
@@ -158,7 +158,7 @@ Required fields:
 
 - `title`: Workbook title.
 
-The full structure is a **strong recommendation, not a requirement**: a title alone (optionally with a `description`) is enough to generate a valid XLSX. When no sheet has rows, a single "Notes" sheet is synthesized from the description (or title) lines so the workbook still opens with something useful.
+Provide real sheet columns and rows. Title-only requests and recovery-placeholder descriptions are rejected instead of being converted into a misleading Notes sheet.
 
 Common optional fields:
 
@@ -205,7 +205,7 @@ Required fields:
 
 - `title`: Document title.
 
-The full structure is a **strong recommendation, not a requirement**: a title alone (optionally with a `description`) is enough to generate a valid CSV. If only a `description` is supplied, it becomes the body; otherwise the title is used as a single cell.
+Provide real headers and rows or raw CSV content. Title-only requests and recovery-placeholder descriptions are rejected so the downloaded CSV represents actual work.
 
 ## Output
 
@@ -249,7 +249,7 @@ Required fields:
 
 - `title`: Document title.
 
-The full structure is a **strong recommendation, not a requirement**: a title alone (optionally with a `description`) is enough to generate a valid `.eml` draft. The subject defaults from the title and the body from the description when either is missing.
+Provide a real subject and body for an `.eml` draft. Title-only and recovery-placeholder bodies are rejected rather than presented as a completed email.
 
 ## Output
 
@@ -290,7 +290,7 @@ Required fields:
 
 - `title`: Document title.
 
-The full structure is a **strong recommendation, not a requirement**: a title alone (optionally with a `description`) is enough to generate a valid `.md` file. If only a `description` is supplied, it becomes the body; otherwise a title heading is used.
+Provide actual Markdown content. Title-only and recovery-placeholder requests are rejected rather than saved as an empty-looking Markdown document.
 
 ## Output
 

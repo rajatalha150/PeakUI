@@ -4,10 +4,11 @@ import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import { createWorkbookCanvasArtifact } from '@/lib/workbook/workbook-artifacts'
 import {
   normalizeWorkbookDocumentInput,
-  ensureWorkbookRenderableContent,
+  workbookHasRenderableContent,
   type WorkbookDocumentInput,
 } from '@/lib/workbook/workbook-schema'
 import { renderWorkbookDocument } from '@/lib/workbook/workbook-renderer'
+import { assertNonEmptyArtifactBytes } from '@/lib/document-generation-guard'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -38,9 +39,15 @@ export async function POST(request: NextRequest) {
     if (!sessionId) {
       return NextResponse.json({ error: 'sessionId is required' }, { status: 400 })
     }
-    ensureWorkbookRenderableContent(normalized)
-
+    if (!workbookHasRenderableContent(normalized)) {
+      return NextResponse.json({
+        code: 'ARTIFACT_CONTENT_REQUIRED',
+        error: 'Workbook content was a recovery placeholder. Provide real columns and rows before generating it.',
+        retryable: true,
+      }, { status: 422 })
+    }
     const workbookBytes = await renderWorkbookDocument(normalized)
+    assertNonEmptyArtifactBytes(workbookBytes, 'Workbook', 128)
     const sourceContent = JSON.stringify(normalized, null, 2)
     const artifact = await prisma.$transaction(tx => createWorkbookCanvasArtifact({
       tx,

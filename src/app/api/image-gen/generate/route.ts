@@ -6,6 +6,7 @@ import { submitComfyUiTxt2Img, submitComfyUiTxt2ImgDiffusers, submitComfyUiTxt2I
 import { createImageCanvasArtifact } from '@/lib/image-gen-artifacts'
 import { resolvePublicOrigin } from '@/lib/request-origin'
 import { stopOllamaModel, listRunningOllamaModels } from '@/lib/ollama-control'
+import { assertNonEmptyArtifactBytes } from '@/lib/document-generation-guard'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -115,6 +116,7 @@ export async function POST(req: NextRequest) {
         const res = await fetch(viewUrl, { signal: AbortSignal.timeout(30_000) })
         if (!res.ok) throw new Error(`ComfyUI /view returned ${res.status}`)
         bytes = Buffer.from(await res.arrayBuffer())
+        assertNonEmptyArtifactBytes(bytes, 'Image', 128)
       } catch (error) {
         console.error('[image-gen/generate] failed to fetch image bytes:', error)
         continue

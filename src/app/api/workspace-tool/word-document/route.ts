@@ -8,6 +8,7 @@ import {
   type WordDocumentInput,
 } from '@/lib/word/word-schema'
 import { renderWordDocument } from '@/lib/word/word-renderer'
+import { assertNonEmptyArtifactBytes, hasMeaningfulDocumentText, isPlaceholderDocumentText } from '@/lib/document-generation-guard'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -38,16 +39,27 @@ export async function POST(request: NextRequest) {
     if (!sessionId) {
       return NextResponse.json({ error: 'sessionId is required' }, { status: 400 })
     }
-    // The full structure (content, sections, fields, tables, callouts) is a
-    // strong recommendation, not a hard requirement. If the model only supplied
-    // a title and/or description, still generate a document rather than failing.
     if (!wordDocumentHasRenderableContent(normalized)) {
-      if (normalized.description) {
+      if (hasMeaningfulDocumentText(normalized.description)) {
         normalized.content = normalized.description
+      } else {
+        return NextResponse.json({
+          code: 'ARTIFACT_CONTENT_REQUIRED',
+          error: 'Word document content is required. Provide prose, sections, fields, tables, or callouts; a title alone is not enough.',
+          retryable: true,
+        }, { status: 422 })
       }
+    }
+    if (isPlaceholderDocumentText(normalized.content)) {
+      return NextResponse.json({
+        code: 'ARTIFACT_CONTENT_REQUIRED',
+        error: 'The Word document content was a recovery placeholder. Regenerate it with the actual requested content.',
+        retryable: true,
+      }, { status: 422 })
     }
 
     const documentBytes = await renderWordDocument(normalized)
+    assertNonEmptyArtifactBytes(documentBytes, 'Word document', 128)
     const sourceContent = JSON.stringify(normalized, null, 2)
     const artifact = await prisma.$transaction(tx => createWordCanvasArtifact({
       tx,

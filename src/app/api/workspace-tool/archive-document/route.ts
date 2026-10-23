@@ -7,6 +7,7 @@ import {
   archiveDocumentHasRenderableContent,
 } from '@/lib/archive/archive-schema'
 import { renderArchiveDocument } from '@/lib/archive/archive-renderer'
+import { assertNonEmptyArtifactBytes } from '@/lib/document-generation-guard'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -46,6 +47,7 @@ export async function POST(request: NextRequest) {
     }
 
     const archiveBytes = await renderArchiveDocument(normalized)
+    assertNonEmptyArtifactBytes(archiveBytes, 'Archive', 32)
     const sourceContent = JSON.stringify(normalized, null, 2)
 
     const artifact = await prisma.$transaction(tx => createArchiveCanvasArtifact({

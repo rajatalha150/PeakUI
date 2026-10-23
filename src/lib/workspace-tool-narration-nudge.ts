@@ -171,15 +171,15 @@ const WRAPPER_EXAMPLES: Readonly<Record<WorkspaceToolName, string>> = {
   fetch_summarize:
     '<workspace_tool name="fetch_summarize">{"url":"<https URL>","description":"<what to summarize>"}</workspace_tool>',
   pdf_document:
-    '<workspace_tool name="pdf_document">{"title":"<document title>","description":"<what the user asked for>","sections":[{"heading":"<section heading>","content":"<paragraph>"}]}</workspace_tool>',
+    '<workspace_tool name="pdf_document">{"title":"<document title>","description":"<what the user asked for>","sections":[{"heading":"<section heading>","body":"<paragraph>"}]}</workspace_tool>',
   workbook_document:
     '<workspace_tool name="workbook_document">{"title":"<workbook title>","description":"<what the user asked for>","sheets":[{"name":"<sheet name>","columns":["<col a>","<col b>"],"rows":[["<row 1a>","<row 1b>"]]}]}</workspace_tool>',
   word_document:
-    '<workspace_tool name="word_document">{"title":"<doc title>","description":"<what the user asked for>","sections":[{"heading":"<heading>","content":"<paragraph>"}]}</workspace_tool>',
+    '<workspace_tool name="word_document">{"title":"<doc title>","description":"<what the user asked for>","sections":[{"heading":"<heading>","body":"<paragraph>"}]}</workspace_tool>',
   csv_document:
-    '<workspace_tool name="csv_document">{"title":"<csv title>","description":"<what the user asked for>","columns":["<col a>","<col b>"],"rows":[["<row 1a>","<row 1b>"]]}</workspace_tool>',
+    '<workspace_tool name="csv_document">{"title":"<csv title>","description":"<what the user asked for>","headers":["<col a>","<col b>"],"rows":[["<row 1a>","<row 1b>"]]}</workspace_tool>',
   email_document:
-    '<workspace_tool name="email_document">{"subject":"<email subject>","description":"<what the user asked for>","body":"<email body>","to":["<recipient@example.com>"]}</workspace_tool>',
+    '<workspace_tool name="email_document">{"subject":"<email subject>","description":"<what the user asked for>","body":"<email body>","to":"<recipient@example.com>"}</workspace_tool>',
   markdown_document:
     '<workspace_tool name="markdown_document">{"title":"<doc title>","description":"<what the user asked for>","content":"# <heading>\\n\\n<markdown body>"}</workspace_tool>',
   slides_document:
@@ -254,6 +254,17 @@ Re-emit your intended call in that exact form (TOOL_NAME is one of the registere
 export function buildNarrationNudgeText(ctx: NarrationNudgeContext): string {
   if (ctx.invalidToolBlock) {
     return GENERIC_INVALID_TEXT
+  }
+
+  // A document action needs content, not just a narrated intention. Keep this
+  // branch before the generic example so recovery asks for a complete payload
+  // instead of repeating a title-only call with a fake description.
+  if (/\b(?:creat(?:e|ing)|generat(?:e|ing)|build(?:ing)?|mak(?:e|ing)|render(?:ing)?|produc(?:e|ing)|writ(?:e|ing))\s+(?:a\s+|the\s+)?(?:new\s+)?(?:pdf|excel|spreadsheet|word|docx|document|deck|slides|presentation|csv)\b/i.test(ctx.proseContent)) {
+    return `Your last response described creating a document but did not provide a complete tool payload. Emit exactly ONE <workspace_tool> wrapper now with the real document content from the user's actual requested content, not a title-only placeholder.
+
+For PDF or Word, include meaningful prose or sections with section bodies. For Excel or CSV, include headers/columns and at least one real data row. For slides, include complete slides with titles and bullets. For a diagram, include the actual Mermaid source. Never use "auto-recovered from prose" or any other placeholder as document content.
+
+If the user's request does not contain enough facts to create the document faithfully, ask one concise clarification question instead of generating an empty artifact. If it does, perform the tool call now and do not narrate before it.`
   }
 
   const hintTool = ctx.lastSuccessfulToolRequest?.name as WorkspaceToolName | undefined

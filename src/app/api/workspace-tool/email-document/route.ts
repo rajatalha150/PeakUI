@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import { createEmailCanvasArtifact } from '@/lib/email/email-artifacts'
-import { normalizeEmailDocumentInput, ensureEmailRenderableContent, type EmailDocumentInput } from '@/lib/email/email-schema'
+import { normalizeEmailDocumentInput, emailDocumentHasRenderableContent, type EmailDocumentInput } from '@/lib/email/email-schema'
 import { renderEmailDocument } from '@/lib/email/email-renderer'
+import { assertNonEmptyArtifactBytes, isPlaceholderDocumentText } from '@/lib/document-generation-guard'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -36,9 +37,15 @@ export async function POST(request: NextRequest) {
     if (!sessionId) {
       return NextResponse.json({ error: 'sessionId is required' }, { status: 400 })
     }
-    ensureEmailRenderableContent(normalized)
-
+    if (!emailDocumentHasRenderableContent(normalized) || isPlaceholderDocumentText(normalized.body)) {
+      return NextResponse.json({
+        code: 'ARTIFACT_CONTENT_REQUIRED',
+        error: 'Email content was a recovery placeholder. Provide a real subject and body.',
+        retryable: true,
+      }, { status: 422 })
+    }
     const emlBytes = renderEmailDocument(normalized)
+    assertNonEmptyArtifactBytes(emlBytes, 'Email', 32)
     const sourceContent = JSON.stringify(normalized, null, 2)
 
     const artifact = await prisma.$transaction(tx => createEmailCanvasArtifact({

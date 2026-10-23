@@ -7,6 +7,7 @@ import {
   slidesDocumentHasRenderableContent,
 } from '@/lib/slides/slides-schema'
 import { renderSlidesDocument } from '@/lib/slides/slides-renderer'
+import { assertNonEmptyArtifactBytes } from '@/lib/document-generation-guard'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -50,6 +51,7 @@ export async function POST(request: NextRequest) {
     }
 
     const slidesBytes = await renderSlidesDocument(normalized)
+    assertNonEmptyArtifactBytes(slidesBytes, 'Slide deck', 128)
     const sourceContent = JSON.stringify(normalized, null, 2)
 
     const artifact = await prisma.$transaction(tx => createSlidesCanvasArtifact({

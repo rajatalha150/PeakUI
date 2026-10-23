@@ -997,36 +997,10 @@ function parseToolIntentFromProse(content: string): WorkspaceToolRequest | undef
     }
   }
 
-  const docCreate = cleaned.match(/\b(?:creat(?:e|ing)|generat(?:e|ing)|build(?:ing)?|mak(?:e|ing)|render(?:ing)?|produc(?:e|ing)|writ(?:e|ing))\s+(?:a\s+|the\s+)?(?:new\s+)?(PDF|pdf|Excel|excel|spreadsheet|Word|word|docx|document|deck|slides|presentation|CSV|csv)/i)
-  if (docCreate) {
-    const kind = docCreate[1].toLowerCase()
-    const quoted = cleaned.match(/["“”']([^"“”'\n]+)["“”']/)
-    let title = quoted ? quoted[1].trim() : cleaned.replace(/^[^a-zA-Z]+/, '').trim()
-    title = title.split(/[.!?]/)[0].replace(/^(?:create|generate|build|make|render|produce|write)\s+/i, '').trim()
-    if (!title || title.length > 200) title = 'Generated Document'
-    const toolMap: Record<string, WorkspaceToolRequest['name']> = {
-      pdf: 'pdf_document', excel: 'workbook_document', spreadsheet: 'workbook_document',
-      word: 'word_document', docx: 'word_document', document: 'word_document',
-      deck: 'slides_document', slides: 'slides_document', presentation: 'slides_document',
-      csv: 'csv_document',
-    }
-    const name = toolMap[kind]
-    if (name) {
-      const slide: SlidesDocumentInput = {
-        title,
-        description: 'auto-recovered from prose',
-        slides: [{ layout: 'title', title }],
-      }
-      const requestByName: Record<string, WorkspaceToolRequest> = {
-        pdf_document: { name: 'pdf_document', request: { title, description: 'auto-recovered from prose' } },
-        workbook_document: { name: 'workbook_document', request: { title, description: 'auto-recovered from prose', sheets: [{ name: 'Sheet1', columns: [{ header: 'A' }], rows: [] }] } },
-        word_document: { name: 'word_document', request: { title, description: 'auto-recovered from prose' } },
-        csv_document: { name: 'csv_document', request: { title, description: 'auto-recovered from prose', headers: [], rows: [] } },
-        slides_document: { name: 'slides_document', request: slide },
-      }
-      return requestByName[name]
-    }
-  }
+  // Do not infer a document payload from a sentence such as "I will create a
+  // PDF". The previous fallback emitted empty sections and a literal recovery
+  // string, which looked like a successful document to both the user and the
+  // model. The narration-recovery loop will ask for a complete payload.
 
   return undefined
 }
@@ -1453,9 +1427,8 @@ export function extractWorkspaceToolRequest(content: string): {
 
       const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
       const contentText = typeof parsed.content === 'string' ? parsed.content.trim() : ''
-      // The full structure is a strong recommendation, not a requirement: a
-      // title alone (optionally with a description) is enough to generate a
-      // PDF. The route falls back to the description as body content.
+      // Parsing accepts the complete request shape; the server route enforces
+      // meaningful content before it creates a Canvas artifact.
       if (!title) {
         return { cleanedContent: stripAllToolTags(content) }
       }
@@ -1496,9 +1469,8 @@ export function extractWorkspaceToolRequest(content: string): {
 
       const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
       const sheets = Array.isArray(parsed.sheets) ? parsed.sheets.slice(0, 20) : []
-      // The full structure is a strong recommendation, not a requirement: a
-      // title alone (optionally with a description) is enough to generate a
-      // workbook. The route synthesizes a Notes sheet when none has rows.
+      // Keep parsing permissive so the model receives a structured retry error;
+      // the server rejects title-only and recovery-placeholder workbooks.
       if (!title) {
         return { cleanedContent: stripAllToolTags(content) }
       }
@@ -1531,9 +1503,8 @@ export function extractWorkspaceToolRequest(content: string): {
 
       const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
       const contentText = typeof parsed.content === 'string' ? parsed.content.trim() : ''
-      // The full structure is a strong recommendation, not a requirement: a
-      // title alone (optionally with a description) is enough to generate a
-      // document. The route falls back to the description as body content.
+      // Parsing accepts the complete request shape; the server route enforces
+      // meaningful content before it creates a Canvas artifact.
       if (!title) {
         return { cleanedContent: stripAllToolTags(content) }
       }
@@ -1575,9 +1546,8 @@ export function extractWorkspaceToolRequest(content: string): {
       const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
       const contentText = typeof parsed.content === 'string' ? parsed.content.trim() : ''
       const rows = Array.isArray(parsed.rows) ? parsed.rows : undefined
-      // The full structure is a strong recommendation, not a requirement: a
-      // title alone (optionally with a description) is enough to generate a
-      // CSV. The route falls back to the description as the body.
+      // Parsing accepts the complete request shape; the server route enforces
+      // real rows or raw CSV content before it creates a Canvas artifact.
       if (!title) {
         return { cleanedContent: stripAllToolTags(content) }
       }
@@ -1612,10 +1582,8 @@ export function extractWorkspaceToolRequest(content: string): {
       const body = typeof parsed.body === 'string' ? parsed.body.trim() : ''
       const title = typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim() : ''
       const description = typeof parsed.description === 'string' && parsed.description.trim() ? parsed.description.trim() : ''
-      // The full structure is a strong recommendation, not a requirement: a
-      // title alone (optionally with a description) is enough to generate an
-      // email draft. The route defaults the subject from the title and the
-      // body from the description.
+      // Parsing accepts partial fields so the server can return a structured
+      // content-required error instead of silently saving a placeholder draft.
       if (!subject && !body && !title && !description) {
         return { cleanedContent: stripAllToolTags(content) }
       }
@@ -1652,10 +1620,8 @@ export function extractWorkspaceToolRequest(content: string): {
 
       const title = typeof parsed.title === 'string' ? parsed.title.trim() : ''
       const contentText = typeof parsed.content === 'string' ? parsed.content.trim() : ''
-      // The full structure is a strong recommendation, not a requirement: a
-      // title alone (optionally with a description) is enough to generate a
-      // markdown file. The route falls back to the description as the body,
-      // then to a title heading.
+      // The server requires actual Markdown content before creating the file;
+      // keep parsing permissive so the model can recover from a clear error.
       if (!title) {
         return { cleanedContent: stripAllToolTags(content) }
       }

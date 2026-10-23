@@ -46,6 +46,16 @@ const N = (description: string): NativeToolParameterProperty => ({ type: 'number
 const B = (description: string): NativeToolParameterProperty => ({ type: 'boolean', description })
 const Obj = (description: string): NativeToolParameterProperty => ({ type: 'object', description })
 const StrArr = (description: string): NativeToolParameterProperty => ({ type: 'array', description, items: { type: 'string' } })
+const ObjArr = (description: string, properties: Record<string, unknown>): NativeToolParameterProperty => ({
+  type: 'array',
+  description,
+  items: { type: 'object', properties },
+})
+const StrMatrix = (description: string): NativeToolParameterProperty => ({
+  type: 'array',
+  description,
+  items: { type: 'array', items: { type: 'string' } },
+})
 
 /**
  * Per-tool schemas. `required` lists the fields the dispatcher genuinely needs;
@@ -196,7 +206,7 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
     type: 'function',
     function: {
       name: 'pdf_document',
-      description: 'Generate a downloadable PDF. Use ONLY when the user explicitly asks to create/export/save a PDF — never to answer questions or demonstrate capabilities.',
+      description: 'Generate a downloadable PDF. Use ONLY when the user explicitly asks to create/export/save a PDF. Include meaningful content or structured sections; title-only calls are rejected.',
       parameters: {
         type: 'object',
         properties: {
@@ -204,7 +214,10 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
           content: S('Plain-text body (simple documents).'),
           filename: S('Optional output filename.'),
           subtitle: S('Optional subtitle.'),
-          sections: StrArr('Optional section headings (use full structure via content when richer layout is needed).'),
+          sections: ObjArr('Structured sections with real bodies, bullets, fields, tables, or callouts.', { heading: S('Section heading.'), body: S('Section body prose.'), bullets: StrArr('Bullet items.') }),
+          fields: ObjArr('Label/value fields.', { label: S('Field label.'), value: S('Field value.') }),
+          tables: ObjArr('Tables with real rows.', { title: S('Table title.'), columns: StrArr('Column names.'), rows: { type: 'array', description: 'Rows keyed by column name.', items: { type: 'object' } } }),
+          callouts: ObjArr('Important notes.', { title: S('Callout title.'), text: S('Callout text.'), tone: SEnum('Callout tone.', 'note', 'warning', 'success') }),
           description: S('What the document is for.'),
         },
         required: ['title'],
@@ -215,12 +228,13 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
     type: 'function',
     function: {
       name: 'workbook_document',
-      description: 'Generate a downloadable Excel workbook. Use ONLY on an explicit create/export/save request.',
+      description: 'Generate a downloadable Excel workbook. Use ONLY on an explicit create/export/save request. Include real sheets with columns and rows; title-only calls are rejected.',
       parameters: {
         type: 'object',
         properties: {
           title: S('Workbook title.'),
           description: S('What the workbook is for.'),
+          sheets: ObjArr('Sheets with real tabular rows.', { name: S('Sheet name.'), columns: ObjArr('Typed columns.', { header: S('Column header.'), type: SEnum('Column type.', 'text', 'number', 'currency', 'date', 'boolean') }), rows: { type: 'array', description: 'Rows keyed by column header.', items: { type: 'object' } } }),
         },
         required: ['title'],
       },
@@ -230,12 +244,15 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
     type: 'function',
     function: {
       name: 'word_document',
-      description: 'Generate a downloadable Word (.docx) document. Use ONLY on an explicit create/export/save request.',
+      description: 'Generate a downloadable Word (.docx) document. Use ONLY on an explicit create/export/save request. Include meaningful content or structured sections; title-only calls are rejected.',
       parameters: {
         type: 'object',
         properties: {
           title: S('Document title.'),
           description: S('What the document is for.'),
+          content: S('Meaningful plain-text body.'),
+          sections: ObjArr('Sections with real bodies.', { heading: S('Section heading.'), body: S('Section body prose.'), bullets: StrArr('Bullet items.') }),
+          tables: ObjArr('Tables with real rows.', { title: S('Table title.'), columns: StrArr('Column names.'), rows: { type: 'array', description: 'Rows keyed by column name.', items: { type: 'object' } } }),
         },
         required: ['title'],
       },
@@ -245,12 +262,15 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
     type: 'function',
     function: {
       name: 'csv_document',
-      description: 'Generate a downloadable CSV file. Use ONLY on an explicit create/export/save request.',
+      description: 'Generate a downloadable CSV file. Use ONLY on an explicit create/export/save request. Include headers and real rows or raw CSV content; title-only calls are rejected.',
       parameters: {
         type: 'object',
         properties: {
           title: S('File title / basename.'),
           description: S('What the CSV contains.'),
+          headers: StrArr('Column headers.'),
+          rows: StrMatrix('Rows of CSV values.'),
+          content: S('Raw CSV content including a header row.'),
         },
         required: ['title'],
       },
@@ -260,12 +280,16 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
     type: 'function',
     function: {
       name: 'email_document',
-      description: 'Draft an email (.eml) for the user to send. Use ONLY on an explicit request.',
+      description: 'Draft an email (.eml) for the user to send. Use ONLY on an explicit request. Include a real subject and body; title-only calls are rejected.',
       parameters: {
         type: 'object',
         properties: {
           title: S('Email subject.'),
           description: S('Who it is to and what it should say.'),
+          to: S('Recipient address or comma-separated recipients.'),
+          from: S('Optional sender address.'),
+          subject: S('Email subject.'),
+          body: S('Complete email body.'),
         },
         required: ['title'],
       },
@@ -275,12 +299,13 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
     type: 'function',
     function: {
       name: 'markdown_document',
-      description: 'Generate a downloadable Markdown (.md) file. Use ONLY on an explicit create/export/save request.',
+      description: 'Generate a downloadable Markdown (.md) file. Use ONLY on an explicit create/export/save request. Include the full Markdown body; title-only calls are rejected.',
       parameters: {
         type: 'object',
         properties: {
           title: S('Document title.'),
           description: S('What the file contains.'),
+          content: S('Full Markdown body.'),
         },
         required: ['title'],
       },
@@ -290,12 +315,13 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
     type: 'function',
     function: {
       name: 'slides_document',
-      description: 'Generate a downloadable slide deck (.pptx). Use ONLY on an explicit create/export/save request.',
+      description: 'Generate a downloadable slide deck (.pptx). Use ONLY on an explicit create/export/save request. Include complete slides with real titles and content.',
       parameters: {
         type: 'object',
         properties: {
           title: S('Deck title.'),
           description: S('What the deck covers.'),
+          slides: ObjArr('Complete slides.', { layout: S('Slide layout.'), title: S('Slide title.'), bullets: StrArr('Bullet content.'), body: S('Slide body.') }),
         },
         required: ['title'],
       },
@@ -305,12 +331,13 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
     type: 'function',
     function: {
       name: 'archive_document',
-      description: 'Bundle workspace files into a downloadable ZIP archive. Use ONLY on an explicit request.',
+      description: 'Bundle workspace files into a downloadable ZIP archive. Use ONLY on an explicit request. Include one or more real entries with content.',
       parameters: {
         type: 'object',
         properties: {
           title: S('Archive basename.'),
           description: S('Which files to include.'),
+          entries: ObjArr('Files to include.', { name: S('Archive path.'), mimeType: S('MIME type.'), content: S('UTF-8 file content.') }),
         },
         required: ['title'],
       },
@@ -320,12 +347,13 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
     type: 'function',
     function: {
       name: 'calendar_document',
-      description: 'Generate a downloadable calendar event (.ics). Use ONLY on an explicit request.',
+      description: 'Generate a downloadable calendar event (.ics). Use ONLY on an explicit request. Include one or more complete events.',
       parameters: {
         type: 'object',
         properties: {
           title: S('Event title.'),
           description: S('When and what the event is.'),
+          events: ObjArr('Complete calendar events.', { uid: S('Stable event id.'), title: S('Event title.'), start: S('ISO 8601 start.'), end: S('ISO 8601 end.'), location: S('Optional location.') }),
         },
         required: ['title'],
       },
@@ -335,12 +363,14 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
     type: 'function',
     function: {
       name: 'mermaid_document',
-      description: 'Render a Mermaid diagram (flowchart, sequence, ER) as a downloadable artifact. Use ONLY on an explicit request.',
+      description: 'Render a Mermaid diagram (flowchart, sequence, ER) as a downloadable artifact. Use ONLY on an explicit request. Include the actual Mermaid source.',
       parameters: {
         type: 'object',
         properties: {
           title: S('Diagram title.'),
           description: S('What the diagram should show.'),
+          diagram: S('Mermaid source, e.g. graph TD; A-->B.'),
+          format: SEnum('Output format.', 'svg', 'png'),
         },
         required: ['title'],
       },
