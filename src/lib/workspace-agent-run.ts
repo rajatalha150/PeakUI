@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { prisma } from './prisma'
 import { signToken } from './auth'
 import { extractWorkspaceToolRequest, buildWorkspaceToolRequestFromNativeCall, type WorkspaceToolRequest } from './workspace-tool-tools'
+import { executeWorkspaceTool, setWorkspaceToolTransport } from './workspace-tool-dispatch'
 import { finalizeChatSession, type StoredChatMessage } from './chat-sessions'
 import { getWorkspaceToolWorkspaceContext } from './workspace-tool-project-workspaces'
 import { getWorkspaceToolWorkspaceContainerRoot, getWorkspaceToolWorkspaceHostRoot } from './workspace-tool-workspace'
@@ -9,6 +10,12 @@ import { analyzeWorkspaceImagesForUser, normalizeWorkspaceVisionImages } from '.
 import type { ServerStreamStatus } from './stream-status'
 
 type JsonRecord = Record<string, unknown>
+
+// Bridge the extracted pure dispatcher (workspace-tool-dispatch.ts) to this
+// module's real app-API transport, so durable runs keep the same auth, error,
+// and retry semantics while the dispatcher stays unit-testable.
+setWorkspaceToolTransport(callAppApi)
+
 
 const DEFAULT_APP_URL = 'http://127.0.0.1:3000'
 const MAX_TOOL_ROUNDS = 100
@@ -358,99 +365,6 @@ async function callAppApi(token: string, path: string, body: JsonRecord) {
   return { ok: response.ok, status: response.status, data }
 }
 
-async function callApprovedTool(token: string, requestPath: string, executePath: string, request: JsonRecord, run: { chatId: string; messageId: string }) {
-  const payload = { ...request, sessionId: run.chatId, messageId: run.messageId }
-  const decision = await callAppApi(token, requestPath, payload)
-  if (!decision.ok || (decision.data as JsonRecord).requiresApproval) {
-    const data = decision.data as JsonRecord
-    return {
-      ok: false,
-      data: { error: data.error || data.reason || 'This tool requires approval while the tab is closed. Reopen the session and approve it.', code: 'approval_required' },
-    }
-  }
-  if ((decision.data as JsonRecord).autoApproved === true) {
-    const approvalToken = typeof (decision.data as JsonRecord).approvalToken === 'string'
-      ? { approvalToken: (decision.data as JsonRecord).approvalToken }
-      : {}
-    return callAppApi(token, executePath, { ...payload, ...approvalToken })
-  }
-  return decision
-}
-
-export async function executeWorkspaceTool(token: string, request: WorkspaceToolRequest, run: { chatId: string; messageId: string; workspaceRelativePath?: string }) {
-  const originalBody = request.request as unknown as JsonRecord
-  const body = { ...originalBody }
-  switch (request.name) {
-    case 'web': return callAppApi(token, '/api/web/context', { query: body.query })
-    case 'filesystem': {
-      // Anchor filesystem writes into the selected workspace: a bare relative
-      // path from the model would otherwise be rejected by the filesystem tool
-      // with a suggestion pointing at the SHARED parent root — and files there
-      // are invisible in the user's file tree. Prefix relative paths with the
-      // active workspace's host path instead.
-      if (run.workspaceRelativePath && typeof body.path === 'string' && body.path.trim()
-        && !body.path.startsWith('/') && !body.path.startsWith('~') && !/^[A-Za-z]:[\\/]/.test(body.path)) {
-        body.path = `${getWorkspaceToolWorkspaceHostRoot()}/${run.workspaceRelativePath.replace(/\/+$/, '')}/${body.path.replace(/^\/+/, '')}`
-      }
-      if (body.action === 'write' || body.action === 'append' || body.action === 'mkdir') {
-        return callApprovedTool(token, '/api/workspace-tool/filesystem/request', '/api/workspace-tool/filesystem', body, run)
-      }
-      return callAppApi(token, '/api/workspace-tool/filesystem', body)
-    }
-    case 'shell': {
-      // Anchor shell into the selected workspace: when the model did not pass
-      // an explicit cwd, default it to the active workspace's container path so
-      // relative commands (mkdir x, touch y, git clone …) land inside the
-      // workspace the user has selected — not the shared parent root, where
-      // files are invisible in the file tree. The container path is translated
-      // back to the host path by the host executor when the target is host.
-      if (run.workspaceRelativePath && (typeof body.cwd !== 'string' || !body.cwd.trim())) {
-        body.cwd = `${getWorkspaceToolWorkspaceContainerRoot()}/${run.workspaceRelativePath.replace(/^\/+/, '')}`
-      }
-      return callApprovedTool(token, '/api/workspace-tool/shell/request', '/api/workspace-tool/shell/execute', body, run)
-    }
-    case 'code': {
-      const requestedPath = typeof body.workspacePath === 'string' ? body.workspacePath.trim() : ''
-      if (run.workspaceRelativePath && (!requestedPath || (!requestedPath.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(requestedPath)))) {
-        body.workspacePath = requestedPath
-          ? `${run.workspaceRelativePath.replace(/\/+$/, '')}/${requestedPath.replace(/^\/+/, '')}`
-          : run.workspaceRelativePath
-      }
-      return callApprovedTool(token, '/api/workspace-tool/code/request', '/api/workspace-tool/code', body, run)
-    }
-    case 'browser': {
-      if (body.action === 'submit') return callApprovedTool(token, '/api/workspace-tool/browser/request', '/api/workspace-tool/browser', body, run)
-      return callAppApi(token, '/api/workspace-tool/browser', { ...body, sessionId: run.chatId })
-    }
-    case 'unified_browser': {
-      if (body.action === 'submit' || body.action === 'research_batch') {
-        return callApprovedTool(token, '/api/workspace-tool/uwaf-browser/request', '/api/workspace-tool/uwaf-browser', body, run)
-      }
-      if (body.action === 'wait_for_user') return { ok: false, data: { error: 'Human browser assistance requires the browser to remain open.', code: 'human_assistance_required' } }
-      return callAppApi(token, '/api/workspace-tool/uwaf-browser', { ...body, sessionId: run.chatId })
-    }
-    case 'fetch_summarize': return callAppApi(token, '/api/workspace-tool/fetch-summarize', body)
-    case 'image_generation': return callAppApi(token, '/api/image-gen/generate', { ...body, sessionId: run.chatId, messageId: run.messageId })
-    case 'notes_search':
-    case 'notes_save': return callAppApi(token, '/api/workspace-tool/notes', { action: request.name === 'notes_search' ? 'search' : 'save', ...body })
-    case 'http_request': return callAppApi(token, '/api/workspace-tool/http-request', body)
-    case 'spreadsheet_query':
-    case 'calendar_query': return callAppApi(token, '/api/workspace-tool/data-query', { action: request.name === 'spreadsheet_query' ? 'spreadsheet' : 'calendar', ...body })
-    case 'tax_return': return callAppApi(token, '/api/workspace-tool/tax', { ...body, sessionId: run.chatId, messageId: run.messageId })
-    case 'pdf_document': return callAppApi(token, '/api/workspace-tool/pdf-document', { ...body, sessionId: run.chatId, messageId: run.messageId })
-    case 'workbook_document': return callAppApi(token, '/api/workspace-tool/workbook-document', { ...body, sessionId: run.chatId, messageId: run.messageId })
-    case 'word_document': return callAppApi(token, '/api/workspace-tool/word-document', { ...body, sessionId: run.chatId, messageId: run.messageId })
-    case 'csv_document': return callAppApi(token, '/api/workspace-tool/csv-document', { ...body, sessionId: run.chatId, messageId: run.messageId })
-    case 'email_document': return callAppApi(token, '/api/workspace-tool/email-document', { ...body, sessionId: run.chatId, messageId: run.messageId })
-    case 'markdown_document': return callAppApi(token, '/api/workspace-tool/markdown-document', { ...body, sessionId: run.chatId, messageId: run.messageId })
-    case 'slides_document': return callAppApi(token, '/api/workspace-tool/slides-document', { ...body, sessionId: run.chatId, messageId: run.messageId })
-    case 'archive_document': return callAppApi(token, '/api/workspace-tool/archive-document', { ...body, sessionId: run.chatId, messageId: run.messageId })
-    case 'calendar_document': return callAppApi(token, '/api/workspace-tool/calendar-document', { ...body, sessionId: run.chatId, messageId: run.messageId })
-    case 'mermaid_document': return callAppApi(token, '/api/workspace-tool/mermaid-document', { ...body, sessionId: run.chatId, messageId: run.messageId })
-    default: return { ok: false, status: 400, data: { error: `Unsupported WorkSpaces tool: ${(request as { name: string }).name}` } }
-  }
-}
-
 function toolProgressStatus(name: string): ServerStreamStatus {
   if (name === 'shell') return 'tool-shell'
   if (name === 'code') return 'tool-code'
@@ -765,6 +679,7 @@ async function executeRun(runId: string) {
         chatId: run.chatId,
         messageId: toolMessageId,
         workspaceRelativePath: workspaceContext?.workspace.relativePath,
+        workspaceId: run.workspaceId,
       })
       const afterToolRun = await prisma.workspaceAgentRun.findUnique({ where: { id: runId }, select: { status: true } })
       if (afterToolRun?.status === 'cancelled') return

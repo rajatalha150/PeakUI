@@ -5,6 +5,7 @@ import { createPdfCanvasArtifact } from '@/lib/pdf/pdf-artifacts'
 import { normalizePdfDocumentInput, pdfDocumentHasRenderableContent, type PdfDocumentInput } from '@/lib/pdf/document-schema'
 import { renderPdfDocument } from '@/lib/pdf/simple-pdf'
 import { assertNonEmptyArtifactBytes, hasMeaningfulDocumentText, isPlaceholderDocumentText } from '@/lib/document-generation-guard'
+import { deliverDocumentToWorkspace } from '@/lib/workspace-document-delivery'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -61,6 +62,18 @@ export async function POST(request: NextRequest) {
     assertNonEmptyArtifactBytes(pdfBytes, 'PDF', 64)
     const sourceContent = JSON.stringify(normalized, null, 2)
 
+    // Deliver the PDF into the selected workspace so it appears in the Files
+    // panel — the Canvas artifact alone left the file tree empty and the model
+    // hallucinated "it's in your workspace". Best-effort: never fails the tool.
+    const workspaceId = typeof body?.workspaceId === 'string' ? body.workspaceId : null
+    const delivery = await deliverDocumentToWorkspace({
+      userId: access.userId,
+      sessionId,
+      workspaceId,
+      filename: filename.endsWith('.pdf') ? filename : `${filename}.pdf`,
+      bytes: pdfBytes,
+    })
+
     const artifact = await prisma.$transaction(tx => createPdfCanvasArtifact({
       tx,
       userId: access.userId,
@@ -89,6 +102,9 @@ export async function POST(request: NextRequest) {
         size: artifact.size,
         downloadUrl: `/api/canvas/artifacts/${artifact.id}/download`,
       },
+      ...(delivery.ok && delivery.hostPath
+        ? { workspaceFile: { path: delivery.hostPath, note: 'The file was also saved into the selected workspace and is visible in the Files panel.' } }
+        : { workspaceFileError: delivery.error || 'The file could not be saved into the workspace; use the download link.' }),
     })
   } catch (error) {
     console.error('[workspace-tool/pdf-document] POST error:', error)

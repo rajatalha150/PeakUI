@@ -8,6 +8,7 @@ import {
 } from '@/lib/archive/archive-schema'
 import { renderArchiveDocument } from '@/lib/archive/archive-renderer'
 import { assertNonEmptyArtifactBytes } from '@/lib/document-generation-guard'
+import { deliverDocumentToWorkspace } from '@/lib/workspace-document-delivery'
 
 export const runtime = 'nodejs'
 export const maxDuration = 60
@@ -50,7 +51,19 @@ export async function POST(request: NextRequest) {
     assertNonEmptyArtifactBytes(archiveBytes, 'Archive', 32)
     const sourceContent = JSON.stringify(normalized, null, 2)
 
-    const artifact = await prisma.$transaction(tx => createArchiveCanvasArtifact({
+    
+    // Deliver the file into the selected workspace so it appears in the Files
+    // panel — the Canvas artifact alone left the file tree empty. Best-effort.
+    const workspaceId = typeof body?.workspaceId === 'string' ? body.workspaceId : null
+    const delivery = await deliverDocumentToWorkspace({
+      userId: access.userId,
+      sessionId,
+      workspaceId,
+      filename: filename.toLowerCase().endsWith('.zip') ? filename : `${filename}.zip`,
+      bytes: archiveBytes,
+    })
+
+const artifact = await prisma.$transaction(tx => createArchiveCanvasArtifact({
       tx,
       userId: access.userId,
       sessionId,
@@ -78,6 +91,9 @@ export async function POST(request: NextRequest) {
         size: artifact.size,
         downloadUrl: `/api/canvas/artifacts/${artifact.id}/download`,
       },
+      ...(delivery.ok && delivery.hostPath
+        ? { workspaceFile: { path: delivery.hostPath, note: 'The file was also saved into the selected workspace and is visible in the Files panel.' } }
+        : { workspaceFileError: delivery.error || 'The file could not be saved into the workspace; use the download link.' }),
     })
   } catch (error) {
     console.error('[workspace-tool/archive-document] POST error:', error)

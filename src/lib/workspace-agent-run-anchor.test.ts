@@ -1,14 +1,17 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { executeWorkspaceTool } from './workspace-agent-run'
+import { deliverDocumentToWorkspace } from './workspace-document-delivery'
 import type { WorkspaceToolRequest } from './workspace-tool-tools'
+import { executeWorkspaceTool, setWorkspaceToolTransport } from './workspace-tool-dispatch'
 
 /**
  * Workspace anchoring regression: the daemon must steer shell and filesystem
  * writes into the SELECTED workspace, never the shared parent root — files at
  * the parent root exist on disk but are invisible in the user's file tree.
+ * Document tools must additionally deliver the generated file into the
+ * selected workspace, not only create a Canvas artifact.
  */
 
-const RUN = { chatId: 'chat-1', messageId: 'msg-1', workspaceRelativePath: 'users/u1/workspaces/default-2' }
+const RUN = { chatId: 'chat-1', messageId: 'msg-1', workspaceRelativePath: 'users/u1/workspaces/default-2', workspaceId: 'ws-1' }
 
 let posted: Array<{ path: string; body: Record<string, unknown> }> = []
 
@@ -18,21 +21,19 @@ function tool(name: string, request: Record<string, unknown>): WorkspaceToolRequ
 
 beforeEach(() => {
   posted = []
-  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-    posted.push({ path: String(url).replace('http://127.0.0.1:3000', ''), body: JSON.parse(String(init?.body ?? '{}')) })
-    return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } })
-  }))
+  setWorkspaceToolTransport(async (_token, path, body) => {
+    posted.push({ path, body })
+    return { ok: true, status: 200, data: { ok: true } }
+  })
 })
 
 afterEach(() => {
-  vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
 
 describe('executeWorkspaceTool — workspace anchoring', () => {
   it('defaults shell cwd to the selected workspace container path', async () => {
     await executeWorkspaceTool('t', tool('shell', { command: 'mkdir report && touch report/a.md' }), RUN)
-    expect(posted.length).toBeGreaterThan(0)
     const execute = posted.find(call => call.path === '/api/workspace-tool/shell/execute')
       ?? posted.find(call => call.path === '/api/workspace-tool/shell/request')
     expect(execute).toBeTruthy()
@@ -67,5 +68,33 @@ describe('executeWorkspaceTool — workspace anchoring', () => {
     const execute = posted.find(call => call.path === '/api/workspace-tool/shell/execute')
       ?? posted.find(call => call.path === '/api/workspace-tool/shell/request')
     expect(execute!.body.cwd).toBeUndefined()
+  })
+
+  it('forwards workspaceId to document tools so delivery targets the selected workspace', async () => {
+    await executeWorkspaceTool('t', tool('pdf_document', { title: 'Report', content: 'x' }), RUN)
+    const call = posted.find(c => c.path === '/api/workspace-tool/pdf-document')
+    expect(call).toBeTruthy()
+    expect(call!.body.workspaceId).toBe('ws-1')
+    expect(call!.body.sessionId).toBe('chat-1')
+  })
+
+  it('forwards workspaceId to every document tool', async () => {
+    for (const name of ['word_document', 'workbook_document', 'csv_document', 'markdown_document', 'slides_document', 'archive_document', 'calendar_document', 'email_document', 'mermaid_document']) {
+      posted = []
+      await executeWorkspaceTool('t', tool(name, { title: 'Report' }), RUN)
+      const call = posted.find(c => c.body.workspaceId === 'ws-1')
+      expect(call, name).toBeTruthy()
+    }
+  })
+})
+
+describe('deliverDocumentToWorkspace', () => {
+  it('reports a clean error when workspace resolution fails', async () => {
+    const result = await deliverDocumentToWorkspace({
+      userId: 'u1', sessionId: 's1', workspaceId: 'missing-ws',
+      filename: 'test.pdf', bytes: Buffer.from('x'),
+    })
+    expect(result.ok).toBe(false)
+    expect(result.error).toBeTruthy()
   })
 })
