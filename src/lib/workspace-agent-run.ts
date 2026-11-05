@@ -4,6 +4,7 @@ import { signToken } from './auth'
 import { extractWorkspaceToolRequest, buildWorkspaceToolRequestFromNativeCall, type WorkspaceToolRequest } from './workspace-tool-tools'
 import { finalizeChatSession, type StoredChatMessage } from './chat-sessions'
 import { getWorkspaceToolWorkspaceContext } from './workspace-tool-project-workspaces'
+import { getWorkspaceToolWorkspaceContainerRoot, getWorkspaceToolWorkspaceHostRoot } from './workspace-tool-workspace'
 import { analyzeWorkspaceImagesForUser, normalizeWorkspaceVisionImages } from './workspace-vision-server'
 import type { ServerStreamStatus } from './stream-status'
 
@@ -376,18 +377,38 @@ async function callApprovedTool(token: string, requestPath: string, executePath:
   return decision
 }
 
-async function executeWorkspaceTool(token: string, request: WorkspaceToolRequest, run: { chatId: string; messageId: string; workspaceRelativePath?: string }) {
+export async function executeWorkspaceTool(token: string, request: WorkspaceToolRequest, run: { chatId: string; messageId: string; workspaceRelativePath?: string }) {
   const originalBody = request.request as unknown as JsonRecord
   const body = { ...originalBody }
   switch (request.name) {
     case 'web': return callAppApi(token, '/api/web/context', { query: body.query })
     case 'filesystem': {
+      // Anchor filesystem writes into the selected workspace: a bare relative
+      // path from the model would otherwise be rejected by the filesystem tool
+      // with a suggestion pointing at the SHARED parent root — and files there
+      // are invisible in the user's file tree. Prefix relative paths with the
+      // active workspace's host path instead.
+      if (run.workspaceRelativePath && typeof body.path === 'string' && body.path.trim()
+        && !body.path.startsWith('/') && !body.path.startsWith('~') && !/^[A-Za-z]:[\\/]/.test(body.path)) {
+        body.path = `${getWorkspaceToolWorkspaceHostRoot()}/${run.workspaceRelativePath.replace(/\/+$/, '')}/${body.path.replace(/^\/+/, '')}`
+      }
       if (body.action === 'write' || body.action === 'append' || body.action === 'mkdir') {
         return callApprovedTool(token, '/api/workspace-tool/filesystem/request', '/api/workspace-tool/filesystem', body, run)
       }
       return callAppApi(token, '/api/workspace-tool/filesystem', body)
     }
-    case 'shell': return callApprovedTool(token, '/api/workspace-tool/shell/request', '/api/workspace-tool/shell/execute', body, run)
+    case 'shell': {
+      // Anchor shell into the selected workspace: when the model did not pass
+      // an explicit cwd, default it to the active workspace's container path so
+      // relative commands (mkdir x, touch y, git clone …) land inside the
+      // workspace the user has selected — not the shared parent root, where
+      // files are invisible in the file tree. The container path is translated
+      // back to the host path by the host executor when the target is host.
+      if (run.workspaceRelativePath && (typeof body.cwd !== 'string' || !body.cwd.trim())) {
+        body.cwd = `${getWorkspaceToolWorkspaceContainerRoot()}/${run.workspaceRelativePath.replace(/^\/+/, '')}`
+      }
+      return callApprovedTool(token, '/api/workspace-tool/shell/request', '/api/workspace-tool/shell/execute', body, run)
+    }
     case 'code': {
       const requestedPath = typeof body.workspacePath === 'string' ? body.workspacePath.trim() : ''
       if (run.workspaceRelativePath && (!requestedPath || (!requestedPath.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(requestedPath)))) {

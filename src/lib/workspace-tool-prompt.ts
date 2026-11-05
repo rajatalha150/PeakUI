@@ -377,9 +377,11 @@ export function buildWorkspaceToolSystemPrompt(context: WorkspaceToolPromptConte
         shellTarget === 'host'
           ? `Host shell commands are constrained by approval rules, timeouts, output caps, and approved working-directory roots. The managed WorkSpaces workspace is available at ${getWorkspaceToolWorkspaceHostRoot()}.`
           : 'Do not use shell for host file or directory inspection when the filesystem tool can do the job. Container paths may differ from host paths such as /home or /tmp.',
-        shellTarget === 'host'
-          ? `When you need the shared workspace, prefer ${getWorkspaceToolWorkspaceHostRoot()}.`
-          : `The managed WorkSpaces workspace is available to shell at ${getWorkspaceToolWorkspaceHostRoot()} (host-style alias) and ${getWorkspaceToolWorkspaceContainerRoot()} (container path).`,
+        workspace
+          ? `FILE PLACEMENT: The active selected workspace is ${workspace.name} at ${workspace.hostPath} (managed relative path: ${workspace.relativePath}). ALWAYS run file-creating commands (mkdir, touch, tee, cp, mv, git clone, npm create, redirects like > and >>) with this workspace directory as the target — for example cd ${workspace.hostPath} first, or use absolute paths under it. NEVER write files to ${getWorkspaceToolWorkspaceHostRoot()} or any other directory: files outside the selected workspace are invisible in the user's file tree.`
+          : shellTarget === 'host'
+            ? `When you need the shared workspace, prefer ${getWorkspaceToolWorkspaceHostRoot()}.`
+            : `The managed WorkSpaces workspace is available to shell at ${getWorkspaceToolWorkspaceHostRoot()} (host-style alias) and ${getWorkspaceToolWorkspaceContainerRoot()} (container path).`,
         'Do not treat the PeakUI application/runtime directory as the user workspace. Only inspect PeakUI app source when the user explicitly asks to debug or modify PeakUI itself.',
         'Prefer plain commands without unnecessary pipes or redirection. Shell operators such as &&, |, or 2>&1 disable auto-approval and usually are not needed for simple checks.',
         'When you need to run a command, explain what it does and why it is needed, then end your response with exactly one shell tool block.',

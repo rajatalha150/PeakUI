@@ -293,12 +293,11 @@ export function diagnoseWorkspaceToolFilesystemRequest(
   // the root-approval check rejects them as outside_approved_writable_roots.
   const looksRelative = !requestedPath.startsWith('/') && !requestedPath.startsWith('~')
   if (looksRelative) {
-    const workspaceRoot = getWorkspaceToolWorkspaceHostRoot()
     return {
       allowed: false,
       code: 'invalid_path',
       message: `Bare relative paths are not accepted by the filesystem tool: ${requestedPath}`,
-      actionRequired: `Use an absolute host path under an approved writable root, for example ${workspaceRoot}/${requestedPath.replace(/^\/+/, '')} or ${getWorkspaceToolWorkspaceHostRoot()}/${requestedPath.replace(/^\/+/, '')}.`,
+      actionRequired: `Use an absolute host path under the active workspace's approved writable root — for example the selected workspace directory plus this relative path.`,
       requestedPath,
     }
   }
