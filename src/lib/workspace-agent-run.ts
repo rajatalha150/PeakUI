@@ -385,6 +385,52 @@ function toolProgressSummary(request: WorkspaceToolRequest) {
   return normalized ? `${label}: ${normalized}` : `Running ${label}.`
 }
 
+/**
+ * Transient upstream hiccups that are worth retrying without losing the run:
+ * ollama.com's hosted backend occasionally 500s mid-stream ("Internal Server
+ * Error (ref: <uuid>)") and Docker networking can flap with ECONNRESET /
+ * ERR_NETWORK_CHANGED. The conversation state at this point is durable (tool
+ * results are already checkpointed), so a retry just re-sends the same round —
+ * safe and deterministic.
+ */
+function isTransientModelError(message: string): boolean {
+  return /ECONNRESET|ECONNREFUSED|ETIMEDOUT|ERR_NETWORK_CHANGED|socket hang up|fetch failed|network/i.test(message)
+    || /internal server error/i.test(message)
+    || /\(ref: [0-9a-f-]{8,}\)/i.test(message)
+    || /\b5\d\d\b.*\b(server|upstream|gateway)\b/i.test(message)
+}
+
+/** Exported for tests: transient upstream errors that are safe to retry. */
+export const isRetryableModelStreamError = isTransientModelError
+
+async function readModelRoundWithRetry(
+  token: string,
+  request: JsonRecord,
+  runId: string,
+  sequence: { value: number },
+  appendEvent: (payload: JsonRecord) => Promise<void>,
+): Promise<Awaited<ReturnType<typeof readModelRound>>> {
+  const MAX_ATTEMPTS = 3
+  let lastError: unknown
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await readModelRound(token, request, runId, sequence)
+    } catch (error) {
+      lastError = error
+      const message = error instanceof Error ? error.message : String(error)
+      const currentRun = await prisma.workspaceAgentRun.findUnique({ where: { id: runId }, select: { status: true } })
+      if (currentRun?.status === 'cancelled') throw error
+      if (attempt >= MAX_ATTEMPTS || !isTransientModelError(message)) throw error
+      await appendEvent({
+        status: 'retrying',
+        summary: `The model stream was interrupted upstream (${message.slice(0, 140)}). Retrying round ${attempt}/${MAX_ATTEMPTS - 1} without losing progress.`,
+      })
+      await new Promise(resolve => setTimeout(resolve, 1500 * attempt))
+    }
+  }
+  throw lastError
+}
+
 async function readModelRound(token: string, request: JsonRecord, runId: string, sequence: { value: number }) {
   const response = await fetch(`${appUrl()}/api/chat/completions`, {
     method: 'POST',
@@ -638,7 +684,9 @@ async function executeRun(runId: string) {
           ? 'Reviewing your request and deciding whether tools are needed.'
           : `Reviewing the latest tool result and planning round ${round + 1}.`,
       })
-      const response = await readModelRound(token, roundRequest, runId, seq)
+      const response = await readModelRoundWithRetry(token, roundRequest, runId, seq, async (payload) => {
+        await appendRunEvent(runId, ++seq.value, payload)
+      })
       const afterModelRun = await prisma.workspaceAgentRun.findUnique({ where: { id: runId }, select: { status: true } })
       if (afterModelRun?.status === 'cancelled') return
       const nativeRequest = response.nativeCalls.length > 0

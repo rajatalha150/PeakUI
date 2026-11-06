@@ -49,6 +49,15 @@ export interface ModelCapacityProfile {
 
 const SMALL_LOCAL_MODELS = /\b(phi4-mini|phi3:mini|phi3:3\.8b|gemma2:2b|qwen3:1\.7b|qwen3:4b|qwen2\.5:3b|qwen2\.5:7b|llama3\.2:1b|llama3\.2:3b|granite4\.1:3b|granite3\.1:3b|granite3\.1:8b|nomic|mxbai|snowflake|all-minilm|bge-)/i;
 
+/**
+ * Conservative context used for cloud models whose native window is unknown
+ * (openai-compatible providers without a capacity probe). When /api/show
+ * reports the real window (ollama.com cloud tags), it is trusted instead —
+ * kimi-k3:cloud advertises 1M and the conversation should use it.
+ */
+const CLOUD_RECOMMENDED_CONTEXT = 16384;
+const CLOUD_MAX_CONTEXT = 131072;
+
 export function isCloudModel(modelName: string, provider?: string): boolean {
   return provider === 'openai-compatible' || /(:|-)cloud$/i.test(modelName);
 }
@@ -106,7 +115,8 @@ function applyNativeContext(
   return { recommendedContext: clamp(recommended), maxContext: clamp(maxContext) };
 }
 
-function buildProfileFromCapacity(
+/** Exported for tests: cloud/local capacity mapping from detected numbers. */
+export function buildProfileFromCapacity(
   modelName: string,
   provider: string,
   parameterSizeB: number | null,
@@ -115,13 +125,21 @@ function buildProfileFromCapacity(
   const isCloud = isCloudModel(modelName, provider);
 
   if (isCloud) {
+    // Cloud/hosted models advertise their real window through /api/show (e.g.
+    // kimi-k3:cloud reports 1M). Trust the native window when the proxy
+    // reports it — the old hardcoded 16K made the context manager trim and
+    // summarize conversations that actually fit comfortably, degrading long
+    // research runs. Only fall back to the conservative defaults when the
+    // window is unknown (openai-compatible providers without a capacity probe).
+    const recommended = nativeContextLength ?? CLOUD_RECOMMENDED_CONTEXT;
+    const max = nativeContextLength ?? CLOUD_MAX_CONTEXT;
     return {
       parameterSizeB,
       nativeContextLength,
       isCloud: true,
       promptTier: 'full',
-      recommendedContext: 16384,
-      maxContext: 131072,
+      recommendedContext: recommended,
+      maxContext: max,
     };
   }
 
