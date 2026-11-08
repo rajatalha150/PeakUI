@@ -92,13 +92,21 @@ function computeProfileFromName(modelName: string, provider: string): ModelCapac
 }
 
 /**
- * Applies the native-context rules on top of the conservative bucket defaults:
- * 1. Raise the default when the model's own window comfortably allows it
- *    (≤4B → 4096 when native ≥ 4096; ≤9B → 8192 when native ≥ 8192). Safe
- *    because the chat pipeline's `isContextMemoryError` retry loop backs off
- *    to the next smaller candidate on OOM.
- * 2. Clamp both values to the native window, rounded down to a multiple of 512.
+ * Applies the native-context rules on top of the conservative bucket defaults.
+ * When /api/show reports the model's real window (works for ANY local model —
+ * installed today or pulled in the future), the window is trusted:
+ * 1. maxContext becomes the native window — the bucket heuristic was written
+ *    for models whose window was unknown and silently capped 9B models with
+ *    256K windows at 8K.
+ * 2. The recommended first attempt scales up with the window (capped at
+ *    NATIVE_DEFAULT_CEILING) so long conversations run at the model's real
+ *    potential instead of a hardcoded 4-8K. Safe: the chat pipeline's
+ *    `isContextMemoryError` retry loop backs off through smaller candidates
+ *    on allocation failures, so a generous first attempt self-corrects.
+ * 3. Values are clamped to the native window and rounded down to 512.
  */
+const NATIVE_DEFAULT_CEILING = 65536;
+
 function applyNativeContext(
   defaultContext: number,
   maxContext: number,
@@ -110,9 +118,10 @@ function applyNativeContext(
   const step = 512;
   const clamp = (value: number) => Math.max(step, Math.floor(Math.min(value, nativeContextLength) / step) * step);
   let recommended = defaultContext;
-  if (defaultContext === 2048 && nativeContextLength >= 4096) recommended = 4096;
-  else if (defaultContext === 4096 && nativeContextLength >= 8192) recommended = 8192;
-  return { recommendedContext: clamp(recommended), maxContext: clamp(maxContext) };
+  if (nativeContextLength >= defaultContext * 4) {
+    recommended = Math.min(nativeContextLength, NATIVE_DEFAULT_CEILING);
+  }
+  return { recommendedContext: clamp(recommended), maxContext: clamp(nativeContextLength) };
 }
 
 /** Exported for tests: cloud/local capacity mapping from detected numbers. */

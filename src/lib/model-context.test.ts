@@ -134,9 +134,11 @@ describe('model-context', () => {
       expect(profile.parameterSizeB).toBe(8)
       expect(profile.nativeContextLength).toBe(131072)
       expect(profile.promptTier).toBe('compact')
-      // Native window ≥ 8192 raises the ≤9B default from 4096 to 8192.
-      expect(profile.recommendedContext).toBe(8192)
-      expect(profile.maxContext).toBe(8192)
+      // Native window is trusted: a 131072-window model no longer gets the old
+      // 9B-bucket cap of 8192. The recommended first attempt scales with the
+      // window (capped at 65536); maxContext is the full native window.
+      expect(profile.recommendedContext).toBe(65536)
+      expect(profile.maxContext).toBe(131072)
     })
 
     it('parses the newer /api/show format (general.parameter_count + general.context_length)', async () => {
@@ -147,7 +149,7 @@ describe('model-context', () => {
       expect(profile.parameterSizeB).toBe(8)
       expect(profile.nativeContextLength).toBe(131072)
       expect(profile.promptTier).toBe('compact')
-      expect(profile.recommendedContext).toBe(8192)
+      expect(profile.recommendedContext).toBe(65536)
     })
 
     it('parses the context length carried in Ollama details metadata', async () => {
@@ -157,7 +159,8 @@ describe('model-context', () => {
       const profile = await getModelCapacityProfile('granite4.1:3b', 'ollama', 'http://127.0.0.1:11434')
       expect(profile.parameterSizeB).toBe(3)
       expect(profile.nativeContextLength).toBe(32768)
-      expect(profile.recommendedContext).toBe(4096)
+      // 32768 ≥ 2048*4 → recommended scales with the window up to the ceiling.
+      expect(profile.recommendedContext).toBe(32768)
     })
 
     it('clamps the recommendation to a small native window', async () => {
@@ -175,7 +178,8 @@ describe('model-context', () => {
       })
       const profile = await getModelCapacityProfile('qwen3', 'ollama', 'http://127.0.0.1:11434')
       expect(profile.promptTier).toBe('minimal')
-      expect(profile.recommendedContext).toBe(4096)
+      // 8192 ≥ 2048*4 → the full probed window becomes the recommendation.
+      expect(profile.recommendedContext).toBe(8192)
     })
 
     it('falls back to name detection when /api/show fails', async () => {

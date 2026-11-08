@@ -61,6 +61,10 @@ const OLLAMA_CONTEXT_CAP_ENV = 'PEAKUI_OLLAMA_CONTEXT_CAP';
 const OLLAMA_START_TIMEOUT_MS = 120000;
 const OLLAMA_SHORT_CHAT_FALLBACK_MAX_TOKENS = 1;
 const OLLAMA_SHORT_CHAT_FALLBACK_MAX_CHARS = 32;
+// Upper bound for local-model context retry candidates when no explicit
+// PEAKUI_OLLAMA_CONTEXT_CAP is configured. The model's own native window
+// (probed via /api/show) remains the real limit; this only bounds the loop.
+const MAX_CONTEXT_CAP = 1048576;
 const OLLAMA_SHORT_CHAT_FALLBACK_MAX_DURATION_NS = 50_000_000;
 
 const IMAGE_INSTRUCTIONS = 'For image requests, include actual image URLs using markdown syntax: ![description](https://...). Search for real URLs from reliable sources and render images inline.';
@@ -217,7 +221,12 @@ function buildUwafSessionRuntimeContext(
 function normalizeContextCap(value: string | undefined): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < MIN_CONTEXT_LENGTH) {
-    return DEFAULT_OLLAMA_CONTEXT_LENGTH;
+    // No explicit cap configured. Historically this fell back to the generic
+    // 8192 default, which silently clamped models whose real window is 128K+.
+    // The model's own native window (from /api/show) is now the limit: the
+    // hard cap only exists to bound retry candidates, and OOM backoff already
+    // protects against an over-ambitious first attempt.
+    return MAX_CONTEXT_CAP;
   }
 
   return Math.max(MIN_CONTEXT_LENGTH, Math.floor(parsed / MIN_CONTEXT_LENGTH) * MIN_CONTEXT_LENGTH);
@@ -499,17 +508,24 @@ function buildContextCandidates(
     );
   }
 
-  // This setting promises to let Ollama select the model's own window. Keep
-  // conservative numeric candidates behind it for the existing OOM retry path
-  // so a model with an overly ambitious native default can still recover.
+  // This setting promises to let Ollama select the model's own window. When
+  // the real native window is known from /api/show, send it EXPLICITLY as the
+  // first candidate: passing null makes Ollama fall back to its own 4096
+  // default, silently running a 256K-window model at 4K. Null is only used
+  // when the window is unknown. Conservative numeric candidates follow for
+  // the existing OOM retry path.
   if (recommendation && !recommendation.isCloud) {
+    const probedNative = profile?.nativeContextLength ?? null;
     const startContext = Math.min(
       'recommendedContext' in recommendation
         ? recommendation.recommendedContext
         : recommendation.defaultContext,
       hardCap,
     );
-    return [null, ...buildNumericContextCandidates(startContext, hardCap)];
+    const firstCandidates: Array<number | null> = probedNative !== null
+      ? [Math.min(probedNative, hardCap)]
+      : [null];
+    return [...firstCandidates, ...buildNumericContextCandidates(startContext, hardCap)];
   }
 
   const fallbackStart = Math.max(
