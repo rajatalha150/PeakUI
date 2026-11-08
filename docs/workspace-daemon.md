@@ -187,7 +187,13 @@ retry only when safe. This protects writes, submissions, generated artifacts,
 and browser actions from accidental duplicates.
 
 Model/network calls that fail while PeakUI itself restarts are re-queued only
-when the run was not cancelled. Stop is durable: the worker checks it between
+when the run was not cancelled. Transient model-stream failures — ollama.com
+hosted-backend 500s (`Internal Server Error (ref: <uuid>)`), ECONNRESET, and
+similar network flaps — are retried in place up to 3× with backoff: the
+conversation state is checkpointed before each round, so re-sending the same
+round is deterministic and loses no research. Deterministic failures (4xx
+validation, auth) still fail fast. A "retrying" status event is appended so
+the session shows the resilience instead of a dead run. Stop is durable: the worker checks it between
 model and tool rounds, terminal status cannot be overwritten by retry or normal
 completion, and the session receives a saved stop message. A browser refresh
 only replays the daemon event log and then reads the authoritative saved

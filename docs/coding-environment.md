@@ -404,6 +404,15 @@ The rewritten `CodingView`:
   sessions restore what the agent did, not just its prose.
 - Exposes a **Settings drawer** for workspace cwd and the tool-search budget,
   and header controls for model + approval mode.
+- Exposes an **Uncensored mode** toggle in the Settings drawer (default off).
+  When on, PeakUI folds an unrestricted coding directive into the daemon's
+  always-loaded workspace context (`/workspace/QWEN.md`) as a delimited
+  section — penetration testing, exploit development, malware analysis,
+  reverse engineering, and other authorized security research are in scope,
+  with no refusals, moralizing, or legal disclaimers. The directive reaches
+  the model as *system* context, never as a visible chat message. Toggling
+  off removes the section and restores the normal Coder brain
+  (CODER.md + skills + memories) untouched.
 
 ### 9.7 Known remaining gaps
 

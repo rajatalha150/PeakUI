@@ -7,6 +7,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — Local + cloud models run at their real native context windows
+
+The same capability-probe principle now applies to **every** model — local or
+cloud, installed today or pulled in the future. Ollama's `/api/show` reports
+each model's true context window; three layers were silently crushing it:
+
+- **Parameter-bucket caps** (`9B model → 8192`) overrode the probed window.
+  Now `maxContext` = the model's real native window, and the recommended
+  first attempt scales with it (capped at 64K for responsive first tokens;
+  OOM backoff still steps down automatically on allocation failures).
+- **The local context hard cap** defaulted to 8192, clamping even explicit
+  user settings. Default is now 1M — the model's own window is the real
+  limit (`PEAKUI_OLLAMA_CONTEXT_CAP` still overrides when set).
+- **"Use model default context" passed `num_ctx: null`**, which made Ollama
+  fall back to *its* generic 4096 default rather than the model's real
+  window. The probed window is now sent explicitly; null is only used when
+  the window is unknown.
+
+No name lists anywhere — everything is driven by the probe, so any future
+local model gets its full potential automatically. Verified against installed
+models: gemma4 `8192 → 131072`, vaultbox/qwen3.5-uncensored:9b `8192 → 262144`,
+lfm2.5 `8192 → 128000`, minicpm-v4.5 `8192 → 40960`, kimi-k3:cloud `16384 →
+1048576`.
+
+### Fixed — Transient model-stream failures no longer kill durable runs
+
+ollama.com's hosted backend intermittently 500s mid-stream (`Internal Server
+Error (ref: <uuid>)` — their format). The WorkSpaces daemon treated any model
+error as fatal, destroying the whole run's research. The daemon now retries
+transient model-round failures (5xx ref errors, ECONNRESET, network flaps)
+up to 3× with backoff, re-sending the same checkpointed round — deterministic
+and safe. Deterministic errors (400s, validation) still fail fast, and a
+"retrying" status event is appended so the UI shows resilience instead of a
+dead run.
+
+### Fixed — WorkSpaces tool writes anchored into the selected workspace
+
+The model was saving files outside the user's selected workspace, where the
+Files panel never sees them. Root causes and fixes:
+
+- The host-shell prompt steered the model to the shared parent root
+  (`~/.peakui/workspace`) instead of the selected workspace's `hostPath`;
+  the shell executor also defaulted `cwd` to the parent root. Both now anchor
+  into the selected workspace (explicit cwd is always kept; the host executor
+  translates container paths back to host paths for host-target users).
+- The filesystem tool rejected bare relative paths with an error suggesting
+  the shared root — steering the retry to the wrong place too. Relative
+  writes are now anchored into the selected workspace automatically.
+- **All 9 document tools** (pdf/word/workbook/csv/markdown/email/slides/
+  archive/calendar) previously produced only a Canvas artifact — bytes in a
+  DB row — while the model claimed "the file is in your workspace file
+  tree". Every document route now also writes the rendered file into the
+  selected workspace (best-effort; the artifact/download still works), and
+  the tool response carries `workspaceFile.path` so the model cites the real
+  path.
+
+### Fixed — WorkSpaces uncensored mode hardened against refusal + tool avoidance
+
+The Oct 31 durable run had `uncensored: true` and `deepseek-v4-pro:cloud`
+still refused an email-harvesting task after long moral deliberation, and
+document tools had never fired in durable runs (12× web, 3× code, zero
+document/browser/shell calls ever). Two directive clauses were added:
+data/research/generation tasks are never reasons to refuse (public contact
+info, scraping, lead gen, file generation are ordinary professional work), and
+authorization is assumed in the security-professional context (no verifying,
+no conditions). A new priming exchange demonstrates responding to a
+data-gathering request by *calling the web tool* instead of moralizing.
+
 ### Added — Coder uncensored mode
 
 The Coding surface now has an **Uncensored mode** toggle (Coding Settings → Uncensored mode) mirroring WorkSpaces' uncensored mode. When enabled, PeakUI folds an unrestricted coding directive into the Coder brain's always-loaded workspace context (`QWEN.md`) as a clearly-delimited section, so the daemon stops applying content/safety refusals to coding work — penetration testing, exploit development, malware analysis, reverse engineering, and other authorized security research — without moralizing or legal disclaimers. The directive reaches the model as *system* context, never as a visible chat message. Off by default, it only changes `QWEN.md` while active; disabled keeps the normal Coder brain (CODER.md + skills + memories) untouched.

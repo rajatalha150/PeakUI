@@ -6,6 +6,10 @@ PeakUI exposes several app-native tools so the AI can generate real deliverables
 
 PeakUI can create downloadable PDF artifacts from WorkSpaces through the generic `pdf_document` tool. This is the default path for ordinary PDF requests and is intentionally separate from domain-specific tools such as `tax_return`.
 
+## Workspace Delivery
+
+In addition to the Canvas artifact, every document tool writes the rendered file into the user's currently selected WorkSpaces workspace (best-effort — the artifact/download still works even when the write fails). The tool response carries `workspaceFile.path` so the model cites the real on-disk path, and the file appears in the Files panel tree immediately. This applies to all nine document tools: `pdf_document`, `word_document`, `workbook_document`, `csv_document`, `markdown_document`, `email_document`, `slides_document`, `archive_document`, and `calendar_document`.
+
 ## What It Does
 
 - Accepts a title, filename, and either markdown-like content or structured sections, fields, tables, and callouts from the assistant.
