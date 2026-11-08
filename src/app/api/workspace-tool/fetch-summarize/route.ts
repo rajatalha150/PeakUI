@@ -12,6 +12,11 @@ export const maxDuration = 60
 // auth, JSON serialization, etc.
 const FETCH_TOOL_TIMEOUT_MS = 45_000
 
+// Cap for the full-text field. The durable context truncates tool results at
+// 24K chars anyway; this keeps the JSON lean while comfortably exceeding it
+// so the truncation continuation (which carries nextOffset) kicks in first.
+const MAX_FULL_TEXT_CHARS = 30_000
+
 function splitSentences(text: string): string[] {
   return text
     .replace(/([.!?])\s+/g, '$1\n')
@@ -61,12 +66,30 @@ export async function POST(request: NextRequest) {
     const summary = sentences.slice(0, 5)
     const quote = pickQuote(sentences)
 
+    // Full readable text, capped. The old behavior returned ONLY the 5-sentence
+    // summary — for content pages (directories, listings, tables) the actual
+    // data sat below the first sentences and never reached the model, causing
+    // "pulling the full directory now" loops with nothing delivered. The full
+    // text lets the model read the real content; truncated pages carry
+    // nextOffset so it can continue via http_request with the same URL.
+    const fullText = source.content || source.excerpt || ''
+    const totalChars = fullText.length
+    const truncated = totalChars > MAX_FULL_TEXT_CHARS
+    const nextOffset = truncated ? MAX_FULL_TEXT_CHARS : null
+
     return NextResponse.json({
       success: true,
       url: source.url || url,
       title: source.title,
       summary,
       quote,
+      text: truncated ? fullText.slice(0, MAX_FULL_TEXT_CHARS) : fullText,
+      totalChars,
+      truncated,
+      nextOffset,
+      continuationHint: truncated
+        ? `Full text is ${totalChars} chars; showing the first ${MAX_FULL_TEXT_CHARS}. To read the rest, call http_request with the same url and offset: ${nextOffset}.`
+        : undefined,
     })
   } catch (error) {
     console.error('[workspace-tool/fetch-summarize] POST error:', error)

@@ -1198,10 +1198,8 @@ export async function fetchPublicWebPage(
     }
 
     const extracted = extractReadableText(rawText, safeUrl)
-    const excerpt = truncate(
-      [extracted.description, extracted.text].filter(Boolean).join('\n\n'),
-      MAX_SOURCE_EXCERPT_CHARS,
-    )
+    const fullText = [extracted.description, extracted.text].filter(Boolean).join('\n\n')
+    const excerpt = truncate(fullText, MAX_SOURCE_EXCERPT_CHARS)
 
     if (!excerpt) return null
 
@@ -1213,7 +1211,10 @@ export async function fetchPublicWebPage(
       title,
       url: response.url || safeUrl.href,
       excerpt: excerpt + dateNote,
-      content: excerpt,
+      // Full readable text (up to the response byte cap) — consumers that need
+      // the actual page content (fetch_summarize's full-text path) get it;
+      // excerpt stays capped for consumers that only need a preview.
+      content: fullText,
       score: 1,
       mode: 'web',
     }

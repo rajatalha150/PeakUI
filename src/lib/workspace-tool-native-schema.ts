@@ -380,7 +380,7 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
     type: 'function',
     function: {
       name: 'fetch_summarize',
-      description: 'Fetch a public URL and return a structured summary of its content.',
+      description: 'Fetch a public URL and return a structured summary of its content. The response also carries the FULL readable page text in `text` (first 30000 chars) — use it to extract the actual content (names, emails, listings, tables), not just the summary sentences. If truncated is true, call http_request with the same url and offset:nextOffset to read the rest.',
       parameters: {
         type: 'object',
         properties: {

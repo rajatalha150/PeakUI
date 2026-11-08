@@ -94,6 +94,29 @@ describe('workspace-tool/fetch-summarize POST', () => {
     expect(json.summary.length).toBeLessThanOrEqual(5)
   })
 
+  it('returns the FULL readable text so content below the intro sentences reaches the model', async () => {
+    // Regression: directory pages (e.g. contractor listings with emails) had
+    // their data below the first 5 sentences; the summary-only response hid it
+    // and drove "pulling the full directory now" loops that delivered nothing.
+    const text = 'The Joint Utilities advance clean energy goals. '.padEnd(200, 'i')
+      + Array.from({ length: 600 }, (_, i) => `Accord Contracting ${i} — contact liam${i}@accordcontracting.example phone (212) 555-01${String(i).padStart(2, '0')} for make-ready work`).join(' ')
+    mocks.fetchAsReadableText.mockResolvedValue({
+      title: 'Contractor List',
+      url: 'https://jointutilitiesofny.org/ev/make-ready/approved-contractors',
+      excerpt: text,
+      content: text,
+    })
+    const { POST } = await loadRoute()
+    const res = await POST(makeRequest({ url: 'https://jointutilitiesofny.org/ev/make-ready/approved-contractors' }) as never)
+    const json = await res.json()
+    expect(json.success).toBe(true)
+    expect(json.text).toContain('liam199@accordcontracting.example')
+    expect(json.totalChars).toBeGreaterThan(30000)
+    expect(json.truncated).toBe(true)
+    expect(json.nextOffset).toBe(30000)
+    expect(json.continuationHint).toContain('http_request')
+  })
+
   it('returns 504 (timeout) when fetch is aborted by the inner timeout', async () => {
     mocks.fetchAsReadableText.mockImplementation(async () => {
       // Simulate a fetch that throws an AbortError as the inner timeout
