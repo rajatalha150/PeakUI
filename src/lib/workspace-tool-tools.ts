@@ -263,6 +263,8 @@ export interface WorkspaceToolHttpRequestToolRequest {
   body?: unknown
   timeoutMs?: number
   description?: string
+  /** Continue a truncated text response: char offset returned as nextOffset. */
+  offset?: number
 }
 
 export const WORKSPACE_TOOL_WEB_TOOL_EXAMPLE = `<workspace_tool name="web">
@@ -1945,6 +1947,9 @@ export function extractWorkspaceToolRequest(content: string): {
       if (parsed.body !== undefined) request.body = parsed.body
       if (typeof parsed.timeoutMs === 'number' && Number.isFinite(parsed.timeoutMs)) {
         request.timeoutMs = parsed.timeoutMs
+      }
+      if (typeof parsed.offset === 'number' && Number.isFinite(parsed.offset)) {
+        request.offset = parsed.offset
       }
       return {
         cleanedContent,

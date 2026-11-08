@@ -444,7 +444,7 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
     type: 'function',
     function: {
       name: 'http_request',
-      description: 'Make an authenticated HTTP request to a public API (GET/POST/PUT/PATCH/DELETE) with custom headers and a JSON body. Use to call real APIs (Jira, GitHub, internal services). Private/localhost URLs are blocked.',
+      description: 'Make an authenticated HTTP request to a public API (GET/POST/PUT/PATCH/DELETE) with custom headers and a JSON body. Use to call real APIs (Jira, GitHub, internal services). Private/localhost URLs are blocked. HTML responses are converted to readable text. Text responses longer than the cap return truncated:true with a nextOffset value — call again with the same url/method and offset:nextOffset to continue reading; do NOT refetch without an offset.',
       parameters: {
         type: 'object',
         properties: {
@@ -454,6 +454,7 @@ const TOOL_SCHEMAS: Record<WorkspaceToolName, NativeToolSchema> = {
           body: Obj('Optional JSON body for non-GET requests.'),
           timeoutMs: N('Optional timeout in milliseconds.'),
           description: S('What this request is for.'),
+          offset: N('Continue a truncated response: pass the nextOffset value from the previous call. The response body then starts at that character position.'),
         },
         required: ['url'],
       },

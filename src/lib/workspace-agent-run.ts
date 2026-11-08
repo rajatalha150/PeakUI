@@ -342,9 +342,22 @@ function stripTransientAttachmentData(messages: StoredChatMessage[]) {
 
 function asToolResult(name: string, data: unknown, ok: boolean) {
   const encoded = JSON.stringify(data, null, 2)
-  const body = encoded.length <= MAX_DURABLE_TOOL_RESULT_CHARS
-    ? encoded
-    : `${encoded.slice(0, MAX_DURABLE_TOOL_RESULT_CHARS)}\n[Tool result truncated in durable context. Inspect the underlying artifact or rerun a narrower query for the full payload.]`
+  let body = encoded
+  if (encoded.length > MAX_DURABLE_TOOL_RESULT_CHARS) {
+    // Preserve the paging metadata on a truncated http_request result so the
+    // model can CONTINUE the response instead of blind-refetching the same
+    // URL (the "keep going" infinite loop). The route's nextOffset tells the
+    // model exactly how.
+    let continuation = '\n[Tool result truncated in durable context. Inspect the underlying artifact or rerun a narrower query for the full payload.]'
+    if (name === 'http_request' && data && typeof data === 'object') {
+      const nextOffset = (data as Record<string, unknown>).nextOffset
+      const truncated = (data as Record<string, unknown>).truncated
+      if (truncated === true && typeof nextOffset === 'number') {
+        continuation = `\n[Tool result truncated in durable context at ${MAX_DURABLE_TOOL_RESULT_CHARS} chars. The response has more content. To continue reading, call http_request again with the SAME url/method and "offset": ${nextOffset} — the next portion of the response body starts at that character position. Do not refetch the same URL without an offset.]`
+      }
+    }
+    body = encoded.slice(0, MAX_DURABLE_TOOL_RESULT_CHARS) + continuation
+  }
   return `Tool: ${name}\nStatus: ${ok ? 'success' : 'failed'}\n${body}`
 }
 

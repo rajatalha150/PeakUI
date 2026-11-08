@@ -15,9 +15,10 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
-import { assertPublicHttpUrl } from '@/lib/web-context'
+import { assertPublicHttpUrl, extractReadableText } from '@/lib/web-context'
 
 const MAX_RESPONSE_BYTES = 200_000
+const MAX_RESPONSE_CHARS = 100_000
 const MAX_BODY_BYTES = 50_000
 const DEFAULT_TIMEOUT_MS = 20_000
 const MAX_TIMEOUT_MS = 60_000
@@ -56,6 +57,7 @@ export async function POST(req: NextRequest) {
       headers?: Record<string, string>
       body?: unknown
       timeoutMs?: number
+      offset?: number
     }
 
     const method = (body.method || 'GET').toUpperCase()
@@ -118,12 +120,33 @@ export async function POST(req: NextRequest) {
     const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
     const isText = contentType.includes('json') || contentType.includes('text') || contentType.includes('xml') || contentType.includes('javascript')
 
+    // Extract: for HTML, convert to readable text BEFORE anything else. The
+    // raw-HTML path was the root cause of the "keep going" fetch loops: page
+    // chrome (<head>, CSS, <nav>) consumed the entire response budget before
+    // the actual content (e.g. a Drupal accordion contractor directory), so
+    // the model re-fetched the same URL forever and every retry truncated at
+    // the same spot. Readability strips the chrome and keeps the content.
     let responseBody: string | null = null
+    let totalChars: number | null = null
+    let offset = 0
+    let hasMore = false
     if (isText) {
-      const text = await response.text()
-      responseBody = text.slice(0, MAX_RESPONSE_BYTES)
-    } else {
-      responseBody = null
+      let text = await response.text()
+      if (contentType.includes('html')) {
+        try {
+          const extracted = extractReadableText(text, safeUrl)
+          const readable = [extracted?.title ? `# ${extracted.title}` : '',
+            extracted?.description ? `> ${extracted.description}` : '',
+            extracted?.text ?? ''].filter(Boolean).join('\n\n')
+          if (readable.trim()) text = readable
+        } catch {
+          // Readability failed — fall back to the raw HTML slice below.
+        }
+      }
+      totalChars = text.length
+      offset = Math.max(0, Math.floor(typeof body.offset === 'number' && Number.isFinite(body.offset) ? body.offset : 0))
+      responseBody = text.slice(offset, offset + MAX_RESPONSE_CHARS)
+      hasMore = offset + responseBody.length < totalChars
     }
 
     return NextResponse.json({
@@ -135,7 +158,13 @@ export async function POST(req: NextRequest) {
         'content-type': contentType,
       },
       body: responseBody,
-      truncated: isText && responseBody !== null && responseBody.length >= MAX_RESPONSE_BYTES,
+      // Paging metadata so the model can continue a truncated response instead
+      // of blind-refetching: nextOffset is the exact char position to pass as
+      // `offset` on the next identical request.
+      totalChars,
+      offset,
+      nextOffset: hasMore ? offset + (responseBody?.length ?? 0) : null,
+      truncated: hasMore,
       finalUrl: response.url || safeUrl.href,
     })
   } catch (error) {
