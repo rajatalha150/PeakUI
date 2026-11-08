@@ -369,6 +369,13 @@ const STRIP_BARE_TOOL_BLOCK = new RegExp(
   `(?:^|\\n)\\s*workspace_tool\\s+name=["'][\\w.\\-]+["']\\s*\\n\\s*\\{[\\s\\S]*`,
   'gi',
 )
+// Truncated wrapper: <workspace_tool name="tool"> was opened but the stream
+// ended before </workspace_tool> (and possibly before the JSON closed).
+// Anchored to string start so prose mentioning the tag never matches.
+const TOOL_BLOCK_TRUNCATED_PATTERN = new RegExp(
+  `^\\s*<workspace_tool\\s+name=["'](${TOOL_NAME_ALTERNATION})["']\\s*>([\\s\\S]*)$`,
+  'i',
+)
 const STRIP_COMPLETE_TOOL_TAG = new RegExp(
   `<workspace_tool\\s+name=["'](${TOOL_NAME_ALTERNATION})["']\\s*>[\\s\\S]*?<\\/workspace_tool>`,
   'gi',
@@ -402,6 +409,7 @@ function extractFirstJsonObject(raw: string): string | null {
   let depth = 0
   let inString = false
   let escaped = false
+  let lastCompleteIndex = -1
 
   for (let index = start; index < source.length; index += 1) {
     const char = source[index]
@@ -430,6 +438,52 @@ function extractFirstJsonObject(raw: string): string | null {
       depth -= 1
       if (depth === 0) {
         return source.slice(start, index + 1)
+      }
+    }
+
+    // Track the last position where the JSON was still structurally complete
+    // at depth 1 (i.e. just after a comma) — used for truncated-stream
+    // recovery below. We do NOT track inside strings (handled above).
+    if (depth >= 1 && char === ',') {
+      lastCompleteIndex = index
+    }
+  }
+
+  // Truncated stream (kimi-k3 via ollama.com cuts generation mid-JSON with no
+  // done frame): recover the longest structurally-valid prefix. If a complete
+  // top-level object can be closed at the last comma boundary, close it there
+  // so the tool call executes with the fields that did arrive. Works whether
+  // the cut landed between fields or mid-string — the comma boundary is a
+  // valid closure point in both cases (JSON.parse only sees the closed prefix).
+  if (depth >= 1) {
+    if (lastCompleteIndex > start) {
+      return source.slice(start, lastCompleteIndex) + closing
+    }
+    // No comma boundary: try to close right after the first value of the
+    // first key (covers `{"command":"echo hello` style truncations).
+    const firstKeyEnd = source.indexOf('"', start + 1)
+    if (firstKeyEnd > 0) {
+      const colon = source.indexOf(':', firstKeyEnd)
+      if (colon > 0) {
+        const valueStart = source.slice(colon + 1).search(/["\[{0-9tf\n-]/)
+        if (valueStart >= 0) {
+          const valueChar = source[colon + 1 + valueStart]
+          if (valueChar === '"') {
+            const valueEnd = source.indexOf('"', colon + 2 + valueStart)
+            if (valueEnd > 0) {
+              return source.slice(start, valueEnd + 1) + closing
+            }
+            // The value string never closed (cut mid-value): close the
+            // string and the object — the partial value is still usable
+            // (e.g. a command the model was still typing).
+            return source.slice(start) + '"' + closing
+          } else if (valueChar === '{' || valueChar === '[') {
+            const inner = extractFirstJsonObject(source.slice(colon + 1))
+            if (inner) {
+              return source.slice(start, colon + 1 + inner.length) + closing
+            }
+          }
+        }
       }
     }
   }
@@ -507,6 +561,22 @@ function findToolBlock(content: string): { toolName: string; rawBlock: string; r
       toolName: match[1],
       rawBlock: match[0],
       rawJson: match[2],
+    }
+  }
+
+  // Truncated wrapper (kimi-k3 via ollama.com: the stream can end mid-JSON
+  // with no closing </workspace_tool> and no done frame — the generation was
+  // cut server-side). Recover the partial call instead of dropping it: the
+  // daemon otherwise sees "no tool, no prose", ends the run with an empty
+  // final message, and the user gets "completed the run without a final
+  // assistant message". Only fired when the content STARTS with the opener
+  // so ordinary prose mentioning the tag is never misparsed.
+  const truncatedMatch = content.match(TOOL_BLOCK_TRUNCATED_PATTERN)
+  if (truncatedMatch && extractFirstJsonObject(truncatedMatch[2])) {
+    return {
+      toolName: truncatedMatch[1],
+      rawBlock: truncatedMatch[0],
+      rawJson: truncatedMatch[2],
     }
   }
 
