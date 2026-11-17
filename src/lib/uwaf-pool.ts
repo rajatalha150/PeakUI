@@ -215,9 +215,9 @@ function evictOldestManagedSessionIfNeeded(): void {
   }
 }
 
-const STEALTH_PREFLIGHT_TTL_MS = 2 * 60 * 1000
-const stealthPreflightCache = new Map<StealthProfile, { value: StealthPreflightResult; expiresAt: number }>()
-const stealthPreflightPromises = new Map<StealthProfile, Promise<StealthPreflightResult>>()
+const STEALTH_PREFLIGHT_TTL_MS = 5 * 60 * 1000
+const stealthPreflightCache = new Map<string, { value: StealthPreflightResult; expiresAt: number }>()
+const stealthPreflightPromises = new Map<string, Promise<StealthPreflightResult>>()
 const fingerprintRegressionCache = new Map<StealthProfile, { value: Pick<StealthPreflightResult, 'fingerprintRegressionPassed' | 'fingerprintRegressionWarnings' | 'fingerprintDetectors'>; expiresAt: number }>()
 
 function delay(ms: number): Promise<void> {
@@ -759,35 +759,73 @@ async function runFingerprintRegressionChecks(
   const results: StealthFingerprintDetectorResult[] = []
   const warnings: string[] = []
 
-  for (const detector of detectors) {
+  const runDetector = async (detector: (typeof detectors)[number]): Promise<{
+    result: StealthFingerprintDetectorResult
+    warning?: string
+  }> => {
     const page = await context.newPage()
+    const deadlineMs = 10_000
+    let timer: ReturnType<typeof setTimeout> | undefined
     try {
-      await page.goto(detector.url, {
-        timeout: 15_000,
-        waitUntil: 'domcontentloaded',
+      const detectorPromise = (async () => {
+        await page.goto(detector.url, {
+          timeout: 8_500,
+          waitUntil: 'domcontentloaded',
+        })
+        await page.waitForTimeout(500).catch(() => {})
+        const bodyText = (await page.textContent('body').catch(() => '')) || ''
+        const evaluation = detector.evaluator(bodyText)
+        return {
+          result: {
+            id: detector.id,
+            label: detector.label,
+            ...evaluation,
+          },
+          warning: !evaluation.ok && evaluation.warning ? `${detector.label}: ${evaluation.warning}` : undefined,
+        }
+      })()
+
+      const timeoutPromise = new Promise<{
+        result: StealthFingerprintDetectorResult
+        warning?: string
+      }>((resolve) => {
+        timer = setTimeout(() => {
+          resolve({
+            result: {
+              id: detector.id,
+              label: detector.label,
+              ok: false,
+              warning: 'Detector page unavailable: timed out over Tor',
+            },
+            warning: `${detector.label}: detector page unavailable`,
+          })
+        }, deadlineMs)
       })
-      await page.waitForTimeout(1_250)
-      const bodyText = (await page.textContent('body').catch(() => '')) || ''
-      const evaluation = detector.evaluator(bodyText)
-      results.push({
-        id: detector.id,
-        label: detector.label,
-        ...evaluation,
-      })
-      if (!evaluation.ok && evaluation.warning) {
-        warnings.push(`${detector.label}: ${evaluation.warning}`)
-      }
+
+      detectorPromise.catch(() => {})
+      return await Promise.race([detectorPromise, timeoutPromise])
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      results.push({
-        id: detector.id,
-        label: detector.label,
-        ok: false,
-        warning: `Detector page unavailable: ${message}`,
-      })
-      warnings.push(`${detector.label}: detector page unavailable`)
+      return {
+        result: {
+          id: detector.id,
+          label: detector.label,
+          ok: false,
+          warning: `Detector page unavailable: ${message}`,
+        },
+        warning: `${detector.label}: detector page unavailable`,
+      }
     } finally {
+      if (timer) clearTimeout(timer)
       await page.close().catch(() => {})
+    }
+  }
+
+  const detectorOutcomes = await Promise.all(detectors.map(runDetector))
+  for (const outcome of detectorOutcomes) {
+    results.push(outcome.result)
+    if (outcome.warning) {
+      warnings.push(outcome.warning)
     }
   }
 
@@ -872,29 +910,69 @@ async function runDnsLeakVerification(context: BrowserContext, directIp: string)
   dnsLeakVerified: boolean
   dnsLeakDetected: boolean
   dnsResolverIps: string[]
+  warning?: string
 }> {
   const page = await context.newPage()
+  const deadlineMs = 10_000
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    await page.goto('https://browserleaks.com/dns', {
-      timeout: 20_000,
-      waitUntil: 'domcontentloaded',
+    const checkPromise = (async () => {
+      await page.goto('https://browserleaks.com/dns', {
+        timeout: 8_500,
+        waitUntil: 'domcontentloaded',
+      })
+      await page.waitForFunction(() => {
+        const container = document.querySelector('#dns-container')
+        return Boolean(container?.textContent && container.textContent.trim().length > 0)
+      }, { timeout: 2_500 }).catch(() => null)
+      await page.waitForTimeout(400).catch(() => {})
+      const resolverText = await page.textContent('#dns-container').catch(() => '')
+      const dnsResolverIps = extractIpv4s(resolverText || '')
+      const hasDirectIp = directIp !== 'unknown' && directIp !== 'unavailable'
+      const dnsLeakDetected = hasDirectIp && dnsResolverIps.includes(directIp)
+      if (dnsResolverIps.length === 0) {
+        return {
+          dnsLeakVerified: false,
+          dnsLeakDetected: false,
+          dnsResolverIps: [] as string[],
+          warning: 'DNS leak check (browserleaks.com/dns) returned no resolver results over Tor (rate-limited or blocked).',
+        }
+      }
+      return {
+        dnsLeakVerified: !dnsLeakDetected,
+        dnsLeakDetected,
+        dnsResolverIps,
+      }
+    })()
+
+    const timeoutPromise = new Promise<{
+      dnsLeakVerified: boolean
+      dnsLeakDetected: boolean
+      dnsResolverIps: string[]
+      warning?: string
+    }>((resolve) => {
+      timer = setTimeout(() => {
+        resolve({
+          dnsLeakVerified: false,
+          dnsLeakDetected: false,
+          dnsResolverIps: [],
+          warning: 'DNS leak check (browserleaks.com/dns) timed out over Tor; Tor DNS isolation remains enforced.',
+        })
+      }, deadlineMs)
     })
-    await page.waitForFunction(() => {
-      const container = document.querySelector('#dns-container')
-      return Boolean(container?.textContent && container.textContent.trim().length > 0)
-    }, { timeout: 12_000 }).catch(() => null)
-    await page.waitForTimeout(1_500)
-    const resolverText = await page.textContent('#dns-container').catch(() => '')
-    const dnsResolverIps = extractIpv4s(resolverText || '')
-    const dnsLeakDetected = directIp !== 'unknown'
-      && directIp !== 'unavailable'
-      && dnsResolverIps.includes(directIp)
+
+    checkPromise.catch(() => {})
+    return await Promise.race([checkPromise, timeoutPromise])
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
     return {
-      dnsLeakVerified: dnsResolverIps.length > 0 && !dnsLeakDetected,
-      dnsLeakDetected,
-      dnsResolverIps,
+      dnsLeakVerified: false,
+      dnsLeakDetected: false,
+      dnsResolverIps: [],
+      warning: `DNS leak check (browserleaks.com/dns) unavailable over Tor: ${message}`,
     }
   } finally {
+    if (timer) clearTimeout(timer)
     await page.close().catch(() => {})
   }
 }
@@ -1224,31 +1302,88 @@ async function withEphemeralBrowser<T>(
   }
 }
 
-export async function checkTorProxyStatus(profile: StealthProfile = getDefaultStealthProfile()): Promise<{ reachable: boolean; error?: string }> {
-  try {
-    const proxyUrl = await getTorProxyUrl()
-    return await withEphemeralBrowser({
-      proxy: { server: proxyUrl },
-    }, async (context) => {
-      const page = await context.newPage()
+async function verifyTorExitInContext(
+  context: BrowserContext,
+  options?: { lookupCountry?: boolean },
+): Promise<{ ip: string; country: string; isTor: boolean; error?: string }> {
+  let lastError = 'Tor exit check failed'
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (attempt > 0) {
+      await delay(500)
+    }
+    const page = await context.newPage()
+    try {
       await page.goto('https://check.torproject.org/api/ip', {
-        timeout: 15000,
+        timeout: 15_000,
         waitUntil: 'domcontentloaded',
       })
       const content = await page.textContent('body')
       if (!content) {
-        return { reachable: false, error: 'Empty response from Tor check service' }
+        lastError = 'Empty response from Tor check service'
+        continue
       }
 
+      let data: { IsTor?: unknown; IP?: unknown; CountryCode?: unknown }
       try {
-        const data = JSON.parse(content)
-        if (data.IsTor) {
-          return { reachable: true }
-        }
-        return { reachable: false, error: 'Connected but not using Tor exit node' }
+        data = JSON.parse(content)
       } catch {
-        return { reachable: false, error: 'Invalid response from Tor check service' }
+        lastError = 'Invalid response from Tor check service'
+        continue
       }
+
+      const ip = typeof data.IP === 'string' && data.IP.trim() ? data.IP.trim() : 'unknown'
+      const rawCountry = typeof data.CountryCode === 'string' && data.CountryCode.trim()
+        ? data.CountryCode.trim()
+        : undefined
+
+      if (data.IsTor !== true) {
+        return {
+          ip,
+          country: rawCountry || 'unknown',
+          isTor: false,
+          error: 'Connected but not using Tor exit node',
+        }
+      }
+
+      const country = rawCountry
+        || (options?.lookupCountry ? await lookupTorExitCountry(context, ip) : 'unknown')
+
+      return {
+        ip,
+        country,
+        isTor: true,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      lastError = message
+      const transient = /timeout|timed out|empty response|connection|reset|closed|aborted|net::/i.test(message)
+      if (!transient) break
+    } finally {
+      await page.close().catch(() => {})
+    }
+  }
+
+  return {
+    ip: 'unavailable',
+    country: 'unknown',
+    isTor: false,
+    error: lastError,
+  }
+}
+
+export async function checkTorProxyStatus(profile: StealthProfile = getDefaultStealthProfile()): Promise<{ reachable: boolean; error?: string }> {
+  try {
+    const proxyUrl = await getTorProxyUrl()
+    if (!(await probeSocks5Proxy(proxyUrl))) {
+      return { reachable: false, error: `Tor SOCKS5 proxy unreachable at ${proxyUrl}` }
+    }
+    return await withEphemeralBrowser({
+      proxy: { server: proxyUrl },
+    }, async (context) => {
+      const torCheck = await verifyTorExitInContext(context, { lookupCountry: false })
+      return torCheck.isTor
+        ? { reachable: true }
+        : { reachable: false, error: torCheck.error || 'Connected but not using Tor exit node' }
     }, {
       stealthProfile: profile,
     })
@@ -1260,30 +1395,27 @@ export async function checkTorProxyStatus(profile: StealthProfile = getDefaultSt
 
 export async function getDirectIp(): Promise<string> {
   try {
-    return await withEphemeralBrowser({
-      userAgent: DIRECT_USER_AGENT,
-    }, async (context) => {
-      const page = await context.newPage()
-      await page.goto('https://api.ipify.org?format=text', {
-        timeout: 10000,
-        waitUntil: 'domcontentloaded',
-      })
-      return (await page.textContent('body'))?.trim() || 'unknown'
+    const response = await fetch('https://api.ipify.org?format=text', {
+      signal: AbortSignal.timeout(4000),
+      headers: { 'User-Agent': DIRECT_USER_AGENT },
     })
+    if (!response.ok) return 'unavailable'
+    const ip = (await response.text()).trim()
+    if (!ip || ip.length > 64 || ip.includes('<')) return 'unavailable'
+    return ip
   } catch {
     return 'unavailable'
   }
 }
 
 async function lookupTorExitCountry(context: BrowserContext, ip: string): Promise<string> {
+  const page = await context.newPage()
   try {
-    const page = await context.newPage()
     await page.goto('https://ifconfig.co/json', {
-      timeout: 15000,
+      timeout: 6_000,
       waitUntil: 'domcontentloaded',
     })
     const content = await page.textContent('body')
-    await page.close().catch(() => {})
     if (!content) return 'unknown'
     const data = JSON.parse(content)
     const byIp = typeof data?.ip === 'string' && data.ip.trim() === ip
@@ -1292,28 +1424,28 @@ async function lookupTorExitCountry(context: BrowserContext, ip: string): Promis
     return typeof country === 'string' && country.trim() ? country.trim() : 'unknown'
   } catch {
     return 'unknown'
+  } finally {
+    await page.close().catch(() => {})
   }
 }
 
 export async function getStealthInfo(profile: StealthProfile = getDefaultStealthProfile()): Promise<{ ip: string; country: string; isTor: boolean } | null> {
   try {
     const proxyUrl = await getTorProxyUrl()
+    if (!(await probeSocks5Proxy(proxyUrl))) {
+      return null
+    }
     return await withEphemeralBrowser({
       proxy: { server: proxyUrl },
     }, async (context) => {
-      const page = await context.newPage()
-      await page.goto('https://check.torproject.org/api/ip', {
-        timeout: 15000,
-        waitUntil: 'domcontentloaded',
-      })
-      const content = await page.textContent('body')
-      if (!content) return null
-      const data = JSON.parse(content)
-      const ip = data.IP || 'unknown'
+      const torCheck = await verifyTorExitInContext(context, { lookupCountry: true })
+      if (!torCheck.isTor && torCheck.ip === 'unavailable') {
+        return null
+      }
       return {
-        ip,
-        country: data.CountryCode || await lookupTorExitCountry(context, ip),
-        isTor: data.IsTor === true,
+        ip: torCheck.ip,
+        country: torCheck.country,
+        isTor: torCheck.isTor,
       }
     }, {
       stealthProfile: profile,
@@ -1401,17 +1533,23 @@ export async function checkOnionResolution(rawUrl: string, profile: StealthProfi
   }
 }
 
-export async function runStealthPreflight(options?: { force?: boolean; profile?: StealthProfile }): Promise<StealthPreflightResult> {
+export async function runStealthPreflight(options?: {
+  force?: boolean
+  profile?: StealthProfile
+  includeDiagnostics?: boolean
+}): Promise<StealthPreflightResult> {
   const force = options?.force === true
+  const includeDiagnostics = options?.includeDiagnostics !== false
   const profile = normalizeStealthProfile(options?.profile)
+  const cacheKey = `${profile}:${includeDiagnostics ? 'diag' : 'fast'}`
   const now = Date.now()
 
-  const cached = stealthPreflightCache.get(profile)
+  const cached = stealthPreflightCache.get(cacheKey)
   if (!force && cached && cached.expiresAt > now) {
     return cached.value
   }
 
-  const pending = stealthPreflightPromises.get(profile)
+  const pending = stealthPreflightPromises.get(cacheKey)
   if (!force && pending) {
     return pending
   }
@@ -1419,12 +1557,42 @@ export async function runStealthPreflight(options?: { force?: boolean; profile?:
   const preflightPromise = (async () => {
     const checkedAt = new Date().toISOString()
     const fingerprint = buildStealthFingerprint(profile, `preflight:${checkedAt}`)
-    const [torStatus, directIp, stealthInfo] = await Promise.all([
-      checkTorProxyStatus(profile),
-      getDirectIp().catch(() => 'unavailable'),
-      getStealthInfo(profile).catch(() => null),
-    ])
+    const proxyUrl = await getTorProxyUrl()
+    const torReachable = await probeSocks5Proxy(proxyUrl)
 
+    if (!torReachable) {
+      return {
+        ok: false,
+        profile,
+        fingerprintId: fingerprint.id,
+        checkedAt,
+        directIp: 'unavailable',
+        torExitIp: 'unavailable',
+        torExitCountry: 'unknown',
+        torReachable: false,
+        torIsReady: false,
+        exitDiffersFromDirect: false,
+        dnsLeakVerified: false,
+        dnsLeakDetected: false,
+        dnsResolverIps: [],
+        webrtcExposed: true,
+        udpLeakProtected: false,
+        runtimeProtectionVerified: false,
+        fingerprintRegressionPassed: false,
+        fingerprintRegressionWarnings: [],
+        fingerprintDetectors: [],
+        warnings: [],
+        error: `Tor SOCKS5 proxy unreachable at ${proxyUrl}`,
+      }
+    }
+
+    const directIpPromise = getDirectIp().catch(() => 'unavailable')
+
+    let directIp = 'unavailable'
+    let torExitIp = 'unavailable'
+    let torExitCountry = 'unknown'
+    let torIsReady = false
+    let torCheckError: string | undefined
     let dnsLeakVerified = false
     let dnsLeakDetected = false
     let dnsResolverIps: string[] = []
@@ -1437,14 +1605,46 @@ export async function runStealthPreflight(options?: { force?: boolean; profile?:
     const warnings: string[] = []
 
     try {
-      const proxyUrl = await getTorProxyUrl()
-      const runtimeChecks = await withEphemeralBrowser({
+      const checks = await withEphemeralBrowser({
         proxy: { server: proxyUrl },
       }, async (context) => {
-        const runtimeProtection = await verifyStealthRuntimeProtection(context)
-        const dnsVerification = await runDnsLeakVerification(context, directIp)
-        const fingerprintRegression = await runFingerprintRegressionChecks(context, profile)
+        const [torCheck, runtimeProtection, resolvedDirectIp] = await Promise.all([
+          verifyTorExitInContext(context, { lookupCountry: includeDiagnostics }),
+          verifyStealthRuntimeProtection(context),
+          directIpPromise,
+        ])
+
+        let dnsVerification: {
+          dnsLeakVerified: boolean
+          dnsLeakDetected: boolean
+          dnsResolverIps: string[]
+          warning?: string
+        } = {
+          dnsLeakVerified: false,
+          dnsLeakDetected: false,
+          dnsResolverIps: [],
+        }
+        let fingerprintRegression: Pick<
+          StealthPreflightResult,
+          'fingerprintRegressionPassed' | 'fingerprintRegressionWarnings' | 'fingerprintDetectors'
+        > = {
+          fingerprintRegressionPassed: false,
+          fingerprintRegressionWarnings: [],
+          fingerprintDetectors: [],
+        }
+
+        if (includeDiagnostics && torCheck.isTor) {
+          const [dnsResult, fpResult] = await Promise.all([
+            runDnsLeakVerification(context, resolvedDirectIp),
+            runFingerprintRegressionChecks(context, profile),
+          ])
+          dnsVerification = dnsResult
+          fingerprintRegression = fpResult
+        }
+
         return {
+          directIp: resolvedDirectIp,
+          torCheck,
           runtimeProtection,
           dnsVerification,
           fingerprintRegression,
@@ -1454,29 +1654,34 @@ export async function runStealthPreflight(options?: { force?: boolean; profile?:
         fingerprint,
       })
 
-      webrtcExposed = runtimeChecks.runtimeProtection.webrtcExposed
-      udpLeakProtected = runtimeChecks.runtimeProtection.udpLeakProtected
-      runtimeProtectionVerified = runtimeChecks.runtimeProtection.runtimeProtectionVerified
-      dnsLeakVerified = runtimeChecks.dnsVerification.dnsLeakVerified
-      dnsLeakDetected = runtimeChecks.dnsVerification.dnsLeakDetected
-      dnsResolverIps = runtimeChecks.dnsVerification.dnsResolverIps
-      fingerprintRegressionPassed = runtimeChecks.fingerprintRegression.fingerprintRegressionPassed
-      fingerprintRegressionWarnings = runtimeChecks.fingerprintRegression.fingerprintRegressionWarnings
-      fingerprintDetectors = runtimeChecks.fingerprintRegression.fingerprintDetectors
+      directIp = checks.directIp
+      torExitIp = checks.torCheck.ip
+      torExitCountry = checks.torCheck.country
+      torIsReady = checks.torCheck.isTor
+      torCheckError = checks.torCheck.error
+      webrtcExposed = checks.runtimeProtection.webrtcExposed
+      udpLeakProtected = checks.runtimeProtection.udpLeakProtected
+      runtimeProtectionVerified = checks.runtimeProtection.runtimeProtectionVerified
+      dnsLeakVerified = checks.dnsVerification.dnsLeakVerified
+      dnsLeakDetected = checks.dnsVerification.dnsLeakDetected
+      dnsResolverIps = checks.dnsVerification.dnsResolverIps
+      if (checks.dnsVerification.warning) {
+        warnings.push(checks.dnsVerification.warning)
+      }
+      fingerprintRegressionPassed = checks.fingerprintRegression.fingerprintRegressionPassed
+      fingerprintRegressionWarnings = checks.fingerprintRegression.fingerprintRegressionWarnings
+      fingerprintDetectors = checks.fingerprintRegression.fingerprintDetectors
     } catch (error) {
-      warnings.push(`Stealth runtime verification failed: ${error instanceof Error ? error.message : String(error)}`)
+      directIp = await directIpPromise
+      const message = error instanceof Error ? error.message : String(error)
+      torCheckError = message
+      warnings.push(`Stealth runtime verification failed: ${message}`)
     }
 
-    const torExitIp = stealthInfo?.ip || 'unavailable'
-    const exitDiffersFromDirect = Boolean(
-      torExitIp
-      && directIp
-      && torExitIp !== 'unknown'
-      && torExitIp !== 'unavailable'
-      && directIp !== 'unknown'
-      && directIp !== 'unavailable'
-      && torExitIp !== directIp
-    )
+    const hasValidDirectIp = Boolean(directIp && directIp !== 'unknown' && directIp !== 'unavailable')
+    const hasValidTorIp = Boolean(torExitIp && torExitIp !== 'unknown' && torExitIp !== 'unavailable')
+    const exitDiffersFromDirect = hasValidDirectIp && hasValidTorIp && torExitIp !== directIp
+    const exitMatchesDirect = hasValidDirectIp && hasValidTorIp && torExitIp === directIp
 
     if (!runtimeProtectionVerified || !udpLeakProtected) {
       warnings.push(
@@ -1487,24 +1692,23 @@ export async function runStealthPreflight(options?: { force?: boolean; profile?:
     }
     warnings.push(...fingerprintRegressionWarnings)
 
-    const ok = torStatus.reachable
-      && stealthInfo?.isTor === true
-      && exitDiffersFromDirect
-      && dnsLeakVerified
+    const ok = torReachable
+      && torIsReady
       && runtimeProtectionVerified
-    const error = !torStatus.reachable
-      ? torStatus.error || 'Tor proxy unreachable'
-      : stealthInfo?.isTor !== true
-        ? 'Connected to the proxy but did not verify a Tor exit node'
-        : !exitDiffersFromDirect
+      && !exitMatchesDirect
+      && !dnsLeakDetected
+
+    const error = !torReachable
+      ? `Tor SOCKS5 proxy unreachable at ${proxyUrl}`
+      : !torIsReady
+        ? torCheckError || 'Connected to the proxy but did not verify a Tor exit node'
+        : exitMatchesDirect
           ? 'Stealth preflight detected the same exit IP as direct mode'
-          : !dnsLeakVerified
-            ? dnsLeakDetected
-              ? 'DNS leak verification indicates the direct IP was exposed in resolver results'
-              : 'DNS leak verification did not produce trusted resolver evidence'
+          : dnsLeakDetected
+            ? 'DNS leak verification indicates the direct IP was exposed in resolver results'
             : !runtimeProtectionVerified
               ? 'Stealth runtime verification could not prove WebRTC and browser-feature lockdown'
-            : undefined
+              : undefined
 
     const result: StealthPreflightResult = {
       ok,
@@ -1513,9 +1717,9 @@ export async function runStealthPreflight(options?: { force?: boolean; profile?:
       checkedAt,
       directIp,
       torExitIp,
-      torExitCountry: stealthInfo?.country || 'unknown',
-      torReachable: torStatus.reachable,
-      torIsReady: stealthInfo?.isTor === true,
+      torExitCountry,
+      torReachable,
+      torIsReady,
       exitDiffersFromDirect,
       dnsLeakVerified,
       dnsLeakDetected,
@@ -1530,17 +1734,20 @@ export async function runStealthPreflight(options?: { force?: boolean; profile?:
       ...(error ? { error } : {}),
     }
 
-    stealthPreflightCache.set(profile, {
-      value: result,
-      expiresAt: Date.now() + STEALTH_PREFLIGHT_TTL_MS,
-    })
+    if (result.ok) {
+      const expiresAt = Date.now() + STEALTH_PREFLIGHT_TTL_MS
+      stealthPreflightCache.set(cacheKey, { value: result, expiresAt })
+      if (includeDiagnostics) {
+        stealthPreflightCache.set(`${profile}:fast`, { value: result, expiresAt })
+      }
+    }
 
     return result
   })().finally(() => {
-    stealthPreflightPromises.delete(profile)
+    stealthPreflightPromises.delete(cacheKey)
   })
 
-  stealthPreflightPromises.set(profile, preflightPromise)
+  stealthPreflightPromises.set(cacheKey, preflightPromise)
   return preflightPromise
 }
 

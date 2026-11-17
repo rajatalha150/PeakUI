@@ -9,12 +9,13 @@ import {
   dedupeAndClusterResults,
   dedupeResults,
   parseSearchResults,
+  unwrapAhmiaRedirectUrl,
   type MinimalObservation,
   type ParsedSearchResult,
 } from './uwaf-result-parser'
 import { getSearchProviderById } from './uwaf-search-providers'
 
-const STEALTH_IDS = ['ahmia', 'onionway', 'onionland', 'tordex', 'excavator']
+const STEALTH_IDS = ['ahmia', 'onionway', 'tor66', 'duckduckgo-onion']
 
 function findProvider(id: string) {
   const provider = getSearchProviderById('stealth', id)
@@ -122,15 +123,26 @@ describe('classifyResult', () => {
 })
 
 describe('parseSearchResults — per-provider parsers', () => {
-  it('Ahmia: extracts result links and drops site nav', () => {
+  it('Ahmia: extracts result links and drops site nav across clearnet and onion mirror', () => {
     const provider = findProvider('ahmia')
     const obs = observation({
       url: 'https://ahmia.fi/search/?q=foo',
       links: [
         { index: 0, text: 'Ahmia.fi', url: 'https://ahmia.fi/' },
         { index: 1, text: 'Submit a site', url: 'https://ahmia.fi/submit' },
-        { index: 2, text: 'Real dark-web result', url: 'http://real.onion/page' },
-        { index: 3, text: 'Real dark-web result 2', url: 'http://real2.onion/' },
+        { index: 2, text: 'Blacklist', url: 'https://ahmia.fi/blacklist' },
+        {
+          index: 3,
+          text: 'Mirror Privacy',
+          url: 'http://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion/privacy',
+        },
+        {
+          index: 4,
+          text: 'Mirror Home',
+          url: 'http://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion/',
+        },
+        { index: 5, text: 'Real dark-web result', url: 'http://real.onion/page' },
+        { index: 6, text: 'Real dark-web result 2', url: 'http://real2.onion/' },
       ],
     })
     const results = parseSearchResults(obs, provider, 'foo')
@@ -139,14 +151,57 @@ describe('parseSearchResults — per-provider parsers', () => {
     expect(results[0]?.rank).toBe(1)
   })
 
-  it('OnionWay: drops the home/about chrome but keeps the on-page search URL and real external results', () => {
+  it('Ahmia: unwraps /search/redirect links to the underlying .onion target', () => {
+    const provider = findProvider('ahmia')
+    const wrappedClearnet =
+      'https://ahmia.fi/search/redirect?search_term=news&redirect_url=http%3A%2F%2Fnewsabc123.onion%2Findex.html'
+    const wrappedRelative =
+      '/search/redirect?search_term=news&redirect_url=http://mirrorxyz789.onion/'
+    const wrappedOnion =
+      'http://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion/search/redirect?search_term=news&redirect_url=http://onionportal.onion/feed'
+    const nonAhmiaRedirect =
+      'https://other.example/search/redirect?search_term=news&redirect_url=http://ignored.onion/'
+
+    expect(unwrapAhmiaRedirectUrl(wrappedClearnet)).toBe('http://newsabc123.onion/index.html')
+    expect(unwrapAhmiaRedirectUrl(wrappedRelative)).toBe('http://mirrorxyz789.onion/')
+    expect(unwrapAhmiaRedirectUrl(wrappedOnion)).toBe('http://onionportal.onion/feed')
+    expect(unwrapAhmiaRedirectUrl(nonAhmiaRedirect)).toBe(nonAhmiaRedirect)
+
+    const obs = observation({
+      url: 'https://ahmia.fi/search/?q=news',
+      links: [
+        { index: 0, text: 'Ahmia Legal', url: 'https://ahmia.fi/legal' },
+        { index: 1, text: 'News Onion', url: wrappedClearnet },
+        { index: 2, text: 'Mirror Onion', url: wrappedRelative },
+        { index: 3, text: 'Onion Portal', url: wrappedOnion },
+      ],
+    })
+    const results = parseSearchResults(obs, provider, 'news')
+    expect(results.map(r => r.url)).toEqual([
+      'http://newsabc123.onion/index.html',
+      'http://mirrorxyz789.onion/',
+      'http://onionportal.onion/feed',
+    ])
+  })
+
+  it('OnionWay: drops the home/about chrome across clearnet and onion mirror but keeps the on-page search URL and real external results', () => {
     const provider = findProvider('onionway')
     const obs = observation({
       links: [
         { index: 0, text: 'Home', url: 'https://onionway.com/' },
         { index: 1, text: 'About', url: 'https://onionway.com/about.php' },
-        { index: 2, text: 'Search results for "foo"', url: 'https://onionway.com/search.php?s=foo' },
-        { index: 3, text: 'Real link', url: 'http://dark.onion/x' },
+        {
+          index: 2,
+          text: 'Mirror Home',
+          url: 'http://oniwayzz74cv2puhsgx4dpjwieww4wdphsydqvf5q7eyz4myjvyw26ad.onion/',
+        },
+        {
+          index: 3,
+          text: 'Mirror About',
+          url: 'http://oniwayzz74cv2puhsgx4dpjwieww4wdphsydqvf5q7eyz4myjvyw26ad.onion/about.php',
+        },
+        { index: 4, text: 'Search results for "foo"', url: 'https://onionway.com/search.php?s=foo' },
+        { index: 5, text: 'Real link', url: 'http://dark.onion/x' },
       ],
     })
     const results = parseSearchResults(obs, provider, 'foo')
@@ -161,41 +216,86 @@ describe('parseSearchResults — per-provider parsers', () => {
     ])
   })
 
-  it('OnionLand: drops onionland.to self-links', () => {
-    const provider = findProvider('onionland')
+  it('Tor66: drops tor66.org chrome and internal links while preserving external .onion results', () => {
+    const provider = findProvider('tor66')
     const obs = observation({
+      url: 'https://tor66.org/search?q=foo',
       links: [
-        { index: 0, text: 'OnionLand home', url: 'https://www.onionland.to/' },
-        { index: 1, text: 'About', url: 'https://www.onionland.to/about' },
+        { index: 0, text: 'Tor66 Home', url: 'https://tor66.org/' },
+        { index: 1, text: 'Search', url: 'https://tor66.org/search?q=foo' },
+        { index: 2, text: 'About', url: 'https://tor66.org/about' },
+        { index: 3, text: 'Blog', url: 'https://tor66.org/blog' },
+        { index: 4, text: 'Add Onion', url: 'https://tor66.org/add' },
+        { index: 5, text: 'Clearnet', url: 'https://tor66.org/clearnet' },
+        { index: 6, text: 'External Onion', url: 'http://tor66result.onion/page' },
+      ],
+    })
+    const results = parseSearchResults(obs, provider, 'foo')
+    expect(results.map(r => r.url)).toEqual(['http://tor66result.onion/page'])
+  })
+
+  it('DuckDuckGo Onion: drops self-links to duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion', () => {
+    const provider = findProvider('duckduckgo-onion')
+    const obs = observation({
+      url: 'https://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion/html/?q=foo',
+      links: [
+        {
+          index: 0,
+          text: 'DuckDuckGo',
+          url: 'https://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion/html/',
+        },
+        {
+          index: 1,
+          text: 'Settings',
+          url: 'https://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion/settings',
+        },
         { index: 2, text: 'Result A', url: 'http://a.onion/x' },
+        { index: 3, text: 'Result B', url: 'https://example.org/y' },
       ],
     })
     const results = parseSearchResults(obs, provider, 'foo')
-    expect(results.map(r => r.url)).toEqual(['http://a.onion/x'])
+    expect(results.map(r => r.url)).toEqual(['http://a.onion/x', 'https://example.org/y'])
   })
 
-  it('TorDex: drops tordex.app self-links', () => {
-    const provider = findProvider('tordex')
-    const obs = observation({
-      links: [
-        { index: 0, text: 'TorDex home', url: 'https://tordex.app/' },
-        { index: 1, text: 'Result', url: 'http://a.onion/x' },
-      ],
-    })
-    const results = parseSearchResults(obs, provider, 'foo')
-    expect(results.map(r => r.url)).toEqual(['http://a.onion/x'])
-  })
+  it('Env-backed legacy parsers (OnionLand, TorDex, Excavator): drop self-links when invoked', () => {
+    const base = findProvider('tor66')
 
-  it('Excavator: drops the search-engine chrome', () => {
-    const provider = findProvider('excavator')
-    const obs = observation({
-      links: [
-        { index: 0, text: 'About Excavator', url: 'https://excavatorsearchengine.com/about' },
-        { index: 1, text: 'Real result', url: 'http://a.onion/x' },
-      ],
-    })
-    const results = parseSearchResults(obs, provider, 'foo')
-    expect(results.map(r => r.url)).toEqual(['http://a.onion/x'])
+    const onionlandResults = parseSearchResults(
+      observation({
+        links: [
+          { index: 0, text: 'OnionLand home', url: 'https://www.onionland.to/' },
+          { index: 1, text: 'About', url: 'https://www.onionland.to/about' },
+          { index: 2, text: 'Result A', url: 'http://a.onion/x' },
+        ],
+      }),
+      { ...base, id: 'onionland' },
+      'foo',
+    )
+    expect(onionlandResults.map(r => r.url)).toEqual(['http://a.onion/x'])
+
+    const tordexResults = parseSearchResults(
+      observation({
+        links: [
+          { index: 0, text: 'TorDex home', url: 'https://tordex.app/' },
+          { index: 1, text: 'Result', url: 'http://a.onion/x' },
+        ],
+      }),
+      { ...base, id: 'tordex' },
+      'foo',
+    )
+    expect(tordexResults.map(r => r.url)).toEqual(['http://a.onion/x'])
+
+    const excavatorResults = parseSearchResults(
+      observation({
+        links: [
+          { index: 0, text: 'About Excavator', url: 'https://excavatorsearchengine.com/about' },
+          { index: 1, text: 'Real result', url: 'http://a.onion/x' },
+        ],
+      }),
+      { ...base, id: 'excavator' },
+      'foo',
+    )
+    expect(excavatorResults.map(r => r.url)).toEqual(['http://a.onion/x'])
   })
 
   it('falls back to passthrough parser for unknown provider ids', () => {
@@ -340,17 +440,14 @@ describe('clusterResults', () => {
   })
 })
 
-describe('dedupeAndClusterResults — symmetry across all 5 stealth providers', () => {
-  it('produces zero duplicates when the same query goes to all 5 providers with 50% URL overlap', () => {
-    // Build 6 URLs. Each provider sees 4 of them; 2 are unique per provider.
-    // After dedup we should have 14 unique URLs total.
+describe('dedupeAndClusterResults — symmetry across all 4 active stealth providers', () => {
+  it('produces zero duplicates when the same query goes to all 4 active providers with URL overlap', () => {
     const allUrls = Array.from({ length: 6 }, (_, i) => `http://a${i}.onion/`)
     const providerLists = [
       [allUrls[0], allUrls[1], allUrls[2], allUrls[3]],
       [allUrls[1], allUrls[2], allUrls[3], allUrls[4]],
       [allUrls[2], allUrls[3], allUrls[4], allUrls[5]],
       [allUrls[0], allUrls[2], allUrls[4], allUrls[5]],
-      [allUrls[0], allUrls[1], allUrls[3], allUrls[5]],
     ]
 
     const observations = providerLists.map((urls, i) => ({

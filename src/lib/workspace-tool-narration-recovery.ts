@@ -21,6 +21,11 @@ import {
   WorkspaceToolRequest,
   normalizeUrlToken,
 } from './workspace-tool-tools'
+import {
+  isDarkWebIntentText,
+  isOnionTarget,
+  resolveEffectiveUwafBrowserMode,
+} from './uwaf-mode'
 
 export interface NarrationRecovery {
   toolName: string
@@ -369,6 +374,18 @@ function synthesizeWeb(content: string): NarrationRecovery | null {
     if (!match) continue
     const query = (match[1] || '').trim()
     if (!query || query.length < 2 || query.length > 256) continue
+    if (isDarkWebIntentText(query)) {
+      return {
+        toolName: 'unified_browser',
+        args: {
+          action: 'search',
+          query,
+          browserMode: 'stealth',
+          description: 'auto-recovered stealth search from prose narration',
+        },
+        matchedPattern: 'unified_browser.stealth_search',
+      }
+    }
     return {
       toolName: 'web',
       args: { query, description: 'auto-recovered from prose narration' },
@@ -382,7 +399,7 @@ function synthesizeFetchSummarize(content: string): NarrationRecovery | null {
   const match = content.match(FETCH_SUMMARIZE_RE)
   if (!match) return null
   const url = (match[1] || '').trim()
-  if (!url || !/^https?:\/\//i.test(url)) return null
+  if (!url || !/^https?:\/\//i.test(url) || isOnionTarget(url)) return null
   return {
     toolName: 'fetch_summarize',
     args: { url, description: 'auto-recovered from prose narration' },
@@ -396,15 +413,22 @@ function synthesizeUnifiedBrowserSearch(content: string): NarrationRecovery | nu
     if (!match) continue
     const query = (match[1] || '').trim()
     if (!query || query.length < 2 || query.length > 256) continue
-    // The stealth pattern (last in the list) routes through Tor; everything else
-    // is a direct clear-web search.
-    const isStealth = pattern === UNIFIED_BROWSER_SEARCH_RE_LIST[UNIFIED_BROWSER_SEARCH_RE_LIST.length - 1]
+    // The stealth pattern (last in the list) or dark-web intent queries route
+    // through Tor; everything else defaults to direct clear-web search.
+    const isStealthPattern = pattern === UNIFIED_BROWSER_SEARCH_RE_LIST[UNIFIED_BROWSER_SEARCH_RE_LIST.length - 1]
+    const browserMode = resolveEffectiveUwafBrowserMode({
+      explicitMode: isStealthPattern ? 'stealth' : undefined,
+      preferredMode: 'direct',
+      action: 'search',
+      query,
+    })
+    const isStealth = browserMode === 'stealth'
     return {
       toolName: 'unified_browser',
       args: {
         action: 'search',
         query,
-        browserMode: isStealth ? 'stealth' : 'direct',
+        browserMode,
         description: `auto-recovered ${isStealth ? 'stealth' : 'unified browser'} search from prose narration`,
       },
       matchedPattern: isStealth ? 'unified_browser.stealth_search' : 'unified_browser.search',
@@ -425,9 +449,14 @@ function synthesizeUnifiedBrowser(content: string): NarrationRecovery | null {
   // recovers a real call instead of stalling on the nudge path.
   const url = normalizeUrlToken(raw)
   if (!url) return null
+  const browserMode = resolveEffectiveUwafBrowserMode({
+    action: 'open',
+    url,
+    preferredMode: 'direct',
+  })
   return {
     toolName: 'unified_browser',
-    args: { action: 'open', url, description: 'auto-recovered from prose narration' },
+    args: { action: 'open', url, browserMode, description: 'auto-recovered from prose narration' },
     matchedPattern: 'unified_browser.url',
   }
 }
@@ -1004,15 +1033,26 @@ export function buildWorkspaceToolRequestFromNarration(
 
   if (recovery.toolName === 'unified_browser') {
     const action = recovery.args.action === 'search' ? 'search' : 'open'
+    const explicitMode = recovery.args.browserMode === 'stealth'
+      ? 'stealth'
+      : recovery.args.browserMode === 'direct'
+        ? 'direct'
+        : undefined
     if (action === 'search') {
       const query = recovery.args.query as string
       if (typeof query !== 'string' || !query.trim()) return null
+      const trimmedQuery = query.trim()
       return {
         name: 'unified_browser',
         request: {
           action: 'search',
-          query: query.trim(),
-          browserMode: recovery.args.browserMode === 'stealth' ? 'stealth' : 'direct',
+          query: trimmedQuery,
+          browserMode: resolveEffectiveUwafBrowserMode({
+            explicitMode,
+            preferredMode: 'direct',
+            action: 'search',
+            query: trimmedQuery,
+          }),
           description: (recovery.args.description as string) || '',
         },
       }
@@ -1026,6 +1066,12 @@ export function buildWorkspaceToolRequestFromNarration(
       request: {
         action: 'open',
         url,
+        browserMode: resolveEffectiveUwafBrowserMode({
+          explicitMode,
+          preferredMode: 'direct',
+          action: 'open',
+          url,
+        }),
         description: (recovery.args.description as string) || '',
       },
     }

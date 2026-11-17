@@ -1,6 +1,7 @@
+import net from 'node:net'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
-import { getDirectIp, getStealthInfo, runStealthPreflight } from '@/lib/uwaf-pool'
+import { getDirectIp, getStealthInfo, getTorProxyUrl, runStealthPreflight } from '@/lib/uwaf-pool'
 import { getUwafMetricsSnapshot } from '@/lib/uwaf-telemetry'
 import { getDefaultStealthProfile } from '@/lib/uwaf-fingerprint'
 import { getCuratedStealthEntryPoints, getPreferredSearchProviderLabel, getSearchProviderSnapshot } from '@/lib/uwaf-search-providers'
@@ -105,18 +106,62 @@ function getCachedStatus(profile: ReturnType<typeof getDefaultStealthProfile>): 
   }
 }
 
+const QUICK_STATUS_TIMEOUT_MS = 4500
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => resolve(fallback), timeoutMs)),
+  ])
+}
+
+async function probeTorSocksProxy(timeoutMs = 1200): Promise<boolean> {
+  try {
+    const proxyUrl = await getTorProxyUrl()
+    const parsed = new URL(proxyUrl)
+    const hostname = parsed.hostname
+    const port = Number(parsed.port)
+    if (!hostname || !Number.isFinite(port)) return false
+    return await new Promise<boolean>((resolve) => {
+      const socket = net.createConnection({ host: hostname, port }, () => {
+        socket.destroy()
+        resolve(true)
+      })
+      socket.once('error', () => {
+        socket.destroy()
+        resolve(false)
+      })
+      socket.setTimeout(timeoutMs, () => {
+        socket.destroy()
+        resolve(false)
+      })
+    })
+  } catch {
+    return false
+  }
+}
+
 async function buildQuickStatus(profile: ReturnType<typeof getDefaultStealthProfile>): Promise<UwafStatusPayload> {
-  const [directIp, stealthInfo] = await Promise.all([
-    getDirectIp().catch(() => 'unavailable'),
-    getStealthInfo(profile).catch(() => null),
+  const [torProxyReachable, directIp, stealthInfo] = await Promise.all([
+    probeTorSocksProxy(1200),
+    withTimeout(getDirectIp().catch(() => 'unavailable'), QUICK_STATUS_TIMEOUT_MS, 'unavailable'),
+    withTimeout(getStealthInfo(profile).catch(() => null), QUICK_STATUS_TIMEOUT_MS, null),
   ])
   const checkedAt = new Date().toISOString()
+  const torVerified = stealthInfo?.isTor === true
+  const torReachable = torVerified || torProxyReachable
+  const torIsReady = torVerified ? true : (torProxyReachable && !stealthInfo ? undefined : false)
+  const torError = torVerified
+    ? undefined
+    : torProxyReachable
+      ? (stealthInfo ? 'Tor proxy responded, but exit check was not a Tor node.' : undefined)
+      : 'Tor proxy is unreachable.'
 
   return {
     directIp,
-    torReachable: stealthInfo?.isTor === true,
-    torIsReady: stealthInfo?.isTor === true,
-    torError: stealthInfo?.isTor === true ? undefined : 'Tor route has not been verified yet.',
+    torReachable,
+    torIsReady,
+    torError,
     torExitIp: stealthInfo?.ip,
     torExitCountry: stealthInfo?.country,
     stealthProfile: profile,
@@ -131,14 +176,14 @@ async function buildQuickStatus(profile: ReturnType<typeof getDefaultStealthProf
   }
 }
 
-async function getQuickStatus(profile: ReturnType<typeof getDefaultStealthProfile>): Promise<UwafStatusPayload> {
+async function getQuickStatus(profile: ReturnType<typeof getDefaultStealthProfile>, force = false): Promise<UwafStatusPayload> {
   const now = Date.now()
   const cached = statusCache.quick
-  if (cached && cached.expiresAt > now) {
+  if (!force && cached && cached.expiresAt > now) {
     return withFreshCommonFields({ ...cached.value, statusCached: true })
   }
 
-  if (!statusCache.quickPromise) {
+  if (!statusCache.quickPromise || force) {
     statusCache.quickPromise = buildQuickStatus(profile)
       .then((value) => {
         statusCache.quick = {
@@ -163,7 +208,7 @@ async function getQuickStatus(profile: ReturnType<typeof getDefaultStealthProfil
 }
 
 async function buildDeepStatus(profile: ReturnType<typeof getDefaultStealthProfile>, force: boolean): Promise<UwafStatusPayload> {
-  const stealthPreflight = await runStealthPreflight({ profile, force }).catch(() => null)
+  const stealthPreflight = await runStealthPreflight({ profile, force, includeDiagnostics: true }).catch(() => null)
   const directIp = stealthPreflight?.directIp || statusCache.quick?.value.directIp || 'unavailable'
 
   return {
@@ -247,7 +292,7 @@ export async function GET(request: NextRequest) {
     ? await getDeepStatus(profile, force)
     : level === 'cached'
       ? getCachedStatus(profile)
-      : await getQuickStatus(profile)
+      : await getQuickStatus(profile, force)
 
   return NextResponse.json(status)
 }

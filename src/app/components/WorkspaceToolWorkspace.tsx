@@ -60,6 +60,19 @@ export function useWorkspaceController({
   settingsContent,
   settingsRevision = 0,
 }: WorkspaceToolWorkspaceProps) {
+  const WORKSPACE_TOOL_UWAF_MODE_STORAGE = 'peakui-workspace-uwaf-mode';
+
+  const getStoredUwafBrowserMode = (): 'direct' | 'stealth' | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const stored = window.sessionStorage.getItem(WORKSPACE_TOOL_UWAF_MODE_STORAGE);
+      if (stored === 'direct' || stored === 'stealth') return stored;
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
   const getStoredInternetEnabled = () => {
     if (typeof window === 'undefined') return false;
     try {
@@ -291,7 +304,7 @@ export function useWorkspaceController({
   const ragFolderButtonRef = useRef<HTMLButtonElement>(null);
   const ragFolderPopoverRef = useRef<HTMLDivElement>(null);
   const [internetEnabled, setInternetEnabled] = useState(getStoredInternetEnabled);
-  const [uwafBrowserMode, setUwafBrowserMode] = useState<'direct' | 'stealth'>('direct');
+  const [uwafBrowserMode, setUwafBrowserMode] = useState<'direct' | 'stealth'>(() => getStoredUwafBrowserMode() ?? 'direct');
   const [unrestrictedEnabled, setUnrestrictedEnabled] = useState(() => {
     try { return window.sessionStorage.getItem(WORKSPACE_TOOL_UNRESTRICTED_STORAGE) === 'true'; } catch { return false; }
   });
@@ -312,6 +325,11 @@ export function useWorkspaceController({
   const [browserTakeoverRequestId, setBrowserTakeoverRequestId] = useState(0);
   const browserInterruptedRef = useRef(false);
   const switchUwafBrowserMode = useCallback((nextMode: 'direct' | 'stealth') => {
+    try {
+      window.sessionStorage.setItem(WORKSPACE_TOOL_UWAF_MODE_STORAGE, nextMode);
+    } catch {
+      // Ignore browser storage failures.
+    }
     setUwafBrowserMode((currentMode) => {
       if (currentMode === nextMode) return currentMode;
 
@@ -863,6 +881,9 @@ export function useWorkspaceController({
     setDraftSessionAutoContinueMaxSteps(nextSettings.workspaceToolSessionAutoContinueMaxSteps);
     if (getStoredRagEnabled() === null) {
       setRagEnabled(nextSettings.ragEnabled);
+    }
+    if (getStoredUwafBrowserMode() === null) {
+      setUwafBrowserMode(nextSettings.workspaceToolUwafDefaultMode === 'stealth' ? 'stealth' : 'direct');
     }
 
     // Favorites are server-authoritative and per-user — adopt the server
@@ -1583,6 +1604,9 @@ export function useWorkspaceController({
       setDraftSessionAutoContinueMaxSteps(current => currentSessionId ? current : nextSettings.workspaceToolSessionAutoContinueMaxSteps);
       if (getStoredRagEnabled() === null) {
         setRagEnabled(nextSettings.ragEnabled);
+      }
+      if (getStoredUwafBrowserMode() === null) {
+        setUwafBrowserMode(nextSettings.workspaceToolUwafDefaultMode === 'stealth' ? 'stealth' : 'direct');
       }
       return nextSettings;
     } catch (error) {
@@ -2850,7 +2874,7 @@ export function useWorkspaceController({
     setPendingAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
-  const { streamAssistantResponse, handleSendMessage } = useAgentLoop({ startTimeRef, tokenCountRef, setLiveStats, setWorkspaceContextUsage, setStreamPhase, setStreamStatusDetail, abortControllerRef, activeWorkspaceRunIdRef, selectedModel, selectedModelContextWindow, currentWorkspace, clientViewport, provider, baseUrl, settings, apiKey, unrestrictedEnabled, uncensoredEnabled, accountantEnabled, imageGenerationEnabled, modelSupportsVision, message, internetEnabled, pendingImages, pendingAttachments, isStreaming, autoContinueCountRef, autoContinueTimerRef, currentSessionId, taskState, buildAttachmentContext, ragFolderPath, chatHistory, pinToBottom, setMessage, setPendingImages, setPendingAttachments, setModelControlNote, setLastSubmission, setTaskStates, setChatHistory, setCurrentSessionId, setIsStreaming, ragEnabled, agentPreferences, memoryContext, filesystemEnabled, allowedFilesystemPaths, requestFilesystemAction, requestWebContext, requestCodeExecution, requestBrowserAction, requestUwafBrowserAction, setUwafCurrentUrl, setUwafCurrentTitle, executeTaxReturnAction, requestTaxReturnAction, loadCanvasArtifacts, requestPdfDocumentAction, requestWorkbookDocumentAction, requestWordDocumentAction, requestCsvDocumentAction, requestEmailDocumentAction, executeFetchSummarizeAction, requestMarkdownDocumentAction, requestSlidesDocumentAction, requestArchiveDocumentAction, requestCalendarDocumentAction, requestMermaidDocumentAction, shellEnabled, requestShellCommand, executeImageGenerationAction, effectiveSessionAutoContinueMode, effectiveSessionAutoContinueMaxSteps, currentSession, generateSessionSummary, setSessions, setSelectedSessionInfo, setAutoContinuePending, persistSessionIntelligenceSafe });
+  const { streamAssistantResponse, handleSendMessage } = useAgentLoop({ startTimeRef, tokenCountRef, setLiveStats, setWorkspaceContextUsage, setStreamPhase, setStreamStatusDetail, abortControllerRef, activeWorkspaceRunIdRef, selectedModel, selectedModelContextWindow, currentWorkspace, clientViewport, provider, baseUrl, settings, apiKey, unrestrictedEnabled, uncensoredEnabled, accountantEnabled, imageGenerationEnabled, modelSupportsVision, message, internetEnabled, uwafBrowserMode, pendingImages, pendingAttachments, isStreaming, autoContinueCountRef, autoContinueTimerRef, currentSessionId, taskState, buildAttachmentContext, ragFolderPath, chatHistory, pinToBottom, setMessage, setPendingImages, setPendingAttachments, setModelControlNote, setLastSubmission, setTaskStates, setChatHistory, setCurrentSessionId, setIsStreaming, ragEnabled, agentPreferences, memoryContext, filesystemEnabled, allowedFilesystemPaths, requestFilesystemAction, requestWebContext, requestCodeExecution, requestBrowserAction, requestUwafBrowserAction, setUwafCurrentUrl, setUwafCurrentTitle, executeTaxReturnAction, requestTaxReturnAction, loadCanvasArtifacts, requestPdfDocumentAction, requestWorkbookDocumentAction, requestWordDocumentAction, requestCsvDocumentAction, requestEmailDocumentAction, executeFetchSummarizeAction, requestMarkdownDocumentAction, requestSlidesDocumentAction, requestArchiveDocumentAction, requestCalendarDocumentAction, requestMermaidDocumentAction, shellEnabled, requestShellCommand, executeImageGenerationAction, effectiveSessionAutoContinueMode, effectiveSessionAutoContinueMaxSteps, currentSession, generateSessionSummary, setSessions, setSelectedSessionInfo, setAutoContinuePending, persistSessionIntelligenceSafe });
 
 
   return {

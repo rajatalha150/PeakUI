@@ -70,6 +70,7 @@ const STEALTH_SEARCH_PROVIDER_TIMEOUT_MS = 22_000
 // Single-provider setups (preferredProviderId) are exempt — we trust the
 // caller's choice and let it use the full providerTimeoutMs.
 const PER_PROVIDER_FALLBACK_BUDGET_MS = 8_000
+const PER_STEALTH_PROVIDER_FALLBACK_BUDGET_MS = 16_000
 
 /**
  * Race a promise against a wall-clock deadline. On timeout, resolves with
@@ -89,14 +90,14 @@ async function runWithTimeout<T extends object>(work: Promise<T>, budgetMs: numb
   })
   const result = await Promise.race<{ timedOut: true } | T>([work, timeout])
   if (timer) clearTimeout(timer)
-  if ('timedOut' in result && result.timedOut) return result
-  // Suppress late settlement of the in-flight work so we never get an
-  // unhandled rejection (the underlying operations may have already thrown
-  // — Playwright page.goto is the common case — and we don't want to
-  // surface that to the caller after we already moved on).
-  work.catch(error => {
-    console.debug(`runWithTimeout: in-flight work rejected after timeout: ${error instanceof Error ? error.message : String(error)}`)
-  })
+  if ('timedOut' in result && result.timedOut) {
+    // Suppress late settlement of the in-flight work so we never get an
+    // unhandled rejection after the caller has already moved on.
+    work.catch(error => {
+      console.debug(`runWithTimeout: in-flight work rejected after timeout: ${error instanceof Error ? error.message : String(error)}`)
+    })
+    return result
+  }
   return { ...(result as T), timedOut: false }
 }
 
@@ -1061,42 +1062,71 @@ async function countMatchingSelectors(page: Page, selectors: readonly string[]):
   return 0
 }
 
-async function waitForMatchingSelectors(page: Page, selectors: readonly string[], timeoutMs = 5000): Promise<boolean> {
-  for (const selector of selectors) {
-    try {
-      await page.waitForSelector(selector, { state: 'attached', timeout: timeoutMs })
-      return true
-    } catch {
-      // Try the next selector.
-    }
+async function waitForMatchingSelectors(page: Page, selectors: readonly string[], timeoutMs = 3500): Promise<boolean> {
+  const validSelectors = selectors.map(selector => selector.trim()).filter(Boolean)
+  if (validSelectors.length === 0) return false
+  const boundedTimeout = Math.min(Math.max(0, timeoutMs), 3500)
+  try {
+    await page.waitForSelector(validSelectors.join(', '), {
+      state: 'attached',
+      timeout: boundedTimeout,
+    })
+    return true
+  } catch {
+    return false
   }
-  return false
 }
 
-async function maybeUseSearchForm(page: Page, provider: UwafSearchProvider, query: string): Promise<boolean> {
-  await page.goto(provider.homeUrl, { timeout: 30_000, waitUntil: 'domcontentloaded' })
+async function maybeUseSearchForm(
+  page: Page,
+  provider: UwafSearchProvider,
+  query: string,
+  options?: { timeoutMs?: number; isCancelled?: () => boolean },
+): Promise<boolean> {
+  if (options?.isCancelled?.()) return false
+  const navTimeout = Math.min(options?.timeoutMs ?? 20_000, 20_000)
+  await page.goto(provider.homeUrl, { timeout: navTimeout, waitUntil: 'domcontentloaded' })
+  if (options?.isCancelled?.()) return false
   await page.waitForTimeout(250)
+  if (options?.isCancelled?.()) return false
 
   for (const selector of provider.inputSelectors) {
+    if (options?.isCancelled?.()) return false
     const locator = page.locator(selector).first()
     const count = await locator.count().catch(() => 0)
     if (count === 0) continue
 
     await locator.fill(query).catch(() => {})
-    await locator.press('Enter').catch(() => {})
+    if (options?.isCancelled?.()) return false
+    const waitForSubmitNav = page.waitForURL(
+      url => url.href !== provider.homeUrl || url.search.length > 0,
+      { timeout: Math.min(navTimeout, 10_000), waitUntil: 'domcontentloaded' },
+    ).catch(() => {})
+    let submitted = false
     for (const submitSelector of provider.submitSelectors) {
+      if (options?.isCancelled?.()) return false
       const button = page.locator(submitSelector).first()
       const buttonCount = await button.count().catch(() => 0)
       if (buttonCount > 0) {
-        await button.click().catch(() => {})
+        await Promise.all([
+          waitForSubmitNav,
+          button.click({ timeout: 5_000 }).catch(() => {}),
+        ])
+        submitted = true
         break
       }
     }
-    await page.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {})
-    // JS-heavy engines (OnionLand, TorDex, etc.) render results after the
-    // initial DOM event. Wait for a result selector before declaring success.
-    await waitForMatchingSelectors(page, provider.resultSelectors, 5000)
-    return true
+    if (!submitted) {
+      await Promise.all([
+        waitForSubmitNav,
+        locator.press('Enter').catch(() => {}),
+      ])
+    }
+    if (options?.isCancelled?.()) return false
+    await page.waitForLoadState('domcontentloaded', { timeout: Math.min(navTimeout, 10_000) }).catch(() => {})
+    if (options?.isCancelled?.()) return false
+    await waitForMatchingSelectors(page, provider.resultSelectors, 3500)
+    return !options?.isCancelled?.()
   }
 
   return false
@@ -1558,47 +1588,174 @@ async function executeSearch(
     requestedUrl: string
   }> = []
 
+  const context = page.context()
+  let currentAttemptPage = page
+  const fallbackBudgetMs = mode === 'stealth'
+    ? PER_STEALTH_PROVIDER_FALLBACK_BUDGET_MS
+    : PER_PROVIDER_FALLBACK_BUDGET_MS
+
   for (const provider of providers) {
     const providerStartedAt = Date.now()
     const requestedUrl = provider.resultsUrl(query)
-    const budgetMs = Math.min(providerTimeoutMs, PER_PROVIDER_FALLBACK_BUDGET_MS)
-    let attempt = await runWithTimeout(
+    const budgetMs = preferredProviderId
+      ? providerTimeoutMs
+      : Math.min(providerTimeoutMs, fallbackBudgetMs)
+    const attemptPage = currentAttemptPage
+    let attemptCancelled = false
+
+    const attempt = await runWithTimeout(
       (async () => {
-        let observation = await navigateToUrl(page, requestedUrl, mode, takeScreenshot, {
-          since: providerStartedAt,
-          stealthProfile,
-          timeoutMs: budgetMs,
-          observations: [
+        try {
+          const baseObservations = [
             `Issued a ${provider.label} query for: ${query}`,
             ...(curatedEntryPoints.length > 0 && mode === 'stealth'
               ? [`Approved stealth search providers: ${providers.map(entry => entry.label).join(', ')}`]
               : []),
-          ],
-        })
-        // Many search engines render results via JS. Give their result selectors a
-        // short window to appear before evaluating the page.
-        await waitForMatchingSelectors(page, provider.resultSelectors, 5000)
-        let resultCount = await countMatchingSelectors(page, provider.resultSelectors)
-        let evaluation = evaluateSearchObservation(observation, query, provider, resultCount)
+          ]
+          let triedForm = false
+          let observation: PageObservation
+          let resultCount = 0
+          let evaluation: ReturnType<typeof evaluateSearchObservation>
 
-        if (!evaluation.success) {
-          const usedForm = await maybeUseSearchForm(page, provider, query).catch(() => false)
-          if (usedForm) {
-            observation = await observePage(page, mode, takeScreenshot, {
+          if ((provider as { requiresHomepageForm?: boolean }).requiresHomepageForm) {
+            triedForm = true
+            const usedForm = await maybeUseSearchForm(attemptPage, provider, query, {
+              timeoutMs: budgetMs,
+              isCancelled: () => attemptCancelled,
+            }).catch(() => false)
+            if (attemptCancelled) {
+              throw new Error('Search attempt cancelled after timeout')
+            }
+            observation = await observePage(attemptPage, mode, takeScreenshot, {
               since: providerStartedAt,
-              observations: [...evaluation.observations, `Retried the query through the ${provider.label} on-page search form.`],
+              observations: usedForm
+                ? [...baseObservations, `Submitted the query through the ${provider.label} homepage search form.`]
+                : [...baseObservations, `Could not locate a usable search form on ${provider.label}.`],
               stealthProfile,
             })
-            resultCount = await countMatchingSelectors(page, provider.resultSelectors)
+            if (attemptCancelled) {
+              throw new Error('Search attempt cancelled after timeout')
+            }
+            resultCount = await countMatchingSelectors(attemptPage, provider.resultSelectors)
             evaluation = evaluateSearchObservation(observation, query, provider, resultCount)
+          } else {
+            observation = await navigateToUrl(attemptPage, requestedUrl, mode, takeScreenshot, {
+              since: providerStartedAt,
+              stealthProfile,
+              timeoutMs: budgetMs,
+              observations: baseObservations,
+            })
+            if (attemptCancelled) {
+              throw new Error('Search attempt cancelled after timeout')
+            }
+
+            resultCount = await countMatchingSelectors(attemptPage, provider.resultSelectors)
+            if (isSearchHomepage(observation.url) && resultCount === 0) {
+              // Landed on a search homepage with 0 results (e.g., bounce from direct GET):
+              // skip selector wait and immediately retry via the on-page search form.
+              triedForm = true
+              const usedForm = await maybeUseSearchForm(attemptPage, provider, query, {
+                timeoutMs: budgetMs,
+                isCancelled: () => attemptCancelled,
+              }).catch(() => false)
+              if (attemptCancelled) {
+                throw new Error('Search attempt cancelled after timeout')
+              }
+              if (usedForm) {
+                observation = await observePage(attemptPage, mode, takeScreenshot, {
+                  since: providerStartedAt,
+                  observations: [...observation.observations, `Retried the query through the ${provider.label} on-page search form.`],
+                  stealthProfile,
+                })
+                if (attemptCancelled) {
+                  throw new Error('Search attempt cancelled after timeout')
+                }
+                resultCount = await countMatchingSelectors(attemptPage, provider.resultSelectors)
+              }
+              evaluation = evaluateSearchObservation(observation, query, provider, resultCount)
+            } else {
+              // Many search engines render results via JS. Give their result selectors a
+              // short window to appear before evaluating the page.
+              if (resultCount === 0) {
+                await waitForMatchingSelectors(attemptPage, provider.resultSelectors, 3500)
+                if (attemptCancelled) {
+                  throw new Error('Search attempt cancelled after timeout')
+                }
+                resultCount = await countMatchingSelectors(attemptPage, provider.resultSelectors)
+              }
+              evaluation = evaluateSearchObservation(observation, query, provider, resultCount)
+            }
+          }
+
+          if (!evaluation.success && !triedForm && !attemptCancelled) {
+            const usedForm = await maybeUseSearchForm(attemptPage, provider, query, {
+              timeoutMs: budgetMs,
+              isCancelled: () => attemptCancelled,
+            }).catch(() => false)
+            if (attemptCancelled) {
+              throw new Error('Search attempt cancelled after timeout')
+            }
+            if (usedForm) {
+              observation = await observePage(attemptPage, mode, takeScreenshot, {
+                since: providerStartedAt,
+                observations: [...evaluation.observations, `Retried the query through the ${provider.label} on-page search form.`],
+                stealthProfile,
+              })
+              if (attemptCancelled) {
+                throw new Error('Search attempt cancelled after timeout')
+              }
+              resultCount = await countMatchingSelectors(attemptPage, provider.resultSelectors)
+              evaluation = evaluateSearchObservation(observation, query, provider, resultCount)
+            }
+          }
+
+          return { observation, evaluation, resultCount }
+        } catch (error) {
+          if (attemptCancelled) throw error
+          const message = error instanceof Error ? error.message : String(error)
+          const failureObservation: PageObservation = {
+            url: requestedUrl,
+            title: '',
+            text: '',
+            html: '',
+            markdown: '',
+            links: [],
+            forms: [],
+            tables: [],
+            jsErrors: [],
+            networkErrors: [message],
+            tabs: [],
+            activeTabIndex: 0,
+            pageSignature: '',
+            observations: [`Provider "${provider.label}" navigation failed: ${message}`],
+            antiBotDetected: false,
+            loginDetected: false,
+          }
+          return {
+            observation: failureObservation,
+            evaluation: {
+              success: false,
+              queryMatched: false,
+              failureCode: 'navigation_failed' as UwafFailureCode,
+              failureDetail: message,
+              observations: failureObservation.observations,
+            },
+            resultCount: 0,
           }
         }
-
-        return { observation, evaluation, resultCount, timedOut: false }
       })(),
       budgetMs,
     )
     if (attempt.timedOut) {
+      attemptCancelled = true
+      const replacementPage = await context.newPage().catch(() => null)
+      if (replacementPage) {
+        ensurePageInstrumentation(replacementPage)
+      }
+      await attemptPage.close().catch(() => {})
+      if (replacementPage) {
+        currentAttemptPage = replacementPage
+      }
       const failureDetail = `Search provider "${provider.label}" exceeded the ${budgetMs}ms per-attempt budget.`
       const failureObservation: PageObservation = {
         url: requestedUrl,
@@ -2446,5 +2603,9 @@ export { assertPublicHttpUrl }
 export const __test__ = {
   runWithTimeout,
   PER_PROVIDER_FALLBACK_BUDGET_MS,
+  PER_STEALTH_PROVIDER_FALLBACK_BUDGET_MS,
   detectLoginRequirement,
+  waitForMatchingSelectors,
+  isSearchHomepage,
+  evaluateSearchObservation,
 }

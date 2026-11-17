@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — Stealth Mode (UWAF Tor) reliability, modern search providers, and streamlined Dark Web access
+
+- **Fast, non-flaky Stealth preflight (`src/lib/uwaf-pool.ts`, `src/app/api/workspace-tool/uwaf-browser/route.ts`, `status/route.ts`)**: Eliminated the 4-Chromium-browser startup stampede in `runStealthPreflight()`. Turn-time stealth checks (`includeDiagnostics: false`, cached 5m) probe Tor SOCKS5 fail-fast, verify an active Tor exit via `check.torproject.org/api/ip`, and validate WebRTC/media-capture lockdown inside a single ephemeral Chromium session. Full clearnet diagnostics (`browserleaks.com/dns`, `bot.sannysoft.com`, `browserleaks.com/javascript`) run on explicit Network Hub preflight refreshes (`level=preflight`) as non-blocking warnings so external rate limits on Tor exits cannot break agent runs.
+- **Updated Stealth search providers & parsers (`src/lib/uwaf-search-providers.ts`, `src/lib/uwaf-result-parser.ts`, `src/lib/uwaf-fingerprint.ts`)**:
+  - Updated `Ahmia` with `requiresHomepageForm: true` to submit `#searchForm` with its dynamic hidden token (preventing 302 bounces back to `/`) and added `unwrapAhmiaRedirectUrl()` to decode `/search/redirect?redirect_url=...` links directly to target `.onion` URLs.
+  - Promoted `Tor66` (`tor66.org`) to a built-in default provider with a dedicated `tor66Parser`.
+  - Added `DuckDuckGo Onion` (`duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion/html/`) as a fallback and `OnionWay` `.onion` mirror support.
+  - Moved non-working legacy domains (`TorDex` 403, `Excavator` reload loop, `OnionLand` timeout) to optional env-backed overrides (`UWAF_STEALTH_PROVIDER_*`).
+- **Search selector wait & timeout race fix (`src/lib/uwaf-browser.ts`)**: Replaced sequential `5s × N` selector waits with a single bounded combined selector wait (`3.5s`), added a 16s stealth fallback budget (`PER_STEALTH_PROVIDER_FALLBACK_BUDGET_MS`), fast-pathed homepage bounces straight to form submission (`waitForURL`), and isolated/closed timed-out attempt tabs so orphaned promises cannot hijack the next provider.
+- **Streamlined Dark Web access (`src/lib/uwaf-mode.ts`, `UwafNetworkPanel.tsx`, `WorkspaceToolWorkspace.tsx`, `useAgentLoop.tsx`, `workspace-agent-run.ts`, `workspace-tool-dispatch.ts`, `workspace-tool-prompt.ts`)**: Auto-escalates `.onion` URLs and dark-web queries to `browserMode: 'stealth'`, persists and forwards the UI Stealth toggle through durable daemon runs, keeps the Network Hub **Stealth** toggle clickable with auto-recheck on click, and updates prompt/narration routing so dark-web news queries route to Stealth UWAF instead of clearnet `web`.
+
 ### Changed — Local + cloud models run at their real native context windows
 
 The same capability-probe principle now applies to **every** model — local or

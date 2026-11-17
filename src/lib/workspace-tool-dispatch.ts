@@ -11,6 +11,7 @@
  */
 
 import type { WorkspaceToolRequest } from './workspace-tool-tools'
+import { resolveEffectiveUwafBrowserMode, type UwafBrowserMode } from './uwaf-mode'
 import { getWorkspaceToolWorkspaceContainerRoot, getWorkspaceToolWorkspaceHostRoot } from './workspace-tool-workspace'
 
 type JsonRecord = Record<string, unknown>
@@ -21,6 +22,7 @@ export interface WorkspaceToolRunTarget {
   workspaceRelativePath?: string
   workspaceId?: string | null
   ragFolderPath?: string | null
+  uwafBrowserMode?: UwafBrowserMode
 }
 
 export type AppApiCall = (token: string, path: string, body: JsonRecord) => Promise<{ ok: boolean; status: number; data: JsonRecord }>
@@ -103,11 +105,22 @@ export async function executeWorkspaceTool(token: string, request: WorkspaceTool
       return appApi(token, '/api/workspace-tool/browser', { ...body, sessionId: run.chatId })
     }
     case 'unified_browser': {
-      if (body.action === 'submit' || body.action === 'research_batch') {
-        return callApprovedTool(token, '/api/workspace-tool/uwaf-browser/request', '/api/workspace-tool/uwaf-browser', body, run)
+      const explicitMode = body.browserMode === 'stealth' || body.browserMode === 'direct'
+        ? body.browserMode
+        : undefined
+      const browserMode = resolveEffectiveUwafBrowserMode({
+        explicitMode,
+        preferredMode: run.uwafBrowserMode,
+        action: typeof body.action === 'string' ? body.action : undefined,
+        url: typeof body.url === 'string' ? body.url : undefined,
+        query: typeof body.query === 'string' ? body.query : undefined,
+      })
+      const uwafBody: JsonRecord = { ...body, browserMode }
+      if (uwafBody.action === 'submit' || uwafBody.action === 'research_batch') {
+        return callApprovedTool(token, '/api/workspace-tool/uwaf-browser/request', '/api/workspace-tool/uwaf-browser', uwafBody, run)
       }
-      if (body.action === 'wait_for_user') return { ok: false, data: { error: 'Human browser assistance requires the browser to remain open.', code: 'human_assistance_required' } }
-      return appApi(token, '/api/workspace-tool/uwaf-browser', { ...body, sessionId: run.chatId })
+      if (uwafBody.action === 'wait_for_user') return { ok: false, data: { error: 'Human browser assistance requires the browser to remain open.', code: 'human_assistance_required' } }
+      return appApi(token, '/api/workspace-tool/uwaf-browser', { ...uwafBody, sessionId: run.chatId })
     }
     case 'fetch_summarize': return appApi(token, '/api/workspace-tool/fetch-summarize', body)
     case 'image_generation': return appApi(token, '/api/image-gen/generate', { ...body, sessionId: run.chatId, messageId: run.messageId })

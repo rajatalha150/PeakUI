@@ -1,5 +1,6 @@
 import { randomUUID } from '@/lib/uuid';
 import { isWindowsHostPath } from '@/lib/workspace-tool-path-check';
+import { resolveEffectiveUwafBrowserMode } from '@/lib/uwaf-mode';
 import { type UwafBrowserToolResultEntry } from '@/lib/workspace-tool-tool-results';
 import { isUsableArtifactRecord } from '@/lib/document-generation-guard';
 import {
@@ -667,10 +668,17 @@ const requestUwafBrowserAction = async (
     request: WorkspaceToolUwafBrowserToolRequest,
     options: { messageId: string; sessionId: string }
   ): Promise<UwafBrowserToolResultEntry> => {
+    const browserMode = resolveEffectiveUwafBrowserMode({
+      explicitMode: request.browserMode,
+      preferredMode: uwafBrowserMode,
+      action: request.action,
+      url: request.url,
+      query: request.query,
+    });
     const payload = {
       ...request,
       sessionId: options.sessionId,
-      browserMode: request.browserMode || uwafBrowserMode,
+      browserMode,
     };
 
     if (request.action === 'wait_for_user') {

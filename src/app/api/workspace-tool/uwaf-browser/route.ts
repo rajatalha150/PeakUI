@@ -4,6 +4,7 @@ import { runUwafBrowserAction, getUwafBrowserSession, resolveStealthProfileForRe
 import { isBrowserInterrupted, restartScreencastForSession } from '@/lib/live-browser-server'
 import { prisma } from '@/lib/prisma'
 import { normalizeWorkspaceToolUwafBrowserMode, normalizeWorkspaceToolUwafDefaultMode, DEFAULT_SETTINGS } from '@/lib/settings'
+import { resolveEffectiveUwafBrowserMode } from '@/lib/uwaf-mode'
 import { runStealthPreflight } from '@/lib/uwaf-pool'
 import { logUwafActionTelemetry, logUwafTorDiagnostic } from '@/lib/uwaf-telemetry'
 import { getDefaultStealthProfile, normalizeStealthProfile } from '@/lib/uwaf-fingerprint'
@@ -90,8 +91,13 @@ export async function POST(request: NextRequest) {
   const explicitBrowserMode = typeof body.browserMode === 'string' && ['direct', 'stealth'].includes(body.browserMode)
     ? body.browserMode as 'direct' | 'stealth'
     : null
-  const requestBrowserMode = explicitBrowserMode
-    || (settings.workspaceToolUwafDefaultMode === 'stealth' ? 'stealth' : 'direct')
+  const requestBrowserMode = resolveEffectiveUwafBrowserMode({
+    explicitMode: explicitBrowserMode,
+    preferredMode: settings.workspaceToolUwafDefaultMode === 'stealth' ? 'stealth' : 'direct',
+    action,
+    url: typeof body.url === 'string' ? body.url : undefined,
+    query: typeof body.query === 'string' ? body.query : undefined,
+  })
 
   if (action === 'submit') {
     const approvalToken = typeof body.approvalToken === 'string' ? body.approvalToken : ''
@@ -239,7 +245,7 @@ export async function POST(request: NextRequest) {
 
     if (requestBrowserMode === 'stealth') {
       const preflightStartedAt = Date.now()
-      const preflight = await runStealthPreflight({ profile: resolvedStealthProfile })
+      const preflight = await runStealthPreflight({ profile: resolvedStealthProfile, includeDiagnostics: false })
       logUwafTorDiagnostic({
         userId,
         sessionId,

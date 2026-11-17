@@ -252,14 +252,51 @@ function passthroughParser(observation: MinimalObservation): ParsedRow[] {
 
 /**
  * Ahmia: result rows are `<li>` with one anchor and a small description
- * `<p>`. The link extractor already returns the anchor; we just need to
- * skip the site's own internal navigation (search, login, home).
+ * `<p>`. Recent Ahmia builds wrap external `.onion` links in
+ * `/search/redirect?search_term=...&redirect_url=...`, so we unwrap
+ * redirect links before filtering out Ahmia's own internal chrome.
  */
-const AHMIA_HOST = /^https?:\/\/(?:www\.)?ahmia\.fi\//i
-const AHMIA_NAV_PATH = /\/(about|help|stats|submit|add|catalog|browse|filters|api)\b/i
+const AHMIA_MIRROR_HOST = 'juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion'
+const AHMIA_HOST = /^https?:\/\/(?:(?:www\.)?ahmia\.fi|juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd\.onion)(?:\/|$)/i
+const AHMIA_NAV_PATH = /^\/(about|help|stats|submit|add|catalog|browse|filters|api|blacklist|legal|terms|privacy|search)\b/i
+
+/**
+ * Unwrap Ahmia `/search/redirect?search_term=...&redirect_url=...` links
+ * back to their destination URL when the host is `ahmia.fi` or its `.onion`
+ * mirror.
+ */
+export function unwrapAhmiaRedirectUrl(href: string): string {
+  if (!href || typeof href !== 'string') return href
+  const trimmed = href.trim()
+  if (!trimmed) return href
+
+  try {
+    const parsed = trimmed.startsWith('/search/redirect')
+      ? new URL(trimmed, 'https://ahmia.fi')
+      : new URL(trimmed)
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '')
+    if (host !== 'ahmia.fi' && host !== AHMIA_MIRROR_HOST) return href
+    if (parsed.pathname.replace(/\/+$/, '') !== '/search/redirect') return href
+
+    const target = parsed.searchParams.get('redirect_url')?.trim()
+    if (!target) return href
+    const targetUrl = new URL(target)
+    if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') return href
+    return target
+  } catch {
+    return href
+  }
+}
 
 function ahmiaParser(observation: MinimalObservation): ParsedRow[] {
-  return passthroughParser(observation).filter(row => {
+  const seen = new Set<string>()
+  const rows: ParsedRow[] = []
+
+  for (const link of observation.links) {
+    const unwrappedUrl = unwrapAhmiaRedirectUrl(link.url)
+    const row = rowFromAnchor(link.text, unwrappedUrl)
+    if (!row || seen.has(row.url)) continue
+
     if (AHMIA_HOST.test(row.url)) {
       // Drop Ahmia's own chrome (home, about, submit, etc.).
       const path = (() => {
@@ -269,21 +306,45 @@ function ahmiaParser(observation: MinimalObservation): ParsedRow[] {
           return row.url
         }
       })()
-      if (path === '/' || path === '') return false
-      if (AHMIA_NAV_PATH.test(path)) return false
+      if (path === '/' || path === '') continue
+      if (AHMIA_NAV_PATH.test(path)) continue
     }
-    return true
-  })
+
+    seen.add(row.url)
+    rows.push(row)
+  }
+
+  return rows
 }
 
 /**
  * OnionWay: result cards have a title link and a snippet block. We
- * detect a row link by excluding the site's chrome (home, login, nav).
+ * detect a row link by excluding the site's chrome (home, login, nav)
+ * across both clearnet and its `.onion` mirror.
  */
-const ONIONWAY_NAV_HREFS = /^https?:\/\/(?:www\.)?onionway\.com\/(?!search\.php\?)/i
+const ONIONWAY_NAV_HREFS = /^https?:\/\/(?:www\.)?(?:onionway\.com|oniwayzz74cv2puhsgx4dpjwieww4wdphsydqvf5q7eyz4myjvyw26ad\.onion)(?:\/(?!search\.php\?)|$)/i
 
 function onionwayParser(observation: MinimalObservation): ParsedRow[] {
   return passthroughParser(observation).filter(row => !ONIONWAY_NAV_HREFS.test(row.url))
+}
+
+/**
+ * Tor66: drop tor66.org chrome and internal links while preserving external
+ * `.onion` results.
+ */
+const TOR66_HOST = /^https?:\/\/(?:www\.)?tor66\.org(?:\/|$)/i
+
+function tor66Parser(observation: MinimalObservation): ParsedRow[] {
+  return passthroughParser(observation).filter(row => !TOR66_HOST.test(row.url))
+}
+
+/**
+ * DuckDuckGo Onion: drop self-links to the DuckDuckGo onion HTML endpoint.
+ */
+const DUCKDUCKGO_ONION_HOST = /^https?:\/\/(?:www\.)?duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad\.onion(?:\/|$)/i
+
+function duckduckgoOnionParser(observation: MinimalObservation): ParsedRow[] {
+  return passthroughParser(observation).filter(row => !DUCKDUCKGO_ONION_HOST.test(row.url))
 }
 
 /**
@@ -314,6 +375,8 @@ function excavatorParser(observation: MinimalObservation): ParsedRow[] {
 const PARSERS: Readonly<Record<string, ProviderParser>> = {
   ahmia: ahmiaParser,
   onionway: onionwayParser,
+  tor66: tor66Parser,
+  'duckduckgo-onion': duckduckgoOnionParser,
   onionland: onionlandParser,
   tordex: tordexParser,
   excavator: excavatorParser,
@@ -447,6 +510,7 @@ export function dedupeAndClusterResults(
 export const __test__ = {
   canonicalizeUrl,
   classifyResult,
+  unwrapAhmiaRedirectUrl,
   CATEGORY_RULES,
   TRACKING_PARAMS,
   PARSERS,

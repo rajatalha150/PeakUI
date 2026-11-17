@@ -607,6 +607,7 @@ async function executeRun(runId: string) {
     const turnRagEnabled = request.rag_enabled === true
     const turnRagQuery = typeof request.rag_query === 'string' && request.rag_query.trim() ? request.rag_query.trim() : null
     const turnRagFolder = turnRagQuery?.match(/^folder:(\S+)/)?.[1] ?? null
+    const turnUwafBrowserMode = request.uwaf_browser_mode === 'stealth' ? 'stealth' : request.uwaf_browser_mode === 'direct' ? 'direct' : undefined
     delete request.workspace_vision_images
     delete request.workspace_vision_user_text
     delete request.main_model_supports_vision
@@ -793,6 +794,7 @@ async function executeRun(runId: string) {
         workspaceRelativePath: workspaceContext?.workspace.relativePath,
         workspaceId: run.workspaceId,
         ragFolderPath: turnRagFolder,
+        uwafBrowserMode: turnUwafBrowserMode,
       })
       const afterToolRun = await prisma.workspaceAgentRun.findUnique({ where: { id: runId }, select: { status: true } })
       if (afterToolRun?.status === 'cancelled') return

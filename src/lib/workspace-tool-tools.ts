@@ -1,4 +1,5 @@
 import { WORKSPACE_TOOL_NAMES } from './tool-registry'
+import { resolveEffectiveUwafBrowserMode } from './uwaf-mode'
 import type {
   PdfDocumentCallout,
   PdfDocumentField,
@@ -1044,7 +1045,14 @@ function parseToolIntentFromProse(content: string): WorkspaceToolRequest | undef
   if (ubSearch) {
     const query = ubSearch[1].trim()
     if (query.length >= 2 && query.length <= 256) {
-      return { name: 'unified_browser', request: { action: 'search', query, browserMode: 'direct' } }
+      return {
+        name: 'unified_browser',
+        request: {
+          action: 'search',
+          query,
+          browserMode: resolveEffectiveUwafBrowserMode({ action: 'search', query, preferredMode: 'direct' }),
+        },
+      }
     }
   }
 
@@ -1057,7 +1065,14 @@ function parseToolIntentFromProse(content: string): WorkspaceToolRequest | undef
   if (searchQuery) {
     const query = searchQuery[1].trim()
     if (query.length >= 2 && query.length <= 256) {
-      return { name: 'unified_browser', request: { action: 'search', query, browserMode: 'direct' } }
+      return {
+        name: 'unified_browser',
+        request: {
+          action: 'search',
+          query,
+          browserMode: resolveEffectiveUwafBrowserMode({ action: 'search', query, preferredMode: 'direct' }),
+        },
+      }
     }
   }
 
@@ -1065,7 +1080,14 @@ function parseToolIntentFromProse(content: string): WorkspaceToolRequest | undef
   if (urlOpen) {
     const url = normalizeUrlToken(urlOpen[1])
     if (url) {
-      return { name: 'unified_browser', request: { action: 'open', url } }
+      return {
+        name: 'unified_browser',
+        request: {
+          action: 'open',
+          url,
+          browserMode: resolveEffectiveUwafBrowserMode({ action: 'open', url, preferredMode: 'direct' }),
+        },
+      }
     }
   }
 

@@ -125,6 +125,29 @@ describe('buildWorkspaceToolSystemPrompt', () => {
     expect(prompt).toContain('NEVER use shell with curl/wget')
   })
 
+  it('keeps dark-web stealth routing guidance intact even when query mentions news or forums', () => {
+    const minimalPrompt = buildWorkspaceToolSystemPrompt({
+      ...baseContext,
+      promptTier: 'minimal',
+      latestUserQuery: 'dark web news and forums',
+      internetToolEnabled: true,
+      uwafBrowserMode: 'direct',
+    })
+    expect(minimalPrompt).toContain('Dark-web, `.onion`, Tor, or hidden-service queries — ALWAYS use `unified_browser` with `"browserMode": "stealth"`')
+    expect(minimalPrompt).toContain('even when the query mentions news, forums, or current events')
+
+    const compactPrompt = buildWorkspaceToolSystemPrompt({
+      ...baseContext,
+      promptTier: 'compact',
+      latestUserQuery: 'latest darkweb news',
+      internetToolEnabled: true,
+      uwafBrowserMode: 'direct',
+    })
+    expect(compactPrompt).toContain('UNIFIED BROWSER CAPABILITY')
+    expect(compactPrompt).toContain('.onion URLs are ONLY accessible in Stealth mode')
+    expect(compactPrompt).toContain('"onionway", "tor66", "ahmia", or "duckduckgo-onion"')
+  })
+
   it('includes the ANSWER INLINE FIRST directive in every tier', () => {
     const prompt = buildWorkspaceToolSystemPrompt({
       ...baseContext,

@@ -29,6 +29,7 @@ buildObjectiveAnchorMessage,
 buildObjectiveDivergenceNudge,
 isSearchRequestRelevantToObjective,
 } from '@/lib/workspace-tool-objective-guard';
+import { type UwafBrowserMode, resolveEffectiveUwafBrowserMode } from '@/lib/uwaf-mode';
 import { formatUwafBrowserToolResult,isTerminalStealthSearchFailure,type UwafBrowserToolResultEntry } from '@/lib/workspace-tool-tool-results';
 import {
 buildWorkspaceToolRequestFromNativeCall,
@@ -57,7 +58,7 @@ type WorkspaceToolWorkbookDocumentToolRequest,
 import React,{ useEffect,useRef } from 'react';
 import { ArchiveDocumentToolResultEntry,BrowserToolResultEntry,CalendarDocumentToolResultEntry,CodeToolResultEntry,CsvDocumentToolResultEntry,EmailDocumentToolResultEntry,FetchSummarizeToolResultEntry,FilesystemToolResultEntry,ImageGenerationToolResultEntry,MarkdownDocumentToolResultEntry,MermaidDocumentToolResultEntry,PdfDocumentToolResultEntry,ShellOutputEntry,SlidesDocumentToolResultEntry,TaxReturnToolResultEntry,WORKSPACE_TOOL_DRAFT_TASK_ID,WebToolResultEntry,WordDocumentToolResultEntry,WorkbookDocumentToolResultEntry,WorkspaceToolFileAttachment,WorkspaceToolImageAttachment,WorkspaceToolLatencyTimings,WorkspaceToolMessage,WorkspaceToolProvider,WorkspaceToolSession,WorkspaceToolSettings,WorkspaceToolStreamFrame,WorkspaceToolWorkspaceRecord,describeArchiveDocumentRequest,describeBrowserRequest,describeCalendarDocumentRequest,describeCodeExecutionRequest,describeCsvDocumentRequest,describeDocumentToolRequest,describeEmailDocumentRequest,describeFetchSummarizeRequest,describeFilesystemRequest,describeMarkdownDocumentRequest,describeMermaidDocumentRequest,describePdfDocumentRequest,describeShellRequest,describeSlidesDocumentRequest,describeTaxReturnRequest,describeToolDisplayName,describeUwafBrowserRequest,describeWebResearchRequest,describeWordDocumentRequest,describeWorkbookDocumentRequest,detectMissingToolIntent,formatArchiveDocumentToolResult,formatBrowserToolResult,formatCalendarDocumentToolResult,formatCalendarQueryToolResult,formatCodeToolResult,formatCsvDocumentToolResult,formatEmailDocumentToolResult,formatFetchSummarizeToolResult,formatFilesystemToolResult,formatHttpRequestToolResult,formatImageGenerationToolResult,formatMarkdownDocumentToolResult,formatMermaidDocumentToolResult,formatNotesSearchToolResult,formatPdfDocumentToolResult,formatShellToolResult,formatSlidesDocumentToolResult,formatSpreadsheetQueryToolResult,formatTaxReturnToolResult,formatTimestamp,formatWebToolResult,formatWordDocumentToolResult,formatWorkbookDocumentToolResult,getChatTitle,getWorkspaceToolRequestSignature,inferFilesystemRequestFromShellCommand,isSubstantiveProseAnswer,normalizeLatencyTimings,normalizeToolSources,normalizeWorkspaceToolSession,pruneInterruptedMessages,recordToolReliability,sanitizeWorkspaceToolMessages,sanitizeWorkspaceToolSessions,stripAttachmentVisionData } from './workspace-support';
 
-export function useAgentLoop({startTimeRef, tokenCountRef, setLiveStats, setWorkspaceContextUsage, setStreamPhase, setStreamStatusDetail, abortControllerRef, activeWorkspaceRunIdRef, selectedModel, selectedModelContextWindow, currentWorkspace, clientViewport, provider, baseUrl, settings, apiKey, unrestrictedEnabled, uncensoredEnabled, accountantEnabled, imageGenerationEnabled, modelSupportsVision, message, internetEnabled, pendingImages, pendingAttachments, isStreaming, autoContinueCountRef, autoContinueTimerRef, currentSessionId, taskState, buildAttachmentContext, ragFolderPath, chatHistory, pinToBottom, setMessage, setPendingImages, setPendingAttachments, setModelControlNote, setLastSubmission, setTaskStates, setChatHistory, setCurrentSessionId, setIsStreaming, ragEnabled, agentPreferences, memoryContext, filesystemEnabled, allowedFilesystemPaths, requestFilesystemAction, requestWebContext, requestCodeExecution, requestBrowserAction, requestUwafBrowserAction, setUwafCurrentUrl, setUwafCurrentTitle, executeTaxReturnAction, requestTaxReturnAction, loadCanvasArtifacts, requestPdfDocumentAction, requestWorkbookDocumentAction, requestWordDocumentAction, requestCsvDocumentAction, requestEmailDocumentAction, executeFetchSummarizeAction, requestMarkdownDocumentAction, requestSlidesDocumentAction, requestArchiveDocumentAction, requestCalendarDocumentAction, requestMermaidDocumentAction, shellEnabled, requestShellCommand, executeImageGenerationAction, effectiveSessionAutoContinueMode, effectiveSessionAutoContinueMaxSteps, currentSession, generateSessionSummary, setSessions, setSelectedSessionInfo, setAutoContinuePending, persistSessionIntelligenceSafe}: {startTimeRef: React.RefObject<number>;
+export function useAgentLoop({startTimeRef, tokenCountRef, setLiveStats, setWorkspaceContextUsage, setStreamPhase, setStreamStatusDetail, abortControllerRef, activeWorkspaceRunIdRef, selectedModel, selectedModelContextWindow, currentWorkspace, clientViewport, provider, baseUrl, settings, apiKey, unrestrictedEnabled, uncensoredEnabled, accountantEnabled, imageGenerationEnabled, modelSupportsVision, message, internetEnabled, uwafBrowserMode, pendingImages, pendingAttachments, isStreaming, autoContinueCountRef, autoContinueTimerRef, currentSessionId, taskState, buildAttachmentContext, ragFolderPath, chatHistory, pinToBottom, setMessage, setPendingImages, setPendingAttachments, setModelControlNote, setLastSubmission, setTaskStates, setChatHistory, setCurrentSessionId, setIsStreaming, ragEnabled, agentPreferences, memoryContext, filesystemEnabled, allowedFilesystemPaths, requestFilesystemAction, requestWebContext, requestCodeExecution, requestBrowserAction, requestUwafBrowserAction, setUwafCurrentUrl, setUwafCurrentTitle, executeTaxReturnAction, requestTaxReturnAction, loadCanvasArtifacts, requestPdfDocumentAction, requestWorkbookDocumentAction, requestWordDocumentAction, requestCsvDocumentAction, requestEmailDocumentAction, executeFetchSummarizeAction, requestMarkdownDocumentAction, requestSlidesDocumentAction, requestArchiveDocumentAction, requestCalendarDocumentAction, requestMermaidDocumentAction, shellEnabled, requestShellCommand, executeImageGenerationAction, effectiveSessionAutoContinueMode, effectiveSessionAutoContinueMaxSteps, currentSession, generateSessionSummary, setSessions, setSelectedSessionInfo, setAutoContinuePending, persistSessionIntelligenceSafe}: {startTimeRef: React.RefObject<number>;
 tokenCountRef: React.RefObject<number>;
 setLiveStats: React.Dispatch<React.SetStateAction<{ tps: number; tokens: number; } | null>>;
 setWorkspaceContextUsage: React.Dispatch<React.SetStateAction<WorkspaceContextUsage | null>>;
@@ -80,6 +81,7 @@ imageGenerationEnabled: boolean;
 modelSupportsVision: boolean;
 message: string;
 internetEnabled: boolean;
+uwafBrowserMode: UwafBrowserMode;
 pendingImages: WorkspaceToolImageAttachment[];
 pendingAttachments: WorkspaceToolFileAttachment[];
 isStreaming: boolean;
@@ -339,6 +341,7 @@ const streamAssistantResponse = async (options: {
       response_presentation: options.responsePresentation,
       internet_enabled: options.internetEnabledForTurn,
       internet_tool_enabled: options.internetToolEnabledForTurn,
+      uwaf_browser_mode: uwafBrowserMode,
       rag_enabled: options.ragEnabledForTurn,
       rag_query: options.ragEnabledForTurn ? options.ragQuery : undefined,
       rag_topk: options.ragTopK,
@@ -1803,9 +1806,16 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
           }
           lastToolRequestSignature = effectiveToolSignature;
           duplicateToolRequestCount = 0;
-          const uwafBrowserMode = (request.request as { browserMode?: 'stealth' | 'direct' } | undefined)?.browserMode;
+          const uwafReq = request.request as WorkspaceToolUwafBrowserToolRequest | undefined;
+          const requestedUwafBrowserMode = resolveEffectiveUwafBrowserMode({
+            explicitMode: uwafReq?.browserMode,
+            preferredMode: uwafBrowserMode,
+            action: uwafReq?.action,
+            url: uwafReq?.url,
+            query: uwafReq?.query,
+          });
           try {
-            setStreamPhase(uwafBrowserMode === 'stealth' ? 'tool-uwaf-browser-stealth' : 'tool-uwaf-browser');
+            setStreamPhase(requestedUwafBrowserMode === 'stealth' ? 'tool-uwaf-browser-stealth' : 'tool-uwaf-browser');
             const uwafResult = await requestUwafBrowserAction(request.request as WorkspaceToolUwafBrowserToolRequest, {
               messageId: nextAssistantId,
               sessionId: chatId,

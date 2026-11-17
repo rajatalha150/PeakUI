@@ -98,7 +98,7 @@ const TOOL_INTENT_KEYWORDS: Record<'internet' | 'shell' | 'filesystem' | 'filesy
   filesystemWrite: ['write file', 'save file', 'edit file', 'update file', 'create file', 'append file', 'mkdir'],
   code: ['code', 'run code', 'execute code', 'python script', 'node script', 'sandbox', 'quick script'],
   browser: ['browse', 'browser', 'website', 'url', 'open page', 'visit page', 'web page', 'fetch page', 'look at site'],
-  uwaf: ['unified browser', 'shared browser', 'tor', '.onion', 'onion', 'dark web', 'stealth browse'],
+  uwaf: ['unified browser', 'shared browser', 'tor', '.onion', 'onion', 'dark web', 'darkweb', 'darknet', 'hidden service', 'stealth browse', 'ahmia', 'onionway', 'tor66'],
 }
 
 function queryMatchesToolIntent(query: string | undefined, keywords: string[]): boolean {
@@ -265,6 +265,7 @@ export function buildWorkspaceToolSystemPrompt(context: WorkspaceToolPromptConte
     '• Current or external information — stock prices, market data, quotes, news, weather, "what is the latest X", "analyze TICKER", lookups, statistics — use the `web` tool. NEVER use shell with curl/wget to scrape a web page for this: finance and news sites are JavaScript-rendered and curl returns nothing useful.',
     '• Facts about the user\'s own machine — files, folders, repo state, running processes, installed software — use `filesystem` (read) or `shell` (commands).',
     '• Step-by-step navigation, JS-heavy pages, forms, or login — use `browser` or `unified_browser`.',
+    '• Dark-web, `.onion`, Tor, or hidden-service queries — ALWAYS use `unified_browser` with `"browserMode": "stealth"`, even when the query mentions news, forums, or current events. NEVER route dark-web or `.onion` lookups through `web` or clear-web `direct` mode.',
     '• Running code or transforming data — use the `code` sandbox.',
     '• DOCUMENT TOOLS (pdf_document, word_document, workbook_document, slides_document, csv_document, email_document, markdown_document, calendar_document, archive_document, mermaid_document, tax_return): use these ONLY when the user explicitly asks you to CREATE, DOWNLOAD, EXPORT, or SAVE a file of that type. NEVER create a document to answer a question, explain your capabilities, summarize, or "demonstrate" a feature — for those, answer in plain text. If the user asks "what can you do" or "what are your capabilities", describe them in words; do not generate a file.',
     // ─── Inline answer preference (always-on, every tier) ──────────────────────
@@ -512,7 +513,7 @@ export function buildWorkspaceToolSystemPrompt(context: WorkspaceToolPromptConte
         'wait_for_user: Pause for the human to take over the visible browser, solve CAPTCHA/MFA/login/bot checks, then resume after the page is re-observed.',
         'browserMode can be "direct" (default, clear web) or "stealth" (Tor-routed, for .onion and anonymous research).',
         'Optional stealthProfile can be "normal" or "high". Use high only when a stealth search target is unusually bot-sensitive or repeatedly blocks the normal profile.',
-        'Optional providerId can pin a specific approved search engine when you need to retry or compare engines. Use providerId only with a known approved engine id such as "ahmia", "onionway", "onionland", "tordex", or "excavator".',
+        'Optional providerId can pin a specific approved search engine when you need to retry or compare engines. Use providerId only with a known approved engine id such as "onionway", "tor66", "ahmia", or "duckduckgo-onion".',
         'In Stealth mode, .onion pages are allowed and should be opened directly instead of being rewritten to a clear-web mirror.',
         'In Stealth mode, content is sanitized more aggressively to remove trackers, ads, and scripts.',
         'Executable file downloads (.exe, .sh, .bin, etc.) are blocked for security. If you need a binary, explain the risk and request unpacking approval.',

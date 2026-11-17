@@ -40,9 +40,10 @@ describe('uwaf-browser: runWithTimeout', () => {
     await new Promise(r => setTimeout(r, 150))
   })
 
-  it('exposes the per-provider fallback budget constant', async () => {
+  it('exposes the per-provider fallback budget constants', async () => {
     const { __test__ } = await loadUwafBrowser()
     expect(__test__.PER_PROVIDER_FALLBACK_BUDGET_MS).toBe(8_000)
+    expect(__test__.PER_STEALTH_PROVIDER_FALLBACK_BUDGET_MS).toBe(16_000)
   })
 
   it('zero-budget still resolves with timeout (edge case)', async () => {
@@ -119,5 +120,97 @@ describe('uwaf-browser: detectLoginRequirement', () => {
     const { __test__ } = await loadUwafBrowser()
     const markdown = 'Welcome back — log in to your account to view your portfolio.'
     expect(__test__.detectLoginRequirement('Login', markdown, [])).toBe(true)
+  })
+})
+
+describe('uwaf-browser: waitForMatchingSelectors', () => {
+  it('combines all selectors into a single waitForSelector call bounded to 3500ms', async () => {
+    const { __test__ } = await loadUwafBrowser()
+    const waitForSelector = vi.fn().mockResolvedValue(undefined)
+    const mockPage = { waitForSelector } as any
+
+    const matched = await __test__.waitForMatchingSelectors(
+      mockPage,
+      ['.searchResults li', '.search-results li', '.result'],
+      5000,
+    )
+
+    expect(matched).toBe(true)
+    expect(waitForSelector).toHaveBeenCalledTimes(1)
+    expect(waitForSelector).toHaveBeenCalledWith(
+      '.searchResults li, .search-results li, .result',
+      { state: 'attached', timeout: 3500 },
+    )
+  })
+
+  it('respects smaller explicit timeouts and returns false cleanly on error', async () => {
+    const { __test__ } = await loadUwafBrowser()
+    const waitForSelector = vi.fn().mockRejectedValue(new Error('Timeout 250ms exceeded'))
+    const mockPage = { waitForSelector } as any
+
+    const matched = await __test__.waitForMatchingSelectors(mockPage, ['.a', '.b'], 250)
+
+    expect(matched).toBe(false)
+    expect(waitForSelector).toHaveBeenCalledTimes(1)
+    expect(waitForSelector).toHaveBeenCalledWith('.a, .b', { state: 'attached', timeout: 250 })
+  })
+
+  it('returns false immediately without waiting when selectors list is empty', async () => {
+    const { __test__ } = await loadUwafBrowser()
+    const waitForSelector = vi.fn()
+    const mockPage = { waitForSelector } as any
+
+    const matched = await __test__.waitForMatchingSelectors(mockPage, ['  ', ''])
+
+    expect(matched).toBe(false)
+    expect(waitForSelector).not.toHaveBeenCalled()
+  })
+})
+
+describe('uwaf-browser: isSearchHomepage & Ahmia homepage-bounce evaluation', () => {
+  it('identifies root search homepages vs result URLs', async () => {
+    const { __test__ } = await loadUwafBrowser()
+    expect(__test__.isSearchHomepage('https://ahmia.fi/')).toBe(true)
+    expect(__test__.isSearchHomepage('https://ahmia.fi')).toBe(true)
+    expect(__test__.isSearchHomepage('https://ahmia.fi/search/?q=bitcoin')).toBe(false)
+    expect(__test__.isSearchHomepage('not-a-valid-url')).toBe(false)
+  })
+
+  it('flags Ahmia homepage bounce with failureCode homepage_bounce when resultCount is 0', async () => {
+    const { __test__ } = await loadUwafBrowser()
+    const observation = {
+      url: 'https://ahmia.fi/',
+      title: 'Ahmia — Search Tor Hidden Services',
+      text: 'Search hidden services on Tor network',
+      html: '',
+      markdown: 'Ahmia search hidden services',
+      links: [],
+      forms: [{ index: 0, method: 'GET', action: '/search/', fields: [{ name: 'q', type: 'text' }] }],
+      tables: [],
+      jsErrors: [],
+      networkErrors: [],
+      tabs: [],
+      activeTabIndex: 0,
+      pageSignature: 'ahmia-home',
+      observations: [],
+      antiBotDetected: false,
+      loginDetected: false,
+    }
+    const provider = {
+      id: 'ahmia',
+      label: 'Ahmia',
+      mode: 'stealth',
+      kind: 'onion',
+      priority: 100,
+      resultsUrl: (q: string) => `https://ahmia.fi/search/?q=${encodeURIComponent(q)}`,
+      homeUrl: 'https://ahmia.fi/',
+      inputSelectors: ['input[name="q"]'],
+      submitSelectors: ['button[type="submit"]'],
+      resultSelectors: ['.searchResults li'],
+    } as any
+
+    const evaluation = __test__.evaluateSearchObservation(observation as any, 'bitcoin', provider, 0)
+    expect(evaluation.success).toBe(false)
+    expect(evaluation.failureCode).toBe('homepage_bounce')
   })
 })

@@ -189,8 +189,13 @@ export default function UwafNetworkPanel({
             </button>
             <button
               type="button"
-              onClick={() => onModeChange('stealth')}
-              disabled={disabled || status?.torReachable === false}
+              onClick={() => {
+                onModeChange('stealth')
+                if (status?.torReachable === false) {
+                  void fetchStatus('quick', { force: true })
+                }
+              }}
+              disabled={disabled}
               style={{
                 flex: 1,
                 display: 'flex',
@@ -202,7 +207,7 @@ export default function UwafNetworkPanel({
                 border: currentMode === 'stealth' ? '2px solid #a855f7' : '1px solid var(--border-color)',
                 background: currentMode === 'stealth' ? 'rgba(168, 85, 247, 0.1)' : 'transparent',
                 color: currentMode === 'stealth' ? '#a855f7' : 'var(--text-secondary)',
-                cursor: disabled || status?.torReachable === false ? 'not-allowed' : 'pointer',
+                cursor: disabled ? 'not-allowed' : 'pointer',
                 fontSize: '0.72rem',
                 fontWeight: currentMode === 'stealth' ? 600 : 400,
               }}
