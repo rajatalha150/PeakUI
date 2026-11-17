@@ -156,7 +156,7 @@ export function synthesizeToolCallFromNarration(
 
   // Shell — try before filesystem because back-quoted commands often contain
   // an absolute path that the filesystem synthesizer would otherwise pick up
-  // first (e.g. `ls -la /home/raza`).
+  // first (e.g. `ls -la /home/user`).
   const lastToolName = ctx.lastSuccessfulToolRequest?.name
 
   // Unified browser — search intent. Prefer this over the legacy `web` tool

@@ -21,7 +21,7 @@ function shellResult(big = true): Msg {
     content: [
       'Shell command result:',
       'Target: container',
-      'Command: ls -la /home/raza',
+      'Command: ls -la /home/user',
       'Status: completed',
       'Exit code: 0',
       'Duration: 120ms',
@@ -40,7 +40,7 @@ function filesystemReadResult(): Msg {
     content: [
       'Filesystem tool result:',
       'Action: read',
-      'Path: /home/raza/notes.md',
+      'Path: /home/user/notes.md',
       'Status: completed',
       'Kind: file',
       'Size: 9000 bytes',
@@ -102,7 +102,7 @@ describe('compactToolResultContent', () => {
   it('keeps the metadata block and replaces the bulky body with a compaction note', () => {
     const compacted = compactToolResultContent(shellResult().content)
     expect(compacted).toContain('Shell command result:')
-    expect(compacted).toContain('Command: ls -la /home/raza')
+    expect(compacted).toContain('Command: ls -la /home/user')
     expect(compacted).toContain('Status: completed')
     expect(compacted).toContain('Exit code: 0')
     expect(compacted).not.toContain('STDOUT:')
@@ -114,7 +114,7 @@ describe('compactToolResultContent', () => {
     const compacted = compactToolResultContent(filesystemReadResult().content)
     expect(compacted).toContain('Filesystem tool result:')
     expect(compacted).toContain('Action: read')
-    expect(compacted).toContain('Path: /home/raza/notes.md')
+    expect(compacted).toContain('Path: /home/user/notes.md')
     expect(compacted).not.toContain('File content:')
   })
 

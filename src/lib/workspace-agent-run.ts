@@ -7,6 +7,7 @@ import { finalizeChatSession, type StoredChatMessage } from './chat-sessions'
 import { getWorkspaceToolWorkspaceContext } from './workspace-tool-project-workspaces'
 import { getWorkspaceToolWorkspaceContainerRoot, getWorkspaceToolWorkspaceHostRoot } from './workspace-tool-workspace'
 import { analyzeWorkspaceImagesForUser, normalizeWorkspaceVisionImages } from './workspace-vision-server'
+import { mergeMessageSources, normalizeMessageSources, type MessageSource } from './message-sources'
 import type { ServerStreamStatus } from './stream-status'
 
 type JsonRecord = Record<string, unknown>
@@ -295,12 +296,13 @@ function userMessage(content: string): StoredChatMessage {
   return { id: crypto.randomUUID(), role: 'user', content, hidden: true, createdAt: new Date().toISOString() }
 }
 
-function assistantMessage(content: string, id: string, thinking = ''): StoredChatMessage {
+function assistantMessage(content: string, id: string, thinking = '', sources?: MessageSource[]): StoredChatMessage {
   return {
     id,
     role: 'assistant',
     content,
     ...(thinking ? { thinking } : {}),
+    ...(sources && sources.length > 0 ? { sources } : {}),
     createdAt: new Date().toISOString(),
   }
 }
@@ -422,12 +424,13 @@ async function readModelRoundWithRetry(
   runId: string,
   sequence: { value: number },
   appendEvent: (payload: JsonRecord) => Promise<void>,
+  options: { emitKnowledgeSources?: boolean } = {},
 ): Promise<Awaited<ReturnType<typeof readModelRound>>> {
   const MAX_ATTEMPTS = 3
   let lastError: unknown
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
-      return await readModelRound(token, request, runId, sequence)
+      return await readModelRound(token, request, runId, sequence, options)
     } catch (error) {
       lastError = error
       const message = error instanceof Error ? error.message : String(error)
@@ -444,7 +447,13 @@ async function readModelRoundWithRetry(
   throw lastError
 }
 
-async function readModelRound(token: string, request: JsonRecord, runId: string, sequence: { value: number }) {
+async function readModelRound(
+  token: string,
+  request: JsonRecord,
+  runId: string,
+  sequence: { value: number },
+  options: { emitKnowledgeSources?: boolean } = {},
+) {
   const response = await fetch(`${appUrl()}/api/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: `auth_token=${token}` },
@@ -463,6 +472,8 @@ async function readModelRound(token: string, request: JsonRecord, runId: string,
   let thinking = ''
   let finalFrame: JsonRecord = {}
   let nativeCalls: Array<{ name: string; args: JsonRecord }> = []
+  let knowledgeSources: MessageSource[] = []
+  let streamSources: MessageSource[] = []
   let pendingContent = ''
   let pendingThinking = ''
   let lastOutputFlushAt = Date.now()
@@ -506,6 +517,25 @@ async function readModelRound(token: string, request: JsonRecord, runId: string,
         ...(typeof frame.summary === 'string' ? { summary: frame.summary } : {}),
       })
     }
+    if (Array.isArray(frame.knowledge_sources)) {
+      const normalizedKb = normalizeMessageSources(frame.knowledge_sources)
+      if (normalizedKb.length > 0) {
+        knowledgeSources = mergeMessageSources(knowledgeSources, normalizedKb)
+        if (options.emitKnowledgeSources !== false) {
+          queueEvent({ knowledge_sources: normalizedKb })
+        }
+      }
+    }
+    if (Array.isArray(frame.sources)) {
+      const normalizedSources = normalizeMessageSources(frame.sources)
+      if (normalizedSources.length > 0) {
+        streamSources = mergeMessageSources(streamSources, normalizedSources)
+        queueEvent({ sources: normalizedSources })
+      }
+    }
+    if (frame.timings && typeof frame.timings === 'object') {
+      queueEvent({ timings: frame.timings })
+    }
     if (Array.isArray(frame.native_tool_calls)) {
       nativeCalls = frame.native_tool_calls.filter((item): item is { name: string; args: JsonRecord } => {
         if (!item || typeof item !== 'object') return false
@@ -542,7 +572,7 @@ async function readModelRound(token: string, request: JsonRecord, runId: string,
   if (buffer.trim()) consume(buffer.trim())
   flushOutput(true)
   await eventWrites
-  return { content, thinking, nativeCalls, finalFrame, streamedOutput }
+  return { content, thinking, nativeCalls, finalFrame, streamedOutput, knowledgeSources, streamSources }
 }
 
 async function executeRun(runId: string) {
@@ -574,6 +604,9 @@ async function executeRun(runId: string) {
     const mainModelSupportsVision = request.main_model_supports_vision === true
     const visionUserText = typeof request.workspace_vision_user_text === 'string' ? request.workspace_vision_user_text : ''
     const visionApiKey = typeof request.api_key === 'string' ? request.api_key : ''
+    const turnRagEnabled = request.rag_enabled === true
+    const turnRagQuery = typeof request.rag_query === 'string' && request.rag_query.trim() ? request.rag_query.trim() : null
+    const turnRagFolder = turnRagQuery?.match(/^folder:(\S+)/)?.[1] ?? null
     delete request.workspace_vision_images
     delete request.workspace_vision_user_text
     delete request.main_model_supports_vision
@@ -582,6 +615,9 @@ async function executeRun(runId: string) {
     let finalThinking = ''
     let lastStreamedContent = ''
     let lastRoundStreamedOutput = false
+    let lastFinalFrame: JsonRecord = {}
+    let collectedKnowledgeSources: MessageSource[] = []
+    let collectedSources: MessageSource[] = []
     const finalId = typeof request.id === 'string' && request.id ? request.id : crypto.randomUUID()
 
     await appendRunEvent(runId, ++seq.value, {
@@ -697,11 +733,26 @@ async function executeRun(runId: string) {
           ? 'Reviewing your request and deciding whether tools are needed.'
           : `Reviewing the latest tool result and planning round ${round + 1}.`,
       })
-      const response = await readModelRoundWithRetry(token, roundRequest, runId, seq, async (payload) => {
-        await appendRunEvent(runId, ++seq.value, payload)
-      })
+      const response = await readModelRoundWithRetry(
+        token,
+        roundRequest,
+        runId,
+        seq,
+        async (payload) => {
+          await appendRunEvent(runId, ++seq.value, payload)
+        },
+        { emitKnowledgeSources: round === 0 },
+      )
       const afterModelRun = await prisma.workspaceAgentRun.findUnique({ where: { id: runId }, select: { status: true } })
       if (afterModelRun?.status === 'cancelled') return
+      if (response.knowledgeSources.length > 0) {
+        collectedKnowledgeSources = mergeMessageSources(collectedKnowledgeSources, response.knowledgeSources)
+        collectedSources = mergeMessageSources(collectedSources, response.knowledgeSources)
+      }
+      if (response.streamSources.length > 0) {
+        collectedSources = mergeMessageSources(collectedSources, response.streamSources)
+      }
+      lastFinalFrame = response.finalFrame
       const nativeRequest = response.nativeCalls.length > 0
         ? buildWorkspaceToolRequestFromNativeCall(response.nativeCalls[0].name, response.nativeCalls[0].args)
         : null
@@ -741,9 +792,17 @@ async function executeRun(runId: string) {
         messageId: toolMessageId,
         workspaceRelativePath: workspaceContext?.workspace.relativePath,
         workspaceId: run.workspaceId,
+        ragFolderPath: turnRagFolder,
       })
       const afterToolRun = await prisma.workspaceAgentRun.findUnique({ where: { id: runId }, select: { status: true } })
       if (afterToolRun?.status === 'cancelled') return
+      if (result.ok && result.data && typeof result.data === 'object' && Array.isArray((result.data as JsonRecord).sources)) {
+        const toolSources = normalizeMessageSources((result.data as JsonRecord).sources)
+        if (toolSources.length > 0) {
+          collectedSources = mergeMessageSources(collectedSources, toolSources)
+          await appendRunEvent(runId, ++seq.value, { sources: toolSources })
+        }
+      }
       await appendRunEvent(runId, ++seq.value, {
         status: result.ok ? 'tool-completed' : 'tool-failed',
         tool: tool.name,
@@ -773,16 +832,19 @@ async function executeRun(runId: string) {
     if (!finalContent.trim()) finalContent = 'The WorkSpaces run finished without a final assistant message.'
     const beforeFinalization = await prisma.workspaceAgentRun.findUnique({ where: { id: runId }, select: { status: true } })
     if (beforeFinalization?.status === 'cancelled') return
-    const assistant = assistantMessage(finalContent, finalId, finalThinking)
+    const assistant = assistantMessage(finalContent, finalId, finalThinking, collectedSources)
     await appendRunEvent(runId, ++seq.value, {
       status: 'finalizing',
       summary: 'Preparing the final response and saving the completed WorkSpaces turn.',
     })
     const finalMessageDiffersFromStream = finalContent.trim() !== lastStreamedContent.trim()
-    const finalFrame = {
+    const finalFrame: JsonRecord = {
       ...(lastRoundStreamedOutput && !finalMessageDiffersFromStream
         ? {}
         : { message: { content: finalContent, ...(finalThinking ? { thinking: finalThinking } : {}) } }),
+      ...(typeof lastFinalFrame.eval_count === 'number' ? { eval_count: lastFinalFrame.eval_count } : {}),
+      ...(typeof lastFinalFrame.eval_duration === 'number' ? { eval_duration: lastFinalFrame.eval_duration } : {}),
+      ...(collectedSources.length > 0 ? { sources: collectedSources } : {}),
       done: true,
       id: finalId,
     }
@@ -793,6 +855,9 @@ async function executeRun(runId: string) {
       messageId: assistant.id,
       message: assistant,
       messages: stripTransientAttachmentData(savedMessages),
+      ragEnabled: turnRagEnabled,
+      ragQuery: turnRagEnabled ? turnRagQuery : null,
+      ragSources: turnRagEnabled ? collectedKnowledgeSources : [],
     })
     const waitingForApproval = finalContent.includes('is waiting for approval.')
     await appendRunEvent(runId, ++seq.value, {

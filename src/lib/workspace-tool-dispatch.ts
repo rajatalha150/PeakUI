@@ -20,6 +20,7 @@ export interface WorkspaceToolRunTarget {
   messageId: string
   workspaceRelativePath?: string
   workspaceId?: string | null
+  ragFolderPath?: string | null
 }
 
 export type AppApiCall = (token: string, path: string, body: JsonRecord) => Promise<{ ok: boolean; status: number; data: JsonRecord }>
@@ -115,7 +116,12 @@ export async function executeWorkspaceTool(token: string, request: WorkspaceTool
     case 'http_request': return appApi(token, '/api/workspace-tool/http-request', body)
     case 'spreadsheet_query':
     case 'calendar_query': return appApi(token, '/api/workspace-tool/data-query', { action: request.name === 'spreadsheet_query' ? 'spreadsheet' : 'calendar', ...body })
-    case 'tax_return': return appApi(token, '/api/workspace-tool/tax', { ...body, sessionId: run.chatId, messageId: run.messageId, workspaceId: run.workspaceId ?? undefined })
+    case 'tax_return': {
+      const folder = typeof body.folder === 'string' && body.folder.trim()
+        ? body.folder.trim()
+        : (run.ragFolderPath?.trim() || undefined)
+      return appApi(token, '/api/workspace-tool/tax', { ...body, ...(folder ? { folder } : {}), sessionId: run.chatId, messageId: run.messageId, workspaceId: run.workspaceId ?? undefined })
+    }
     case 'pdf_document': return appApi(token, '/api/workspace-tool/pdf-document', { ...body, sessionId: run.chatId, messageId: run.messageId, workspaceId: run.workspaceId ?? undefined })
     case 'workbook_document': return appApi(token, '/api/workspace-tool/workbook-document', { ...body, sessionId: run.chatId, messageId: run.messageId, workspaceId: run.workspaceId ?? undefined })
     case 'word_document': return appApi(token, '/api/workspace-tool/word-document', { ...body, sessionId: run.chatId, messageId: run.messageId, workspaceId: run.workspaceId ?? undefined })

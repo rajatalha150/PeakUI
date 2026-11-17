@@ -14,7 +14,7 @@ if [ -z "${JWT_SECRET:-}" ] || [ "${#JWT_SECRET}" -lt 32 ]; then
   export JWT_SECRET
 fi
 
-WORKSPACE_TOOL_HOST_WORKSPACE_DIR="${WORKSPACE_TOOL_HOST_WORKSPACE_DIR:-/home/raza/.peakui/workspace}"
+WORKSPACE_TOOL_HOST_WORKSPACE_DIR="${WORKSPACE_TOOL_HOST_WORKSPACE_DIR:-/mnt/workspace-tool/workspace}"
 if [ "$WORKSPACE_TOOL_HOST_WORKSPACE_DIR" != "/mnt/workspace-tool/workspace" ] \
   && [ ! -e "$WORKSPACE_TOOL_HOST_WORKSPACE_DIR" ] \
   && ! printf '%s' "$WORKSPACE_TOOL_HOST_WORKSPACE_DIR" | grep -qE '^[A-Za-z]:'; then

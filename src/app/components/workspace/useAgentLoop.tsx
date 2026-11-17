@@ -187,6 +187,33 @@ persistSessionIntelligenceSafe: (patch: Parameters<(patch: { autoContinueMode?: 
     }
   };
 
+  const discardDripState = (messageId?: string) => {
+    if (messageId) {
+      contentQueues.delete(messageId);
+      if (sourcesQueue?.id === messageId) sourcesQueue = null;
+      let hasRemainingWork = Boolean(sourcesQueue);
+      if (!hasRemainingWork) {
+        for (const [, queue] of contentQueues) {
+          if (queue.content || queue.thinking) {
+            hasRemainingWork = true;
+            break;
+          }
+        }
+      }
+      if (!hasRemainingWork && dripTimer) {
+        clearInterval(dripTimer);
+        dripTimer = null;
+      }
+      return;
+    }
+    contentQueues.clear();
+    sourcesQueue = null;
+    if (dripTimer) {
+      clearInterval(dripTimer);
+      dripTimer = null;
+    }
+  };
+
   const startDrip = () => {
     if (dripTimer) return;
     dripTimer = setInterval(() => {
@@ -408,6 +435,25 @@ const streamAssistantResponse = async (options: {
       if (isServerStreamStatus(data.status)) {
         setStreamPhase(data.status);
         setStreamStatusDetail(typeof data.summary === 'string' && data.summary.trim() ? data.summary.trim() : null);
+        // When the server-side daemon begins a subsequent model round (round > 1),
+        // the prior round ended in a tool call and was persisted as a hidden
+        // tool-bridge turn. Reset the in-progress streaming accumulators and
+        // pending drip queue so the new round's output does not concatenate onto
+        // the prior round's narration or thinking.
+        if (data.status === 'model-thinking' && typeof data.round === 'number' && data.round > 1) {
+          assistantContent = '';
+          assistantThinking = '';
+          ocWasInsideToolTag = false;
+          discardDripState(options.assistantMessageId);
+          updateChatMessage(options.assistantMessageId, current => ({
+            ...current,
+            content: '',
+            thinking: undefined,
+          }));
+        }
+        if (data.status === 'tool-completed') {
+          void loadCanvasArtifacts(options.chatId);
+        }
       }
 
       const contextUsage = normalizeWorkspaceContextUsage(data.context_usage);
@@ -442,30 +488,50 @@ const streamAssistantResponse = async (options: {
 
       const messageFrame = data.message;
       if (messageFrame) {
-        if (typeof messageFrame.thinking === 'string' && messageFrame.thinking) {
-          assistantThinking += messageFrame.thinking;
-          tokenCountRef.current += 1;
-          scheduleUpdate(options.assistantMessageId, { thinking: messageFrame.thinking });
-        }
-
-        if (typeof messageFrame.content === 'string' && messageFrame.content) {
-          assistantContent += messageFrame.content;
-          tokenCountRef.current += 1;
-          // Suppress <workspace_tool> tags from the display drip.
-          // After streaming completes, extractWorkspaceToolRequest will
-          // clean the content and updateChatMessage will replace it.
-          // Only drip content that is outside of tool tags.
-          const toolTagOpen = assistantContent.lastIndexOf('<workspace_tool');
-          const toolTagClose = assistantContent.lastIndexOf('</workspace_tool>');
-          const insideToolTag = toolTagOpen !== -1 && (toolTagClose === -1 || toolTagOpen > toolTagClose);
-          // Also skip the chunk that closes a tool tag — it may contain closing
-          // tag text mixed with post-tag content. The post-stream extraction
-          // will replace the entire message with cleaned content.
-          const justClosedToolTag = ocWasInsideToolTag && !insideToolTag;
-          if (!insideToolTag && !justClosedToolTag) {
-            scheduleUpdate(options.assistantMessageId, { content: messageFrame.content });
+        if (data.done) {
+          // A `done: true` frame with `message` carries the full authoritative
+          // final text for the round (not a delta chunk). Replace rather than
+          // append so the content is never duplicated.
+          const doneContent = typeof messageFrame.content === 'string' && messageFrame.content
+            ? messageFrame.content
+            : undefined;
+          const doneThinking = typeof messageFrame.thinking === 'string' && messageFrame.thinking
+            ? messageFrame.thinking
+            : undefined;
+          if (doneContent !== undefined) assistantContent = doneContent;
+          if (doneThinking !== undefined) assistantThinking = doneThinking;
+          discardDripState(options.assistantMessageId);
+          updateChatMessage(options.assistantMessageId, current => ({
+            ...current,
+            ...(doneContent !== undefined ? { content: doneContent } : {}),
+            ...(doneThinking !== undefined ? { thinking: doneThinking } : {}),
+          }));
+        } else {
+          if (typeof messageFrame.thinking === 'string' && messageFrame.thinking) {
+            assistantThinking += messageFrame.thinking;
+            tokenCountRef.current += 1;
+            scheduleUpdate(options.assistantMessageId, { thinking: messageFrame.thinking });
           }
-          ocWasInsideToolTag = insideToolTag;
+
+          if (typeof messageFrame.content === 'string' && messageFrame.content) {
+            assistantContent += messageFrame.content;
+            tokenCountRef.current += 1;
+            // Suppress <workspace_tool> tags from the display drip.
+            // After streaming completes, extractWorkspaceToolRequest will
+            // clean the content and updateChatMessage will replace it.
+            // Only drip content that is outside of tool tags.
+            const toolTagOpen = assistantContent.lastIndexOf('<workspace_tool');
+            const toolTagClose = assistantContent.lastIndexOf('</workspace_tool>');
+            const insideToolTag = toolTagOpen !== -1 && (toolTagClose === -1 || toolTagOpen > toolTagClose);
+            // Also skip the chunk that closes a tool tag — it may contain closing
+            // tag text mixed with post-tag content. The post-stream extraction
+            // will replace the entire message with cleaned content.
+            const justClosedToolTag = ocWasInsideToolTag && !insideToolTag;
+            if (!insideToolTag && !justClosedToolTag) {
+              scheduleUpdate(options.assistantMessageId, { content: messageFrame.content });
+            }
+            ocWasInsideToolTag = insideToolTag;
+          }
         }
       }
 
@@ -500,6 +566,12 @@ const streamAssistantResponse = async (options: {
     streamBuffer += decoder.decode();
     const finalLine = streamBuffer.trim();
     if (finalLine) processStreamLine(finalLine);
+
+    // Stop any remaining character-drip queue before loading the authoritative
+    // session from the server. Otherwise `dripTimer` or `flushAll()` in
+    // `finally` will append undripped chunks onto the already-complete server
+    // message and duplicate the output on screen.
+    discardDripState(options.assistantMessageId);
 
     // The daemon is the sole executor. Load its saved transcript after the
     // replay closes so the browser never interprets a replayed tool wrapper as
@@ -590,7 +662,7 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
       ? 'No visual analysis was performed because Main is text-only and no WorkSpaces Vision model is configured. Configure a Vision model in Settings before asking WorkSpaces to interpret images or rendered document pages.'
       : '';
     const attachmentContext = buildAttachmentContext(messageAttachments, contextImages, prompt, noVisionContext);
-    const rawRagQueryText = (attachmentContext || prompt).slice(0, 2000);
+    const rawRagQueryText = (prompt || attachmentContext).slice(0, 2000);
     const ragQueryText = ragFolderPath
       ? `folder:${ragFolderPath} ${rawRagQueryText}`.trim().slice(0, 2000)
       : rawRagQueryText;
@@ -656,6 +728,7 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
 
     let finalAssistantMessage: WorkspaceToolMessage | null = null;
     let durableRunId: string | null = null;
+    let durableCompletedSession: WorkspaceToolSession | null = null;
     let runCompleted = false;
 
     try {
@@ -952,14 +1025,35 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
         currentSources = roundSources;
         durableRunId = runId;
         if (authoritativeSession) {
-          const authoritativeMessages = sanitizeWorkspaceToolMessages(authoritativeSession.messages);
-          const finalMessage = [...authoritativeMessages]
-            .reverse()
-            .find(candidate => candidate.role === 'assistant' && !candidate.hidden) ?? null;
-          if (!finalMessage) throw new Error('The server completed the run without a final assistant message.');
+          discardDripState();
+          const rawAuthoritativeMessages = sanitizeWorkspaceToolMessages(authoritativeSession.messages);
+          let finalMessageIndex = -1;
+          for (let idx = rawAuthoritativeMessages.length - 1; idx >= 0; idx -= 1) {
+            const candidate = rawAuthoritativeMessages[idx];
+            if (candidate.role === 'assistant' && !candidate.hidden) {
+              finalMessageIndex = idx;
+              break;
+            }
+          }
+          if (finalMessageIndex === -1) throw new Error('The server completed the run without a final assistant message.');
+          const mergedFinalMessage: WorkspaceToolMessage = {
+            ...rawAuthoritativeMessages[finalMessageIndex],
+            ...(assistantMessage.meta && !rawAuthoritativeMessages[finalMessageIndex].meta ? { meta: assistantMessage.meta } : {}),
+            ...(roundSources.length > 0 && (!rawAuthoritativeMessages[finalMessageIndex].sources || rawAuthoritativeMessages[finalMessageIndex].sources!.length === 0)
+              ? { sources: roundSources }
+              : {}),
+          };
+          const authoritativeMessages = rawAuthoritativeMessages.map((msg, idx) => (
+            idx === finalMessageIndex ? mergedFinalMessage : msg
+          ));
           setChatHistory(authoritativeMessages);
           sessionHistory = authoritativeMessages;
-          finalAssistantMessage = finalMessage;
+          finalAssistantMessage = mergedFinalMessage;
+          durableCompletedSession = {
+            ...authoritativeSession,
+            messages: authoritativeMessages,
+          };
+          void loadCanvasArtifacts(chatId);
           break;
         }
         // Compatibility only for an older PeakUI server that has no durable
@@ -2589,12 +2683,16 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
       if (durableRunId) {
         // The daemon already finalized the authoritative transcript, including
         // hidden tool messages. Never send a browser-side draft back over it.
-        const completedResponse = await fetch(`/api/workspace-tool/runs/${encodeURIComponent(durableRunId)}`);
-        const completedData = await completedResponse.json().catch(() => ({}));
-        if (!completedResponse.ok) {
-          throw new Error((completedData as { error?: string }).error || 'Failed to load the completed WorkSpaces session');
+        if (durableCompletedSession) {
+          completedSession = durableCompletedSession;
+        } else {
+          const completedResponse = await fetch(`/api/workspace-tool/runs/${encodeURIComponent(durableRunId)}`);
+          const completedData = await completedResponse.json().catch(() => ({}));
+          if (!completedResponse.ok) {
+            throw new Error((completedData as { error?: string }).error || 'Failed to load the completed WorkSpaces session');
+          }
+          completedSession = normalizeWorkspaceToolSession((completedData as { session?: unknown }).session);
         }
-        completedSession = normalizeWorkspaceToolSession((completedData as { session?: unknown }).session);
       } else {
         // Defensive fallback for an older server that does not expose durable
         // runs yet. Current deployments always take the daemon branch.

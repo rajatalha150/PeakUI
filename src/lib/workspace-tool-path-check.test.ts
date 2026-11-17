@@ -23,8 +23,8 @@ describe('workspace-tool-path-check', () => {
     })
 
     it('matches POSIX mounted prefixes', () => {
-      const prefixes = ['/home/raza/peakui-workspace']
-      expect(isKnownWorkspaceToolHostPath('/home/raza/peakui-workspace/file.txt', prefixes)).toBe(true)
+      const prefixes = ['/home/user/peakui-workspace']
+      expect(isKnownWorkspaceToolHostPath('/home/user/peakui-workspace/file.txt', prefixes)).toBe(true)
       expect(isKnownWorkspaceToolHostPath('/tmp/file.txt', prefixes)).toBe(false)
     })
   })

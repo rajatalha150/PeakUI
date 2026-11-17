@@ -344,13 +344,13 @@ describe('workspace-tool tool parsing', () => {
 
   it('accepts filesystem payloads synthesized from prose narration (stat/read/list)', () => {
     for (const action of ['stat', 'read', 'list'] as const) {
-      const payload = JSON.stringify({ action, path: '/home/raza/Downloads/foo.zip' })
+      const payload = JSON.stringify({ action, path: '/home/user/Downloads/foo.zip' })
       const input = `<workspace_tool name="filesystem">${payload}</workspace_tool>`
       const extracted = extractWorkspaceToolRequest(input)
       expect(extracted.request?.name).toBe('filesystem')
       const req = extracted.request?.request as { action: string; path: string }
       expect(req.action).toBe(action)
-      expect(req.path).toBe('/home/raza/Downloads/foo.zip')
+      expect(req.path).toBe('/home/user/Downloads/foo.zip')
     }
   })
 

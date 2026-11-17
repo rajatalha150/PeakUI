@@ -6,16 +6,23 @@ quick-start, see [README.md](README.md) and [INSTALL.md](INSTALL.md).
 ## Topology
 
 ```text
-peakui-app        (Next.js 16 + React 19, all features)
-peakui-db         (PostgreSQL 16)
-peakui-tor-proxy  (SOCKS5 proxy for UWAF stealth mode) [optional but recommended]
+app               (Next.js 16 + React 19 UI, streaming APIs, and host executor client)
+workspace-daemon  (Persistent WorkSpaces daemon for interactive runs & automation)
+rag-worker        (Background Knowledge Base extraction & vector indexing worker)
+coder             (Isolated coding environment daemon + dev/Android toolchain)
+db                (PostgreSQL 15 with pgvector via pgvector/pgvector:pg15)
+searxng           (Local no-key metasearch backend)
+tor-proxy         (SOCKS5 proxy for UWAF stealth mode)
 ```
 
-The app container holds every user-facing feature — chat streaming, the
-WorkSpaces UI, the Knowledge Base, the Workspace Files panel, automation,
-Canvas artifact rendering, and the host shell executor's API surface — so
-the only outbound dependencies are Ollama and, if enabled, the optional
-host shell executor daemon.
+The `app` container serves the Next.js UI and API routes — chat streaming,
+the WorkSpaces UI, the Knowledge Base, the Workspace Files panel, Canvas
+artifact rendering, and the host shell executor client — while delegating
+detached interactive runs and scheduled/monitored automation to
+`workspace-daemon`, document extraction and vector indexing to `rag-worker`,
+and isolated coding sessions to `coder`. Outbound dependencies are Ollama (or
+configured remote providers) and, if enabled, the optional host shell executor
+daemon.
 
 ## Linux (host network mode)
 
@@ -33,7 +40,7 @@ docker compose logs -f app
 `network_mode: host` is **Linux-only**. On macOS or Windows it is silently
 ignored, and the app listens only on the bridge network. If you see "host
 shell executor unreachable" on macOS, switch to
-`docker-compose.macos.yml` (see below).
+`docker-compose.windows.yml` (see below).
 
 ## Windows / macOS Docker Desktop
 
@@ -81,23 +88,24 @@ Common optional:
 
 ## Persistent Volumes
 
-Two host paths need durable storage. The default compose file mounts both
-to local directories.
+`docker-compose.yml` uses named Docker volumes for database, runtime, and
+Coder state alongside a host bind mount for the managed workspace:
 
-| Host path (Linux example) | What lives there |
-|---|---|
-| `./data/db` | PostgreSQL data directory |
-| `~/.peakui/workspace` | Managed workspace (per-user, per-workspace) |
+| Volume / Host Path | Container Path | What lives there |
+|---|---|---|
+| `db_data` (named volume) | `/var/lib/postgresql/data` | PostgreSQL + `pgvector` database storage |
+| `app_runtime` (named volume) | `/var/lib/peakui` | Shared runtime state & RAG upload spool (`PEAKUI_DATA_DIR`) |
+| `WORKSPACE_TOOL_HOST_WORKSPACE_DIR` (defaults to `~/.peakui/workspace`) | `/mnt/workspace-tool/workspace` | Managed workspace bind mount (per-user, per-workspace files) |
+| `coder_workspace` & `coder_apps` (named volumes) | `/workspace`, `/apps` (and `/coder-workspace`, `/coder-apps` in `app`) | Coder projects, apps, and shared explorer download roots |
+| `coder_state`, `coder_root_home`, `coder_browser_state`, `coder_*_cache` (named volumes) | `/root/.qwen`, `/root`, `/var/lib/peakui/browser`, toolchain caches | Persistent Coder daemon state, dotfiles, and build/SDK caches |
+| `searxng_cache` (named volume) | `/var/cache/searxng` | Local SearXNG cache |
 
-In production, replace `./data/db` with a named volume or a bind mount to a
-dedicated disk:
+To pin `db_data` to a specific disk or directory in production, override the
+named volume definition in a `docker-compose.override.yml`:
 
 ```yaml
 volumes:
-  - peakui-db:/var/lib/postgresql/data
-
-volumes:
-  peakui-db:
+  db_data:
     driver: local
     driver_opts:
       type: none
@@ -105,8 +113,9 @@ volumes:
       device: /srv/peakui/db
 ```
 
-Back up the workspace path regularly — it is the source of truth for every
-file the AI writes or uploads.
+Back up the managed workspace path (`WORKSPACE_TOOL_HOST_WORKSPACE_DIR`,
+defaulting to `~/.peakui/workspace`) and the `db_data` volume regularly — they
+are the source of truth for user data and every file the AI writes or uploads.
 
 ## Reverse Proxy
 
@@ -147,8 +156,13 @@ rebuilds are fast (only changed layers are rebuilt).
 
 ## Health Checks
 
-- **App readiness:** `GET /api/auth/me` returns 401 (no session) or 200
-  (valid session). Anything else indicates the app failed to start.
+- **App readiness:** `GET /api/auth/session` returns 401 (no session) or 200
+  (valid session), `GET /api/auth/check` returns 200 with setup and auth status,
+  and `GET /api/health` checks authenticated app/Ollama health.
+- **WorkSpaces daemon:** `http://127.0.0.1:4320/health` returns 200 when
+  `workspace-daemon` holds the runtime lease and is processing runs.
+- **Coder daemon:** `http://127.0.0.1:4170/health` returns `{"status":"ok"}`
+  (include `Authorization: Bearer $CODER_SERVER_TOKEN` if a token is configured).
 - **Database:** `docker compose exec db pg_isready -U peakui`.
 - **Ollama:** `curl http://localhost:11434/api/tags` returns the model
   catalog.
@@ -158,8 +172,8 @@ rebuilds are fast (only changed layers are rebuilt).
 
 Back up at minimum:
 
-1. The PostgreSQL data directory (`./data/db` by default).
-2. The managed workspace (`~/.peakui/workspace` by default).
+1. The PostgreSQL database (`db_data` named volume or `pg_dump` snapshots).
+2. The managed workspace (`WORKSPACE_TOOL_HOST_WORKSPACE_DIR`, `~/.peakui/workspace` by default).
 
 For point-in-time restores, run nightly `pg_dump` snapshots in addition
 to filesystem backups:

@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { deliverDocumentToWorkspace } from './workspace-document-delivery'
 import type { WorkspaceToolRequest } from './workspace-tool-tools'
 import { executeWorkspaceTool, setWorkspaceToolTransport } from './workspace-tool-dispatch'
+import { getWorkspaceToolWorkspaceHostRoot } from './workspace-tool-workspace'
 
 /**
  * Workspace anchoring regression: the daemon must steer shell and filesystem
@@ -52,15 +53,15 @@ describe('executeWorkspaceTool — workspace anchoring', () => {
     const call = posted.find(c => c.path === '/api/workspace-tool/filesystem')
       ?? posted.find(c => c.path === '/api/workspace-tool/filesystem/request')
     expect(String(call!.body.path)).toBe(
-      '/home/raza/.peakui/workspace/users/u1/workspaces/default-2/reports/out.csv',
+      `${getWorkspaceToolWorkspaceHostRoot()}/users/u1/workspaces/default-2/reports/out.csv`,
     )
   })
 
   it('keeps an absolute filesystem path untouched', async () => {
-    await executeWorkspaceTool('t', tool('filesystem', { action: 'write', path: '/home/raza/.peakui/workspace/users/u1/workspaces/default-2/reports/out.csv', content: 'a,b' }), RUN)
+    await executeWorkspaceTool('t', tool('filesystem', { action: 'write', path: '/home/user/.peakui/workspace/users/u1/workspaces/default-2/reports/out.csv', content: 'a,b' }), RUN)
     const call = posted.find(c => c.path === '/api/workspace-tool/filesystem')
       ?? posted.find(c => c.path === '/api/workspace-tool/filesystem/request')
-    expect(String(call!.body.path)).toBe('/home/raza/.peakui/workspace/users/u1/workspaces/default-2/reports/out.csv')
+    expect(String(call!.body.path)).toBe('/home/user/.peakui/workspace/users/u1/workspaces/default-2/reports/out.csv')
   })
 
   it('does not anchor when no workspace is selected', async () => {
@@ -85,6 +86,27 @@ describe('executeWorkspaceTool — workspace anchoring', () => {
       const call = posted.find(c => c.body.workspaceId === 'ws-1')
       expect(call, name).toBeTruthy()
     }
+  })
+
+  it('defaults tax_return folder to ragFolderPath when omitted by the model', async () => {
+    await executeWorkspaceTool('t', tool('tax_return', { action: 'compute', taxYear: 2025 }), {
+      ...RUN,
+      ragFolderPath: 'taxes/2025',
+    })
+    const call = posted.find(c => c.path === '/api/workspace-tool/tax')
+    expect(call).toBeTruthy()
+    expect(call!.body.folder).toBe('taxes/2025')
+    expect(call!.body.sessionId).toBe('chat-1')
+  })
+
+  it('preserves explicit tax_return folder when provided by the model', async () => {
+    await executeWorkspaceTool('t', tool('tax_return', { action: 'compute', folder: 'taxes/2024' }), {
+      ...RUN,
+      ragFolderPath: 'taxes/2025',
+    })
+    const call = posted.find(c => c.path === '/api/workspace-tool/tax')
+    expect(call).toBeTruthy()
+    expect(call!.body.folder).toBe('taxes/2024')
   })
 })
 

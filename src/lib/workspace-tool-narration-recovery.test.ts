@@ -11,26 +11,26 @@ const ALLOWED = ['/srv/data', '/var/lib/peakui']
 describe('synthesizeToolCallFromNarration — filesystem', () => {
   it('matches the canonical "Inspecting path metadata" pattern', () => {
     const r = synthesizeToolCallFromNarration(
-      'Inspecting path metadata: /home/raza/Downloads/camera-planner-windows-main.zip',
+      'Inspecting path metadata: /home/user/Downloads/camera-planner-windows-main.zip',
     )
     expect(r).not.toBeNull()
     expect(r?.toolName).toBe('filesystem')
-    expect(r?.args).toEqual({ action: 'stat', path: '/home/raza/Downloads/camera-planner-windows-main.zip' })
+    expect(r?.args).toEqual({ action: 'stat', path: '/home/user/Downloads/camera-planner-windows-main.zip' })
   })
 
   it('matches "Let me stat <path>" with a stat verb', () => {
-    const r = synthesizeToolCallFromNarration('Let me stat /home/raza/Downloads/foo.txt now.')
+    const r = synthesizeToolCallFromNarration('Let me stat /home/user/Downloads/foo.txt now.')
     expect(r?.toolName).toBe('filesystem')
     expect((r?.args as { action: string }).action).toBe('stat')
   })
 
   it('matches "reading <path>" as a read action', () => {
-    const r = synthesizeToolCallFromNarration("I'll start by reading /home/raza/Downloads/foo.txt.")
+    const r = synthesizeToolCallFromNarration("I'll start by reading /home/user/Downloads/foo.txt.")
     expect((r?.args as { action: string }).action).toBe('read')
   })
 
   it('matches "listing <path>" as a list action', () => {
-    const r = synthesizeToolCallFromNarration('listing /home/raza/Downloads contents.')
+    const r = synthesizeToolCallFromNarration('listing /home/user/Downloads contents.')
     expect((r?.args as { action: string }).action).toBe('list')
   })
 
@@ -54,9 +54,9 @@ describe('synthesizeToolCallFromNarration — filesystem', () => {
 
   it('strips trailing punctuation from the captured path', () => {
     const r = synthesizeToolCallFromNarration(
-      'Inspecting path metadata: /home/raza/Downloads/foo.zip.',
+      'Inspecting path metadata: /home/user/Downloads/foo.zip.',
     )
-    expect((r?.args as { path: string }).path).toBe('/home/raza/Downloads/foo.zip')
+    expect((r?.args as { path: string }).path).toBe('/home/user/Downloads/foo.zip')
   })
 })
 
@@ -68,8 +68,8 @@ describe('synthesizeToolCallFromNarration — shell', () => {
   })
 
   it('matches a back-quoted command after "executing"', () => {
-    const r = synthesizeToolCallFromNarration("Now executing `ls -la /home/raza`.")
-    expect((r?.args as { command: string }).command).toBe('ls -la /home/raza')
+    const r = synthesizeToolCallFromNarration("Now executing `ls -la /home/user`.")
+    expect((r?.args as { command: string }).command).toBe('ls -la /home/user')
   })
 
   it('rejects shell metacharacters', () => {
@@ -78,8 +78,8 @@ describe('synthesizeToolCallFromNarration — shell', () => {
   })
 
   it('falls back to a trailing-token pattern when no backticks', () => {
-    const r = synthesizeToolCallFromNarration('running du -sh /home/raza/Downloads')
-    expect((r?.args as { command: string }).command).toBe('du -sh /home/raza/Downloads')
+    const r = synthesizeToolCallFromNarration('running du -sh /home/user/Downloads')
+    expect((r?.args as { command: string }).command).toBe('du -sh /home/user/Downloads')
   })
 
   it('does not synthesize a multi-line command', () => {
@@ -604,7 +604,7 @@ describe('synthesizeToolCallFromNarration — edge cases', () => {
     // some residual content remained, the synthesizer should ignore the wrapper
     // body entirely.
     const r = synthesizeToolCallFromNarration(
-      '<workspace_tool name="filesystem">{"action":"stat","path":"/home/raza/x"}</workspace_tool>',
+      '<workspace_tool name="filesystem">{"action":"stat","path":"/home/user/x"}</workspace_tool>',
     )
     expect(r).toBeNull()
   })
@@ -618,13 +618,13 @@ describe('buildWorkspaceToolRequestFromNarration', () => {
   it('builds a filesystem stat request', () => {
     const recovery: NarrationRecovery = {
       toolName: 'filesystem',
-      args: { action: 'stat', path: '/home/raza/x' },
+      args: { action: 'stat', path: '/home/user/x' },
       matchedPattern: 'filesystem.stat',
     }
     const req = buildWorkspaceToolRequestFromNarration(recovery)
     expect(req).toEqual({
       name: 'filesystem',
-      request: { action: 'stat', path: '/home/raza/x' },
+      request: { action: 'stat', path: '/home/user/x' },
     })
   })
 

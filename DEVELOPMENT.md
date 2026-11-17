@@ -40,8 +40,11 @@ Open [http://localhost:3000](http://localhost:3000).
 |---|---|
 | `npm run dev` | Start Next.js development server |
 | `npm run build` | Production build |
+| `npm run rag:build` | Bundle the background RAG indexing worker (`scripts/rag-worker.ts` → `dist/rag-worker.mjs`) |
+| `npm run workspace-daemon:build` | Bundle the persistent WorkSpaces daemon (`scripts/workspace-daemon.ts` → `dist/workspace-daemon.mjs`) |
 | `npm run start` | Start production server |
 | `npm test` | Run Vitest suite |
+| `npm run test:rag` | Run Knowledge Base / RAG regression test suite (`src/lib/rag-regression.test.ts`) |
 | `npm run lint -- path/to/file.ts` | Lint changed files; the full-repo command can need more than Node's default heap |
 | `npm run bundle:check` | Check first-load JavaScript per route after `npm run build` |
 | `npm run workspace-tool:host-executor` | Start optional host shell executor |
@@ -50,10 +53,11 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ```bash
 npm test
+npm run test:rag
 npm run lint -- src/lib/your-changed-file.ts
 npm run build
 npm run bundle:check
-node --test scripts/check-bundle-budget.node-test.mjs
+node --test scripts/check-bundle-budget.node-test.mjs scripts/coder-preview-gateway.node-test.mjs scripts/sync-coder-models.node-test.mjs
 ```
 
 Add tests for new logic in `src/lib/` and co-locate API route tests where appropriate.
@@ -100,7 +104,8 @@ explicitly baselined before production deployment; do not restore an automatic
 - `src/lib/session-intelligence.ts` manages context compression and continuation.
 - `src/lib/model-context.ts` detects model capacity (parameter size + native context window via Ollama `/api/show`) and maps it to a prompt tier (`minimal` / `compact` / `standard` / `full`) and a `num_ctx` recommendation. It also exports `classifyModelFit`, which flags models that won't fit the GPU's free VRAM (used by the model picker). `workspace-tool-prompt.ts` consumes the tier; `chat-completion.ts` and `workspace-tool-automation-execution.ts` fetch the profile before building the prompt.
 - `src/lib/workspace-tool-tools.ts` is the tool-call parser. It accepts the custom `<workspace_tool>` wrapper plus the native syntax of Qwen, Gemma, Llama, Mistral, GLM, and Anthropic-style models, normalizing them all to the same request shape (see `docs/tool-call-formats.md`). `stripAllToolTags` removes every format from the visible transcript.
-- `src/instrumentation.ts` starts the server-side automation worker.
+- `scripts/workspace-daemon.ts` is the persistent WorkSpaces daemon. It acquires a PostgreSQL advisory lock, dispatches queued interactive agent runs (`processQueuedWorkspaceAgentRuns`), executes scheduled and monitored automation ticks (`runAutomationTick`), and serves `/health`, `/status`, and `/tick` on port `4320`.
+- `scripts/rag-worker.ts` is the background Knowledge Base indexing worker. It polls for queued documents, reads uploaded files from the RAG spool (or fallback database payload), extracts searchable text, and indexes vector/keyword chunks via `indexDocumentChunks`.
 
 ## Internal Naming
 

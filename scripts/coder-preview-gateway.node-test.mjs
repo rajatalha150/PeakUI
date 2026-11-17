@@ -67,6 +67,7 @@ before(async () => {
       ...process.env,
       JWT_SECRET: secret,
       CODER_PREVIEW_GATEWAY_PORT: String(gatewayPort),
+      CODER_PREVIEW_BRIDGE_URL: `http://127.0.0.1:${devPort}`,
     },
     stdio: 'inherit',
   })

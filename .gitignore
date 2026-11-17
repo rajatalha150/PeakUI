@@ -46,4 +46,9 @@ next-env.d.ts
 
 # Local planning artifacts (not for the repository)
 .claude/
+.agents/
+.codex
 JSON
+prompt-ai.md
+summary-ai.md
+most-recent-chat.md

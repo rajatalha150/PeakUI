@@ -89,6 +89,12 @@ if (Test-Path $EnvFile) {
         Add-Content -Path $EnvFile -Value "`nWORKSPACE_DAEMON_TOKEN=$([Convert]::ToBase64String($daemonBytes))"
         Write-OK "Added the persistent WorkSpaces daemon token to .env."
     }
+    if ($existingEnv -notmatch '(?m)^CODER_SERVER_TOKEN=\S+') {
+        $coderBytes = New-Object byte[] 48
+        [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($coderBytes)
+        Add-Content -Path $EnvFile -Value "`nCODER_SERVER_TOKEN=$([Convert]::ToBase64String($coderBytes))"
+        Write-OK "Added CODER_SERVER_TOKEN to .env."
+    }
 } else {
     Write-Step "Generating .env with random secrets..."
     $pgPass = -join ((48..57) + (97..122) | Get-Random -Count 24 | ForEach-Object { [char]$_ })
@@ -101,6 +107,9 @@ if (Test-Path $EnvFile) {
     $daemonBytes = New-Object byte[] 48
     [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($daemonBytes)
     $daemonToken = [Convert]::ToBase64String($daemonBytes)
+    $coderBytes = New-Object byte[] 48
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($coderBytes)
+    $coderToken = [Convert]::ToBase64String($coderBytes)
     $workspace = "C:\Users\$env:USERNAME\peakui-workspace"
     $projects  = "C:\Users\$env:USERNAME\Desktop"
     New-Item -ItemType Directory -Path $workspace -Force | Out-Null
@@ -113,6 +122,7 @@ DATABASE_URL=postgresql://peakui:$pgPass@db:5432/peakui
 JWT_SECRET=$jwt
 SEARXNG_SECRET=$searxSecret
 WORKSPACE_DAEMON_TOKEN=$daemonToken
+CODER_SERVER_TOKEN=$coderToken
 WORKSPACE_DAEMON_INTERVAL_MS=5000
 WORKSPACE_DAEMON_CONCURRENCY=2
 WORKSPACE_RUN_EVENT_RETENTION_DAYS=7

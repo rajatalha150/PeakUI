@@ -3,6 +3,12 @@ import bcrypt from 'bcryptjs'
 import { NextResponse } from 'next/server'
 import { getAuthCookieOptions, shouldUseSecureCookies, signToken } from '@/lib/auth'
 import { normalizeUsername, validatePassword, validateUsername } from '@/lib/auth-validation'
+import {
+  checkLoginRateLimit,
+  clearLoginFailures,
+  getLoginRateLimitKey,
+  recordLoginFailure,
+} from '@/lib/login-rate-limit'
 import { prisma } from '@/lib/prisma'
 
 const INVALID_CREDENTIALS_MESSAGE = 'Invalid credentials.'
@@ -24,6 +30,18 @@ export async function POST(req: Request) {
     const usernameError = validateUsername(username)
     if (usernameError) {
       return NextResponse.json({ error: usernameError }, { status: 400 })
+    }
+
+    const rateLimitKey = getLoginRateLimitKey(req, username)
+    const rateLimit = checkLoginRateLimit(rateLimitKey)
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        { error: 'Too many login attempts. Please try again later.' },
+        {
+          status: 429,
+          headers: { 'Retry-After': String(rateLimit.retryAfterSeconds) },
+        },
+      )
     }
 
     const totalUsers = await prisma.user.count()
@@ -84,11 +102,14 @@ export async function POST(req: Request) {
       const isValid = await bcrypt.compare(password, existingUser?.passwordHash ?? DUMMY_PASSWORD_HASH)
 
       if (!existingUser || !isValid || !existingUser.isActive) {
+        recordLoginFailure(rateLimitKey)
         return invalidCredentialsResponse()
       }
 
       user = existingUser
     }
+
+    clearLoginFailures(rateLimitKey)
 
     await prisma.user.update({
       where: { id: user.id },

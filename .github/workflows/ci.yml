@@ -31,11 +31,17 @@ jobs:
       - name: Generate Prisma client
         run: npx prisma generate
 
+      - name: Typecheck
+        run: npx tsc --noEmit
+
       - name: Run tests
         run: npm test
 
       - name: Test bundle budget measurement
-        run: node --test scripts/check-bundle-budget.node-test.mjs
+        run: node --test scripts/check-bundle-budget.node-test.mjs scripts/coder-preview-gateway.node-test.mjs scripts/sync-coder-models.node-test.mjs
+
+      - name: Build background workers
+        run: npm run rag:build && npm run workspace-daemon:build
 
       - name: Build production app
         run: npm run build

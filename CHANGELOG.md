@@ -583,7 +583,7 @@ for the full surface, API, and client library reference.
 
 ## [0.13.1] - 2026-06-29 - Runtime Narration Recovery
 
-Fixes a long-standing failure mode where the model would describe an imminent tool call in prose (e.g. "Inspecting path metadata: /home/raza/Downloads/foo.zip" or "Running `df -h` to check disk.") and stop without emitting the matching `<workspace_tool>` wrapper. Previously the runtime would burn two extra model invocations on a recovery nudge and then surface a "Reply continue to retry" stall notice. The runtime now infers the missing tool call from the prose and dispatches it directly.
+Fixes a long-standing failure mode where the model would describe an imminent tool call in prose (e.g. "Inspecting path metadata: /home/user/Downloads/foo.zip" or "Running `df -h` to check disk.") and stop without emitting the matching `<workspace_tool>` wrapper. Previously the runtime would burn two extra model invocations on a recovery nudge and then surface a "Reply continue to retry" stall notice. The runtime now infers the missing tool call from the prose and dispatches it directly.
 
 ### Added
 - **`src/lib/workspace-tool-narration-recovery.ts`** — pure synthesizer covering `filesystem` (stat/read/list), `shell`, `code`, `web`, `fetch_summarize`, `unified_browser`, `tax_return`, and all 10 document tools (`pdf_document`, `workbook_document`, `word_document`, `csv_document`, `email_document`, `markdown_document`, `slides_document`, `archive_document`, `calendar_document`, `mermaid_document`). 38 unit tests cover canonical and edge-case narration patterns.
@@ -598,7 +598,7 @@ Fixes a long-standing failure mode where the model would describe an imminent to
 
 ### Fixed
 - Models that dropped the `<workspace_tool>` wrapper for `filesystem` `stat` calls (the most common bug surface) now have their intent recovered automatically — no more "Reply continue to retry" stalls.
-- The chat transcript example from the bug report (`Inspecting path metadata: /home/raza/Downloads/camera-planner-windows-main.zip` → no wrapper) now produces a `filesystem` `stat` call directly, instead of a recovery nudge that wasted two model invocations.
+- The chat transcript example from the bug report (`Inspecting path metadata: /home/user/Downloads/camera-planner-windows-main.zip` → no wrapper) now produces a `filesystem` `stat` call directly, instead of a recovery nudge that wasted two model invocations.
 
 ## [0.1.0] - 2026-06-17
 
