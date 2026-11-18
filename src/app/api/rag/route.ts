@@ -2,20 +2,17 @@ import { NextResponse } from 'next/server';
 import { createHash } from 'node:crypto';
 import { prisma } from '@/lib/prisma';
 import type { Prisma } from '@prisma/client';
-import type { Document as PrismaDocument } from '@prisma/client';
 import { getCurrentUserIdWithPermission } from '@/lib/request-auth';
 import { getUserSettings } from '@/lib/settings';
 import { getErrorMessage } from '@/lib/rag';
 import { detectFileKind } from '@/lib/file-shared';
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL } from '@/lib/file-shared';
+import { MAX_KNOWLEDGE_UPLOAD_BYTES, MAX_KNOWLEDGE_UPLOAD_LABEL } from '@/lib/file-shared';
 import { removeRagUpload, stageRagUpload } from '@/lib/rag-spool';
 import {
   aggregateFolderTree,
   findFolderInTree,
   normalizeFolderPath,
 } from '@/lib/kb-folders';
-
-type Document = PrismaDocument;
 
 export const maxDuration = 900;
 
@@ -116,6 +113,7 @@ export async function GET(req: Request) {
       const documents = await prisma.document.findMany({
         where: { userId },
         orderBy: { createdAt: 'desc' },
+        omit: { originalContent: true },
         include: { _count: { select: { chunks: true } } },
         skip,
         take: pageSize,
@@ -261,7 +259,7 @@ function buildOrderBy(sort: string, order: 'asc' | 'desc'): Prisma.DocumentOrder
   }
 }
 
-type FilePageDoc = Prisma.DocumentGetPayload<{ include: { _count: { select: { chunks: true } } } }>
+type FilePageDoc = Prisma.DocumentGetPayload<{ omit: { originalContent: true }; include: { _count: { select: { chunks: true } } } }>
 
 async function fetchFilePage({
   where,
@@ -277,6 +275,7 @@ async function fetchFilePage({
   return prisma.document.findMany({
     where,
     orderBy,
+    omit: { originalContent: true },
     include: { _count: { select: { chunks: true } } },
     skip,
     take,
@@ -290,9 +289,9 @@ export async function POST(req: Request) {
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const contentLength = getRequestContentLength(req);
-    if (contentLength !== null && contentLength > MAX_UPLOAD_BYTES) {
+    if (contentLength !== null && contentLength > MAX_KNOWLEDGE_UPLOAD_BYTES + 1024 * 1024) {
       return NextResponse.json({
-        error: `Upload is too large. Knowledge base files are limited to ${MAX_UPLOAD_LABEL}.`
+        error: `Upload is too large. Knowledge base files are limited to ${MAX_KNOWLEDGE_UPLOAD_LABEL}.`
       }, { status: 413 });
     }
 
@@ -302,16 +301,16 @@ export async function POST(req: Request) {
     } catch (error) {
       console.error('RAG upload form parse error:', error);
       return NextResponse.json({
-        error: `Could not read the uploaded file. If it is larger than ${MAX_UPLOAD_LABEL}, split it into smaller files and try again.`
+        error: `Could not read the uploaded file. If it is larger than ${MAX_KNOWLEDGE_UPLOAD_LABEL}, split it into smaller files and try again.`
       }, { status: 400 });
     }
 
     const file = formData.get('file') as File | null;
 
     if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 });
-    if (file.size > MAX_UPLOAD_BYTES) {
+    if (file.size > MAX_KNOWLEDGE_UPLOAD_BYTES) {
       return NextResponse.json({
-        error: `Upload is too large. Knowledge base files are limited to ${MAX_UPLOAD_LABEL}.`
+        error: `Upload is too large. Knowledge base files are limited to ${MAX_KNOWLEDGE_UPLOAD_LABEL}.`
       }, { status: 413 });
     }
 
@@ -325,7 +324,11 @@ export async function POST(req: Request) {
     const documentKind = detectFileKind(file.name, file.type || 'application/octet-stream');
     const lowerName = file.name.toLowerCase();
     const lowerMime = (file.type || '').toLowerCase();
-    const shouldRetainOriginal = lowerMime.includes('pdf')
+    const isSpreadsheet = lowerMime.includes('spreadsheet') || lowerMime.includes('excel')
+      || lowerName.endsWith('.xlsx') || lowerName.endsWith('.xlsm') || lowerName.endsWith('.xls');
+    // Large workbook bytes stay in the persistent RAG spool. Encoding hundreds
+    // of MB as base64 in PostgreSQL bloats every document read and backup.
+    const shouldRetainOriginal = (!isSpreadsheet || file.size <= 20 * 1024 * 1024) && (lowerMime.includes('pdf')
       || lowerName.endsWith('.pdf')
       || lowerMime.includes('spreadsheet')
       || lowerMime.includes('excel')
@@ -335,7 +338,7 @@ export async function POST(req: Request) {
       || lowerMime.includes('wordprocessingml')
       || lowerMime.includes('msword')
       || lowerName.endsWith('.docx')
-      || lowerName.endsWith('.doc');
+      || lowerName.endsWith('.doc'));
     const originalContent = shouldRetainOriginal ? buffer.toString('base64') : null;
     const originalMimeType = shouldRetainOriginal
       ? (file.type || (lowerName.endsWith('.pdf')
@@ -355,11 +358,12 @@ export async function POST(req: Request) {
     });
 
     if (existingDoc && existingDoc.contentHash === contentHash && ['ready', 'queued', 'processing', 'indexing', 'staging'].includes(existingDoc.status)) {
+      const publicDocument = { ...existingDoc, originalContent: undefined };
       return NextResponse.json({
         success: true,
         queued: existingDoc.status !== 'ready',
         reused: true,
-        document: { ...existingDoc, chunkCount: 0 },
+        document: { ...publicDocument, chunkCount: 0 },
       }, { status: existingDoc.status === 'ready' ? 200 : 202 });
     }
 
@@ -412,10 +416,11 @@ export async function POST(req: Request) {
       throw error;
     }
 
+    const publicDocument = { ...doc, originalContent: undefined };
     return NextResponse.json({
       success: true,
       queued: true,
-      document: { ...doc, chunkCount: 0 }
+      document: { ...publicDocument, chunkCount: 0 }
     }, { status: 202 });
   } catch (error) {
     const message = getErrorMessage(error);

@@ -1,5 +1,7 @@
 export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 export const MAX_UPLOAD_LABEL = '100 MB'
+export const MAX_KNOWLEDGE_UPLOAD_BYTES = 500 * 1024 * 1024
+export const MAX_KNOWLEDGE_UPLOAD_LABEL = '500 MB'
 export const CHAT_ATTACHMENT_TEXT_LIMIT = 120000
 
 // Cap on how many document pages are rendered to images for vision-capable

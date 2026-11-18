@@ -55,7 +55,7 @@ Missing closing tags are tolerated (models truncate mid-stream), unknown tool na
 - **Supported formats**: Common still images are treated as vision inputs, including PNG, JPG/JPEG, GIF, WebP, BMP, TIFF, AVIF, HEIC, and HEIF. Documents are extracted to text when possible, and in WorkSpaces, PDFs are additionally rasterized to page images for vision-capable models (see below).
 - **Vision-model compatibility**: HEIC/HEIF, TIFF, BMP, AVIF, and other unsupported still-image uploads are normalized to JPEG before the Ollama `images` payload is sent, using `sharp` first and system converters (`heif-convert` / ImageMagick) as fallback.
 - **Audio/video detection**: Audio and video uploads are classified by MIME or extension instead of generic binary metadata. They remain metadata-only until a transcription/frame-extraction pipeline is added.
-- **Upload limit**: 100 MB per file
+- **Knowledge Base upload limit**: 500 MB per file. XLSX/XLSM workbooks are streamed through every nonempty row and indexed in bounded embedding batches; a document becomes ready after all batches complete. Large workbook originals remain in the persistent RAG spool for reindexing.
 - **Processing**: Documents are automatically extracted using text, RTF, or Office parsers depending on format. Images can include OCR text as supplemental context without replacing the native image payload.
 - **Preview**: Pending attachments show as chips above the input with thumbnail (images) or filename (documents) and an X to remove
 - **Images in responses**: AI-generated images embedded as base64 in responses display inline with click-to-expand and download

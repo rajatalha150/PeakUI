@@ -6,7 +6,7 @@ import {
   Search, Database, MessageSquare, X, ChevronDown, ChevronRight,
   Folder, ArrowUpDown, Filter as FilterIcon, Home, File as FileIcon,
 } from 'lucide-react';
-import { MAX_UPLOAD_BYTES, MAX_UPLOAD_LABEL, type FileKind } from '@/lib/file-shared';
+import { MAX_KNOWLEDGE_UPLOAD_BYTES, MAX_KNOWLEDGE_UPLOAD_LABEL, type FileKind } from '@/lib/file-shared';
 import {
   aggregateFolderTree,
   findFolderInTree,
@@ -111,6 +111,8 @@ interface DocumentPreview {
   document: Document;
   content: string;
   retrievalScope?: 'full-document' | 'chunked';
+  offset: number;
+  nextOffset: number | null;
   chunks: Array<{
     id: string;
     chunkIndex: number;
@@ -514,8 +516,8 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
     for (let i = 0; i < uploadQueue.length; i++) {
       const item = uploadQueue[i];
       const relativePath = item.sourcePath || getUploadSourcePath(item.file) || '';
-      if (item.file.size > MAX_UPLOAD_BYTES) {
-        setUploadError(`"${item.file.name}" is too large. Knowledge base files are limited to ${MAX_UPLOAD_LABEL}.`);
+      if (item.file.size > MAX_KNOWLEDGE_UPLOAD_BYTES) {
+        setUploadError(`"${item.file.name}" is too large. Knowledge base files are limited to ${MAX_KNOWLEDGE_UPLOAD_LABEL}.`);
         break;
       }
 
@@ -811,13 +813,13 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
     onUseInChat(context, searchResults);
   };
 
-  const openDocumentPreview = async (documentId?: string) => {
+  const openDocumentPreview = async (documentId?: string, offset = 0) => {
     if (!documentId) return;
     setPreviewLoading(true);
     setPreviewError(null);
     setDocumentPreview(null);
     try {
-      const res = await fetch(`/api/rag/documents/${documentId}`);
+      const res = await fetch(`/api/rag/documents/${documentId}?offset=${offset}`);
       const data = await res.json();
       if (!res.ok) {
         setPreviewError(data.error || 'Could not load the full document.');
@@ -828,6 +830,8 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
         document: data.document,
         content: data.content || '',
         retrievalScope: data.retrievalScope === 'full-document' ? 'full-document' : 'chunked',
+        offset: typeof data.offset === 'number' ? data.offset : 0,
+        nextOffset: typeof data.nextOffset === 'number' ? data.nextOffset : null,
         chunks: Array.isArray(data.chunks) ? data.chunks : [],
       });
     } catch (error) {
@@ -1639,10 +1643,17 @@ export default function KnowledgeBase({ onUseInChat }: Props) {
                   {documentPreview?.document.kind && <span>{documentPreview.document.kind}</span>}
                   {documentPreview && <span>{formatSize(documentPreview.document.size)}</span>}
                   {documentPreview && <span>{documentPreview.document._count.chunks} chunks</span>}
+                  {documentPreview && documentPreview.document._count.chunks > 100 && <span>showing {documentPreview.offset + 1}-{documentPreview.offset + documentPreview.chunks.length}</span>}
                   {documentPreview?.retrievalScope && <span>{documentPreview.retrievalScope === 'full-document' ? 'full document' : 'chunked'}</span>}
                   {documentPreview?.document.ragMode && <span>{documentPreview.document.ragMode}</span>}
                 </div>
               </div>
+              {documentPreview && (documentPreview.offset > 0 || documentPreview.nextOffset !== null) && (
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn btn-secondary" disabled={previewLoading || documentPreview.offset === 0} onClick={() => void openDocumentPreview(documentPreview.document.id, Math.max(0, documentPreview.offset - 100))}>Previous 100</button>
+                  <button className="btn btn-secondary" disabled={previewLoading || documentPreview.nextOffset === null} onClick={() => void openDocumentPreview(documentPreview.document.id, documentPreview.nextOffset ?? 0)}>Next 100</button>
+                </div>
+              )}
               <button
                 className="btn btn-secondary"
                 style={{ padding: '8px 14px' }}

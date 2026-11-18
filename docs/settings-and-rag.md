@@ -97,7 +97,8 @@ This is the PeakUI analogue of Unsloth's keep-warm middleware: a cheap, invisibl
 
 ### File Attachments
 
-- **Upload limit**: 100 MB per file (configured via `MAX_UPLOAD_BYTES` in `src/lib/file-shared.ts`)
+- **Knowledge Base upload limit**: 500 MB per file (configured via `MAX_KNOWLEDGE_UPLOAD_BYTES` in `src/lib/file-shared.ts`). Chat attachments retain their separate 100 MB limit.
+- **Large workbooks**: XLSX/XLSM indexing streams every nonempty row, embeds bounded batches in semantic mode, and marks the file ready only after all batches finish. Large originals remain in the persistent RAG spool and are included in Knowledge Base backups for restore and reindexing. Preview pages show 100 indexed chunks at a time.
 - **Image handling**: Images are handled vision-first. The browser keeps preview metadata, `/api/files/extract` can add OCR as supplemental context, and the chat request preserves image data, MIME type, and filename so the server can normalize unsupported still-image formats before calling Ollama.
 - **Compatibility normalization**: HEIC/HEIF, TIFF, BMP, AVIF, and related still-image uploads are converted to JPEG for model compatibility. The server tries `sharp` first, then falls back to `heif-convert` or ImageMagick when the runtime codec support is needed.
 - **Audio/video handling**: Audio/video uploads are classified by extension/MIME and attached as metadata-only until dedicated transcription or frame extraction is implemented.
@@ -323,7 +324,7 @@ ollama pull all-minilm
 - If Semantic search returns no results after changing models, the existing documents may still be indexed for the old model. Open the KB dashboard and re-index them, or change the model in Settings to trigger automatic re-indexing for mismatched documents.
 - If the KB health panel shows documents stuck in `processing`, wait for the background queue to retry or click Cancel and re-upload. Documents that stay processing longer than the stale timeout are automatically marked `queued` for retry.
 - If `pgvector` is not enabled in Postgres, semantic search falls back to in-memory cosine over stored JSON embeddings. Performance is fine for small libraries but will degrade for large corpora; switch to the `pgvector/pgvector:pg15` image to enable native vector indexing.
-- If a Knowledge Base upload fails immediately with a 413, the file exceeds the configured upload byte limit. Split the file or raise `MAX_UPLOAD_BYTES` / `MAX_UPLOAD_LABEL` if your deployment can handle it.
+- If a Knowledge Base upload fails immediately with a 413, the file exceeds the configured upload byte limit. Split the file or raise `MAX_KNOWLEDGE_UPLOAD_BYTES` / `MAX_KNOWLEDGE_UPLOAD_LABEL` if your deployment can handle it. The reverse proxy must also accept the request body size.
 - If a document indexes in keyword mode even though semantic mode is selected, the embedding model at the configured Ollama host is unreachable or returned an error. The indexer falls back to keyword search so the file is still searchable.
 - If memory pressure appears during generation, reduce Context Window before retrying.
 - If WorkSpaces still fails with a model-memory error, the selected context window is probably larger than the host can fit. The app will auto-fit downward, but lowering the slider manually will make responses start faster.

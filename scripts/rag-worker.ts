@@ -3,7 +3,8 @@ import { prisma } from '../src/lib/prisma'
 import { getUserSettings } from '../src/lib/settings'
 import { extractFilePayload } from '../src/lib/file-extraction'
 import { indexDocumentChunks } from '../src/lib/rag-engine'
-import { hasRagUpload, readRagUpload, removeRagUpload } from '../src/lib/rag-spool'
+import { indexWorkbookChunks } from '../src/lib/rag-workbook-index'
+import { hasRagUpload, ragSpoolPath, readRagUpload, removeRagUpload, stageRagUpload } from '../src/lib/rag-spool'
 
 const MAX_RAG_TEXT_CHARS = 2_000_000
 let stopping = false
@@ -29,11 +30,27 @@ async function processNextDocument(): Promise<boolean> {
   if (claimed.count !== 1) return true
 
   try {
+    const settings = await getUserSettings(document.userId)
+    const workbook = /\.(xlsx|xlsm)$/i.test(document.filename)
+    if (workbook) {
+      if (!await hasRagUpload(document.id)) {
+        if (!document.originalContent) throw new Error('Original workbook is unavailable. Upload it again to re-index.')
+        await stageRagUpload(document.id, Buffer.from(document.originalContent, 'base64'))
+      }
+      console.info(`RAG worker streaming workbook ${document.filename} (${document.id})`)
+      const result = await indexWorkbookChunks(document.id, document.contentHash, ragSpoolPath(document.id), {
+        ragModel: settings.ragModel,
+        ragMode: settings.ragMode === 'keyword' ? 'keyword' : 'semantic',
+        ollamaHost: settings.ollamaHost,
+        ollamaApiKey: settings.ollamaApiKey ?? '',
+      })
+      console.info(`RAG worker indexed ${result.chunkCount} workbook chunks from ${document.filename} (${document.id})`)
+      return true
+    }
     const buffer = await readRagUpload(document.id)
       ?? (document.originalContent ? Buffer.from(document.originalContent, 'base64') : null)
     if (!buffer) throw new Error('Original file is unavailable. Upload it again to re-index.')
 
-    const settings = await getUserSettings(document.userId)
     const mimeType = document.originalMimeType || 'application/octet-stream'
     console.info(`RAG worker indexing ${document.filename} (${document.id})`)
     const extraction = await extractFilePayload({

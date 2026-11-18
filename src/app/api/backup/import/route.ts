@@ -75,6 +75,10 @@ export async function POST(req: Request) {
             return { ...d, originalContent: zip.readAsText(fileEntry) };
           }
         }
+        if (d.spoolEntry) {
+          const spoolEntry = zip.getEntry(d.spoolEntry);
+          if (spoolEntry) return { ...d, spoolContent: zip.readFile(spoolEntry) ?? undefined };
+        }
         return d;
       });
       data.knowledgeBase = { documents: docs };

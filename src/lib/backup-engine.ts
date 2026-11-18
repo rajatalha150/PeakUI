@@ -4,6 +4,7 @@ import { getUserSettings } from "./settings";
 import { upsertChatSession } from "./chat-sessions";
 import * as archiver from "archiver";
 import { randomUUID } from "node:crypto";
+import { hasRagUpload, ragSpoolPath, stageRagUpload } from "./rag-spool";
 
 export type BackupScope = "chats" | "settings" | "knowledgeBase" | "canvas" | "automation" | "connectionSecrets";
 export const BACKUP_VERSION = 2;
@@ -125,6 +126,8 @@ export interface BackupKnowledgeDocument {
   indexingAttempts?: number | null;
   chunkCount: number;
   fileEntry?: string;
+  spoolEntry?: string;
+  spoolContent?: Buffer;
 }
 
 export interface BackupCanvasArtifactRevision {
@@ -566,13 +569,18 @@ export async function streamBackupToArchive(options: BackupExportStreamOptions):
           const safeName = `${doc.id}.${ext}`;
           archive.append(doc.originalContent, { name: `knowledge-base/files/${safeName}` });
           doc.fileEntry = `knowledge-base/files/${safeName}`;
+        } else if (await hasRagUpload(doc.id)) {
+          // Large originals live in the persistent spool; include their raw
+          // bytes so a backup can restore and reindex them on another host.
+          doc.spoolEntry = `knowledge-base/spool/${doc.id}.bin`;
+          archive.file(ragSpoolPath(doc.id), { name: doc.spoolEntry });
         }
         const pct = completed + Math.round(((i + 1) / docs.length) * stepSize * 0.9);
         updateProgress(progressId, { phase: "knowledgeBase", message: `Exported ${i + 1}/${docs.length} documents...`, percent: pct }, "export", scopes);
       }
 
       // Store metadata with fileEntry pointers
-      archive.append(JSON.stringify({ documents: docs.map(d => ({ ...d, originalContent: undefined })) }, null, 2), { name: "knowledge-base/documents.json" });
+      archive.append(JSON.stringify({ documents: docs.map(d => ({ ...d, originalContent: undefined, spoolContent: undefined })) }, null, 2), { name: "knowledge-base/documents.json" });
       completed += stepSize;
       updateProgress(progressId, { phase: "knowledgeBase", message: `Exported ${docs.length} documents.`, percent: completed }, "export", scopes);
     }
@@ -1003,7 +1011,7 @@ export async function importBackupData(
             contentHash: d.contentHash ?? null,
             originalContent: d.originalContent ?? null,
             originalMimeType: d.originalMimeType ?? null,
-            status: (options.reindexDocuments || d.originalContent) ? "queued" : d.status,
+            status: (options.reindexDocuments || d.originalContent || d.spoolContent) ? "queued" : d.status,
             ragMode: d.ragMode ?? settings.ragMode,
             embeddingModel: d.embeddingModel ?? null,
             ollamaHost: d.ollamaHost ?? null,
@@ -1014,6 +1022,8 @@ export async function importBackupData(
             indexingAttempts: d.indexingAttempts ?? 0,
             userId,
           };
+
+          if (d.spoolContent) await stageRagUpload(targetId, d.spoolContent);
 
           if (existing) {
             await prisma.documentChunk.deleteMany({ where: { documentId: targetId } });
