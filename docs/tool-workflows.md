@@ -598,26 +598,26 @@ PeakUI's `fetch_summarize` tool fetches a public web page and returns a concise,
 
 ## Tax PDF Workflow
 
-PeakUI can create downloadable tax PDF artifacts from Knowledge Base documents through the WorkSpaces `tax_return` tool.
+WorkSpaces Accountant mode supplies a short accounting brief. The `tax_return` tool can inspect bundled IRS PDFs, fill supported form controls, and create a downloadable draft. The assistant is not a licensed preparer and does not sign or file returns.
 
 ## What It Does
 
-- Loads ready Knowledge Base documents from the enabled folder or the folder named in the tool request.
+- Loads ready Knowledge Base documents only from the selected client folder.
 - Extracts obvious W-2, 1099, SSA-1099, taxpayer name, SSN, address, and income/withholding fields into a strict structured draft.
 - Carries source citations for extracted fields and reports missing/uncertain fields.
 - Generates a review PDF packet and stores it as a Canvas artifact.
-- Optionally fills an uploaded fillable AcroForm PDF template and returns a filled PDF artifact.
+- Fills a bundled IRS form or uploaded fillable AcroForm PDF using exact field names. Text, checkboxes, radio groups, dropdowns, and option lists can be updated. An empty string clears a text or choice field; `false` unchecks a prefilled checkbox.
+- Pages field inspection in batches of 60, with field-name search and per-page visible text. Large forms remain inspectable without sending their entire field list to the model at once.
 
 ## User Flow
 
 1. Upload a folder of tax documents into Knowledge Base.
 2. Wait until the documents show as indexed/ready.
-3. Enable RAG for that folder in WorkSpaces.
-4. Ask the AI to prepare a tax return PDF from the folder.
-5. Approve the Tax PDF Generation Approval prompt.
-6. Download the generated PDF card from the chat response.
+3. Select that folder in WorkSpaces and enable Knowledge Base retrieval.
+4. State the tax year and ask for a review packet or a specific form draft.
+5. Inspect the proposed form, source figures, warnings, and every filled field before using the downloaded PDF. A browser-driven tool action may request approval; a durable WorkSpaces run can create the draft from the explicit request.
 
-For a fillable template, upload the PDF after this feature is deployed so PeakUI retains the original PDF bytes. Then ask the AI to fill that template. The current MVP fills AcroForm fields by best-effort field-name matching. XFA-only forms are detected but are not reliably fillable.
+For an uploaded template, upload the PDF after this feature is deployed so PeakUI retains its original bytes. The PDF must have AcroForm fields. XFA-only or flattened PDFs cannot be filled with this engine. The currently bundled `f1024.pdf` has no fillable fields; the [IRS requires Form 1024 to be completed through Pay.gov](https://www.irs.gov/forms-pubs/about-form-1024).
 
 ## Tool Contract
 
@@ -629,21 +629,25 @@ For a fillable template, upload the PDF after this feature is deployed so PeakUI
 
 Supported actions:
 
+- `list_forms`: Lists bundled form IDs.
+- `inspect_form`: Returns exact field names, control types/options, the detected form year when printed, and visible text for a requested page. Use `fieldOffset` (zero-based), `fieldLimit` (1–100), `fieldQuery`, and `pageNumber` (one-based) to cover all fields and pages.
 - `generate_review_pdf`: Creates a review packet from extracted tax data.
-- `fill_pdf_form`: Fills an uploaded template PDF. Requires `templateDocumentId`.
+- `fill_pdf_form`: Fills a bundled form (`formId`) or uploaded template (`templateDocumentId`) using a `fields` object keyed by exact inspected field names. It refuses to publish a PDF when no field was updated.
 
-Optional fields:
+Required for either PDF action:
 
-- `folder`: Knowledge Base folder path. If omitted, WorkSpaces uses the currently enabled RAG folder when available.
-- `taxYear`: Tax year. If omitted, the extractor attempts to infer it.
-- `templateDocumentId`: Knowledge Base document id for a fillable PDF template.
-- `flatten`: When `true`, flattens the filled AcroForm output.
+- `folder`: The client Knowledge Base folder path. WorkSpaces may supply the selected folder automatically.
+- `taxYear`: Explicit four-digit tax year. The route rejects a bundled form if it clearly identifies a different tax year.
+- `sessionId`: An owned WorkSpaces session, supplied by the run.
+
+Optional: `flatten` makes the output non-editable. For a prefilled template, use `""` to clear text or choice fields and `false` to uncheck a box. Omitting a field leaves its existing value unchanged.
 
 ## Safety, Privacy, And Limits
 
 - The generated packet is a **review aid only**, not an official filed return.
 - PeakUI does **not** e-file, sign, submit, or validate returns with any tax authority.
-- The extractor is deterministic and conservative; users must verify **every** value before filing.
+- The extractor handles a limited set of W-2/1099 fields. It cannot infer the meaning of coded IRS field names such as `f1_01`; the agent must inspect the form and provide explicit values for each needed field. Users must verify **every** value and checkbox before filing.
+- Bundled IRS PDFs can lag the current filing year. If inspection cannot identify the form year, verify it manually against the official IRS form and instructions before filling.
 - Tax documents contain sensitive personal information (SSN/TIN, address, income, withholding). Protect uploaded files, database backups, and host access accordingly.
 - Original bytes are retained only for uploaded PDFs so fillable templates can be processed later.
 - The initial extraction focuses on common W-2, 1099-NEC, 1099-INT, 1099-DIV, SSA-1099, SSN, name, address, and federal withholding fields.

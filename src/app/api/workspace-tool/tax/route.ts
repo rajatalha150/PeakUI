@@ -4,7 +4,8 @@ import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import { buildTaxReturnDraft } from '@/lib/tax/tax-packet'
 import { fillTaxPdfForm, renderTaxReviewPdf } from '@/lib/tax/tax-pdf'
 import { createPdfCanvasArtifact } from '@/lib/pdf/pdf-artifacts'
-import { listIrsForms, inspectIrsForm, loadIrsFormPdf } from '@/lib/tax/irs-forms-catalog'
+import { normalizeFolderPath } from '@/lib/kb-folders'
+import { listIrsForms, inspectIrsForm, inspectIrsFormPageText, loadIrsFormPdf, selectIrsFormFieldPage } from '@/lib/tax/irs-forms-catalog'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -13,11 +14,12 @@ type TaxAction = 'generate_review_pdf' | 'fill_pdf_form' | 'list_forms' | 'inspe
 
 const READ_ONLY_ACTIONS: ReadonlySet<TaxAction> = new Set(['list_forms', 'inspect_form'])
 
-function normalizeAction(value: unknown): TaxAction {
+function normalizeAction(value: unknown): TaxAction | null {
   if (value === 'fill_pdf_form') return 'fill_pdf_form'
   if (value === 'list_forms') return 'list_forms'
   if (value === 'inspect_form') return 'inspect_form'
-  return 'generate_review_pdf'
+  if (value === 'generate_review_pdf') return 'generate_review_pdf'
+  return null
 }
 
 function sanitizeFilename(value: string): string {
@@ -28,8 +30,8 @@ function normalizeFields(value: unknown): Record<string, string> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const fields: Record<string, string> = {}
   for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof key === 'string' && key.trim() && (typeof val === 'string' || typeof val === 'number')) {
-      fields[key.trim()] = String(val)
+    if (typeof key === 'string' && key.trim() && (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean' || val === null)) {
+      fields[key.trim()] = val === null ? '' : String(val)
     }
   }
   return Object.keys(fields).length > 0 ? fields : null
@@ -38,6 +40,7 @@ function normalizeFields(value: unknown): Record<string, string> | null {
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}))
   const action = normalizeAction(body?.action)
+  if (!action) return NextResponse.json({ error: 'A valid tax action is required.' }, { status: 400 })
   const readOnly = READ_ONLY_ACTIONS.has(action)
 
   // list_forms / inspect_form only read the public IRS form catalog; they do
@@ -54,7 +57,7 @@ export async function POST(request: NextRequest) {
   if ('response' in access) return access.response
 
   try {
-    const folder = typeof body?.folder === 'string' && body.folder.trim() ? body.folder.trim() : null
+    const folder = normalizeFolderPath(typeof body?.folder === 'string' ? body.folder : null) || null
     const taxYear = typeof body?.taxYear === 'string' && body.taxYear.trim() ? body.taxYear.trim() : null
     const sessionId = typeof body?.sessionId === 'string' && body.sessionId.trim() ? body.sessionId.trim() : null
     const messageId = typeof body?.messageId === 'string' && body.messageId.trim() ? body.messageId.trim() : null
@@ -74,19 +77,55 @@ export async function POST(request: NextRequest) {
       if (!formId) {
         return NextResponse.json({ error: 'formId is required for inspect_form' }, { status: 400 })
       }
-      const form = await inspectIrsForm(formId)
-      return NextResponse.json({ success: true, action, form })
+      let form
+      try {
+        form = await inspectIrsForm(formId)
+      } catch (error) {
+        return NextResponse.json({ error: error instanceof Error ? error.message : 'IRS form not found.' }, { status: 400 })
+      }
+      const pageNumber = typeof body?.pageNumber === 'number' && Number.isInteger(body.pageNumber) ? body.pageNumber : 1
+      if (pageNumber < 1 || pageNumber > form.pageCount) {
+        return NextResponse.json({ error: `pageNumber must be between 1 and ${form.pageCount}.` }, { status: 400 })
+      }
+      const fieldPage = selectIrsFormFieldPage(form, {
+        fieldOffset: body?.fieldOffset,
+        fieldLimit: body?.fieldLimit,
+        fieldQuery: body?.fieldQuery,
+      })
+      return NextResponse.json({
+        success: true,
+        action,
+        form: {
+          ...fieldPage,
+          pageNumber,
+          pageText: pageNumber > 1 ? await inspectIrsFormPageText(formId, pageNumber) : fieldPage.pageText,
+        },
+      })
     }
 
     if (!sessionId) {
       return NextResponse.json({ error: 'sessionId is required' }, { status: 400 })
     }
+    if (!folder) {
+      return NextResponse.json({ error: 'Select a client Knowledge Base folder before generating a tax PDF.' }, { status: 400 })
+    }
+    if (!taxYear || !/^20\d{2}$/.test(taxYear)) {
+      return NextResponse.json({ error: 'An explicit four-digit taxYear is required for a tax PDF.' }, { status: 400 })
+    }
+    const session = await prisma.chatSession.findFirst({
+      where: { id: sessionId, userId: access.userId, surface: 'workspace-tool' },
+      select: { id: true },
+    })
+    if (!session) return NextResponse.json({ error: 'WorkSpaces session not found.' }, { status: 404 })
 
     const draft = await buildTaxReturnDraft({
       userId: access.userId,
       folder,
       taxYear,
     })
+    if (draft.sourceDocumentIds.length === 0) {
+      return NextResponse.json({ error: 'No ready tax documents were found in the selected Knowledge Base folder.' }, { status: 400 })
+    }
 
     let pdfBytes: Buffer
     let outputKind = 'review'
@@ -100,6 +139,15 @@ export async function POST(request: NextRequest) {
       if (formId) {
         // Fill an official IRS form from the bundled catalog.
         try {
+          const form = await inspectIrsForm(formId)
+          if (form.formTaxYear && form.formTaxYear !== taxYear) {
+            return NextResponse.json({
+              error: `The bundled ${formId} form is for tax year ${form.formTaxYear}, not ${taxYear}. Choose a matching form before filling.`,
+            }, { status: 400 })
+          }
+          if (form.fieldCount === 0) {
+            return NextResponse.json({ error: `The bundled ${formId} PDF has no fillable fields. Use a fillable template for this form.` }, { status: 422 })
+          }
           templateBytes = await loadIrsFormPdf(formId)
         } catch (error) {
           return NextResponse.json({
@@ -132,13 +180,25 @@ export async function POST(request: NextRequest) {
         }, { status: 400 })
       }
 
-      const filled = await fillTaxPdfForm(templateBytes, draft, flatten, fieldsOverlay || undefined)
+      let filled
+      try {
+        filled = await fillTaxPdfForm(templateBytes, draft, flatten, fieldsOverlay || undefined)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Could not fill this PDF.'
+        if (/no fillable AcroForm fields/i.test(message)) {
+          return NextResponse.json({ error: message }, { status: 422 })
+        }
+        throw error
+      }
       pdfBytes = filled.bytes
       outputKind = formId ? `filled-${formId}` : 'filled-form'
       filledFields = filled.filledFields
       warnings.push(...filled.warnings)
       if (filledFields.length === 0) {
-        warnings.push('No matching AcroForm fields were filled. Call inspect_form to confirm the field names for this form.')
+        return NextResponse.json({
+          error: 'No form fields were filled. Call inspect_form to get exact field names and supply supported values.',
+          warnings,
+        }, { status: 422 })
       }
     } else {
       pdfBytes = await renderTaxReviewPdf(draft)

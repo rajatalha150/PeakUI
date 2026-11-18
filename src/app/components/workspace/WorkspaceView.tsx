@@ -935,7 +935,7 @@ const workspaceToolChrome = isMobileViewport ? (
                   type="button"
                   className={`workspace-tool-mode-action${accountantEnabled ? ' is-active' : ''}`}
                   onClick={() => toggleAccountant()}
-                  title="Act as a CPA/accountant/financial advisor with access to the IRS form catalog"
+                  title="Accounting and tax research assistant with IRS form inspection and draft PDF tools"
                 >
                   <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Calculator size={15} color={accountantEnabled ? '#10b981' : 'var(--text-secondary)'} />

@@ -93,6 +93,11 @@ export interface WorkspaceToolTaxReturnToolRequest {
   templateDocumentId?: string
   /** IRS form id (e.g. "f1040", "f1040sd") resolved from the bundled irs_forms catalog. */
   formId?: string
+  /** inspect_form: page through exact field names, optionally filtering by name. */
+  fieldOffset?: number
+  fieldLimit?: number
+  fieldQuery?: string
+  pageNumber?: number
   /** Explicit field-name -> value overlay applied on top of the auto-extracted draft. */
   fields?: Record<string, string>
   flatten?: boolean
@@ -1481,12 +1486,21 @@ export function extractWorkspaceToolRequest(content: string): {
         const formId = cleanFieldValue(parsed.formId)
         if (formId) request.formId = formId
       }
+      if (action === 'inspect_form') {
+        if (Number.isInteger(parsed.fieldOffset) && parsed.fieldOffset! >= 0) request.fieldOffset = parsed.fieldOffset
+        if (Number.isInteger(parsed.fieldLimit) && parsed.fieldLimit! > 0) request.fieldLimit = Math.min(100, parsed.fieldLimit!)
+        if (typeof parsed.fieldQuery === 'string') {
+          const fieldQuery = cleanFieldValue(parsed.fieldQuery)
+          if (fieldQuery) request.fieldQuery = fieldQuery.slice(0, 100)
+        }
+        if (typeof parsed.pageNumber === 'number' && Number.isInteger(parsed.pageNumber) && parsed.pageNumber > 0) request.pageNumber = parsed.pageNumber
+      }
       if (parsed.fields && typeof parsed.fields === 'object' && !Array.isArray(parsed.fields)) {
         const fields: Record<string, string> = {}
         for (const [key, value] of Object.entries(parsed.fields)) {
-          if (typeof key === 'string' && key.trim() && (typeof value === 'string' || typeof value === 'number')) {
-            const cleanValue = typeof value === 'string' ? cleanFieldValue(value) : String(value)
-            if (cleanValue) fields[key.trim()] = cleanValue
+          if (typeof key === 'string' && key.trim() && (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' || value === null)) {
+            const cleanValue = typeof value === 'string' ? cleanFieldValue(value) : value === null ? '' : String(value)
+            if (cleanValue || value === '' || value === null) fields[key.trim()] = cleanValue
           }
         }
         if (Object.keys(fields).length > 0) request.fields = fields

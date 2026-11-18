@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { matchesRagFilters } from '@/lib/rag'
+import { isFolderPrefix, normalizeFolderPath } from '@/lib/kb-folders'
 import {
   normalizeMoney,
   taxReturnDraftSchema,
@@ -23,9 +23,13 @@ interface BuildTaxDraftOptions {
   taxYear?: string | null
 }
 
-const SSN_RE = /\b\d{3}-\d{2}-\d{4}\b/
-const EIN_RE = /\b\d{2}-\d{7}\b/
 const YEAR_RE = /\b20\d{2}\b/
+
+function collectTaxpayerSsn(text: string): string | undefined {
+  return matchFirst(text, [
+    /(?:taxpayer|employee|recipient)['’]?s?\s+(?:social security number|ssn|tin)[:\s#]+(\d{3}-\d{2}-\d{4})/i,
+  ])
+}
 
 function sourceFor(chunk: TaxPacketChunk, quote?: string): TaxSource {
   return {
@@ -82,7 +86,6 @@ function collectName(text: string): string | undefined {
     /employee['’]?\s+name[:\s]+([A-Z][A-Za-z ,.'-]{3,80})/i,
     /recipient['’]?\s+name[:\s]+([A-Z][A-Za-z ,.'-]{3,80})/i,
     /taxpayer['’]?\s+name[:\s]+([A-Z][A-Za-z ,.'-]{3,80})/i,
-    /name[:\s]+([A-Z][A-Za-z ,.'-]{3,80})/i,
   ])
 }
 
@@ -113,12 +116,10 @@ function extractIncomeForm(chunk: TaxPacketChunk): TaxIncomeForm | null {
   const payerTin = matchFirst(text, [
     /employer['’]?\s+(?:identification\s+)?number[:\s]+(\d{2}-\d{7})/i,
     /payer['’]?\s+(?:tin|identification\s+number)[:\s]+(\d{2}-\d{7})/i,
-    EIN_RE,
   ])
   const recipientTin = matchFirst(text, [
     /employee['’]?\s+ssn[:\s]+(\d{3}-\d{2}-\d{4})/i,
     /recipient['’]?\s+(?:tin|ssn)[:\s]+(\d{3}-\d{2}-\d{4})/i,
-    SSN_RE,
   ])
 
   const form: TaxIncomeForm = {
@@ -157,27 +158,25 @@ function buildWarnings(draft: Omit<TaxReturnDraft, 'warnings' | 'missingFields'>
 }
 
 export async function loadTaxPacketChunks({ userId, folder }: Pick<BuildTaxDraftOptions, 'userId' | 'folder'>): Promise<TaxPacketChunk[]> {
+  const scopedFolder = normalizeFolderPath(folder)
+  if (!scopedFolder) return []
   const documents = await prisma.document.findMany({
-    where: { userId, status: 'ready' },
+    where: {
+      userId,
+      status: 'ready',
+      OR: [
+        { sourcePath: scopedFolder },
+        { sourcePath: { startsWith: `${scopedFolder}/` } },
+      ],
+    },
     include: {
       chunks: { orderBy: { chunkIndex: 'asc' } },
     },
     orderBy: [{ sourcePath: 'asc' }, { filename: 'asc' }],
   })
 
-  return documents.flatMap(document => {
-    const extension = document.filename.split('.').pop()?.toLowerCase() || null
+  return documents.filter(document => isFolderPrefix(scopedFolder, document.sourcePath)).flatMap(document => {
     return document.chunks.flatMap(chunk => {
-      const candidate = {
-        chunkId: chunk.id,
-        documentId: document.id,
-        filename: document.filename,
-        sourcePath: document.sourcePath,
-        content: chunk.content,
-        extension,
-          fileKind: null,
-      }
-      if (!matchesRagFilters(candidate, folder ? { folder } : undefined)) return []
       return [{
         documentId: document.id,
         filename: document.filename,
@@ -200,7 +199,7 @@ export async function buildTaxReturnDraft(options: BuildTaxDraftOptions): Promis
   const incomeForms: TaxIncomeForm[] = []
 
   for (const chunk of chunks) {
-    taxpayer.ssn = mergeTaxField(taxpayer.ssn, makeField(chunk.content.match(SSN_RE)?.[0], chunk, 0.62))
+    taxpayer.ssn = mergeTaxField(taxpayer.ssn, makeField(collectTaxpayerSsn(chunk.content), chunk, 0.62))
     taxpayer.name = mergeTaxField(taxpayer.name, makeField(collectName(chunk.content), chunk, 0.48))
     taxpayer.address = mergeTaxField(taxpayer.address, makeField(collectAddress(chunk.content), chunk, 0.48))
 

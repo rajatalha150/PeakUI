@@ -32,11 +32,11 @@ export const WORKSPACE_TOOL_CAPABILITIES: WorkspaceToolCapability[] = [
     toolName: 'tax_return',
     requiresWorkspace: true,
     promptLines: [
-      'TAX PDF CAPABILITY: When the user asks for a tax return or an official IRS form, use the tax_return tool.',
-      'Use list_forms to see available IRS forms; inspect_form with a formId to see a form\'s fillable fields before filling.',
-      'Use fill_pdf_form with a formId (e.g. "f1040") to fill an official IRS form, or with templateDocumentId for an uploaded template; pass derived client values in fields. Use generate_review_pdf for W-2/1099 review packets.',
+      'TAX PDF CAPABILITY: Use tax_return only when the user asks to create or edit a tax PDF. Confirm the client folder and tax year first.',
+      'Use list_forms, then inspect_form with formId. Page fields with fieldOffset or search with fieldQuery; use pageNumber for later-page labels. Never guess coded field names.',
+      'Use fill_pdf_form with formId or an uploaded templateDocumentId and exact fields. Use generate_review_pdf for a W-2/1099 review packet. Both PDF actions require folder and taxYear.',
     ],
-    signature: 'tax_return {"action":"generate_review_pdf"|"fill_pdf_form"|"list_forms"|"inspect_form","taxYear":"2025","formId":"f1040","fields":{...}}',
+    signature: 'tax_return {"action":"inspect_form","formId":"f1040","fieldOffset":0}',
   },
   {
     id: 'workbook-document',

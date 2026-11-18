@@ -158,3 +158,36 @@ export const __test__ = {
   DEFAULT_KEEP_RECENT,
   DEFAULT_MIN_CHARS_TO_COMPACT,
 }
+
+/** Durable worker results use a different wire format from browser-loop results. */
+export function compactDurableToolResults<T extends { role?: unknown; hidden?: unknown; content?: unknown }>(
+  messages: ReadonlyArray<T>,
+  keepRecent = 4,
+): T[] {
+  const indices = messages.flatMap((message, index) =>
+    message.role === 'user' && message.hidden === true
+      && typeof message.content === 'string' && /^Tool: [a-z_]+\nStatus: (?:success|failed)\n/.test(message.content)
+      ? [index] : [],
+  )
+  const compactIndices = new Set(indices.slice(0, Math.max(0, indices.length - Math.max(0, Math.floor(keepRecent)))))
+  return messages.map((message, index) => {
+    if (!compactIndices.has(index) || typeof message.content !== 'string' || message.content.length < 1500) return message
+    const [tool, status] = message.content.split('\n', 2)
+    let context = ''
+    if (tool === 'Tool: tax_return') {
+      try {
+        const data = JSON.parse(message.content.slice(tool.length + status.length + 2)) as Record<string, unknown>
+        const form = data.form && typeof data.form === 'object' ? data.form as Record<string, unknown> : null
+        const parts = [data.action, form?.formId, form?.formTaxYear,
+          typeof form?.pageNumber === 'number' ? `page ${form.pageNumber}` : null,
+          typeof form?.fieldOffset === 'number' ? `field offset ${form.fieldOffset}` : null,
+          typeof form?.nextFieldOffset === 'number' ? `next offset ${form.nextFieldOffset}` : null]
+        context = parts.filter(part => typeof part === 'string' || typeof part === 'number').join('; ').slice(0, 300)
+      } catch { /* A truncated tool body is still safe to compact. */ }
+    }
+    return {
+      ...message,
+      content: `${tool}\n${status}${context ? `\n${context}` : ''}\n[Earlier tool result compacted. Re-run a narrow inspection for exact fields or source values; do not guess.]`,
+    }
+  })
+}

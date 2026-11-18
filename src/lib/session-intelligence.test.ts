@@ -37,6 +37,22 @@ describe('session intelligence', () => {
     expect(summary).toContain('Start by auditing dependencies.')
   })
 
+  it('keeps taxpayer identifiers out of compact working memory', () => {
+    const messages = [
+      { role: 'user' as const, content: 'Prepare the draft with SSN 123-45-6789 and EIN 12-3456789.' },
+      { role: 'assistant' as const, content: 'I found the source documents.' },
+      { role: 'user' as const, content: 'Continue with the 2025 review.' },
+      { role: 'assistant' as const, content: 'I will review the amounts.' },
+      { role: 'user' as const, content: 'Now identify the missing source records.' },
+      { role: 'assistant' as const, content: 'I will list missing documents.' },
+    ]
+    const summary = buildSessionContextSummary(messages, { preserveTurns: 1 })
+    expect(summary).not.toContain('123-45-6789')
+    expect(summary).not.toContain('12-3456789')
+    expect(summary).toContain('[SSN redacted]')
+    expect(summary).toContain('[EIN redacted]')
+  })
+
   it('summarizes long sessions before trimming them blindly', () => {
     const longMessages = Array.from({ length: 14 }, (_, index) => ({
       role: index % 2 === 0 ? 'user' as const : 'assistant' as const,

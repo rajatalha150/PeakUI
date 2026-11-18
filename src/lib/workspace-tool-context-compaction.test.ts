@@ -1,10 +1,31 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  compactDurableToolResults,
   compactStaleToolResults,
   compactToolResultContent,
   isToolResultMessage,
 } from './workspace-tool-context-compaction'
+
+describe('compactDurableToolResults', () => {
+  it('shrinks stale tax inspections but keeps their paging metadata and the recent result', () => {
+    const result = (offset: number): Msg => ({
+      role: 'user', hidden: true,
+      content: `Tool: tax_return\nStatus: success\n${JSON.stringify({
+        action: 'inspect_form', form: { formId: 'f1040', formTaxYear: '2025', pageNumber: 2,
+          fieldOffset: offset, nextFieldOffset: offset + 60, fields: Array.from({ length: 60 }, (_, i) => ({ name: `f1_${offset + i}_${'x'.repeat(40)}` })) },
+      })}`,
+    })
+    const messages = [result(0), result(60), result(120), result(180), result(240), result(300)]
+    const compacted = compactDurableToolResults(messages)
+    expect(compacted[0].content).toContain('f1040; 2025; page 2; field offset 0; next offset 60')
+    expect(compacted[0].content).not.toContain('f1_0_')
+    expect(compacted[1].content).toContain('Earlier tool result compacted')
+    expect(compacted[2].content).toContain('f1_120_')
+    expect(compacted[5].content).toContain('f1_300_')
+    expect(messages[0].content).toContain('f1_0_')
+  })
+})
 
 type Msg = { role: 'user' | 'assistant' | 'system'; content: string; hidden?: boolean; id?: string }
 

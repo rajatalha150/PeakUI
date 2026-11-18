@@ -1,6 +1,6 @@
 import React from 'react'
 import { Document, Page, Text, View, StyleSheet, renderToBuffer } from '@react-pdf/renderer'
-import { PDFDocument, StandardFonts } from 'pdf-lib'
+import { PDFCheckBox, PDFDocument, PDFDropdown, PDFOptionList, PDFRadioGroup, PDFTextField, StandardFonts } from 'pdf-lib'
 import { formatMoney, type TaxIncomeForm, type TaxReturnDraft } from './tax-schema'
 
 const styles = StyleSheet.create({
@@ -131,17 +131,16 @@ export async function renderTaxReviewPdf(draft: TaxReturnDraft): Promise<Buffer>
 }
 
 function draftValueForField(fieldName: string, draft: TaxReturnDraft): string | null {
-  const normalized = fieldName.toLowerCase().replace(/[^a-z0-9]+/g, ' ')
-  if (normalized.includes('tax year') || normalized === 'year') return draft.taxYear
-  if (normalized.includes('taxpayer') && normalized.includes('name')) return draft.taxpayer.name?.value || null
-  if (normalized.includes('name') && !normalized.includes('spouse')) return draft.taxpayer.name?.value || null
-  if (normalized.includes('ssn') || normalized.includes('social security')) return draft.taxpayer.ssn?.value || null
-  if (normalized.includes('address')) return draft.taxpayer.address?.value || null
-  if (normalized.includes('wage')) return String(draft.totals.wages || '')
-  if (normalized.includes('withheld') || normalized.includes('withholding')) return String(draft.totals.federalWithholding || '')
-  if (normalized.includes('interest')) return String(draft.totals.interestIncome || '')
-  if (normalized.includes('dividend')) return String(draft.totals.dividendIncome || '')
-  if (normalized.includes('nonemployee') || normalized.includes('1099 nec')) return String(draft.totals.nonemployeeCompensation || '')
+  const normalized = fieldName.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+  // Generic names such as "name", "SSN", and "wages" appear many times in a
+  // complete return (spouse, dependent, payer, multiple schedules). Only map
+  // unambiguous names automatically; every other field needs an exact overlay.
+  if (normalized === 'tax year' || normalized === 'taxyear') return draft.taxYear
+  if (normalized === 'taxpayer name' || normalized === 'taxpayer full name') return draft.taxpayer.name?.value || null
+  if (normalized === 'taxpayer ssn' || normalized === 'taxpayer social security number') return draft.taxpayer.ssn?.value || null
+  if (normalized === 'taxpayer address') return draft.taxpayer.address?.value || null
+  if (normalized === 'total wages') return draft.totals.wages ? String(draft.totals.wages) : null
+  if (normalized === 'total federal withholding') return draft.totals.federalWithholding ? String(draft.totals.federalWithholding) : null
   return null
 }
 
@@ -164,6 +163,8 @@ export async function fillTaxPdfForm(
   const pdfDoc = await PDFDocument.load(templatePdf)
   const form = pdfDoc.getForm()
   const warnings: string[] = []
+  const formFields = form.getFields()
+  if (formFields.length === 0) throw new Error('This PDF has no fillable AcroForm fields. Use a fillable template.')
 
   if (form.hasXFA()) {
     warnings.push('Template contains XFA data. pdf-lib cannot reliably fill XFA-only forms.')
@@ -173,29 +174,35 @@ export async function fillTaxPdfForm(
   const filledFields: string[] = []
   const explicitNames = new Set(Object.keys(fields))
 
-  for (const field of form.getFields()) {
+  for (const field of formFields) {
     const name = field.getName()
+    const hasExplicitValue = Object.prototype.hasOwnProperty.call(fields, name)
     const explicit = fields[name]
-    const value = explicit !== undefined && explicit !== null
+    const value = hasExplicitValue
       ? String(explicit)
       : draftValueForField(name, draft)
     explicitNames.delete(name)
-    if (value === undefined || value === null || value === '') continue
+    if (value === undefined || value === null || (value === '' && !hasExplicitValue)) continue
 
     try {
-      const textField = form.getTextField(name)
-      textField.setText(value)
-      filledFields.push(name)
-    } catch {
-      try {
-        const checkbox = form.getCheckBox(name)
-        if (TRUTHY.has(value.toLowerCase())) {
-          checkbox.check()
-          filledFields.push(name)
-        }
-      } catch {
-        // Unsupported field type for this pass (radio/dropdown/etc.).
+      if (field instanceof PDFTextField) field.setText(value)
+      else if (field instanceof PDFCheckBox) {
+        if (TRUTHY.has(value.toLowerCase())) field.check()
+        else if (hasExplicitValue && (value === '' || /^(?:false|no|0|off|unchecked)$/i.test(value))) field.uncheck()
+        else { warnings.push(`Checkbox ${name} requires an affirmative value or explicit false to clear it`); continue }
+      } else if (field instanceof PDFRadioGroup || field instanceof PDFDropdown || field instanceof PDFOptionList) {
+        if (value === '' && hasExplicitValue) field.clear()
+        else if (!field.getOptions().includes(value)) {
+          warnings.push(`Choice field ${name} requires one of: ${field.getOptions().join(', ')}`)
+          continue
+        } else field.select(value)
+      } else {
+        warnings.push(`Unsupported form field type: ${name}`)
+        continue
       }
+      filledFields.push(name)
+    } catch (error) {
+      warnings.push(`Could not fill ${name}: ${error instanceof Error ? error.message : String(error)}`)
     }
   }
 

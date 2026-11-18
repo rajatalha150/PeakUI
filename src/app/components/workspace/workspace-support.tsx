@@ -992,6 +992,8 @@ export interface IrsFormSummaryEntry {
 export interface IrsFormFieldEntry {
   name: string;
   type: string;
+  options?: string[];
+  pageNumber?: number;
 }
 
 export interface IrsFormDetailEntry {
@@ -999,6 +1001,13 @@ export interface IrsFormDetailEntry {
   filename: string;
   title: string;
   fieldCount: number;
+  pageCount: number;
+  pageNumber: number;
+  formTaxYear: string | null;
+  fieldOffset: number;
+  matchedFieldCount: number;
+  nextFieldOffset: number | null;
+  fieldQuery: string | null;
   fields: IrsFormFieldEntry[];
   pageText: string;
   warnings: string[];
@@ -2522,23 +2531,26 @@ export function formatTaxReturnToolResult(entry: TaxReturnToolResultEntry): stri
       `Filename: ${detail.filename}`,
       `Fillable fields: ${detail.fieldCount}`,
     );
+    lines.push(`PDF page: ${detail.pageNumber} of ${detail.pageCount}`);
+    lines.push(`Form tax year: ${detail.formTaxYear || 'not identified; verify before filling'}`);
+    lines.push(`Field page: ${detail.fieldOffset + 1}-${detail.fieldOffset + detail.fields.length} of ${detail.matchedFieldCount}${detail.fieldQuery ? ` matching "${detail.fieldQuery}"` : ''}`);
     if (detail.fields.length > 0) {
       const checkboxes = detail.fields.filter(field => field.type === 'checkbox');
       const radios = detail.fields.filter(field => field.type === 'radio' || field.type === 'dropdown' || field.type === 'optionlist');
       const other = detail.fields.filter(field => field.type !== 'checkbox' && field.type !== 'radio' && field.type !== 'dropdown' && field.type !== 'optionlist');
       if (other.length > 0) {
         lines.push('', 'Text / other fields (name — type):');
-        other.slice(0, 100).forEach(field => lines.push(`- ${field.name} — ${field.type}`));
+        other.slice(0, 100).forEach(field => lines.push(`- ${field.name} — ${field.type}${field.pageNumber ? ` (page ${field.pageNumber})` : ''}`));
       }
       if (checkboxes.length > 0) {
         lines.push('', `Checkboxes (${checkboxes.length}) — check ONLY the ones the client's situation actually warrants; OMIT every other checkbox:`,
           'To CHECK a box: include it in "fields" with a truthy value (e.g. "yes", "1", "x", "true").',
-          'To LEAVE a box unchecked: omit it from "fields" entirely. Do not pass "no" or "false" — just leave it out.');
-        checkboxes.slice(0, 120).forEach(field => lines.push(`- ${field.name}`));
+          'To LEAVE an empty box unchecked: omit it from "fields". To CLEAR a box already checked in a template: pass false.');
+        checkboxes.slice(0, 120).forEach(field => lines.push(`- ${field.name}${field.pageNumber ? ` (page ${field.pageNumber})` : ''}`));
       }
       if (radios.length > 0) {
         lines.push('', 'Choice fields — radio / dropdown / option list (set the value that matches the client\'s situation):');
-        radios.slice(0, 80).forEach(field => lines.push(`- ${field.name} — ${field.type}`));
+        radios.slice(0, 80).forEach(field => lines.push(`- ${field.name} — ${field.type}${field.pageNumber ? ` (page ${field.pageNumber})` : ''}${field.options?.length ? `; options: ${field.options.join(', ')}` : ''}`));
       }
     }
     if (detail.pageText) {
@@ -2548,7 +2560,11 @@ export function formatTaxReturnToolResult(entry: TaxReturnToolResultEntry): stri
       lines.push('', 'Warnings:');
       detail.warnings.forEach(warning => lines.push(`- ${warning}`));
     }
-    lines.push('', 'Use these exact field names when calling fill_pdf_form with this formId. For checkboxes, reason from the client documents about which boxes apply (filing status, dependents, credits, exemptions) and check only those — leave the rest unchecked by omitting them.');
+    if (detail.nextFieldOffset !== null) {
+      lines.push('', `More fields remain. Call inspect_form again with formId "${detail.formId}" and fieldOffset ${detail.nextFieldOffset}${detail.fieldQuery ? ` and fieldQuery "${detail.fieldQuery}"` : ''}, or search field names with fieldQuery.`);
+    }
+    if (detail.pageNumber < detail.pageCount) lines.push(`For later labels, call inspect_form with pageNumber ${detail.pageNumber + 1}.`);
+    lines.push('', 'Use only exact inspected field names when calling fill_pdf_form. Omit unsupported or uncertain checkbox values.');
     return lines.join('\n');
   }
 
@@ -2563,7 +2579,7 @@ export function formatTaxReturnToolResult(entry: TaxReturnToolResultEntry): stri
   }
 
   if (entry.filledFields && entry.filledFields.length > 0) {
-    lines.push('', `Filled form fields: ${entry.filledFields.length}`);
+    lines.push('', `Updated form fields: ${entry.filledFields.length}`);
     entry.filledFields.slice(0, 30).forEach(field => lines.push(`- ${field}`));
   }
 

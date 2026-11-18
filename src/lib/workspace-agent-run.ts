@@ -3,6 +3,7 @@ import { prisma } from './prisma'
 import { signToken } from './auth'
 import { extractWorkspaceToolRequest, buildWorkspaceToolRequestFromNativeCall, type WorkspaceToolRequest } from './workspace-tool-tools'
 import { executeWorkspaceTool, setWorkspaceToolTransport } from './workspace-tool-dispatch'
+import { compactDurableToolResults } from './workspace-tool-context-compaction'
 import { finalizeChatSession, type StoredChatMessage } from './chat-sessions'
 import { getWorkspaceToolWorkspaceContext } from './workspace-tool-project-workspaces'
 import { getWorkspaceToolWorkspaceContainerRoot, getWorkspaceToolWorkspaceHostRoot } from './workspace-tool-workspace'
@@ -725,7 +726,7 @@ async function executeRun(runId: string) {
       const currentRun = await prisma.workspaceAgentRun.findUnique({ where: { id: runId }, select: { status: true } })
       if (currentRun?.status === 'cancelled') return
       await prisma.workspaceAgentRun.update({ where: { id: runId }, data: { heartbeatAt: new Date() } })
-      const roundRequest = { ...request, messages: conversation, id: finalId }
+      const roundRequest = { ...request, messages: compactDurableToolResults(conversation), id: finalId }
       await appendRunEvent(runId, ++seq.value, {
         status: 'model-thinking',
         model: typeof request.model === 'string' ? request.model : '',

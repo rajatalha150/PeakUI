@@ -29,14 +29,60 @@ export interface IrsFormSummary {
 export interface IrsFormField {
   name: string
   type: 'text' | 'checkbox' | 'radio' | 'dropdown' | 'optionlist' | 'other'
+  options?: string[]
+  pageNumber?: number
 }
 
 export interface IrsFormDetail extends IrsFormSummary {
   fields: IrsFormField[]
   fieldCount: number
+  pageCount: number
+  /** Only set when the PDF explicitly identifies an annual tax year. */
+  formTaxYear: string | null
   /** First-page visible text (labels/line items) extracted via pdftotext. */
   pageText: string
   warnings: string[]
+}
+
+export function detectIrsFormTaxYear(pageText: string): string | null {
+  const opening = pageText.slice(0, 700)
+  return opening.match(/\b(?:tax year|calendar year)\s+(20\d{2})\b/i)?.[1]
+    || opening.match(/\bU\.S\. Individual Income Tax Return\s+(20\d{2})\b/i)?.[1]
+    || opening.match(/\bFor the year Jan\.\s*1[^\n]{0,50}?\b(20\d{2})\b/i)?.[1]
+    || null
+}
+
+export interface IrsFormFieldPage extends Omit<IrsFormDetail, 'fields'> {
+  fields: IrsFormField[]
+  fieldOffset: number
+  matchedFieldCount: number
+  nextFieldOffset: number | null
+  fieldQuery: string | null
+  pageNumber: number
+}
+
+/** Bounded page of exact field names; large forms can be inspected without flooding context. */
+export function selectIrsFormFieldPage(
+  form: IrsFormDetail,
+  input: { fieldOffset?: unknown; fieldLimit?: unknown; fieldQuery?: unknown } = {},
+): IrsFormFieldPage {
+  const query = typeof input.fieldQuery === 'string' ? input.fieldQuery.trim().slice(0, 100).toLowerCase() : ''
+  const offset = typeof input.fieldOffset === 'number' && Number.isInteger(input.fieldOffset)
+    ? Math.max(0, input.fieldOffset) : 0
+  const limit = typeof input.fieldLimit === 'number' && Number.isInteger(input.fieldLimit)
+    ? Math.min(100, Math.max(1, input.fieldLimit)) : 60
+  const matching = query ? form.fields.filter(field => field.name.toLowerCase().includes(query)) : form.fields
+  const next = offset + limit < matching.length ? offset + limit : null
+  return {
+    ...form,
+    fields: matching.slice(offset, offset + limit),
+    pageText: offset === 0 && !query ? form.pageText : '',
+    fieldOffset: offset,
+    matchedFieldCount: matching.length,
+    nextFieldOffset: next,
+    fieldQuery: query || null,
+    pageNumber: 1,
+  }
 }
 
 const DEFAULT_IRS_FORMS_DIR = path.join(process.cwd(), 'irs_forms')
@@ -159,18 +205,20 @@ export async function listIrsForms(): Promise<IrsFormSummary[]> {
 
 const inspectCache = new Map<string, IrsFormDetail>()
 
-function describeField(form: PDFForm, name: string): IrsFormField['type'] {
-  try { form.getTextField(name); return 'text' } catch { /* not text */ }
-  try { form.getCheckBox(name); return 'checkbox' } catch { /* not checkbox */ }
-  try { form.getRadioGroup(name); return 'radio' } catch { /* not radio */ }
-  try { form.getDropdown(name); return 'dropdown' } catch { /* not dropdown */ }
-  try { form.getOptionList(name); return 'optionlist' } catch { /* not optionlist */ }
-  return 'other'
+function describeField(form: PDFForm, name: string): IrsFormField {
+  const pageNumber = Number(name.match(/(?:^|\.)Page(\d+)\[/i)?.[1]) || undefined
+  const base = { name, ...(pageNumber ? { pageNumber } : {}) }
+  try { form.getTextField(name); return { ...base, type: 'text' } } catch { /* not text */ }
+  try { form.getCheckBox(name); return { ...base, type: 'checkbox' } } catch { /* not checkbox */ }
+  try { return { ...base, type: 'radio', options: form.getRadioGroup(name).getOptions() } } catch { /* not radio */ }
+  try { return { ...base, type: 'dropdown', options: form.getDropdown(name).getOptions() } } catch { /* not dropdown */ }
+  try { return { ...base, type: 'optionlist', options: form.getOptionList(name).getOptions() } } catch { /* not optionlist */ }
+  return { ...base, type: 'other' }
 }
 
-async function extractFirstPageText(pdfPath: string): Promise<string> {
+async function extractPageText(pdfPath: string, pageNumber: number): Promise<string> {
   try {
-    const { stdout } = await execFileAsync('pdftotext', ['-f', '1', '-l', '1', '-layout', pdfPath, '-'], {
+    const { stdout } = await execFileAsync('pdftotext', ['-f', String(pageNumber), '-l', String(pageNumber), '-layout', pdfPath, '-'], {
       maxBuffer: 2 * 1024 * 1024,
       timeout: 15_000,
     })
@@ -200,9 +248,11 @@ export async function inspectIrsForm(formId: string): Promise<IrsFormDetail> {
 
   const warnings: string[] = []
   const fields: IrsFormField[] = []
+  let pageCount = 0
 
   try {
     const pdfDoc = await PDFDocument.load(bytes, { ignoreEncryption: true })
+    pageCount = pdfDoc.getPageCount()
     const form = pdfDoc.getForm()
     if (form.hasXFA()) {
       warnings.push('This form contains XFA data; pdf-lib fills AcroForm fields only.')
@@ -210,13 +260,13 @@ export async function inspectIrsForm(formId: string): Promise<IrsFormDetail> {
     for (const field of form.getFields()) {
       const name = field.getName()
       if (!name) continue
-      fields.push({ name, type: describeField(form, name) })
+      fields.push(describeField(form, name))
     }
   } catch {
     warnings.push('Could not read AcroForm fields from this PDF (it may be flattened or unsupported).')
   }
 
-  const pageText = await extractFirstPageText(pdfPath)
+  const pageText = await extractPageText(pdfPath, 1)
   const formIdClean = formId.trim().replace(/\.pdf$/i, '')
 
   const detail: IrsFormDetail = {
@@ -226,11 +276,19 @@ export async function inspectIrsForm(formId: string): Promise<IrsFormDetail> {
     sizeBytes: bytes.byteLength,
     fields,
     fieldCount: fields.length,
+    pageCount,
+    formTaxYear: detectIrsFormTaxYear(pageText),
     pageText,
     warnings,
   }
   inspectCache.set(key, detail)
   return detail
+}
+
+export async function inspectIrsFormPageText(formId: string, pageNumber: number): Promise<string> {
+  const pdfPath = resolveIrsFormPath(formId)
+  if (!pdfPath || !Number.isInteger(pageNumber) || pageNumber < 1) throw new Error('Invalid IRS form page')
+  return extractPageText(pdfPath, pageNumber)
 }
 
 export async function loadIrsFormPdf(formId: string): Promise<Buffer> {

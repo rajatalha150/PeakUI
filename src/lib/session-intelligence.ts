@@ -94,6 +94,8 @@ function summarizeText(text: string, maxLength: number) {
   const normalized = text
     .replace(/\s+/g, ' ')
     .replace(/\n{2,}/g, '\n')
+    .replace(/\b\d{3}-\d{2}-\d{4}\b/g, '[SSN redacted]')
+    .replace(/\b\d{2}-\d{7}\b/g, '[EIN redacted]')
     .trim();
 
   if (!normalized) return '';
@@ -711,6 +713,8 @@ export function applyContextManagement<TMessage extends SessionMessageLike>(
 ): ContextManagementResult<TMessage> {
   const existingSummary = options.summaryEnabled ? sanitizeWorkingMemorySummary(options.existingSummary || '') : '';
   const rawTokenEstimate = estimateMessageTokens(messages);
+  const systemTokens = estimateMessageTokens(messages.filter(message => message.role === 'system'));
+  const externalOverhead = Math.max(0, options.systemOverhead - systemTokens);
   const budget = buildContextBudget({
     provider: options.modelProfile?.provider || 'local',
     model: options.modelProfile?.model || '',
@@ -718,7 +722,7 @@ export function applyContextManagement<TMessage extends SessionMessageLike>(
     responseReserve: options.modelProfile?.responseReserve,
     toolReserve: options.modelProfile?.toolReserve,
     safetyReserve: options.modelProfile?.safetyReserve,
-  }, rawTokenEstimate + options.systemOverhead);
+  }, rawTokenEstimate + externalOverhead);
   const hasOlderTurnsOutsideRawWindow = recentTurnStart(messages, options.preserveTurns) > 0;
   const shouldSummarize = options.summaryEnabled
     && (budget.pressure === 'compact' || budget.pressure === 'rebuild' || budget.pressure === 'emergency'

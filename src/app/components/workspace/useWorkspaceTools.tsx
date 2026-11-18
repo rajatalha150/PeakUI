@@ -3,6 +3,7 @@ import { isWindowsHostPath } from '@/lib/workspace-tool-path-check';
 import { resolveEffectiveUwafBrowserMode } from '@/lib/uwaf-mode';
 import { type UwafBrowserToolResultEntry } from '@/lib/workspace-tool-tool-results';
 import { isUsableArtifactRecord } from '@/lib/document-generation-guard';
+import { isSuccessfulTaxToolResponse } from '@/lib/tax/tax-tool-result';
 import {
 type WorkspaceToolArchiveDocumentToolRequest,
 type WorkspaceToolBrowserToolRequest,
@@ -1054,10 +1055,19 @@ const executeTaxReturnAction = async (
             filename: typeof rawForm.filename === 'string' ? String(rawForm.filename) : '',
             title: typeof rawForm.title === 'string' ? String(rawForm.title) : '',
             fieldCount: typeof rawForm.fieldCount === 'number' ? rawForm.fieldCount : 0,
+            pageCount: typeof rawForm.pageCount === 'number' ? rawForm.pageCount : 0,
+            pageNumber: typeof rawForm.pageNumber === 'number' ? rawForm.pageNumber : 1,
+            formTaxYear: typeof rawForm.formTaxYear === 'string' ? rawForm.formTaxYear : null,
+            fieldOffset: typeof rawForm.fieldOffset === 'number' ? rawForm.fieldOffset : 0,
+            matchedFieldCount: typeof rawForm.matchedFieldCount === 'number' ? rawForm.matchedFieldCount : 0,
+            nextFieldOffset: typeof rawForm.nextFieldOffset === 'number' ? rawForm.nextFieldOffset : null,
+            fieldQuery: typeof rawForm.fieldQuery === 'string' ? rawForm.fieldQuery : null,
             fields: Array.isArray(rawForm.fields)
               ? (rawForm.fields as Record<string, unknown>[]).map((f): IrsFormFieldEntry => ({
                   name: typeof f.name === 'string' ? f.name : '',
                   type: typeof f.type === 'string' ? f.type : 'other',
+                  options: Array.isArray(f.options) ? f.options.filter((option): option is string => typeof option === 'string') : undefined,
+                  pageNumber: typeof f.pageNumber === 'number' ? f.pageNumber : undefined,
                 })).filter(f => f.name)
               : [],
             pageText: typeof rawForm.pageText === 'string' ? rawForm.pageText : '',
@@ -1067,7 +1077,7 @@ const executeTaxReturnAction = async (
 
       return {
         action: request.action,
-        success: data.success !== false && isUsableArtifactRecord(artifact),
+        success: isSuccessfulTaxToolResponse(request.action, data, isUsableArtifactRecord(artifact)),
         artifact: artifact
           && typeof artifact.id === 'string'
           && typeof artifact.name === 'string'
