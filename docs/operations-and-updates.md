@@ -40,6 +40,16 @@ cd /path/to/PeakUI
 PEAKUI_CODER_BACKEND=lxd ./scripts/install.sh
 ```
 
+If rebuilding just the web app during maintenance, retain the LXD Compose
+overlay. It supplies `CODER_SHARED_VOLUMES=false` and the guest bridge; using
+the base Compose file alone points file downloads at the separate Docker Coder
+volume:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.lxd.yml build app
+docker compose -f docker-compose.yml -f docker-compose.lxd.yml up -d --no-deps app
+```
+
 Do not run `git pull`, `npm update`, or `docker compose down -v` as a substitute
 for this workflow. The installer intentionally retains the Postgres and Coder
 volumes, while `down -v` removes them.
@@ -80,11 +90,12 @@ to use organization-specific resolver IPs.
 ## Back Up Before Risky Changes
 
 Use Settings -> Data & maintenance for a portable per-user ZIP. It covers
-WorkSpaces and Coder session history, settings/model profiles, knowledge-base
+WorkSpaces history and PeakUI's Coding session records, settings/model profiles, knowledge-base
 source content, Canvas artifacts and revisions, plus automation rules. Secrets
 are deliberately excluded unless the protected **Connection secrets** option is
-selected; the archive is not encrypted. It does not contain Coder project files
-or guest runtime state.
+selected; the archive is not encrypted. Coding records alone cannot resume the
+agent's native transcript. The ZIP does not contain Coder project files, native
+transcripts, installed packages, browser profiles, or guest daemon settings.
 
 For the persistent Coder backend, also export the complete guest and database as
 one consistent set:
@@ -94,8 +105,10 @@ cd /path/to/PeakUI
 ./scripts/coder-lxd/backup.sh /path/on/another-disk/peakui-backups
 ```
 
-Keep backup directories off the disk that hosts PeakUI. Check the generated
-`SHA256SUMS` before deleting older backups. Test restoration on a separate host
+The host backup includes `peakui.env`, which contains authentication and provider
+secrets needed to recover Coder and encrypted settings. Store the backup with
+restricted access. Keep backup directories off the disk that hosts PeakUI. Check
+the generated `SHA256SUMS` before deleting older backups. Test restoration on a separate host
 or maintenance instance before relying on a new backup strategy.
 
 ## Host Updates

@@ -323,19 +323,55 @@ See [Coder Browser](coder-browser.md) for controls, verification and limits.
 ./scripts/coder-lxd/backup.sh /path/to/new/backup-directory
 ```
 
-The script briefly stops the app and instance, dumps Postgres, exports the
-complete persistent instance root, restarts services, and writes SHA-256
+The script briefly stops the app, background workers, and instance, saves the
+deployment `.env`, dumps Postgres, exports the complete persistent instance root,
+restarts services, and writes SHA-256
 checksums. Store the resulting directory on another disk or machine. The
 in-app Settings -> Data & maintenance ZIP is complementary: it restores a
-single user's Coder conversation history and model/profile configuration, while
+single user's PeakUI Coding session records and model/profile configuration, while
 this host snapshot preserves project files, installed packages, browser profile,
-Docker state, and the daemon environment. An instance snapshot or export still
+native agent transcripts, Docker state, and the daemon environment. `peakui.env`
+also preserves the tokens and encryption secret needed by the restored app and
+guest. This file contains secrets; keep the whole backup protected. An instance snapshot or export still
 omits Postgres session metadata, so retain both parts together.
 
-Recovery requires restoring the exported instance and SQL dump as one set
-during a maintenance window. Verify `SHA256SUMS`
-and retain the original data until sessions, imports, downloads, Preview, and
-nested Docker have been checked in the restored deployment.
+### Restore on a fresh host
+
+Use a fresh PeakUI checkout with an initialized Incus storage pool and no
+`peakui-coder` instance or existing PeakUI database data. Do not import this
+set over a running deployment. Verify the three parts belong to one backup:
+
+```bash
+cd /path/to/backup-directory
+sha256sum -c SHA256SUMS
+```
+
+Restore the saved `.env` into the new checkout before starting Compose. Keep
+its permissions restricted. Start only Postgres, then load the matching SQL
+dump into its empty `peakui` database:
+
+```bash
+cd /path/to/PeakUI
+install -m 600 /path/to/backup-directory/peakui.env .env
+docker compose -f docker-compose.yml -f docker-compose.lxd.yml up -d db
+docker compose -f docker-compose.yml -f docker-compose.lxd.yml exec -T db sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" "$POSTGRES_DB"' < /path/to/backup-directory/peakui.sql
+```
+
+Import the guest under its original instance name (the default is
+`peakui-coder`), start it, then start the app with the LXD overlay:
+
+```bash
+incus import /path/to/backup-directory/coder-root.tar.gz
+incus start peakui-coder
+docker compose -f docker-compose.yml -f docker-compose.lxd.yml up -d
+```
+
+If `CODER_LXD_INSTANCE` in `peakui.env` names a different instance, use that
+name for the `incus start` step. On installations configured with `lxc` rather
+than `incus`, use the saved `PEAKUI_INSTANCE_CLI` command. Restore the matching
+PeakUI checkout version before running migrations; update only after checking
+the recovered sessions. Retain the original data until existing Coding sessions,
+project files, downloads, Preview, and nested Docker have been checked.
 
 ## Verification
 

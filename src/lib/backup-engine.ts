@@ -32,7 +32,7 @@ export const BACKUP_SETTINGS_FIELDS = [
   "ragEnabled", "ragTopK", "ollamaUseCloudApi",
   "imageGenProvider", "imageGenBaseUrl", "imageGenModel", "imageGenClipType", "imageGenClipName", "imageGenVaeName",
   "coderModel", "coderBaseUrl", "coderApprovalMode", "coderContextLength", "coderToolSearchThreshold",
-  "coderWorkspace", "coderToolsEnabled", "coderVisionModel", "coderWriterModel", "coderTheme", "coderThemeAccent",
+  "coderWorkspace", "coderToolsEnabled", "coderVisionModel", "coderWriterModel", "coderUncensored", "coderTheme", "coderThemeAccent",
 ] as const;
 
 export const BACKUP_SECRET_SETTINGS_FIELDS = [
@@ -45,6 +45,8 @@ export interface BackupManifest {
   exportedBy: string;
   scopes: BackupScope[];
   userId: string;
+  /** The portable ZIP contains the PeakUI ledger, never the native Coder guest. */
+  coderEnvironmentIncluded?: false;
 }
 
 export type BackupSettings = Partial<AppSettings>;
@@ -213,6 +215,7 @@ export interface BackupData {
 
 export interface BackupProgress {
   id: string;
+  userId: string;
   startedAt: number;
   phase: "prepare" | "chats" | "settings" | "knowledgeBase" | "canvas" | "automation" | "zip" | "download" | "restore" | "done" | "error";
   message: string;
@@ -262,6 +265,7 @@ function updateProgress(
   const now = Date.now();
   const next: BackupProgress = {
     id,
+    userId: partial.userId ?? existing?.userId ?? '',
     startedAt: existing?.startedAt ?? now,
     direction,
     scopes,
@@ -279,8 +283,8 @@ export function getBackupProgress(id: string): BackupProgress | null {
   return progressStore.get(id) ?? null;
 }
 
-export function createBackupProgress(id: string, direction: "export" | "import", scopes: BackupScope[]): BackupProgress {
-  return updateProgress(id, { phase: "prepare", message: "Preparing...", percent: 0 }, direction, scopes);
+export function createBackupProgress(id: string, direction: "export" | "import", scopes: BackupScope[], userId: string): BackupProgress {
+  return updateProgress(id, { userId, phase: "prepare", message: "Preparing...", percent: 0 }, direction, scopes);
 }
 
 export function cleanupOldBackupProgress() {
@@ -311,6 +315,7 @@ export async function exportBackupData(
       exportedBy: username,
       scopes,
       userId,
+      coderEnvironmentIncluded: false,
     },
   };
 
@@ -523,7 +528,7 @@ export interface BackupExportStreamOptions {
 
 export async function streamBackupToArchive(options: BackupExportStreamOptions): Promise<void> {
   const { userId, username, scopes, progressId, archive } = options;
-  createBackupProgress(progressId, "export", scopes);
+  createBackupProgress(progressId, "export", scopes, userId);
 
   try {
     updateProgress(progressId, { phase: "prepare", message: "Collecting backup data...", percent: 5 }, "export", scopes);
@@ -639,7 +644,7 @@ export async function importBackupData(
   };
 
   const scopes = data.manifest.scopes;
-  createBackupProgress(progressId, "import", scopes);
+  createBackupProgress(progressId, "import", scopes, userId);
   updateProgress(progressId, { phase: "prepare", message: "Reading backup manifest...", percent: 2 }, "import", scopes);
 
   try {
@@ -649,9 +654,10 @@ export async function importBackupData(
         includeStandard: scopes.includes("settings"),
         includeSecrets: scopes.includes("connectionSecrets"),
       });
-      await prisma.userSettings.update({
+      await prisma.userSettings.upsert({
         where: { userId },
-        data: { ...filtered, updatedAt: new Date() },
+        update: { ...filtered, updatedAt: new Date() },
+        create: { userId, ...filtered },
       });
       result.restoredSettings = true;
       updateProgress(progressId, { phase: "settings", message: "Settings restored.", percent: 15 }, "import", scopes);
@@ -719,7 +725,6 @@ export async function importBackupData(
         const s = sessions[i];
         try {
           const targetSessionId = sameUser ? s.id : randomUUID();
-          sessionIdMap.set(s.id, targetSessionId);
           const targetFolderId = s.folderId ? folderIdMap.get(s.folderId) ?? null : null;
           await upsertChatSession(userId, {
             id: targetSessionId,
@@ -736,6 +741,7 @@ export async function importBackupData(
             ragEnabled: s.ragEnabled,
             ragQuery: s.ragQuery,
           });
+          sessionIdMap.set(s.id, targetSessionId);
 
           // Restore session-tag associations using remapped tag IDs
           if (s.tags?.length > 0) {
@@ -783,6 +789,11 @@ export async function importBackupData(
         } catch (err) {
           result.errors.push(`Session metadata ${s.title}: ${err instanceof Error ? err.message : String(err)}`);
         }
+      }
+
+      const restoredCoderCount = sessions.filter(s => s.surface === 'coder' && sessionIdMap.has(s.id)).length;
+      if (restoredCoderCount > 0) {
+        result.errors.push(`${restoredCoderCount} Coding session records restored. Their native Coder transcripts, project files, and daemon settings require the matching Coder guest backup; this ZIP alone cannot restore the live agent context.`);
       }
     }
 

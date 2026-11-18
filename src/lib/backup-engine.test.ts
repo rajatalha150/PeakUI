@@ -6,6 +6,7 @@ describe('backup settings scopes', () => {
   const settings = {
     coderModel: 'coding-model',
     coderVisionModel: 'vision-model',
+    coderUncensored: true,
     workspaceToolVisionModel: 'workspace-vision',
     imageGenProvider: 'comfyui',
     workspaceToolNativeToolCalls: 'on',
@@ -18,6 +19,7 @@ describe('backup settings scopes', () => {
     expect(archived).toMatchObject({
       coderModel: 'coding-model',
       coderVisionModel: 'vision-model',
+      coderUncensored: true,
       workspaceToolVisionModel: 'workspace-vision',
       imageGenProvider: 'comfyui',
       workspaceToolNativeToolCalls: 'on',

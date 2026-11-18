@@ -23,8 +23,8 @@ function isRole(value: unknown): value is Role {
 function normalizeOverrides(input: unknown): PermissionOverrides {
   const object = typeof input === 'object' && input !== null ? input as Record<string, unknown> : {}
   return {
-    allow: Array.isArray(object.allow) ? object.allow.filter(isPermissionKey) : [],
-    deny: Array.isArray(object.deny) ? object.deny.filter(isPermissionKey) : [],
+    allow: Array.isArray(object.allow) ? object.allow.filter(isPermissionKey).filter(key => key !== 'users.manage') : [],
+    deny: Array.isArray(object.deny) ? object.deny.filter(isPermissionKey).filter(key => key !== 'users.manage') : [],
   }
 }
 
@@ -37,7 +37,7 @@ async function requireUserManager() {
     }
   }
 
-  if (!hasPermission(auth.user, 'users.manage')) {
+  if (auth.user.role !== 'ADMIN' || !hasPermission(auth.user, 'users.manage')) {
     return {
       error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }),
       auth: null,

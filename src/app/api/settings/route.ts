@@ -188,6 +188,9 @@ export async function POST(req: Request) {
     if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json() as SettingsBody;
+    if (Object.prototype.hasOwnProperty.call(body, 'coderUncensored') && auth.user.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Coder context settings require administrator access.' }, { status: 403 });
+    }
 
     // Whitelist only known fields
     const data: Partial<typeof DEFAULT_SETTINGS> = {};

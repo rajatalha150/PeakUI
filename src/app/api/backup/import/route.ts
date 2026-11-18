@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { getCurrentAuth } from "@/lib/request-auth";
 import { BACKUP_VERSION, importBackupData, type BackupData } from "@/lib/backup-engine";
 import AdmZip from "adm-zip";
+import { syncCoderUncensoredContext } from "@/lib/coder-uncensored-sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -89,7 +90,15 @@ export async function POST(req: Request) {
       data.automation = JSON.parse(zip.readAsText(automationEntry)) as NonNullable<BackupData["automation"]>;
     }
 
+    // This setting changes shared guest context. A portable archive may be
+    // imported by a non-admin, but it must not grant that capability.
+    if (auth.user.role !== 'ADMIN' && data.settings) delete data.settings.coderUncensored;
+
     const result = await importBackupData(auth.user.id, data, progressId, { reindexDocuments: reindex });
+    if (auth.user.role === 'ADMIN' && manifest.scopes.includes('settings') && typeof data.settings?.coderUncensored === 'boolean') {
+      const sync = await syncCoderUncensoredContext(data.settings.coderUncensored);
+      if (!sync.ok) result.errors.push(sync.error || 'Could not apply the restored Coder context setting.');
+    }
 
     return NextResponse.json({
       success: true,

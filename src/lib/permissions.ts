@@ -174,6 +174,10 @@ export function resolvePermissions(subject: PermissionSubject): PermissionKey[] 
   for (const key of overrides.allow) base.add(key)
   for (const key of overrides.deny) base.delete(key)
 
+  // Managing users can create an ADMIN account. It must never be delegated
+  // through a permission override on a non-admin role.
+  base.delete('users.manage')
+
   return [...base]
 }
 

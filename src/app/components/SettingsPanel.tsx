@@ -762,7 +762,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
       const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings)
+        body: JSON.stringify(sessionUser?.role === 'ADMIN' ? settings : { ...settings, coderUncensored: undefined })
       });
       const data = await res.json();
       if (!data.error) {
@@ -1099,7 +1099,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
     { key: 'MANAGER' as const, label: 'Manager', description: 'Power-user access' },
     { key: 'USER' as const, label: 'User', description: 'Standard access' },
   ];
-  const permissionsByCategory = permissionDefinitions.reduce<Record<string, PermissionDefinition[]>>((acc, permission) => {
+  const permissionsByCategory = permissionDefinitions.filter(permission => permission.key !== 'users.manage').reduce<Record<string, PermissionDefinition[]>>((acc, permission) => {
     if (!acc[permission.category]) acc[permission.category] = [];
     acc[permission.category].push(permission);
     return acc;
@@ -3239,7 +3239,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {[
-                { key: 'chats', label: 'Conversations & Coder history', help: 'Chats, WorkSpaces sessions, Coding session history, folders, tags, and saved summaries.' },
+                { key: 'chats', label: 'Conversations & Coding records', help: 'Chats, WorkSpaces sessions, PeakUI Coding session records, folders, tags, and saved summaries. Native Coder context is stored in the guest.' },
                 { key: 'settings', label: 'Settings & model profiles', help: 'Themes, model selections, WorkSpaces behavior, Coder configuration, and prompts.' },
                 { key: 'knowledgeBase', label: 'Knowledge base', help: 'Uploaded documents and their extracted content.' },
                 { key: 'canvas', label: 'Canvas artifacts', help: 'Generated documents, reports, files, bundles, previews, and version history.' },
@@ -3263,7 +3263,7 @@ export default function SettingsPanel({ onSettingsChange, onLogout, onOpenCoding
             </div>
 
             <div style={{ padding: '11px 12px', borderRadius: '10px', border: '1px solid var(--border-color)', background: 'rgba(59,130,246,0.06)', color: 'var(--text-secondary)', fontSize: '0.76rem', lineHeight: 1.5 }}>
-              <strong style={{ color: 'var(--text-primary)' }}>Full Coder environment:</strong> this ZIP preserves the Coding history and profile, not project files, installed packages, browser profile, or daemon state. Before moving hosts, also run <code>./scripts/coder-lxd/backup.sh /path/to/backup-directory</code> from the PeakUI host.
+              <strong style={{ color: 'var(--text-primary)' }}>Full Coder recovery:</strong> this ZIP saves PeakUI session records and per-user settings, but cannot restore the agent’s native transcript, project files, installed packages, browser profile, or daemon settings. Back up the complete guest and database together with <code>./scripts/coder-lxd/backup.sh /path/to/backup-directory</code> from the PeakUI host.
             </div>
 
             {backupProgress && (

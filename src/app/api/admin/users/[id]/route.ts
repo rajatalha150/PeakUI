@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import type { Role } from '@prisma/client'
+import { Prisma, type Role } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import { normalizeUsername, validatePassword, validateUsername } from '@/lib/auth-validation'
 import {
@@ -20,8 +20,8 @@ function isRole(value: unknown): value is Role {
 function normalizeOverrides(input: unknown): PermissionOverrides {
   const object = typeof input === 'object' && input !== null ? input as Record<string, unknown> : {}
   return {
-    allow: Array.isArray(object.allow) ? object.allow.filter(isPermissionKey) : [],
-    deny: Array.isArray(object.deny) ? object.deny.filter(isPermissionKey) : [],
+    allow: Array.isArray(object.allow) ? object.allow.filter(isPermissionKey).filter(key => key !== 'users.manage') : [],
+    deny: Array.isArray(object.deny) ? object.deny.filter(isPermissionKey).filter(key => key !== 'users.manage') : [],
   }
 }
 
@@ -34,7 +34,7 @@ async function requireUserManager() {
     }
   }
 
-  if (!hasPermission(auth.user, 'users.manage')) {
+  if (auth.user.role !== 'ADMIN' || !hasPermission(auth.user, 'users.manage')) {
     return {
       error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }),
       auth: null,
@@ -70,8 +70,8 @@ function toClientUser(user: {
   }
 }
 
-async function isLastActiveAdmin(userId: string): Promise<boolean> {
-  const count = await prisma.user.count({
+async function isLastActiveAdmin(userId: string, tx: Prisma.TransactionClient): Promise<boolean> {
+  const count = await tx.user.count({
     where: {
       role: 'ADMIN',
       isActive: true,
@@ -159,15 +159,6 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       }
     }
 
-    if (
-      existingUser.role === 'ADMIN'
-      && existingUser.isActive
-      && (nextRole !== 'ADMIN' || !nextIsActive)
-      && await isLastActiveAdmin(existingUser.id)
-    ) {
-      return NextResponse.json({ error: 'At least one active admin must remain.' }, { status: 400 })
-    }
-
     const shouldRotateToken = (
       nextUsername !== existingUser.username
       || nextRole !== existingUser.role
@@ -176,29 +167,37 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       || body.password !== undefined
     )
 
-    const updatedUser = await prisma.user.update({
-      where: { id: existingUser.id },
-      data: {
-        username: nextUsername,
-        role: nextRole,
-        isActive: nextIsActive,
-        permissionOverrides: nextOverrides,
-        passwordHash: body.password !== undefined
-          ? await bcrypt.hash(body.password as string, 12)
-          : undefined,
-        tokenVersion: shouldRotateToken ? { increment: 1 } : undefined,
-      },
-      select: {
-        id: true,
-        username: true,
-        role: true,
-        isActive: true,
-        permissionOverrides: true,
-        createdAt: true,
-        updatedAt: true,
-        lastLoginAt: true,
-      },
-    })
+    const passwordHash = body.password !== undefined ? await bcrypt.hash(body.password as string, 12) : undefined
+    const updatedUser = await prisma.$transaction(async tx => {
+      if (
+        existingUser.role === 'ADMIN'
+        && existingUser.isActive
+        && (nextRole !== 'ADMIN' || !nextIsActive)
+        && await isLastActiveAdmin(existingUser.id, tx)
+      ) return null
+      return tx.user.update({
+        where: { id: existingUser.id },
+        data: {
+          username: nextUsername,
+          role: nextRole,
+          isActive: nextIsActive,
+          permissionOverrides: nextOverrides,
+          passwordHash,
+          tokenVersion: shouldRotateToken ? { increment: 1 } : undefined,
+        },
+        select: {
+          id: true,
+          username: true,
+          role: true,
+          isActive: true,
+          permissionOverrides: true,
+          createdAt: true,
+          updatedAt: true,
+          lastLoginAt: true,
+        },
+      })
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    if (!updatedUser) return NextResponse.json({ error: 'At least one active admin must remain.' }, { status: 400 })
 
     return NextResponse.json({ user: toClientUser(updatedUser) })
   } catch (error) {
@@ -226,17 +225,12 @@ export async function DELETE(_request: Request, context: { params: Promise<{ id:
       return NextResponse.json({ error: 'User not found.' }, { status: 404 })
     }
 
-    if (
-      existingUser.role === 'ADMIN'
-      && existingUser.isActive
-      && await isLastActiveAdmin(existingUser.id)
-    ) {
-      return NextResponse.json({ error: 'At least one active admin must remain.' }, { status: 400 })
-    }
-
-    await prisma.user.delete({
-      where: { id: existingUser.id },
-    })
+    const deleted = await prisma.$transaction(async tx => {
+      if (existingUser.role === 'ADMIN' && existingUser.isActive && await isLastActiveAdmin(existingUser.id, tx)) return false
+      await tx.user.delete({ where: { id: existingUser.id } })
+      return true
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+    if (!deleted) return NextResponse.json({ error: 'At least one active admin must remain.' }, { status: 400 })
 
     return NextResponse.json({ success: true })
   } catch (error) {
