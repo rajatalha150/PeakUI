@@ -602,6 +602,10 @@ For questions requiring a total, ranking, or monthly average over an indexed XLS
 
 For the street permits workbook, `PermitIssueDate` contains a year only. `ApplicationTrackingID` begins with a month-level application date, so analysis using that column must be labeled **application-date average**, not permit-issue-month average. Choose the month window explicitly, and use `PermitNumber` as `distinctBy` when counting permits.
 
+### Long WorkSpaces research turns
+
+The saved transcript retains all messages, but each model call uses a bounded recent history plus the session summary. Older web results are reduced before a new run is queued, preventing a large contact-research session from resending megabytes of stale extracts. The durable WorkSpaces worker also treats short replies such as “Continuing with the next company” as progress, not completion: it asks the model to take the next concrete tool step in the same run. Repeated progress-only replies or a tool-step limit are reported as unfinished instead of a successful answer.
+
 ## Tax PDF Workflow
 
 WorkSpaces Accountant mode supplies a short accounting brief. The `tax_return` tool can inspect bundled IRS PDFs, fill supported form controls, and create a downloadable draft. The assistant is not a licensed preparer and does not sign or file returns.

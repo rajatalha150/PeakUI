@@ -85,6 +85,10 @@ const COMPACTED_NOTE =
  * lines and then appends the note.
  */
 export function compactToolResultContent(content: string): string {
+  if (/^Tool: [a-z_]+\nStatus: (?:success|failed)\n/.test(content)) {
+    const [tool, status] = content.split('\n', 2)
+    return `${tool}\n${status}\n\n${COMPACTED_NOTE}`
+  }
   // Drop trailing empty lines first — a trailing newline must not be mistaken
   // for the blank line that separates the metadata block from the body.
   const lines = content.split('\n')
@@ -190,4 +194,40 @@ export function compactDurableToolResults<T extends { role?: unknown; hidden?: u
       content: `${tool}\n${status}${context ? `\n${context}` : ''}\n[Earlier tool result compacted. Re-run a narrow inspection for exact fields or source values; do not guess.]`,
     }
   })
+}
+
+/** Bound the model's history independently of the provider's advertised context size. */
+export function boundedWorkspaceModelHistory<T extends { role?: unknown; hidden?: unknown; content?: unknown }>(
+  messages: ReadonlyArray<T>,
+  summary = '',
+  maxHistoryChars = 64_000,
+): T[] {
+  const compacted = compactDurableToolResults(messages, 3)
+  const systems = compacted.filter(message => message.role === 'system')
+  const history = compacted.filter(message => message.role !== 'system')
+  const chosen: T[] = []
+  let remaining = maxHistoryChars
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const message = history[index]
+    const content = typeof message.content === 'string' ? message.content : ''
+    if (content.length > remaining) {
+      if (chosen.length === 0) {
+        const head = content.slice(0, Math.floor(maxHistoryChars / 2))
+        const tail = content.slice(-Math.floor(maxHistoryChars / 2) + 160)
+        chosen.push({ ...message, content: `${head}\n[Middle of oversized message omitted from this model call.]\n${tail}` })
+      }
+      break
+    }
+    chosen.push(message)
+    remaining -= content.length
+  }
+  chosen.reverse()
+  if (chosen.length === history.length) return [...systems, ...chosen]
+  const note = [
+    'Earlier conversation was omitted from this model call to keep the active task responsive. The complete transcript remains saved.',
+    summary.trim() ? `Current session summary (background, verify details against recent messages or tools):\n${summary.trim().slice(0, 6000)}` : '',
+    'Continue from the latest user request and recent tool results. Do not treat an intention to continue as completion.',
+  ].filter(Boolean).join('\n\n')
+  const memory = { role: 'system', content: note, hidden: true } as T
+  return [...systems, memory, ...chosen]
 }

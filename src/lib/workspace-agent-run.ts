@@ -3,7 +3,8 @@ import { prisma } from './prisma'
 import { signToken } from './auth'
 import { extractWorkspaceToolRequest, buildWorkspaceToolRequestFromNativeCall, type WorkspaceToolRequest } from './workspace-tool-tools'
 import { executeWorkspaceTool, setWorkspaceToolTransport } from './workspace-tool-dispatch'
-import { compactDurableToolResults } from './workspace-tool-context-compaction'
+import { boundedWorkspaceModelHistory } from './workspace-tool-context-compaction'
+import { shouldContinueWorkspaceTurn, WORKSPACE_PROGRESS_NUDGE } from './workspace-agent-continuation'
 import { finalizeChatSession, type StoredChatMessage } from './chat-sessions'
 import { getWorkspaceToolWorkspaceContext } from './workspace-tool-project-workspaces'
 import { getWorkspaceToolWorkspaceContainerRoot, getWorkspaceToolWorkspaceHostRoot } from './workspace-tool-workspace'
@@ -599,7 +600,9 @@ async function executeRun(runId: string) {
       ? await getWorkspaceToolWorkspaceContext(run.userId, run.workspaceId).catch(() => null)
       : null
     const maxRounds = Math.min(MAX_TOOL_ROUNDS, Math.max(1, Number((await prisma.userSettings.findUnique({ where: { userId: run.userId }, select: { workspaceToolMaxToolRoundsPerTurn: true } }))?.workspaceToolMaxToolRoundsPerTurn || 100)))
+    const sessionSummary = await prisma.chatSession.findUnique({ where: { id: run.chatId }, select: { summary: true } })
     const conversation = Array.isArray(request.messages) ? [...request.messages] as JsonRecord[] : []
+    const latestUserPrompt = [...conversation].reverse().find(message => message.role === 'user' && message.hidden !== true)?.content
     const savedMessages = Array.isArray(persisted) ? [...persisted] : []
     const visionImages = normalizeWorkspaceVisionImages(request.workspace_vision_images)
     const mainModelSupportsVision = request.main_model_supports_vision === true
@@ -620,6 +623,8 @@ async function executeRun(runId: string) {
     let lastFinalFrame: JsonRecord = {}
     let collectedKnowledgeSources: MessageSource[] = []
     let collectedSources: MessageSource[] = []
+    let progressOnlyReplies = 0
+    let stalledIncomplete = false
     const finalId = typeof request.id === 'string' && request.id ? request.id : crypto.randomUUID()
 
     await appendRunEvent(runId, ++seq.value, {
@@ -726,7 +731,7 @@ async function executeRun(runId: string) {
       const currentRun = await prisma.workspaceAgentRun.findUnique({ where: { id: runId }, select: { status: true } })
       if (currentRun?.status === 'cancelled') return
       await prisma.workspaceAgentRun.update({ where: { id: runId }, data: { heartbeatAt: new Date() } })
-      const roundRequest = { ...request, messages: compactDurableToolResults(conversation), id: finalId }
+      const roundRequest = { ...request, messages: boundedWorkspaceModelHistory(conversation, sessionSummary?.summary || ''), id: finalId }
       await appendRunEvent(runId, ++seq.value, {
         status: 'model-thinking',
         model: typeof request.model === 'string' ? request.model : '',
@@ -766,7 +771,25 @@ async function executeRun(runId: string) {
       lastStreamedContent = response.content
       lastRoundStreamedOutput = response.streamedOutput
 
-      if (!tool) break
+      if (!tool) {
+        if (shouldContinueWorkspaceTurn(finalContent, typeof latestUserPrompt === 'string' ? latestUserPrompt : '')) {
+          progressOnlyReplies += 1
+          if (progressOnlyReplies < 4 && round + 1 < maxRounds) {
+            await appendRunEvent(runId, ++seq.value, {
+              status: 'continuing',
+              summary: 'The model gave a progress update; continuing the unfinished task in this run.',
+            })
+            conversation.push({ role: 'assistant', content: response.content, hidden: true }, {
+              role: 'user', content: WORKSPACE_PROGRESS_NUDGE, hidden: true,
+            })
+            continue
+          }
+          stalledIncomplete = true
+          finalContent = 'I paused because the model repeatedly said it would continue without completing the next step. The task is still unfinished; review the last verified result and retry from there.'
+        }
+        break
+      }
+      progressOnlyReplies = 0
 
       await appendRunEvent(runId, ++seq.value, {
         status: 'tool-planning',
@@ -830,6 +853,10 @@ async function executeRun(runId: string) {
         finalContent = `The ${tool.name} step is waiting for approval. Reopen this session and approve it to continue.`
         break
       }
+      if (round + 1 === maxRounds) {
+        stalledIncomplete = true
+        finalContent = `This run reached its ${maxRounds}-step tool limit after the last tool result. The task remains in progress; the saved tool results are available for a follow-up run.`
+      }
     }
 
     if (!finalContent.trim()) finalContent = 'The WorkSpaces run finished without a final assistant message.'
@@ -864,10 +891,13 @@ async function executeRun(runId: string) {
     })
     const waitingForApproval = finalContent.includes('is waiting for approval.')
     await appendRunEvent(runId, ++seq.value, {
-      status: waitingForApproval ? 'waiting-approval' : 'completed',
-      summary: waitingForApproval ? 'The run is paused until approval is provided.' : 'The response is complete and has been saved.',
+      status: stalledIncomplete ? 'failed' : waitingForApproval ? 'waiting-approval' : 'completed',
+      summary: stalledIncomplete ? 'The model did not advance the unfinished task.' : waitingForApproval ? 'The run is paused until approval is provided.' : 'The response is complete and has been saved.',
     })
-    await setRunStatus(runId, waitingForApproval ? 'waiting_approval' : 'succeeded', { model: typeof request.model === 'string' ? request.model : '', assistantJson: JSON.stringify(assistant) })
+    await setRunStatus(runId, stalledIncomplete ? 'failed' : waitingForApproval ? 'waiting_approval' : 'succeeded', {
+      model: typeof request.model === 'string' ? request.model : '', assistantJson: JSON.stringify(assistant),
+      ...(stalledIncomplete ? { error: 'The model repeatedly promised to continue without advancing the task.' } : {}),
+    })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     if (isTransientAppUnavailable(error)) {

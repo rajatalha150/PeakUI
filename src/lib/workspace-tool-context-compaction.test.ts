@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   compactDurableToolResults,
   compactStaleToolResults,
+  boundedWorkspaceModelHistory,
   compactToolResultContent,
   isToolResultMessage,
 } from './workspace-tool-context-compaction'
@@ -150,6 +151,29 @@ describe('compactToolResultContent', () => {
 })
 
 describe('compactStaleToolResults', () => {
+  it('compacts durable Tool: web results before a new run is queued', () => {
+    const messages: Msg[] = Array.from({ length: 8 }, (_, i) => ({
+      role: 'user', hidden: true, content: `Tool: web\nStatus: success\n${'source data '.repeat(2000)} ${i}`,
+    }))
+    const result = compactStaleToolResults(messages)
+    expect(result[0].content).toContain('earlier tool result compacted')
+    expect(result[0].content).not.toContain('source data')
+    expect(result[7].content).toContain('source data')
+  })
+
+  it('bounds model history while preserving the latest request and summary', () => {
+    const messages: Msg[] = [
+      { role: 'system', content: 'Current objective: find contacts' },
+      ...Array.from({ length: 30 }, (_, i) => ({ role: 'assistant' as const, content: `Old finding ${i}: ${'x'.repeat(500)}` })),
+      { role: 'user', content: 'dont stop until satisfied' },
+    ]
+    const result = boundedWorkspaceModelHistory(messages, 'Verified firms 1–10; next is Halmar.', 3000)
+    expect(result[0].content).toContain('Current objective')
+    expect(result[1].content).toContain('Verified firms 1–10')
+    expect(result.at(-1)?.content).toBe('dont stop until satisfied')
+    expect(result.length).toBeLessThan(messages.length)
+  })
+
   it('keeps the last 4 tool results full and compacts older large ones', () => {
     const messages: Msg[] = [
       realUserMessage(),

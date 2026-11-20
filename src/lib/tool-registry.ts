@@ -36,7 +36,7 @@ export const TOOL_RESULT_PREFIXES: ReadonlyArray<readonly [string, string]> = [
   ['Tax return tool result:', 'Tax return'],
 ];
 export const TOOL_RESULT_HEADER_RE = new RegExp(`^(?:${TOOL_RESULT_PREFIXES
-  .map(([prefix]) => prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`);
+  .map(([prefix]) => prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')}|Tool: [a-z_]+\nStatus: (?:success|failed))`);
 
 export function isToolResultMessage(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false;
