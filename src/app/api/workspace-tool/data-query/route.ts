@@ -13,7 +13,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { prisma } from '@/lib/prisma'
+import { hasRagUpload, ragSpoolPath, stageRagUpload } from '@/lib/rag-spool'
 import { getCurrentAuth } from '@/lib/request-auth'
 import type { PermissionKey } from '@/lib/permissions'
 import {
@@ -29,6 +34,8 @@ import {
 } from '@/lib/settings'
 
 export const runtime = 'nodejs'
+export const maxDuration = 900
+const execFileAsync = promisify(execFile)
 
 const REQUIRED_PERMISSIONS: PermissionKey[] = ['workspace-tool.use', 'workspace-tool.filesystem']
 const DEFAULT_MAX_ROWS = 50
@@ -88,13 +95,55 @@ export async function POST(req: NextRequest) {
   if (!auth) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const body = await req.json().catch(() => ({})) as {
+    action?: string; path?: string; maxRows?: number; documentId?: string;
+    operation?: string; groupBy?: string; dateBy?: string; distinctBy?: string;
+    threshold?: number; offset?: number; limit?: number; startMonth?: string; endMonth?: string;
+  }
+  if (body.action === 'spreadsheet' && body.documentId) {
+    if (!auth.permissions.includes('workspace-tool.use') || !auth.permissions.includes('knowledge.use')) {
+      return NextResponse.json({ error: 'WorkSpaces and Knowledge Base access are required.' }, { status: 403 })
+    }
+    if (body.operation !== 'monthly_average' || !body.groupBy || !body.dateBy) {
+      return NextResponse.json({ error: 'monthly_average requires groupBy and dateBy column names.' }, { status: 400 })
+    }
+    const document = await prisma.document.findFirst({
+      where: { id: body.documentId, userId: auth.user.id, status: 'ready' },
+      select: { id: true, filename: true, contentHash: true },
+    })
+    if (!document || !/\.(xlsx|xlsm)$/i.test(document.filename)) {
+      return NextResponse.json({ error: 'Ready Knowledge Base workbook not found.' }, { status: 404 })
+    }
+    try {
+      if (!await hasRagUpload(document.id)) {
+        const stored = await prisma.document.findUnique({ where: { id: document.id }, select: { originalContent: true } })
+        if (!stored?.originalContent) throw new Error('Original workbook is unavailable. Re-upload it to run full-data analysis.')
+        await stageRagUpload(document.id, Buffer.from(stored.originalContent, 'base64'))
+      }
+      const cacheKey = createHash('sha256').update(JSON.stringify([document.id, document.contentHash,
+        body.groupBy, body.dateBy, body.distinctBy, body.threshold, body.startMonth, body.endMonth])).digest('hex')
+      const { stdout } = await execFileAsync('node', [
+        '--max-old-space-size=6144', join(process.cwd(), 'scripts/knowledge-workbook-query.mjs'),
+        ragSpoolPath(document.id), body.groupBy.slice(0, 100), body.dateBy.slice(0, 100),
+        typeof body.distinctBy === 'string' ? body.distinctBy.slice(0, 100) : '',
+        String(Math.max(0, Number(body.threshold) || 0)),
+        String(Math.max(0, Number(body.offset) || 0)),
+        String(Math.min(200, Math.max(1, Number(body.limit) || 100))),
+        typeof body.startMonth === 'string' ? body.startMonth : '',
+        typeof body.endMonth === 'string' ? body.endMonth : '',
+        join(process.env.PEAKUI_DATA_DIR || '/var/lib/peakui', 'knowledge-analysis-cache', `${cacheKey}.json`),
+      ], { timeout: 600_000, maxBuffer: 8 * 1024 * 1024 })
+      return NextResponse.json({ action: 'spreadsheet', operation: body.operation, documentId: document.id, filename: document.filename, ...JSON.parse(stdout) })
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : 'Workbook analysis failed.' }, { status: 422 })
+    }
+  }
   const missing = REQUIRED_PERMISSIONS.filter(p => !auth.permissions.includes(p))
   if (missing.length > 0) {
     return NextResponse.json({ error: 'Filesystem access is not granted for this account.' }, { status: 403 })
   }
 
   try {
-    const body = await req.json() as { action?: string; path?: string; maxRows?: number }
     const action = body.action
     const path = (body.path || '').trim()
     if ((action !== 'spreadsheet' && action !== 'calendar') || !path) {

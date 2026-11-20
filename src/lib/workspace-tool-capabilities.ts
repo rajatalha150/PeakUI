@@ -182,9 +182,9 @@ export const WORKSPACE_TOOL_CAPABILITIES: WorkspaceToolCapability[] = [
     adapter: 'native',
     toolName: 'spreadsheet_query',
     promptLines: [
-      'SPREADSHEET QUERY CAPABILITY: When the user asks about data in a saved CSV file, use spreadsheet_query with the workspace path to read its headers and rows.',
+      'SPREADSHEET QUERY CAPABILITY: Read saved CSV rows by workspace path. For totals or monthly averages over a Knowledge Base XLSX, use spreadsheet_query with the indexed documentId, operation monthly_average, exact groupBy/dateBy headers, distinctBy when appropriate, and threshold. It scans the whole workbook; do not calculate dataset-wide counts from retrieved snippets. Use limit 200, then request nextOffset pages until complete. State whether dateBy is an application date or permit issue date.',
     ],
-    signature: 'spreadsheet_query {"path":"<workspace path to .csv>"}',
+    signature: 'spreadsheet_query {"path":"<workspace .csv>"} OR {"documentId":"<KB source ID>","operation":"monthly_average","groupBy":"PermitteeName","dateBy":"ApplicationTrackingID","distinctBy":"PermitNumber","threshold":10,"startMonth":"2022-01"}',
   },
   {
     id: 'calendar-query',
@@ -276,6 +276,10 @@ interface CapabilityTrigger {
 }
 
 const CAPABILITY_KEYWORD_TRIGGERS: CapabilityTrigger[] = [
+  {
+    id: 'spreadsheet-query',
+    keywords: ['spreadsheet', 'xlsx', 'csv', 'permits every month', 'monthly average', 'average per month', 'group by company'],
+  },
   {
     id: 'pdf-document',
     keywords: ['pdf', 'document', 'report', 'invoice', 'memo', 'letter', 'checklist', 'form'],

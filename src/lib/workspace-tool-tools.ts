@@ -246,7 +246,7 @@ export type WorkspaceToolRequest =
     }
   | {
       name: 'spreadsheet_query'
-      request: { path: string; maxRows?: number }
+      request: { path?: string; maxRows?: number; documentId?: string; operation?: 'monthly_average'; groupBy?: string; dateBy?: string; distinctBy?: string; threshold?: number; offset?: number; limit?: number; startMonth?: string; endMonth?: string }
     }
   | {
       name: 'calendar_query'
@@ -2064,21 +2064,32 @@ export function extractWorkspaceToolRequest(content: string): {
     }
 
     if (toolName === 'spreadsheet_query' || toolName === 'calendar_query') {
-      const parsed = parseToolJson<Partial<{ path: string; maxRows?: number }>>(block.rawJson)
+      const parsed = parseToolJson<Partial<{ path: string; maxRows?: number; documentId: string; operation: 'monthly_average'; groupBy: string; dateBy: string; distinctBy: string; threshold: number; offset: number; limit: number; startMonth: string; endMonth: string }>>(block.rawJson)
       if (!parsed) {
         return { cleanedContent: stripAllToolTags(content) }
       }
       const path = cleanFieldValue(parsed.path)
-      if (!path) {
+      const documentId = toolName === 'spreadsheet_query' ? cleanFieldValue(parsed.documentId) : ''
+      if (!path && !(documentId && parsed.operation === 'monthly_average' && cleanFieldValue(parsed.groupBy) && cleanFieldValue(parsed.dateBy))) {
         return { cleanedContent: stripAllToolTags(content) }
       }
-      const request: { path: string; maxRows?: number } = { path }
+      const request: { path?: string; maxRows?: number; documentId?: string; operation?: 'monthly_average'; groupBy?: string; dateBy?: string; distinctBy?: string; threshold?: number; offset?: number; limit?: number; startMonth?: string; endMonth?: string } = path ? { path } : {
+        documentId, operation: 'monthly_average', groupBy: cleanFieldValue(parsed.groupBy), dateBy: cleanFieldValue(parsed.dateBy),
+        ...(cleanFieldValue(parsed.distinctBy) ? { distinctBy: cleanFieldValue(parsed.distinctBy) } : {}),
+        ...(cleanFieldValue(parsed.startMonth) ? { startMonth: cleanFieldValue(parsed.startMonth) } : {}),
+        ...(cleanFieldValue(parsed.endMonth) ? { endMonth: cleanFieldValue(parsed.endMonth) } : {}),
+      }
       if (typeof parsed.maxRows === 'number' && Number.isFinite(parsed.maxRows)) {
         request.maxRows = parsed.maxRows
       }
+      for (const key of ['threshold', 'offset', 'limit'] as const) {
+        if (typeof parsed[key] === 'number' && Number.isFinite(parsed[key])) request[key] = parsed[key]
+      }
       return {
         cleanedContent,
-        request: { name: toolName, request },
+        request: toolName === 'calendar_query'
+          ? { name: 'calendar_query', request: { path, ...(request.maxRows !== undefined ? { maxRows: request.maxRows } : {}) } }
+          : { name: 'spreadsheet_query', request },
       }
     }
 

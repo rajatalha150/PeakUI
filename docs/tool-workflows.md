@@ -596,6 +596,12 @@ PeakUI's `fetch_summarize` tool fetches a public web page and returns a concise,
 
 ---
 
+## Full Knowledge Base Workbook Analysis
+
+For questions requiring a total, ranking, or monthly average over an indexed XLSX/XLSM file, WorkSpaces can call `spreadsheet_query` with `documentId`, `operation: "monthly_average"`, exact `groupBy` and `dateBy` headers, and optional `distinctBy`, `threshold`, `startMonth`, `endMonth`, `offset`, and `limit`. The server scans the original workbook in an isolated process, caches the complete grouped result, and returns at most 200 groups per page. The WorkSpaces run stays active while the job runs. A retrieved RAG excerpt is only a sample; it is not used as the denominator for whole-workbook calculations.
+
+For the street permits workbook, `PermitIssueDate` contains a year only. `ApplicationTrackingID` begins with a month-level application date, so analysis using that column must be labeled **application-date average**, not permit-issue-month average. Choose the month window explicitly, and use `PermitNumber` as `distinctBy` when counting permits.
+
 ## Tax PDF Workflow
 
 WorkSpaces Accountant mode supplies a short accounting brief. The `tax_return` tool can inspect bundled IRS PDFs, fill supported form controls, and create a downloadable draft. The assistant is not a licensed preparer and does not sign or file returns.

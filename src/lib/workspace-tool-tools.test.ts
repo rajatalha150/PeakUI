@@ -656,6 +656,17 @@ describe('buildWorkspaceToolRequestFromNativeCall', () => {
     expect(buildWorkspaceToolRequestFromNativeCall('not_a_tool', {})).toBeNull()
   })
 
+  it('accepts a full Knowledge Base workbook aggregation without a workspace path', () => {
+    const request = buildWorkspaceToolRequestFromNativeCall('spreadsheet_query', {
+      documentId: 'doc-123', operation: 'monthly_average', groupBy: 'PermitteeName',
+      dateBy: 'ApplicationTrackingID', distinctBy: 'PermitNumber', threshold: 10,
+      startMonth: '2022-01', endMonth: '2026-11',
+    })
+    expect(request).toMatchObject({ name: 'spreadsheet_query', request: {
+      documentId: 'doc-123', operation: 'monthly_average', startMonth: '2022-01', threshold: 10,
+    } })
+  })
+
   it('returns null when required args are missing (validation applies)', () => {
     expect(buildWorkspaceToolRequestFromNativeCall('web', {})).toBeNull()
     expect(buildWorkspaceToolRequestFromNativeCall('notes_save', { title: 'x' })).toBeNull()

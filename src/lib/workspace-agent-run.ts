@@ -375,7 +375,7 @@ async function callAppApi(token: string, path: string, body: JsonRecord) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Cookie: `auth_token=${token}` },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(120_000),
+    signal: AbortSignal.timeout(path === '/api/workspace-tool/data-query' && body.documentId ? 630_000 : 120_000),
   })
   const data = await response.json().catch(async () => ({ error: await response.text().catch(() => '') }))
   return { ok: response.ok, status: response.status, data }

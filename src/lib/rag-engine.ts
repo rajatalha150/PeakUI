@@ -622,7 +622,7 @@ export async function semanticSearch(
         d."size",
         d."kind",
         d."ragMode",
-        COUNT(*) OVER (PARTITION BY d."id") AS "documentChunkCount",
+        (SELECT COUNT(*) FROM "DocumentChunk" cc WHERE cc."documentId" = d."id") AS "documentChunkCount",
         1 - (c."vector" <=> '${queryVector}'::vector) AS score
       FROM "DocumentChunk" c
       JOIN "Document" d ON d."id" = c."documentId"
@@ -635,6 +635,7 @@ export async function semanticSearch(
         ${parts.extension ? `AND LOWER(d."filename") LIKE '%.${parts.extension.replace(/'/g, "''")}'` : ''}
         ${parts.fileKind ? `AND d."kind" = '${parts.fileKind.replace(/'/g, "''")}'` : ''}
         ${parts.documentId ? `AND d."id" = '${parts.documentId.replace(/'/g, "''")}'` : ''}
+        ${parts.folder ? `AND (d."sourcePath" = '${parts.folder.replace(/'/g, "''")}' OR d."sourcePath" LIKE '${parts.folder.replace(/'/g, "''")}/%')` : ''}
       ORDER BY c."vector" <=> '${queryVector}'::vector
       LIMIT ${Math.max(topK * 3, 48)}
     `)
@@ -666,9 +667,9 @@ export async function semanticSearch(
     return results.slice(0, topK)
   }
 
-  // Fallback: in-memory JS search when pgvector is unavailable.
-  const chunks = await fetchKeywordChunks(userId, filters)
-  return semanticSearchInMemory(queryEmbedding, chunks, modelName, topK, minScore)
+  // Without pgvector, keyword search still works; avoid loading every vector
+  // into the web process for an in-memory similarity scan.
+  return []
 }
 
 function parseChunkMetadata(value: unknown): ChunkMetadata | null {
@@ -719,29 +720,42 @@ function cosineSimilarity(a: number[], b: number[]): number {
   return dot / (Math.sqrt(magA) * Math.sqrt(magB))
 }
 
-async function fetchKeywordChunks(userId: string, filters?: RagSearchFilters): Promise<RagChunkWithMetadata[]> {
-  const docWhere = buildPrismaDocumentFilters(filters)
-  const chunks = await prisma.documentChunk.findMany({
-    where: { document: { userId, status: 'ready', ...docWhere } },
-    include: { document: { select: { id: true, filename: true, sourcePath: true, size: true, kind: true, ragMode: true, embeddingModel: true, _count: { select: { chunks: true } } } } },
-  })
-
-  return chunks.map(chunk => ({
-    chunkId: chunk.id,
-    chunkIndex: chunk.chunkIndex,
-    documentChunkCount: chunk.document._count.chunks,
-    documentId: chunk.document.id,
-    filename: chunk.document.filename,
-    sourcePath: chunk.document.sourcePath,
-    content: chunk.content,
-    metadata: parseChunkMetadata((chunk as unknown as { metadata: unknown }).metadata),
-    embedding: (chunk as unknown as { embedding: string | null }).embedding,
-    embeddingModel: chunk.document.embeddingModel,
-    ragMode: chunk.document.ragMode,
-    extension: getFileExtension(chunk.document.filename),
-    fileKind: (chunk.document.kind as FileKind | null) || detectFileKind(chunk.document.filename, ''),
-    documentSize: chunk.document.size,
-    wholeDocument: chunk.document._count.chunks === 1,
+/** Search in PostgreSQL and return only ranked matches. Never hydrate an entire KB. */
+async function searchKeywordChunks(userId: string, query: string, filters: RagSearchFilters | undefined, topK: number): Promise<RagSearchResult[]> {
+  const terms = [...new Set(tokenize(query).map(term => term.replace(/[^\p{L}\p{N}]/gu, '').slice(0, 40)).filter(term => term.length >= 2))].slice(0, 12)
+  if (!terms.length) return []
+  const args: unknown[] = [userId, terms.join(' | '), Math.min(300, Math.max(48, topK * 6))]
+  const clauses = ['d."userId" = $1', 'd."status" = \'ready\'', "to_tsvector('english', c.content) @@ to_tsquery('english', $2)"]
+  const add = (sql: string, value: unknown) => { args.push(value); clauses.push(sql.replace('?', `$${args.length}`)) }
+  if (filters?.documentId) add('d."id" = ?', filters.documentId)
+  if (filters?.filename) add('d."filename" ILIKE ?', `%${filters.filename}%`)
+  if (filters?.extension) add('LOWER(d."filename") LIKE ?', `%.${filters.extension.toLowerCase().replace(/^\./, '')}`)
+  if (filters?.fileKind && filters.fileKind !== 'all') add('d."kind" = ?', filters.fileKind)
+  if (filters?.folder) {
+    args.push(filters.folder, `${filters.folder}/%`)
+    clauses.push(`(d."sourcePath" = $${args.length - 1} OR d."sourcePath" LIKE $${args.length})`)
+  }
+  const rows = await prisma.$queryRawUnsafe<Array<{
+    id: string; chunkIndex: number; content: string; metadata: unknown; documentId: string;
+    filename: string; sourcePath: string | null; size: number; kind: string | null;
+    embeddingModel: string | null; documentChunkCount: bigint; rank: number;
+  }>>(`SELECT c."id", c."chunkIndex", c."content", c."metadata", d."id" AS "documentId",
+      d."filename", d."sourcePath", d."size", d."kind", d."embeddingModel",
+      (SELECT count(*) FROM "DocumentChunk" cc WHERE cc."documentId" = d."id") AS "documentChunkCount",
+      ts_rank_cd(to_tsvector('english', c.content), to_tsquery('english', $2)) AS rank
+    FROM "DocumentChunk" c JOIN "Document" d ON d."id" = c."documentId"
+    WHERE ${clauses.join(' AND ')}
+    ORDER BY rank DESC, c."chunkIndex" ASC LIMIT $3`, ...args)
+  const maxRank = Math.max(...rows.map(row => row.rank), 1)
+  return rows.slice(0, topK).map(row => ({
+    chunkId: row.id, chunkIndex: row.chunkIndex, documentChunkCount: Number(row.documentChunkCount),
+    documentId: row.documentId, filename: row.filename, sourcePath: row.sourcePath,
+    content: row.content, metadata: parseChunkMetadata(row.metadata),
+    score: row.rank / maxRank, rawScore: row.rank, mode: 'keyword' as const,
+    embeddingModel: row.embeddingModel, extension: getFileExtension(row.filename),
+    fileKind: (row.kind as FileKind | null) || detectFileKind(row.filename, ''),
+    documentSize: row.size, excerptChars: row.content.length,
+    wholeDocument: Number(row.documentChunkCount) === 1,
   }))
 }
 
@@ -875,6 +889,7 @@ export function buildKnowledgeBaseRetrievalContract(): string {
     'If the context is not enough, ask for a broader lookup or direct file inspection by naming the file, folder, or chunk you want.',
     'Use query directives like file:, folder:, type:, or ext: when you need a narrower KB lookup.',
     'Always cite the source number and chunk number when referencing knowledge base content.',
+    'For averages, counts, or rankings across a large spreadsheet, use spreadsheet_query on the source document ID; retrieved excerpts are samples and cannot establish complete totals.',
   ].join(' ')
 }
 
@@ -896,7 +911,7 @@ function buildSourceHeader(source: RagSearchResult, index: number, excerptChars:
     source.mode || 'semantic',
   ].filter(Boolean).join(' · ')
 
-  return `[${index + 1}] ${source.filename} · ${metadata}`
+  return `[${index + 1}] ${source.filename} · documentId ${source.documentId} · ${metadata}`
 }
 
 export function buildRagContextBlock(query: string, results: RagSearchResult[], mode: string, fullAccess = false): string {
@@ -1011,9 +1026,9 @@ export async function buildKnowledgeBaseContext(
   ].filter(Boolean).join(' ') || query.trim()
 
   const isFullAccess = options.topK === -1
-  const effectiveTopK = isFullAccess ? 10000 : (options.topK ?? 8)
-  const effectiveKeywordTopK = isFullAccess ? 10000 : (options.keywordTopK ?? Math.round(effectiveTopK * 1.5))
-  const effectiveSemanticTopK = isFullAccess ? 10000 : (options.semanticTopK ?? Math.round(effectiveTopK * 1.5))
+  const effectiveTopK = Math.min(200, isFullAccess ? 200 : (options.topK ?? 8))
+  const effectiveKeywordTopK = Math.min(200, options.keywordTopK ?? Math.round(effectiveTopK * 1.5))
+  const effectiveSemanticTopK = Math.min(200, options.semanticTopK ?? Math.round(effectiveTopK * 1.5))
   const { signal } = options
 
   try {
@@ -1026,14 +1041,14 @@ export async function buildKnowledgeBaseContext(
     const { getUserSettings } = await import('./settings')
     const settings = await getUserSettings(userId)
 
-    const keywordChunks = await fetchKeywordChunks(userId, filters)
-    if (keywordChunks.length === 0) {
-      return { context: '', sources: [], searched: false, mode: 'unavailable' }
+    const keywordResults = await searchKeywordChunks(userId, effectiveQuery, filters, effectiveKeywordTopK)
+    const hasSemanticChunks = Boolean(await prisma.document.findFirst({
+      where: { userId, status: 'ready', ragMode: 'semantic', embeddingModel: settings.ragModel, ...buildPrismaDocumentFilters(filters) },
+      select: { id: true },
+    }))
+    if (keywordResults.length === 0 && (!hasSemanticChunks || settings.ragMode === 'keyword')) {
+      return { context: '', sources: [], searched: true, mode: 'keyword' }
     }
-
-    const keywordResults = keywordSearch(keywordChunks, effectiveQuery, effectiveKeywordTopK)
-
-    const hasSemanticChunks = keywordChunks.some(c => c.ragMode === 'semantic' && c.embeddingModel && isSameOllamaModel(c.embeddingModel, settings.ragModel))
 
     if (!hasSemanticChunks || settings.ragMode === 'keyword') {
       const deduped = deduplicateResults(keywordResults)

@@ -2596,6 +2596,18 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
                 action: request.name === 'spreadsheet_query' ? 'spreadsheet' : 'calendar',
                 path: request.request.path,
                 maxRows: request.request.maxRows,
+                ...(request.name === 'spreadsheet_query' ? {
+                  documentId: request.request.documentId,
+                  operation: request.request.operation,
+                  groupBy: request.request.groupBy,
+                  dateBy: request.request.dateBy,
+                  distinctBy: request.request.distinctBy,
+                  threshold: request.request.threshold,
+                  offset: request.request.offset,
+                  limit: request.request.limit,
+                  startMonth: request.request.startMonth,
+                  endMonth: request.request.endMonth,
+                } : {}),
               }),
             });
             const data = await dataRes.json().catch(() => ({}));
@@ -2611,7 +2623,9 @@ const handleSendMessage = async (draftPrompt = message, draftInternetEnabled = i
               id: randomUUID(),
               role: 'user',
               content: request.name === 'spreadsheet_query'
-                ? formatSpreadsheetQueryToolResult(data as { headers?: string[]; rows?: string[][]; rowCount?: number; truncated?: boolean })
+                ? request.request.documentId
+                  ? `Full Knowledge Base workbook analysis:\n${JSON.stringify(data, null, 2)}`
+                  : formatSpreadsheetQueryToolResult(data as { headers?: string[]; rows?: string[][]; rowCount?: number; truncated?: boolean })
                 : formatCalendarQueryToolResult(data as { events?: Array<Record<string, string>>; eventCount?: number }),
               hidden: true,
               createdAt: new Date().toISOString(),

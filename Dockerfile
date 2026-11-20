@@ -36,6 +36,7 @@ COPY --from=builder /app/dist/workspace-daemon.mjs ./scripts/workspace-daemon.mj
 COPY --from=builder /app/src/novnc.d.ts ./src/novnc.d.ts
 COPY --from=builder /app/irs_forms ./irs_forms
 COPY --from=builder /app/scripts/coder-preview-gateway.mjs ./scripts/coder-preview-gateway.mjs
+COPY --from=builder /app/scripts/knowledge-workbook-query.mjs ./scripts/knowledge-workbook-query.mjs
 COPY --from=builder /app/scripts/start-peakui.sh ./scripts/start-peakui.sh
 RUN chmod 755 ./scripts/start-peakui.sh
 
