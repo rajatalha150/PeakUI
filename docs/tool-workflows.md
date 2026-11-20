@@ -604,7 +604,7 @@ For the street permits workbook, `PermitIssueDate` contains a year only. `Applic
 
 ### Long WorkSpaces research turns
 
-The saved transcript retains all messages, but each model call uses a bounded recent history plus the session summary. Older web results are reduced before a new run is queued, preventing a large contact-research session from resending megabytes of stale extracts. The durable WorkSpaces worker also treats short replies such as “Continuing with the next company” as progress, not completion: it asks the model to take the next concrete tool step in the same run. Repeated progress-only replies or a tool-step limit are reported as unfinished instead of a successful answer.
+The saved transcript retains all messages, but each model call uses a bounded recent history plus the session summary. Older web results are reduced before a new run is queued, preventing a large contact-research session from resending megabytes of stale extracts. The durable WorkSpaces worker treats short replies such as “Continuing with the next company” as progress, not completion. It also continues when a reply asks whether to perform work the user already requested. Repeated progress-only replies or a tool-step limit are reported as unfinished instead of a successful answer.
 
 ## Tax PDF Workflow
 

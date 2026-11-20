@@ -18,4 +18,10 @@ describe('unfinished WorkSpaces progress', () => {
     expect(shouldContinueWorkspaceTurn('Done. All requested contacts are in the workbook.', 'dont stop until satisfied')).toBe(false)
     expect(shouldContinueWorkspaceTurn('Halmar International locked — company phone verified.', 'what is the company phone?')).toBe(false)
   })
+
+  it('does not treat a permission question as completion when the task already requested the work', () => {
+    const response = '## Batch Complete\n\n11 of 16 contacts found. Want me to: 1. Push these into the master workbook, or 2. Dig deeper on the 5 gaps?'
+    const request = 'Continue from Halmar, update the contact workbook, and finish the batch. Do not end with a status-only update.'
+    expect(shouldContinueWorkspaceTurn(response, request)).toBe(true)
+  })
 })
