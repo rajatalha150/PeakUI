@@ -103,7 +103,7 @@ async function prepareCoderHome(cwd) {
     // Preserve model/auth settings and historical transcripts without cloning
     // debug logs and caches into every selected directory.
     try {
-      for (const name of ['settings.json', 'QWEN.md', 'oauth_creds.json', 'output-language.md', 'agents', 'projects', 'file-history', 'memories', 'skills', 'extensions', 'extension-store']) {
+      for (const name of ['settings.json', 'model-capabilities.json', 'QWEN.md', 'oauth_creds.json', 'output-language.md', 'agents', 'projects', 'file-history', 'memories', 'skills', 'extensions', 'extension-store']) {
         const source = join(seedHome, name);
         if (existsSync(source)) await cp(source, join(staging, name), { recursive: true, force: false });
       }
@@ -116,6 +116,11 @@ async function prepareCoderHome(cwd) {
   if (existsSync(join(seedHome, 'QWEN.md'))) {
     await cp(join(seedHome, 'QWEN.md'), join(home, 'QWEN.md'), { force: true });
   }
+  // Capability evidence is tied to the shared Ollama model revision, so an
+  // existing workspace without a report can reuse the verified seed result.
+  if (!existsSync(join(home, 'model-capabilities.json')) && existsSync(join(seedHome, 'model-capabilities.json'))) {
+    await cp(join(seedHome, 'model-capabilities.json'), join(home, 'model-capabilities.json'), { force: false });
+  }
   return home;
 }
 
@@ -127,7 +132,7 @@ async function startRuntime(cwd) {
     const home = await prepareCoderHome(cwd);
     if (coderEntry === '/opt/qwen-code/scripts/cli-entry.js') {
       await execFileAsync(process.execPath, ['/opt/qwen-code/sync-coder-models.mjs'], {
-        env: { ...process.env, QWEN_HOME: home }, timeout: 30_000,
+        env: { ...process.env, QWEN_HOME: home }, timeout: 50_000,
       });
     }
     const port = await unusedPort();
@@ -192,7 +197,7 @@ async function refreshRuntimeModels(cwd, runtime, force = false) {
   const refresh = (async () => {
     const home = await prepareCoderHome(cwd);
     const { stdout } = await execFileAsync(process.execPath, [modelSyncScript, '--strict'], {
-      env: { ...process.env, QWEN_HOME: home, CODER_MODEL_SYNC_PRESERVE_DEFAULT: '1' }, timeout: 25_000,
+      env: { ...process.env, QWEN_HOME: home, CODER_MODEL_SYNC_PRESERVE_DEFAULT: '1' }, timeout: 50_000,
     });
     const result = JSON.parse(stdout.trim().split('\n').at(-1));
     let catalogue = await runtimeModels(runtime);

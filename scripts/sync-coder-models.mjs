@@ -96,8 +96,7 @@ async function probeToolCall(name, toolChoice) {
 async function resolveCapabilities(models) {
   let previous = {};
   try { previous = JSON.parse(await fs.readFile(CAPABILITIES_PATH, 'utf8')).models || {}; } catch { /* first run */ }
-  const report = {};
-  for (const model of models) {
+  const resolved = await Promise.all(models.map(async model => {
     let reusedProbe = false;
     let retainedProbe = false;
     const cached = previous[model.name];
@@ -148,13 +147,14 @@ async function resolveCapabilities(models) {
         }
       }
     }
-    report[model.name] = {
+    return [model.name, {
       revision: model.revision, tools: model.tools, vision: model.vision,
       source: model.source,
       checkedAt: reusedProbe || retainedProbe ? cached.checkedAt : new Date().toISOString(),
       ...(retainedProbe ? { lastAttemptAt: new Date().toISOString() } : reusedProbe && cached.lastAttemptAt ? { lastAttemptAt: cached.lastAttemptAt } : {}),
-    };
-  }
+    }];
+  }));
+  const report = Object.fromEntries(resolved);
   const next = { version: 1, models: report };
   if (JSON.stringify(next) !== JSON.stringify({ version: 1, models: previous })) await writeJsonAtomic(CAPABILITIES_PATH, next);
 }

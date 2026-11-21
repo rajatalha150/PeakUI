@@ -329,6 +329,8 @@ Fixes:
   positive result survives a transient probe failure.
   If required tool choice succeeds but automatic choice fails twice, the result
   stays unverified and is retried after five minutes.
+  Workspaces share the seed home's verified report when first initialized;
+  uncached probes run concurrently so a slow model does not block the others.
 - `.env` / `.env.example` set `CODER_MODEL=deepseek-v4.1-flash:cloud` and
   document how to verify tools capability (`capabilities` containing `tools`).
   The previous comment recommended `gemma4, ornith, nemotron-3.5-lightning,
