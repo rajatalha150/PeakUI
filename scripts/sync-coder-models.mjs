@@ -7,11 +7,9 @@
  * points at Ollama's OpenAI-compatible /v1 endpoint), so every model the user
  * can pick in the UI is actually routable by the daemon.
  *
- * Tools capability is recorded, not filtered: /api/tags reports each model's
- * `capabilities`, and the agent only works with models that include `tools`.
- * We annotate the description so the daemon's model picker can show why a
- * completion-only model will not drive the agent — silently offering them is
- * what produced an agent that claimed it had no tools.
+ * Some Ollama cloud model wrappers omit `capabilities` from /api/tags even
+ * though their OpenAI-compatible endpoint supports function calling. Verify
+ * those models with a real tool call and cache the result per model revision.
  *
  * Runs at coder-container startup and when the live model picker refreshes.
  * A refresh preserves the selected model and writes only when Ollama's model
@@ -27,6 +25,22 @@ const DEFAULT_MODEL = process.env.OPENAI_MODEL || '';
 const PRESERVE_SELECTED_MODEL = process.env.CODER_MODEL_SYNC_PRESERVE_DEFAULT === '1';
 const STRICT = process.argv.includes('--strict');
 const SETTINGS_PATH = path.join(process.env.QWEN_HOME || path.join(homedir(), '.qwen'), 'settings.json');
+const CAPABILITIES_PATH = path.join(path.dirname(SETTINGS_PATH), 'model-capabilities.json');
+const OLLAMA_ROOT = OLLAMA_BASE_URL.replace(/\/v1\/?$/, '');
+const PROBE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const RETRY_TTL_MS = 5 * 60 * 1000;
+
+async function writeJsonAtomic(file, value) {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const temporary = `${file}.${process.pid}.tmp`;
+  try {
+    await fs.writeFile(temporary, JSON.stringify(value, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
+    await fs.rename(temporary, file);
+  } catch (error) {
+    await fs.rm(temporary, { force: true });
+    throw error;
+  }
+}
 
 // Coder falls back to a generic 200k window for an OpenAI-compatible model it
 // does not recognize by name. Ollama already exposes the actual model limit in
@@ -40,22 +54,109 @@ function contextWindowSize(value) {
 }
 
 async function fetchOllamaModels() {
-  const tagsUrl = OLLAMA_BASE_URL.replace(/\/v1\/?$/, '') + '/api/tags';
+  const tagsUrl = OLLAMA_ROOT + '/api/tags';
   const res = await fetch(tagsUrl, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error(`Ollama /api/tags returned ${res.status}`);
   const data = await res.json();
   const models = Array.isArray(data.models) ? data.models : [];
   return models
     .map(m => {
-      const caps = Array.isArray(m?.capabilities) ? m.capabilities : [];
+      const caps = Array.isArray(m?.capabilities) ? m.capabilities : null;
       return {
         name: typeof m?.name === 'string' ? m.name : '',
-        tools: caps.includes('tools'),
-        vision: caps.includes('vision'),
+        revision: typeof m?.modified_at === 'string' ? m.modified_at : '',
+        tools: caps?.includes('tools') ?? null,
+        vision: caps?.includes('vision') ?? null,
+        source: caps ? 'tags' : 'unknown',
         contextWindowSize: contextWindowSize(m?.details?.context_length),
       };
     })
     .filter(m => m.name);
+}
+
+async function probeToolCall(name, toolChoice) {
+  const response = await fetch(`${OLLAMA_ROOT}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY || 'local'}` },
+    body: JSON.stringify({
+      model: name,
+      messages: [{ role: 'user', content: 'Call peakui_tool_probe now.' }],
+      tools: [{ type: 'function', function: { name: 'peakui_tool_probe', description: 'Capability test', parameters: { type: 'object', properties: {} } } }],
+      tool_choice: toolChoice,
+      stream: false,
+      max_tokens: 256,
+    }),
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new Error(`tool probe returned ${response.status}`);
+  const data = await response.json();
+  return data?.choices?.[0]?.message?.tool_calls?.some(call => call?.function?.name === 'peakui_tool_probe') === true;
+}
+
+async function resolveCapabilities(models) {
+  let previous = {};
+  try { previous = JSON.parse(await fs.readFile(CAPABILITIES_PATH, 'utf8')).models || {}; } catch { /* first run */ }
+  const report = {};
+  for (const model of models) {
+    let reusedProbe = false;
+    let retainedProbe = false;
+    const cached = previous[model.name];
+    const age = Date.now() - Date.parse(cached?.checkedAt || '');
+    const retryAge = Date.now() - Date.parse(cached?.lastAttemptAt || '');
+    const cacheValid = age >= 0 && age < (cached?.tools === null ? RETRY_TTL_MS : PROBE_TTL_MS);
+    const retryWait = retryAge >= 0 && retryAge < RETRY_TTL_MS && age < 2 * PROBE_TTL_MS;
+    if (model.source === 'unknown' && cached?.revision === model.revision && cached.source === 'probe' && (cacheValid || retryWait)) {
+      model.tools = cached.tools;
+      model.source = 'probe';
+      reusedProbe = true;
+    }
+    if (model.source === 'unknown') {
+      try {
+        const response = await fetch(`${OLLAMA_ROOT}/api/show`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: model.name }), signal: AbortSignal.timeout(5_000),
+        });
+        if (response.ok) {
+          const show = await response.json();
+          if (Array.isArray(show.capabilities)) {
+            model.tools = show.capabilities.includes('tools');
+            model.vision = show.capabilities.includes('vision');
+            model.source = 'show';
+          }
+        }
+      } catch { /* fall through to a live function call */ }
+    }
+    if (model.tools === null) {
+      if (!reusedProbe) {
+        try {
+          // Required verifies the protocol; auto verifies the model will
+          // choose a tool in the mode used by a normal coding agent turn.
+          const required = await probeToolCall(model.name, 'required');
+          if (!required) model.tools = false;
+          else {
+            const automatic = await probeToolCall(model.name, 'auto') || await probeToolCall(model.name, 'auto');
+            model.tools = automatic ? true : null;
+          }
+          if (required && model.tools === null) console.warn(`[coder-sync] ${model.name} accepted a required tool call but did not choose one automatically; retrying later`);
+          model.source = 'probe';
+        } catch (error) {
+          console.warn(`[coder-sync] tool probe failed for ${model.name}: ${error instanceof Error ? error.message : String(error)}`);
+          // A transient endpoint failure must not revoke a recent verified result.
+          retainedProbe = cached?.revision === model.revision && cached?.tools === true && age < 2 * PROBE_TTL_MS;
+          model.tools = retainedProbe ? true : null;
+          model.source = 'probe';
+        }
+      }
+    }
+    report[model.name] = {
+      revision: model.revision, tools: model.tools, vision: model.vision,
+      source: model.source,
+      checkedAt: reusedProbe || retainedProbe ? cached.checkedAt : new Date().toISOString(),
+      ...(retainedProbe ? { lastAttemptAt: new Date().toISOString() } : reusedProbe && cached.lastAttemptAt ? { lastAttemptAt: cached.lastAttemptAt } : {}),
+    };
+  }
+  const next = { version: 1, models: report };
+  if (JSON.stringify(next) !== JSON.stringify({ version: 1, models: previous })) await writeJsonAtomic(CAPABILITIES_PATH, next);
 }
 
 /**
@@ -118,6 +219,7 @@ async function main() {
       if (STRICT) process.exitCode = 1;
       return;
     }
+    await resolveCapabilities(models);
 
     // Preserve anything the app/daemon owns in this file (security, tools
     // knobs the user set through the Coding settings drawer) instead of
@@ -176,14 +278,7 @@ async function main() {
     const changed = JSON.stringify(settings) !== JSON.stringify(existing);
     if (changed) {
       await fs.mkdir(path.dirname(SETTINGS_PATH), { recursive: true });
-      const temporary = `${SETTINGS_PATH}.${process.pid}.tmp`;
-      try {
-        await fs.writeFile(temporary, JSON.stringify(settings, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
-        await fs.rename(temporary, SETTINGS_PATH);
-      } catch (error) {
-        await fs.rm(temporary, { force: true });
-        throw error;
-      }
+      await writeJsonAtomic(SETTINGS_PATH, settings);
     }
     console.log(
       `[coder-sync] ${changed ? 'updated' : 'unchanged'} ${models.length} models in ${SETTINGS_PATH} ` +

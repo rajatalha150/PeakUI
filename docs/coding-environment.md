@@ -321,6 +321,14 @@ Fixes:
 - `scripts/sync-coder-models.mjs` now reads each model's `capabilities` from
   Ollama, logs how many are tools-capable, warns when `CODER_MODEL` is not, and
   defaults to the first tools-capable model instead of `models[0]`.
+  Ollama cloud wrappers that omit this field are checked with `/api/show` and
+  OpenAI-compatible function calls in required and automatic tool-choice modes.
+  Results are stored in the workspace's
+  `model-capabilities.json` for seven days per model revision. A failed probe
+  leaves the result unverified and retries after five minutes; a recent verified
+  positive result survives a transient probe failure.
+  If required tool choice succeeds but automatic choice fails twice, the result
+  stays unverified and is retried after five minutes.
 - `.env` / `.env.example` set `CODER_MODEL=deepseek-v4.1-flash:cloud` and
   document how to verify tools capability (`capabilities` containing `tools`).
   The previous comment recommended `gemma4, ornith, nemotron-3.5-lightning,
@@ -330,7 +338,8 @@ Fixes:
   registry without restarting a session. It checks on mount, every 45 seconds,
   and immediately when a model picker opens. The list still comes from the
   daemon's `/workspace/models` (routable models with real context windows),
-  not raw `/api/tags`; entries without tool support are annotated.
+  not raw `/api/tags`; the router attaches the verified capability result to
+  each entry. Unsupported and unverified tools are labeled separately.
 
 ### 9.2 `.env` never reached the container
 
@@ -891,6 +900,13 @@ startup (`sync-coder-models.mjs`), picks a tools-capable default, then starts
 workspaces sync new pulls on model-picker refresh without replacing the user's
 selected model or restarting an agent turn. An unchanged catalogue does not
 rewrite settings.json.
+
+For cloud models missing Ollama capability metadata, the sync tests both required
+and automatic tool choice through the OpenAI-compatible endpoint and caches the result for seven
+days per model revision. Coder's `agent` capability and the UI picker use that
+same result. A tool probe failure is reported as unverified and retried after
+five minutes. To inspect the evidence inside the Incus instance, read
+`/root/.qwen/model-capabilities.json` (or the selected workspace's Coder home).
 
 **Verify health:**
 

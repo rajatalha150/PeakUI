@@ -40,3 +40,54 @@ test('live model sync adds Ollama pulls without replacing the selected model', a
     await rm(home, { recursive: true, force: true });
   }
 });
+
+test('missing Ollama capability metadata is verified with a tool call and cached', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'peakui-model-probe-'));
+  let probes = 0;
+  let revision = '2026-11-20T00:00:00Z';
+  let probeFails = false;
+  let autoFails = false;
+  const server = http.createServer(async (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'cloud-tools:latest', modified_at: revision }] }));
+    if (req.url === '/api/show') return res.end(JSON.stringify({ model_info: {} }));
+    if (req.url === '/v1/chat/completions') {
+      probes += 1;
+      if (probeFails) return res.writeHead(503).end(JSON.stringify({ error: 'unavailable' }));
+      const body = await new Promise(resolve => { let text = ''; req.on('data', chunk => { text += chunk; }); req.on('end', () => resolve(JSON.parse(text))); });
+      assert(['required', 'auto'].includes(body.tool_choice));
+      if (autoFails && body.tool_choice === 'auto') return res.end(JSON.stringify({ choices: [{ message: { content: 'No call' } }] }));
+      return res.end(JSON.stringify({ choices: [{ message: { tool_calls: [{ function: { name: 'peakui_tool_probe', arguments: '{}' } }] } }] }));
+    }
+    res.writeHead(404).end();
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const env = { ...process.env, QWEN_HOME: home, OPENAI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1` };
+  const script = new URL('./sync-coder-models.mjs', import.meta.url).pathname;
+  try {
+    await exec(process.execPath, [script, '--strict'], { env });
+    const settings = JSON.parse(await readFile(join(home, 'settings.json'), 'utf8'));
+    assert.equal(settings.modelProviders.openai[0].capabilities.agent, true);
+    const report = JSON.parse(await readFile(join(home, 'model-capabilities.json'), 'utf8'));
+    assert.equal(report.models['cloud-tools:latest'].tools, true);
+    assert.equal(report.models['cloud-tools:latest'].source, 'probe');
+    await exec(process.execPath, [script, '--strict'], { env });
+    assert.equal(probes, 2);
+    revision = '2026-11-21T00:00:00Z';
+    autoFails = true;
+    await exec(process.execPath, [script, '--strict'], { env });
+    const autoReport = JSON.parse(await readFile(join(home, 'model-capabilities.json'), 'utf8'));
+    assert.equal(autoReport.models['cloud-tools:latest'].tools, null);
+    assert.equal(probes, 5);
+    revision = '2026-11-22T00:00:00Z';
+    probeFails = true;
+    await exec(process.execPath, [script, '--strict'], { env });
+    const uncertainSettings = JSON.parse(await readFile(join(home, 'settings.json'), 'utf8'));
+    const uncertainReport = JSON.parse(await readFile(join(home, 'model-capabilities.json'), 'utf8'));
+    assert.equal(uncertainSettings.modelProviders.openai[0].capabilities.agent, undefined);
+    assert.equal(uncertainReport.models['cloud-tools:latest'].tools, null);
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+    await rm(home, { recursive: true, force: true });
+  }
+});

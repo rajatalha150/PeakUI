@@ -698,27 +698,12 @@ export default function CodingView() {
         if (!res.ok) throw new Error(data.error || 'Could not refresh Coder models.');
         const list = Array.isArray(data.models) ? data.models : [];
         if (cancelled) return;
-        // Tool + vision capability aren't reported per-model by the daemon, so
-        // probe Ollama once and annotate — this lets the UI warn instead of
-        // letting the user pick a completion-only or text-only model and wonder
-        // why the agent can't act / can't see images.
-        const caps = new Map<string, { tools: boolean; vision: boolean }>();
-        try {
-          const tagRes = await fetch('/api/tags');
-          const tagData = await tagRes.json();
-          for (const m of (Array.isArray(tagData.models) ? tagData.models : [])) {
-            const name = typeof m?.name === 'string' ? m.name : '';
-            const capabilities = Array.isArray(m?.capabilities) ? m.capabilities : [];
-            if (name) caps.set(name, { tools: capabilities.includes('tools'), vision: capabilities.includes('vision') });
-          }
-        } catch {
-          // Leave capability unknown; treated as capable so nothing is hidden.
-        }
-        setModels(list.map((m: { modelId?: string; name?: string }) => {
+        // The router returns capability evidence from Ollama metadata or a
+        // cached live function-call probe. Missing metadata is unverified.
+        setModels(list.map((m: { modelId?: string; name?: string; toolsCapable?: boolean | null; visionCapable?: boolean | null }) => {
           const id = typeof m?.modelId === 'string' ? m.modelId.replace(/\([^)]*\)$/, '') : '';
           const label = typeof m?.name === 'string' && m.name ? m.name : id;
-          const c = caps.get(id);
-          return { id, name: label, toolsCapable: c?.tools ?? true, visionCapable: c?.vision ?? true };
+          return { id, name: label, toolsCapable: m.toolsCapable ?? null, visionCapable: m.visionCapable ?? null };
         }).filter((m: { id: string }) => Boolean(m.id)));
       } catch {
         // Non-fatal.

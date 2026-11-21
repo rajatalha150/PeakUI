@@ -6,8 +6,8 @@ import { Check, ChevronDown } from 'lucide-react';
 export interface CoderModelOption {
   id: string;
   name: string;
-  toolsCapable: boolean;
-  visionCapable: boolean;
+  toolsCapable: boolean | null;
+  visionCapable: boolean | null;
 }
 
 interface Props {
@@ -37,7 +37,7 @@ export default function CoderModelPicker({ value, models, loading, onChange, onO
   const muted = light ? '#587065' : '#9ca3af';
   const surface = light ? '#ffffff' : theme === 'chatgpt' ? '#303030' : '#111827';
   const border = light ? 'rgba(40,69,58,0.24)' : 'rgba(255,255,255,0.18)';
-  const available = (model: CoderModelOption) => requireVision ? model.visionCapable : model.toolsCapable;
+  const available = (model: CoderModelOption) => (requireVision ? model.visionCapable : model.toolsCapable) !== false;
   const choices = allowClear ? [{ id: '', name: placeholder, toolsCapable: true, visionCapable: true }, ...models] : models;
   const selected = models.find(model => model.id === value);
 
@@ -132,7 +132,7 @@ export default function CoderModelPicker({ value, models, loading, onChange, onO
                 onClick={() => { if (enabled) choose(choice.id); }}
                 style={{ display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%', padding: '8px 9px', border: 0, borderRadius: 4, background: active === index ? `${accent}20` : 'transparent', color: enabled ? foreground : muted, textAlign: 'left', cursor: enabled ? 'pointer' : 'not-allowed', opacity: enabled ? 1 : 0.65 }}
               >
-                <span style={{ flex: 1, minWidth: 0, whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.4, fontSize: '0.76rem' }}>{choice.name}{!enabled && <span style={{ color: muted }}> ({requireVision ? 'no vision' : 'no tools'})</span>}</span>
+                <span style={{ flex: 1, minWidth: 0, whiteSpace: 'normal', overflowWrap: 'anywhere', lineHeight: 1.4, fontSize: '0.76rem' }}>{choice.name}{!enabled && <span style={{ color: muted }}> ({requireVision ? 'no vision' : 'no tools'})</span>}{enabled && (requireVision ? choice.visionCapable : choice.toolsCapable) === null && choice.id && <span style={{ color: muted }}> ({requireVision ? 'vision unverified' : 'tools unverified'})</span>}</span>
                 {selectedOption && <Check size={14} color={accent} aria-hidden="true" style={{ flexShrink: 0, marginTop: 2 }} />}
               </button>
             );

@@ -171,9 +171,23 @@ async function runtimeModels(runtime, pathname = '/workspace/models', init = {})
   return data;
 }
 
+async function withModelCapabilities(cwd, catalogue) {
+  const home = await prepareCoderHome(cwd);
+  let capabilities = {};
+  try { capabilities = JSON.parse(readFileSync(join(home, 'model-capabilities.json'), 'utf8')).models || {}; } catch { /* older homes */ }
+  return {
+    ...catalogue,
+    models: (catalogue.models || []).map(model => {
+      const id = typeof model.modelId === 'string' ? model.modelId.replace(/\([^)]*\)$/, '') : '';
+      const entry = capabilities[id];
+      return { ...model, toolsCapable: entry?.tools ?? null, visionCapable: entry?.vision ?? null, capabilitySource: entry?.source || 'unknown' };
+    }),
+  };
+}
+
 async function refreshRuntimeModels(cwd, runtime, force = false) {
-  if (coderEntry !== '/opt/qwen-code/scripts/cli-entry.js' && !process.env.CODER_MODEL_SYNC_SCRIPT) return runtimeModels(runtime);
-  if (!force && Date.now() - (lastModelChecks.get(cwd) || 0) < 30_000) return runtimeModels(runtime);
+  if (coderEntry !== '/opt/qwen-code/scripts/cli-entry.js' && !process.env.CODER_MODEL_SYNC_SCRIPT) return withModelCapabilities(cwd, await runtimeModels(runtime));
+  if (!force && Date.now() - (lastModelChecks.get(cwd) || 0) < 30_000) return withModelCapabilities(cwd, await runtimeModels(runtime));
   if (modelRefreshes.has(cwd)) return modelRefreshes.get(cwd);
   const refresh = (async () => {
     const home = await prepareCoderHome(cwd);
@@ -181,7 +195,7 @@ async function refreshRuntimeModels(cwd, runtime, force = false) {
       env: { ...process.env, QWEN_HOME: home, CODER_MODEL_SYNC_PRESERVE_DEFAULT: '1' }, timeout: 25_000,
     });
     const result = JSON.parse(stdout.trim().split('\n').at(-1));
-    const catalogue = await runtimeModels(runtime);
+    let catalogue = await runtimeModels(runtime);
     if (result.changed) pendingModelReloads.add(cwd);
     if (pendingModelReloads.has(cwd)) {
       const editable = catalogue.models?.find(model => model.canEditContextWindow && Number.isSafeInteger(model.contextWindowSize));
@@ -194,9 +208,10 @@ async function refreshRuntimeModels(cwd, runtime, force = false) {
         throw new Error('Coder is still applying the new models. Refresh again after the active turn.');
       }
       pendingModelReloads.delete(cwd);
+      catalogue = reloaded;
     }
     lastModelChecks.set(cwd, Date.now());
-    return catalogue;
+    return withModelCapabilities(cwd, catalogue);
   })();
   modelRefreshes.set(cwd, refresh);
   try { return await refresh; } finally { modelRefreshes.delete(cwd); }
