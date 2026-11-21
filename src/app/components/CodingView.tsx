@@ -697,6 +697,7 @@ export default function CodingView() {
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Could not refresh Coder models.');
         const list = Array.isArray(data.models) ? data.models : [];
+        if (list.length === 0) throw new Error('Coder returned an empty model catalogue.');
         if (cancelled) return;
         // The router returns capability evidence from Ollama metadata or a
         // cached live function-call probe. Missing metadata is unverified.
@@ -1657,7 +1658,7 @@ export default function CodingView() {
 
   const switchModel = async (modelId: string) => {
     const candidate = models.find(model => model.id === modelId);
-    if (modelId && !candidate?.toolsCapable) {
+    if (modelId && (!candidate || candidate.toolsCapable === false)) {
       setError('Choose a tools-capable model for the Main role.');
       return;
     }

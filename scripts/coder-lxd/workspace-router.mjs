@@ -213,7 +213,8 @@ async function refreshRuntimeModels(cwd, runtime, force = false) {
         throw new Error('Coder is still applying the new models. Refresh again after the active turn.');
       }
       pendingModelReloads.delete(cwd);
-      catalogue = reloaded;
+      // PATCH confirms the reload but does not contain a model catalogue.
+      catalogue = await runtimeModels(runtime);
     }
     lastModelChecks.set(cwd, Date.now());
     return withModelCapabilities(cwd, catalogue);

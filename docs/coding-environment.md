@@ -1196,6 +1196,12 @@ Escape. Models come from the daemon's authoritative `/workspace/models`;
 unavailable options remain visible with `no vision` or `no tools` hints but
 cannot be selected.
 
+The router's `PATCH /workspace/models` response confirms a registry reload but
+does not include the model list. After a reload, the router fetches
+`GET /workspace/models` again before answering the picker; the UI also keeps its
+last valid list if a refresh unexpectedly returns an empty catalogue. The
+`model-refresh.node-test.mjs` regression test covers the reload path.
+
 ---
 
 ## 18. Responsive layout (phone + resize)
