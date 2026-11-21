@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { requireCurrentAuthWithPermissions } from '@/lib/request-auth'
 import { createWorkbookCanvasArtifact } from '@/lib/workbook/workbook-artifacts'
 import {
+  findUnmappedWorkbookFields,
   normalizeWorkbookDocumentInput,
   workbookHasRenderableContent,
   type WorkbookDocumentInput,
@@ -31,6 +32,14 @@ export async function POST(request: NextRequest) {
     const sessionId = typeof body?.sessionId === 'string' && body.sessionId.trim() ? body.sessionId.trim() : ''
     const messageId = typeof body?.messageId === 'string' && body.messageId.trim() ? body.messageId.trim() : null
     const filename = sanitizeFilename(typeof body?.filename === 'string' && body.filename.trim() ? body.filename.trim() : title)
+    const unmappedFields = findUnmappedWorkbookFields(body as Partial<WorkbookDocumentInput>)
+    if (unmappedFields.length > 0) {
+      return NextResponse.json({
+        code: 'WORKBOOK_UNMAPPED_FIELDS',
+        error: `Workbook rows contain fields that do not match any column: ${unmappedFields.join(' ')}`,
+        retryable: true,
+      }, { status: 422 })
+    }
     const normalized = normalizeWorkbookDocumentInput({
       ...(body as Partial<WorkbookDocumentInput>),
       title,

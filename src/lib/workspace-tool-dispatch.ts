@@ -98,7 +98,8 @@ export async function executeWorkspaceTool(token: string, request: WorkspaceTool
           ? `${run.workspaceRelativePath.replace(/\/+$/, '')}/${requestedPath.replace(/^\/+/, '')}`
           : run.workspaceRelativePath
       }
-      return callApprovedTool(token, '/api/workspace-tool/code/request', '/api/workspace-tool/code', body, run)
+      const result = await callApprovedTool(token, '/api/workspace-tool/code/request', '/api/workspace-tool/code', body, run)
+      return result.ok && 'success' in result.data && result.data.success === false ? { ...result, ok: false } : result
     }
     case 'browser': {
       if (body.action === 'submit') return callApprovedTool(token, '/api/workspace-tool/browser/request', '/api/workspace-tool/browser', body, run)

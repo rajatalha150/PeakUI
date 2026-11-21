@@ -33,6 +33,15 @@ afterEach(() => {
 })
 
 describe('executeWorkspaceTool — workspace anchoring', () => {
+  it('reports a code runtime failure even when its HTTP request succeeded', async () => {
+    setWorkspaceToolTransport(async (_token, path) => path.endsWith('/request')
+      ? { ok: true, status: 200, data: { autoApproved: true } }
+      : { ok: true, status: 200, data: { success: false, stderr: "No module named 'openpyxl'" } })
+    const result = await executeWorkspaceTool('t', tool('code', { runtime: 'python', code: 'import openpyxl' }), RUN)
+    expect(result.ok).toBe(false)
+    expect('stderr' in result.data ? result.data.stderr : '').toContain('openpyxl')
+  })
+
   it('defaults shell cwd to the selected workspace container path', async () => {
     await executeWorkspaceTool('t', tool('shell', { command: 'mkdir report && touch report/a.md' }), RUN)
     const execute = posted.find(call => call.path === '/api/workspace-tool/shell/execute')

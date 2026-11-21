@@ -606,6 +606,9 @@ For the street permits workbook, `PermitIssueDate` contains a year only. `Applic
 
 The saved transcript retains all messages, but each model call uses a bounded recent history plus the session summary. Older web results are reduced before a new run is queued, preventing a large contact-research session from resending megabytes of stale extracts. The durable WorkSpaces worker treats short replies such as “Continuing with the next company” as progress, not completion. It also continues when a reply asks whether to perform work the user already requested. Repeated progress-only replies or a tool-step limit are reported as unfinished instead of a successful answer.
 
+Workbook creation rejects nonempty object-row fields that do not match a declared column header or key. The tool returns the exact offending field and expected columns so the model can correct its request instead of silently producing blank cells.
+Code tool results with `success: false` are reported to the model as failed even if the HTTP transport returned 200, so it can recover from runtime errors such as unavailable Python packages.
+
 ## Tax PDF Workflow
 
 WorkSpaces Accountant mode supplies a short accounting brief. The `tax_return` tool can inspect bundled IRS PDFs, fill supported form controls, and create a downloadable draft. The assistant is not a licensed preparer and does not sign or file returns.

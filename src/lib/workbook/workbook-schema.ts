@@ -68,6 +68,30 @@ export interface NormalizedWorkbookDocument {
   }
 }
 
+/** Reject fields that would otherwise disappear when object rows are normalized. */
+export function findUnmappedWorkbookFields(input: Partial<WorkbookDocumentInput>): string[] {
+  const errors: string[] = []
+  for (const sheet of input.sheets || []) {
+    for (const table of [sheet, ...(sheet.tables || [])]) {
+      if (!Array.isArray(table.columns) || !Array.isArray(table.rows)) continue
+      const columns = new Set(table.columns.flatMap(column =>
+        typeof column === 'string' ? [column] : [column.header, column.key].filter((value): value is string => Boolean(value))))
+      if (columns.size === 0) continue
+      for (let index = 0; index < table.rows.length; index += 1) {
+        const row = table.rows[index]
+        if (!row || Array.isArray(row)) continue
+        const unknown = Object.entries(row).filter(([key, value]) =>
+          !columns.has(key) && value !== null && value !== undefined && String(value).trim() !== '').map(([key]) => key)
+        if (unknown.length > 0) {
+          errors.push(`${sheet.name || 'Sheet'} row ${index + 1}: ${unknown.join(', ')}. Use column headers or keys: ${[...columns].join(', ')}.`)
+          if (errors.length >= 5) return errors
+        }
+      }
+    }
+  }
+  return errors
+}
+
 const TEMPLATE_VALUES = new Set<WorkbookTemplate>([
   'workbook',
   'report',
